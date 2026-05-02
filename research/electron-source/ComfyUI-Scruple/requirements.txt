@@ -1,0 +1,4 @@
+# SCRUPLE Backbone - Forensic Evidence Export
+# PIL/Pillow required for image saving (included with ComfyUI)
+# numpy required for tensor conversion (included with ComfyUI)
+Pillow>=9.0.0

@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Database files (local dev)
+*.db
+*.db-shm
+*.db-wal
+data/scruple.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Artifact store (gitignored, content-addressed)
+artifacts/
+!artifacts/.gitkeep
+
+# TS build info
+*.tsbuildinfo
+next-env.d.ts
