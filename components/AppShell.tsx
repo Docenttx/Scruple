@@ -2,7 +2,13 @@ import Link from 'next/link';
 import { signOut, auth } from '@/lib/auth/auth';
 import Sidebar from './Sidebar';
 
-export default async function AppShell({ children }: { children: React.ReactNode }) {
+export default async function AppShell({
+  children,
+  activeProjectId,
+}: {
+  children: React.ReactNode;
+  activeProjectId?: number;
+}) {
   const session = await auth();
   const user = session?.user;
 
@@ -43,7 +49,7 @@ export default async function AppShell({ children }: { children: React.ReactNode
 
       {/* Sidebar */}
       <aside className="row-span-1 border-r border-scruple-border bg-scruple-surface">
-        <Sidebar />
+        <Sidebar activeId={activeProjectId} />
       </aside>
 
       {/* Main content */}
