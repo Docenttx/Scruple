@@ -22,17 +22,26 @@ export default function LockButtons({
     start(async () => {
       setInterlock(true, `lock:${kind}`);
       try {
-        const res = await fetch(`/api/lock/${kind}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: project.id }),
+        const { fetchOrToast } = await import('@/lib/store/toast');
+        const data = await fetchOrToast<{ ok: boolean; scrId?: string; merkleRoot?: string }>(
+          `/api/lock/${kind}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId: project.id }),
+            actionTitle: `Lock (${kind}) failed`,
+          },
+        );
+        const { useToast } = await import('@/lib/store/toast');
+        useToast.getState().push({
+          tone: 'success',
+          title: `${kind === 'local' ? 'Finalized' : kind === 'checkpoint' ? 'Checkpointed' : 'Chain-locked'}`,
+          body: data.scrId ? `SCR-ID ${data.scrId}` : 'Project sealed.',
+          link: data.scrId ? { href: `/receipt/${data.scrId}`, label: 'View receipt →' } : undefined,
         });
-        if (!res.ok) {
-          const body = await res.text();
-          alert(`Lock failed: ${body}`);
-          return;
-        }
         router.refresh();
+      } catch {
+        // toast already raised by fetchOrToast
       } finally {
         setInterlock(false);
       }
