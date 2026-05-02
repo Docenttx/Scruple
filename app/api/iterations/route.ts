@@ -24,6 +24,7 @@ import { auth } from '@/lib/auth/auth';
 import { conn } from '@/lib/db/sqlite';
 import { sha256Hex } from '@/lib/scruple/hash';
 import { storeArtifact } from '@/lib/scruple/artifacts';
+import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import type { ProjectRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -132,6 +133,23 @@ export async function POST(req: NextRequest) {
 
   const { id, runSequence } = tx();
   const iteration = conn().prepare(`SELECT * FROM iterations WHERE id = ?`).get(id);
+
+  // Telemetry — fire-and-forget, never block the response on it
+  try {
+    logTelemetry({
+      userId,
+      projectId: body.projectId,
+      iterationId: id,
+      provider: body.provider,
+      providerJobId: body.providerJobId,
+      prompt: body.prompt,
+      spec: body.generationSpec,
+      costCents: estimateCostCents(body.provider),
+      success: true,
+    });
+  } catch (e) {
+    console.error('[telemetry] insert failed', e);
+  }
 
   return NextResponse.json({
     ok: true,
