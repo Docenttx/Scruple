@@ -3,6 +3,7 @@
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ProjectRow } from '@/lib/types';
+import { useInterlock } from '@/lib/store/interlock';
 
 export default function LockButtons({
   project,
@@ -13,21 +14,28 @@ export default function LockButtons({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const disabled = !hasContent || pending;
+  const interlocked = useInterlock((s) => s.busy);
+  const setInterlock = useInterlock((s) => s.set);
+  const disabled = !hasContent || pending || interlocked;
 
   function fire(kind: 'local' | 'checkpoint' | 'chain') {
     start(async () => {
-      const res = await fetch(`/api/lock/${kind}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id }),
-      });
-      if (!res.ok) {
-        const body = await res.text();
-        alert(`Lock failed: ${body}`);
-        return;
+      setInterlock(true, `lock:${kind}`);
+      try {
+        const res = await fetch(`/api/lock/${kind}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: project.id }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          alert(`Lock failed: ${body}`);
+          return;
+        }
+        router.refresh();
+      } finally {
+        setInterlock(false);
       }
-      router.refresh();
     });
   }
 

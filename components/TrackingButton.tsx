@@ -2,6 +2,7 @@
 
 import { useTransition } from 'react';
 import { activateProject, deactivateProject } from '@/lib/projects/actions';
+import { useInterlock } from '@/lib/store/interlock';
 
 export default function TrackingButton({
   projectId,
@@ -13,10 +14,11 @@ export default function TrackingButton({
   disabled?: boolean;
 }) {
   const [pending, start] = useTransition();
+  const interlocked = useInterlock((s) => s.busy);
   return (
     <button
       type="button"
-      disabled={pending || disabled}
+      disabled={pending || disabled || interlocked}
       onClick={() => {
         start(async () => {
           if (isActive) await deactivateProject();
