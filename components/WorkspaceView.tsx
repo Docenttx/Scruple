@@ -7,7 +7,7 @@ import clsx from 'clsx';
 import { LOCK_STATE_LABELS, type ProjectRow, type IterationRow } from '@/lib/types';
 import TrackingButton from './TrackingButton';
 import LockButtons from './LockButtons';
-import IterationGrid from './IterationGrid';
+import IterationGridLive from './IterationGridLive';
 
 function truncateHash(h: string | null): string {
   if (!h) return 'N/A';
@@ -61,7 +61,11 @@ export default function WorkspaceView({
       {/* Iterations */}
       <section>
         <h2 className="mb-3 text-xs uppercase tracking-widest text-scruple-muted">Iterations</h2>
-        <IterationGrid iterations={iterations} />
+        <IterationGridLive
+          initial={iterations}
+          projectId={project.id}
+          isActive={isActive}
+        />
       </section>
 
       {/* Lock section */}
