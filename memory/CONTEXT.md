@@ -1,18 +1,24 @@
 # Current Context
-_Updated: 2026-05-02T05:40:00Z_
+_Updated: 2026-05-02T06:25:00Z_
 
 ## Status
-NOT STARTED — awaiting WO-01
+ALL 30 WOs COMPLETE. Awaiting user debug pass tomorrow.
 
 ## What I am doing right now
-Nothing. Project directory and research bundle exist; no code written.
+Nothing. Build green, all WOs committed, smoke tests passed.
 
 ## Active file(s)
-None.
+None — last touch was scripts/seed.ts (WO-30 follow-up).
 
 ## Where I stopped
-Pre-flight only. WORK_ORDERS.md drafted but not executed.
+After committing WO-30, ran final `next build` (clean), seeded demo
+user + project, booted dev server at :3001, confirmed:
+  - /login returns 200
+  - / returns 307 → /login (auth gate working)
+  - /api/verify correctly detects tampered manifest
+
+Killed dev server. Wrote HANDOFF.md.
 
 ## Next immediate step
-Begin WO-01: scaffold Next.js 14 (App Router) + TypeScript + better-sqlite3
-+ Tailwind in this directory.
+User boots dev server, configures Google OAuth + provider keys, walks
+through HANDOFF.md test plan.
