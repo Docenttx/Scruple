@@ -5,9 +5,13 @@ import Sidebar from './Sidebar';
 export default async function AppShell({
   children,
   activeProjectId,
+  search,
+  page,
 }: {
   children: React.ReactNode;
   activeProjectId?: number;
+  search?: string;
+  page?: number;
 }) {
   const session = await auth();
   const user = session?.user;
@@ -49,7 +53,7 @@ export default async function AppShell({
 
       {/* Sidebar */}
       <aside className="row-span-1 border-r border-scruple-border bg-scruple-surface">
-        <Sidebar activeId={activeProjectId} />
+        <Sidebar activeId={activeProjectId} search={search} page={page} />
       </aside>
 
       {/* Main content */}

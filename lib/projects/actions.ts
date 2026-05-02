@@ -15,14 +15,50 @@ async function userId(): Promise<string> {
 
 // ── Reads ──────────────────────────────────────────────────────────────────
 
-export async function getProjects(opts?: { includeArchived?: boolean }): Promise<ProjectRow[]> {
+export async function getProjects(opts?: {
+  includeArchived?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ProjectRow[]> {
   const uid = await userId();
   const where = opts?.includeArchived ? '' : ' AND is_archived = 0';
+  const search = opts?.search?.trim() ?? '';
+  const limit = Math.max(1, Math.min(opts?.limit ?? 50, 500));
+  const offset = Math.max(0, opts?.offset ?? 0);
+
+  if (search) {
+    return conn()
+      .prepare(
+        `SELECT * FROM projects WHERE user_id = ?${where} AND name LIKE ?
+         ORDER BY is_active DESC, updated_at DESC, created_at DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(uid, `%${search}%`, limit, offset) as ProjectRow[];
+  }
   return conn()
     .prepare(
-      `SELECT * FROM projects WHERE user_id = ?${where} ORDER BY is_active DESC, updated_at DESC, created_at DESC`,
+      `SELECT * FROM projects WHERE user_id = ?${where}
+       ORDER BY is_active DESC, updated_at DESC, created_at DESC
+       LIMIT ? OFFSET ?`,
     )
-    .all(uid) as ProjectRow[];
+    .all(uid, limit, offset) as ProjectRow[];
+}
+
+export async function countProjects(opts?: { includeArchived?: boolean; search?: string }): Promise<number> {
+  const uid = await userId();
+  const where = opts?.includeArchived ? '' : ' AND is_archived = 0';
+  const search = opts?.search?.trim() ?? '';
+  if (search) {
+    const r = conn()
+      .prepare(`SELECT COUNT(*) AS n FROM projects WHERE user_id = ?${where} AND name LIKE ?`)
+      .get(uid, `%${search}%`) as { n: number };
+    return r.n;
+  }
+  const r = conn()
+    .prepare(`SELECT COUNT(*) AS n FROM projects WHERE user_id = ?${where}`)
+    .get(uid) as { n: number };
+  return r.n;
 }
 
 export async function getProject(id: number): Promise<ProjectRow | null> {
