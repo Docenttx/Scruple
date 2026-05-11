@@ -1,9 +1,20 @@
 'use client';
 
-import { useTransition } from 'react';
+// WO-45/46 · Lock buttons + confirmation + progress + result flow.
+//
+// Click → LockConfirmModal opens (action-aware copy, fee display, RVN
+// password gate for blockchain chain lock, tier picker for fiat chain
+// lock). Confirm → InterlockOverlay shows the global busy state while
+// the lock executor runs (existing /api/lock/{local,checkpoint,chain}).
+// On done → LockResultModal renders the SCR-ID + per-network status.
+
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ProjectRow } from '@/lib/types';
 import { useInterlock } from '@/lib/store/interlock';
+import { useToast } from '@/lib/store/toast';
+import LockConfirmModal, { type LockKind, type ChainTier } from './wallet/LockConfirmModal';
+import LockResultModal, { type LockResult } from './wallet/LockResultModal';
 
 export default function LockButtons({
   project,
@@ -14,34 +25,52 @@ export default function LockButtons({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const interlocked = useInterlock((s) => s.busy);
-  const setInterlock = useInterlock((s) => s.set);
+  const interlocked = useInterlock(s => s.busy);
+  const setInterlock = useInterlock(s => s.set);
+  const [confirmKind, setConfirmKind] = useState<LockKind | null>(null);
+  const [result, setResult] = useState<LockResult | null>(null);
   const disabled = !hasContent || pending || interlocked;
 
-  function fire(kind: 'local' | 'checkpoint' | 'chain') {
+  function execute(kind: LockKind, _opts: { tier?: ChainTier; password?: string }) {
+    setConfirmKind(null);
     start(async () => {
-      setInterlock(true, `lock:${kind}`);
+      setInterlock(true, `Locking project (${kind})`);
       try {
-        const { fetchOrToast } = await import('@/lib/store/toast');
-        const data = await fetchOrToast<{ ok: boolean; scrId?: string; merkleRoot?: string }>(
-          `/api/lock/${kind}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: project.id }),
-            actionTitle: `Lock (${kind}) failed`,
-          },
-        );
-        const { useToast } = await import('@/lib/store/toast');
-        useToast.getState().push({
-          tone: 'success',
-          title: `${kind === 'local' ? 'Finalized' : kind === 'checkpoint' ? 'Checkpointed' : 'Chain-locked'}`,
-          body: data.scrId ? `SCR-ID ${data.scrId}` : 'Project sealed.',
-          link: data.scrId ? { href: `/receipt/${data.scrId}`, label: 'View receipt →' } : undefined,
+        const res = await fetch(`/api/lock/${kind}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: project.id }),
+        });
+        const data = (await res.json()) as Partial<LockResult> & { error?: string };
+        if (!res.ok) {
+          setResult({
+            ok: false,
+            kind,
+            error: data.error ?? `HTTP ${res.status}`,
+          });
+          return;
+        }
+        setResult({
+          ok: true,
+          kind,
+          scrId: data.scrId,
+          merkleRoot: data.merkleRoot,
+          rvnTxId: data.rvnTxId,
+          ipfsCid: data.ipfsCid,
+          arweaveTxId: data.arweaveTxId,
         });
         router.refresh();
-      } catch {
-        // toast already raised by fetchOrToast
+      } catch (e) {
+        setResult({
+          ok: false,
+          kind,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        useToast.getState().push({
+          tone: 'error',
+          title: 'Lock failed',
+          body: e instanceof Error ? e.message : String(e),
+        });
       } finally {
         setInterlock(false);
       }
@@ -57,32 +86,47 @@ export default function LockButtons({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-      <LockButton
-        title="Finalize Project"
-        desc="Permanently seal this project"
-        icon="◆"
-        kind="local"
-        disabled={disabled}
-        onClick={() => fire('local')}
-      />
-      <LockButton
-        title="Checkpoint"
-        desc="Seal progress, keep working"
-        icon="◇"
-        kind="checkpoint"
-        disabled={disabled}
-        onClick={() => fire('checkpoint')}
-      />
-      <LockButton
-        title="Chain Lock"
-        desc="RVN + IPFS + Arweave"
-        icon="⛓"
-        kind="chain"
-        disabled={disabled}
-        onClick={() => fire('chain')}
-      />
-    </div>
+    <>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <LockButton
+          title="Finalize Project"
+          desc="Permanently seal this project"
+          icon="◆"
+          kind="local"
+          disabled={disabled}
+          onClick={() => setConfirmKind('local')}
+        />
+        <LockButton
+          title="Checkpoint"
+          desc="Seal progress, keep working"
+          icon="◇"
+          kind="checkpoint"
+          disabled={disabled}
+          onClick={() => setConfirmKind('checkpoint')}
+        />
+        <LockButton
+          title="Chain Lock"
+          desc="RVN + IPFS + Arweave"
+          icon="⛓"
+          kind="chain"
+          disabled={disabled}
+          onClick={() => setConfirmKind('chain')}
+        />
+      </div>
+
+      {confirmKind && (
+        <LockConfirmModal
+          project={project}
+          kind={confirmKind}
+          onClose={() => setConfirmKind(null)}
+          onConfirm={opts => execute(confirmKind, opts)}
+        />
+      )}
+
+      {result && (
+        <LockResultModal result={result} onClose={() => setResult(null)} />
+      )}
+    </>
   );
 }
 
@@ -97,7 +141,7 @@ function LockButton({
   title: string;
   desc: string;
   icon: string;
-  kind: 'local' | 'checkpoint' | 'chain';
+  kind: LockKind;
   disabled: boolean;
   onClick: () => void;
 }) {
