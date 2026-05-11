@@ -1,31 +1,16 @@
 // POST /api/iterations
 //
-// Ingestion endpoint. Replaces the desktop's local Express server that
-// fed off Python ComfyUI custom nodes. Web clients (or our own
-// /api/generate proxy) call this with the generated image bytes.
-//
-// Body:
-//   {
-//     projectId: number,
-//     provider: 'fal' | 'comfydeploy' | 'manual',
-//     providerJobId: string,
-//     prompt: string,
-//     generationSpec: GenerationSpec,
-//     imageBytes: string,            // base64
-//     imageContentType: string,
-//     imageFilename?: string
-//   }
-//
-// Response: { ok: true, iteration: IterationRow, leafHash, runSequence }
+// Raw ingestion endpoint. For clients that already have image bytes
+// in hand (manual upload, third-party hook). The /api/generate route
+// uses the same underlying ingestIteration() helper after polling a
+// provider.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { auth } from '@/lib/auth/auth';
 import { conn } from '@/lib/db/sqlite';
-import { sha256Hex } from '@/lib/scruple/hash';
-import { storeArtifact } from '@/lib/scruple/artifacts';
-import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
-import type { ProjectRow } from '@/lib/types';
+import { ingestIteration } from '@/lib/iterations/ingest';
+import type { GenerationSpec, ProjectRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +42,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Verify project ownership
   const project = conn()
     .prepare(`SELECT * FROM projects WHERE id = ? AND user_id = ?`)
     .get(body.projectId, userId) as ProjectRow | undefined;
@@ -71,85 +55,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Compute hashes — desktop convention
-  const imageBuf = Buffer.from(body.imageBytes, 'base64');
-  const outputHash = sha256Hex(imageBuf);
-  const inputCanonical = JSON.stringify({
+  const { iteration, leafHash, runSequence } = ingestIteration({
+    userId,
+    projectId: body.projectId,
     provider: body.provider,
+    providerJobId: body.providerJobId,
     prompt: body.prompt,
-    spec: body.generationSpec,
+    spec: body.generationSpec as unknown as GenerationSpec,
+    imageBytes: Buffer.from(body.imageBytes, 'base64'),
+    imageContentType: body.imageContentType,
+    imageFilename: body.imageFilename ?? null,
   });
-  const inputHash = sha256Hex(inputCanonical);
-  // Leaf hash convention: SHA-256 of raw image bytes (matches
-  // studio_terminal.py._hash_image_file). The composite (input+output)
-  // is recoverable via input_hash and output_hash columns.
-  const leafHash = outputHash;
-
-  // Persist artifact bytes
-  storeArtifact(outputHash, imageBuf);
-
-  // Insert in transaction; bump iteration_count atomically
-  const now = new Date().toISOString();
-  const tx = conn().transaction(() => {
-    const next = (conn()
-      .prepare(`SELECT COALESCE(MAX(run_sequence), 0) + 1 AS n FROM iterations WHERE project_id = ?`)
-      .get(body.projectId) as { n: number }).n;
-
-    const previousHash = (conn()
-      .prepare(
-        `SELECT leaf_hash FROM iterations WHERE project_id = ? ORDER BY run_sequence DESC LIMIT 1`,
-      )
-      .get(body.projectId) as { leaf_hash: string } | undefined)?.leaf_hash ?? null;
-
-    const result = conn()
-      .prepare(
-        `INSERT INTO iterations (
-           project_id, run_sequence, timestamp, leaf_hash, input_hash, output_hash,
-           previous_hash, metadata, source_file, image_filename, prompt, provider, provider_job_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.projectId,
-        next,
-        now,
-        leafHash,
-        inputHash,
-        outputHash,
-        previousHash,
-        JSON.stringify({ generationSpec: body.generationSpec, contentType: body.imageContentType }),
-        outputHash, // source_file = artifact hash
-        body.imageFilename ?? null,
-        body.prompt,
-        body.provider,
-        body.providerJobId,
-      );
-
-    conn()
-      .prepare(`UPDATE projects SET iteration_count = iteration_count + 1, updated_at = ? WHERE id = ?`)
-      .run(now, body.projectId);
-
-    return { id: result.lastInsertRowid as number, runSequence: next };
-  });
-
-  const { id, runSequence } = tx();
-  const iteration = conn().prepare(`SELECT * FROM iterations WHERE id = ?`).get(id);
-
-  // Telemetry — fire-and-forget, never block the response on it
-  try {
-    logTelemetry({
-      userId,
-      projectId: body.projectId,
-      iterationId: id,
-      provider: body.provider,
-      providerJobId: body.providerJobId,
-      prompt: body.prompt,
-      spec: body.generationSpec,
-      costCents: estimateCostCents(body.provider),
-      success: true,
-    });
-  } catch (e) {
-    console.error('[telemetry] insert failed', e);
-  }
 
   return NextResponse.json({
     ok: true,

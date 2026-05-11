@@ -46,6 +46,7 @@ export interface ProjectRow {
   witnessed_count: number;
   witness_signature: string | null;
   is_archived: 0 | 1;
+  comfy_workflow_id: string | null;
 }
 
 export interface IterationRow {

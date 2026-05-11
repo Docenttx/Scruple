@@ -8,6 +8,8 @@ import { LOCK_STATE_LABELS, type ProjectRow, type IterationRow } from '@/lib/typ
 import TrackingButton from './TrackingButton';
 import LockButtons from './LockButtons';
 import IterationGridLive from './IterationGridLive';
+import WorkflowField from './WorkflowField';
+import GeneratePanel from './GeneratePanel';
 
 function truncateHash(h: string | null): string {
   if (!h) return 'N/A';
@@ -42,9 +44,25 @@ export default function WorkspaceView({
           <p className="mt-1 text-xs text-scruple-muted">
             Created {new Date(project.created_at).toLocaleDateString()} · Type {project.type}
           </p>
+          <div className="mt-2">
+            <WorkflowField
+              projectId={project.id}
+              initialWorkflowId={project.comfy_workflow_id}
+              disabled={isLocked}
+            />
+          </div>
         </div>
         <TrackingButton projectId={project.id} isActive={isActive} disabled={isLocked} />
       </div>
+
+      {/* Generate panel */}
+      {!isLocked && (
+        <GeneratePanel
+          projectId={project.id}
+          workflowReady={!!project.comfy_workflow_id}
+          disabled={isLocked}
+        />
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 md:grid-cols-4">

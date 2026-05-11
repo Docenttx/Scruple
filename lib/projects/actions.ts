@@ -176,3 +176,12 @@ export async function deleteProject(id: number): Promise<void> {
   conn().prepare(`DELETE FROM projects WHERE id = ? AND user_id = ?`).run(id, uid);
   revalidatePath('/');
 }
+
+export async function setProjectWorkflow(id: number, workflowId: string | null): Promise<void> {
+  const uid = await userId();
+  const value = workflowId && workflowId.trim() !== '' ? workflowId.trim() : null;
+  conn()
+    .prepare(`UPDATE projects SET comfy_workflow_id = ?, updated_at = ? WHERE id = ? AND user_id = ?`)
+    .run(value, new Date().toISOString(), id, uid);
+  revalidatePath(`/projects/${id}`);
+}
