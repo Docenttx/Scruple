@@ -93,3 +93,33 @@ of the pipeline works.
 **Decision:** Same rule as ai-council. Check existing deps first.
 **Rationale:** Dependency creep is hard to undo.
 **Implication:** When adding a package, document in this file.
+
+## D-012 · Wallet architecture deferred — UI shell first
+**Decision:** Ship the wallet UI shell (mode toggle, Fiat + Blockchain
+panels, all six wallet-management modals) with stubbed server actions
+for create/import/unlock. The actual wallet-storage architecture
+(server-side ravend multi-wallet vs. browser-only seed vs. encrypted
+seed in scruple-web DB) is deferred to a focused follow-up WO.
+**Rationale:** Picking between custodial and non-custodial models is
+non-trivial and the right choice for Scruple as a product touches
+patent + compliance + UX. The desktop's pattern (ravend-managed wallet
+with user password) doesn't translate cleanly to multi-user web. The
+UI shell is valuable regardless of which path we pick.
+**Implication:** WO-43 ships UI only. Modal submit handlers display a
+"coming in next build" toast. WO-43a (future) wires actual wallet
+creation through ravend's `createwallet` (named per-user wallets) once
+the storage model is settled.
+
+## D-013 · Top-level views over project-nested
+**Decision:** Workspace, Canvas, and Wallet are top-level routes (/, /canvas,
+/wallet). The view-toggle in AppShell is link-driven (URL determines
+active pill). Per-project URLs (/projects/[id]) still work for deep
+links; the toggle just keeps Workspace pill highlighted while you're
+in a project.
+**Rationale:** Mirrors the desktop's currentView state, which is global.
+Wallet doesn't belong nested under a single project. Canvas captures
+go to whichever project is currently set as "active" (server-enforced
+one-active-per-user), so it doesn't need to live inside a project URL.
+**Implication:** ProjectShell is removed. The active-project context
+flows through the sidebar's ActiveProjectBanner + the workspace's
+TrackingButton, not via the URL.
