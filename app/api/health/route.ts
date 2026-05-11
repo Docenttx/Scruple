@@ -5,15 +5,15 @@
 // monitors:
 //
 //   - Witness server (/health on :5799)
-//   - Ravencoin daemon (RPC ping; stub if not wired)
+//   - Ravencoin daemon (mainnet RPC ping via lib/scruple/ravend)
 //   - Stripe (proxied through witness: /api/stripe-config)
 //
-// Returns the same shape every time so the client pill component
-// doesn't have to special-case missing services. Each entry has:
+// Returns the same shape every time. Each entry:
 //   { ok: boolean | null, label: string, detail?: string }
 // where null = unknown / not yet wired.
 
 import { NextResponse } from 'next/server';
+import { ravend } from '@/lib/scruple/ravend';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -35,16 +35,19 @@ async function probe(url: string, init?: RequestInit): Promise<{ ok: boolean; de
 }
 
 export async function GET() {
-  const [witnessProbe, stripeProbe] = await Promise.all([
+  const [witnessProbe, stripeProbe, rvnProbe] = await Promise.all([
     probe(`${WITNESS_URL}/health`),
     probe(`${WITNESS_URL}/api/stripe-config`),
+    ravend.health('mainnet'),
   ]);
 
-  // RVN: we don't have an RPC client wired yet (that's WO-42). Stub as
-  // unknown until then; the pill renders grey.
   return NextResponse.json({
     witness: { ok: witnessProbe.ok, label: 'Witness', detail: witnessProbe.detail },
-    rvn: { ok: null, label: 'RVN', detail: 'not wired' },
+    rvn: {
+      ok: rvnProbe.ok,
+      label: 'RVN',
+      detail: rvnProbe.ok ? `${rvnProbe.chain} @ ${rvnProbe.height}` : rvnProbe.detail,
+    },
     stripe: { ok: stripeProbe.ok, label: 'Stripe', detail: stripeProbe.detail },
     checkedAt: new Date().toISOString(),
   });
