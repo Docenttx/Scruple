@@ -243,6 +243,41 @@ function IpfsConfigModal({ onClose }: { onClose: () => void }) {
   const [service, setService] = useState<'none' | 'pinata'>('none');
   const [pinataKey, setPinataKey] = useState('');
   const [pinataSecret, setPinataSecret] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Load existing
+  useState(() => {
+    fetch('/api/settings/ipfs', { cache: 'no-store' })
+      .then(r => r.json())
+      .then((d: { gateway: string; service: 'none' | 'pinata' }) => {
+        if (d.gateway) setGateway(d.gateway);
+        if (d.service) setService(d.service);
+      })
+      .catch(() => {});
+    return null;
+  });
+
+  async function save() {
+    setSaving(true);
+    const body: Record<string, unknown> = { gateway, service };
+    if (pinataKey) body.pinataKey = pinataKey;
+    if (pinataSecret) body.pinataSecret = pinataSecret;
+    try {
+      const res = await fetch('/api/settings/ipfs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+      addToast({ tone: 'success', title: 'IPFS config saved' });
+      onClose();
+    } catch (e) {
+      addToast({ tone: 'error', title: 'IPFS save failed', detail: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <ModalShell
@@ -253,19 +288,8 @@ function IpfsConfigModal({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <ModalButton onClick={onClose}>Cancel</ModalButton>
-          <ModalButton
-            variant="primary"
-            onClick={() => {
-              // Real save lands in WO-41 (IPFS config endpoint).
-              addToast({
-                tone: 'info',
-                title: 'IPFS config persistence pending',
-                detail: 'WO-41 wires the save endpoint.',
-              });
-              onClose();
-            }}
-          >
-            Save
+          <ModalButton variant="primary" disabled={saving} onClick={save}>
+            {saving ? 'Saving…' : 'Save'}
           </ModalButton>
         </>
       }

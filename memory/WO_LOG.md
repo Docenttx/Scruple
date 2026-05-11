@@ -28,3 +28,11 @@
 [2026-05-02T06:38:00Z] WO-29 | SSE iteration stream | EventSource client wrapper; only when active
 [2026-05-02T06:40:00Z] WO-30 | telemetry table + log per ingest + monthly spend rollup | migration 003 applied
 [2026-05-02T06:42:00Z] FINAL | seed script + dev-server smoke test | /login 200, / 307→/login, /api/verify detects tamper
+[2026-05-11T22:30:00Z] PARITY-START | created feature/electron-parity branch; landed 3 pre-parity commits | gear icon, ComfyDeploy bridge, Canvas tab Scruple Shell, PARITY_PLAN.md
+[2026-05-11T22:42:00Z] WO-31 | components/ActiveProjectBanner.tsx + StopTrackingButton.tsx; wired into Sidebar | TRACKING banner with thumbnails + Stop button
+[2026-05-11T22:47:00Z] WO-32 | app/api/health/route.ts + components/StatusPills.tsx | witness/rvn/stripe pills, 10s poll
+[2026-05-11T22:52:00Z] WO-42 | lib/scruple/ravend.ts + /api/health wired with live RVN probe | mainnet RPC scruple/scruplerpc2026main@:8766 returning height 4362441
+[2026-05-11T22:55:00Z] WO-33 | ViewToggle.tsx + /canvas + /wallet routes; removed ProjectShell | top-level Workspace/Canvas/Wallet pills in AppShell
+[2026-05-11T22:58:00Z] WO-34+35 | InterlockOverlay.tsx + DebugConsole.tsx + lib/store/logs.ts | global overlay + bottom drawer log panel
+[2026-05-11T23:15:00Z] WO-36+37+43 | components/wallet/{WalletView,FiatPanel,BlockchainPanel,WalletModals,ModalShell}.tsx; /api/wallet/{rvn,tsd} | full wallet shell with mode toggle, 6 modals stubbed
+[2026-05-11T23:28:00Z] WO-45+46 | components/wallet/{LockConfirmModal,LockProgressModal,LockResultModal}.tsx; refactored LockButtons | confirmation→execute→result flow
