@@ -1,24 +1,33 @@
 # Current Context
-_Updated: 2026-05-02T06:25:00Z_
+_Updated: 2026-05-11T22:30:00Z_
 
 ## Status
-ALL 30 WOs COMPLETE. Awaiting user debug pass tomorrow.
+IN PROGRESS — Electron parity overnight (WO-31..47 of PARITY_PLAN.md)
 
 ## What I am doing right now
-Nothing. Build green, all WOs committed, smoke tests passed.
+Starting WO-31 — active-project sidebar banner + status pills row.
 
 ## Active file(s)
-None — last touch was scripts/seed.ts (WO-30 follow-up).
+- components/Sidebar.tsx (read for shape)
+- components/ActiveProjectBanner.tsx (new — the TRACKING banner)
+- components/StatusPills.tsx (new — Witness/RVN/Stripe heartbeat pills)
+- lib/projects/actions.ts (may add getActiveProject if missing)
 
 ## Where I stopped
-After committing WO-30, ran final `next build` (clean), seeded demo
-user + project, booted dev server at :3001, confirmed:
-  - /login returns 200
-  - / returns 307 → /login (auth gate working)
-  - /api/verify correctly detects tampered manifest
-
-Killed dev server. Wrote HANDOFF.md.
+Just committed three pre-parity progress commits to feature/electron-parity:
+  c2f7700 — gear icon
+  (next) — ComfyDeploy bridge + workflow field
+  (next) — Canvas tab Scruple Shell + parity plan
 
 ## Next immediate step
-User boots dev server, configures Google OAuth + provider keys, walks
-through HANDOFF.md test plan.
+Read components/Sidebar.tsx + components/AppShell.tsx to see where the
+active-project banner belongs in the existing layout. Then drop in the
+banner component + the status pills row. Match the desktop's:
+
+  TRACKING
+  [thumbnails]
+  Project name
+  Status: <state>
+  Iterations: N
+  SCR-ID: SCR_XXXXXX
+  [Stop Tracking]
