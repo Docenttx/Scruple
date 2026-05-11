@@ -1,15 +1,18 @@
 import Link from 'next/link';
 import { signOut, auth } from '@/lib/auth/auth';
 import Sidebar from './Sidebar';
+import ViewToggle from './ViewToggle';
 
 export default async function AppShell({
   children,
   activeProjectId,
+  viewingProjectName,
   search,
   page,
 }: {
   children: React.ReactNode;
   activeProjectId?: number;
+  viewingProjectName?: string;
   search?: string;
   page?: number;
 }) {
@@ -29,7 +32,6 @@ export default async function AppShell({
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <WitnessStatusPill />
           {user && (
             <>
               <span className="text-xs text-scruple-muted">{user.email}</span>
@@ -76,17 +78,18 @@ export default async function AppShell({
         <Sidebar activeId={activeProjectId} search={search} page={page} />
       </aside>
 
-      {/* Main content */}
-      <main className="overflow-auto">{children}</main>
+      {/* Main content — view-toggle header row + body */}
+      <main className="flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-scruple-border bg-scruple-surface px-6 py-2">
+          <ViewToggle />
+          {viewingProjectName && (
+            <span className="text-xs text-scruple-muted">
+              Viewing: <span className="text-scruple-text">{viewingProjectName}</span>
+            </span>
+          )}
+        </div>
+        <div className="flex-1 overflow-auto">{children}</div>
+      </main>
     </div>
-  );
-}
-
-function WitnessStatusPill() {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-scruple-border bg-scruple-bg px-2 py-0.5 text-[10px] text-scruple-muted">
-      <span className="h-1.5 w-1.5 rounded-full bg-scruple-success" />
-      Witness :5799
-    </span>
   );
 }
