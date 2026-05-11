@@ -7,6 +7,7 @@ import {
 import SidebarSearch from './SidebarSearch';
 import SidebarList from './SidebarList';
 import ActiveProjectBanner from './ActiveProjectBanner';
+import StatusPills from './StatusPills';
 
 export default async function Sidebar({
   activeId,
@@ -35,6 +36,7 @@ export default async function Sidebar({
 
   return (
     <div className="flex h-full flex-col">
+      <StatusPills />
       {active && (
         <ActiveProjectBanner project={active} recentIterations={recentIterations} />
       )}
