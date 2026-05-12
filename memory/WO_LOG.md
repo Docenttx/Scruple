@@ -36,3 +36,5 @@
 [2026-05-11T22:58:00Z] WO-34+35 | InterlockOverlay.tsx + DebugConsole.tsx + lib/store/logs.ts | global overlay + bottom drawer log panel
 [2026-05-11T23:15:00Z] WO-36+37+43 | components/wallet/{WalletView,FiatPanel,BlockchainPanel,WalletModals,ModalShell}.tsx; /api/wallet/{rvn,tsd} | full wallet shell with mode toggle, 6 modals stubbed
 [2026-05-11T23:28:00Z] WO-45+46 | components/wallet/{LockConfirmModal,LockProgressModal,LockResultModal}.tsx; refactored LockButtons | confirmation→execute→result flow
+[2026-05-11T23:35:00Z] DISCOVERY | scruple-witness service has Stripe test keys loaded via /etc/systemd/system/scruple-witness.service.d/override.conf | sk_test_/pk_test_ active; /api/stripe-config returns live publishableKey
+[2026-05-11T23:45:00Z] WO-38+40 | npm install @stripe/{stripe-js,react-stripe-js}; StripePaymentModal.tsx + /api/stripe/confirm route; LockButtons refactored for fiat-mode Stripe routing | end-to-end PaymentElement → confirmPayment → confirm-and-execute
