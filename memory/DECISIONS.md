@@ -172,3 +172,60 @@ ai-council). Same legal/compliance posture.
 GitHub providers + dispatcher). Iteration ingest writes to user
 storage immediately; local copy purges within N minutes. Scruple-web
 holds only the hash + pointer + chain metadata.
+
+## D-018 · Tiered warm-cache as subscription strategy
+**Decision:** Cloud GPU offering ships as three Modal function deployments
+(same code, different decorators): cold (idle=10s, free tier), warm
+(idle=600s, pro tier), attested (H100 CC + idle=600s, premium tier).
+User's plan → which function `/api/generate` calls.
+**Rationale:** Cold-start every Queue is acceptable for occasional/
+hobbyist use; warm cache is the actual product for active creators;
+hardware attestation is the premium differentiator. Three real
+products, one codebase, clean economics.
+**Implication:** plan_subtiers gains a compute_function field once
+shipped. Default backend stays the warm tier (current MODAL_RUNNER_ENDPOINT).
+
+## D-019 · BYO Modal as escape hatch
+**Decision:** Power users / privacy-first users can bring their own
+Modal account. Settings → Compute Backend lets them paste a token id +
+secret + workspace + endpoint URL. scruple-web's /api/generate
+dispatches to their endpoint instead of the Scruple-managed one.
+**Rationale:** Same pattern as BYO ComfyDeploy (already supported).
+Removes lock-in concerns. The runner code is public-ish (~150 lines,
+no patent IP). Users still pay Scruple for the provenance chain;
+Modal compute bills go to them directly.
+**Implication:** lib/compute/backends.ts ComputeBackend already
+accepts optional endpointUrl in context for this case. UI scaffolding
+in Settings is a clone-8 follow-up.
+
+## D-020 · BYOS audit policy
+**Decision:** Three layers of tamper-evidence over BYOS:
+  L1 (live today) — on-demand /api/verify accepts {contentHash,
+                   fetchUrl} for ad-hoc verification by any caller
+  L2 (scaffolded, cron pending) — tamper_audit_log table + manual
+                   POST /api/audit/iteration/:id; nightly sweep
+                   to be wired when Drive is connected end-to-end
+  L3 (premium tier) — witness server signs periodic "still-here"
+                   attestations of every iteration. Becomes a
+                   timestamped chain anchorable to RVN/Arweave.
+**Rationale:** Layer L1 is cheap and useful immediately. L2 catches
+silent file modification within the audit interval. L3 is the
+patent-anchoring continuous-attestation feature for high-stakes content.
+**Implication:** Migration 010 ships the audit log. UI badges + cron
++ email notifications are clone-9 follow-ups.
+
+## D-021 · Cloud GPU is exclusive scruple-managed compute path; no scruple server storage
+**Decision (records what's been built): ** No user content ever
+persists on scruple-web beyond the ephemeral local artifact cache
+(default 15 min purge). All content writes flow through BYOS via the
+StorageProvider abstraction. Lock-package builds, exports, audits all
+pull from BYOS. The scruple-web server is reduced to: chain logic,
+provenance computation, witness-server proxy, BYOS dispatcher, and
+the UI surface.
+**Rationale:** Privacy by architecture (D-017). Tamper-evidence works
+because the chain logic lives outside the user's reach (D-013/L1
+trust layer). This is the patent-worthy "Scruple holds nothing,
+verifies everything" posture.
+**Implication:** Settings page must show the user where their content
+actually lives. Receipt page must surface storage_pointer (and tamper
+status as L2/L3 lands). PRIVACY.md needs to capture this verbatim.
