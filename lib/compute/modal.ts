@@ -1,4 +1,5 @@
-// Modal compute backend (Pivot E4).
+// Modal compute backend (Pivot E4; refactored to implement the
+// ComputeBackend interface from lib/compute/backends.ts).
 //
 // Calls the deployed Scruple Runner web endpoint. The endpoint URL
 // comes from `MODAL_RUNNER_ENDPOINT` env (set after `modal deploy`).
@@ -8,16 +9,11 @@
 // (SCRUPLE_MODAL_GPU=T4) the response carries `attestation: null` —
 // the trust ladder is honest about which tier ran the workflow.
 
-export interface ModalRunResult {
-  ok: boolean;
-  jobId: string;
-  imageBytes: Buffer;
-  contentType: string;
-  durationMs: number;
-  attestation: Record<string, unknown> | null;
-  gpu: string;
-  rawError?: string;
-}
+import type { ComputeBackend, ComputeContext, ComputeResult } from './backends';
+import { ComputeError } from './backends';
+
+// Retained name for back-compat with callers that import ModalRunResult.
+export type ModalRunResult = ComputeResult;
 
 interface ModalResponse {
   ok: boolean;
@@ -33,20 +29,29 @@ interface ModalResponse {
 const ENDPOINT = process.env.MODAL_RUNNER_ENDPOINT;
 const REQUEST_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
-export class ModalError extends Error {
-  constructor(public readonly code: 'no_endpoint' | 'transport' | 'remote_error', message: string) {
-    super(`[modal:${code}] ${message}`);
-  }
-}
+// Back-compat alias for the old ModalError class. Throws are now
+// ComputeError instances; the alias keeps any prior catch-blocks happy.
+export { ComputeError as ModalError };
 
-export const modalRunner = {
-  isConfigured(): boolean {
-    return !!ENDPOINT;
+export const modalRunner: ComputeBackend = {
+  name: 'modal',
+  // Free-tier T4 is L1+L2 (no hardware attestation). When SCRUPLE_MODAL_GPU
+  // flips to H100 CC mode we'll add a sibling backend `modalRunnerAttested`
+  // with trustTier='L1+L2+L3'.
+  trustTier: 'L1+L2',
+
+  isConfigured(ctx?: ComputeContext): boolean {
+    return !!(ctx?.endpointUrl || ENDPOINT);
   },
 
-  async runWorkflow(workflowApiJson: Record<string, unknown>): Promise<ModalRunResult> {
-    if (!ENDPOINT) {
-      throw new ModalError(
+  async runWorkflow(
+    workflowApiJson: Record<string, unknown>,
+    ctx?: ComputeContext,
+  ): Promise<ComputeResult> {
+    const endpoint = ctx?.endpointUrl || ENDPOINT;
+    if (!endpoint) {
+      throw new ComputeError(
+        'modal',
         'no_endpoint',
         'MODAL_RUNNER_ENDPOINT not set. Run `modal deploy modal/scruple_runner.py` and copy the printed web URL into .env.local.',
       );
@@ -54,7 +59,7 @@ export const modalRunner = {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(ENDPOINT, {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workflow_api_json: workflowApiJson }),
@@ -62,7 +67,7 @@ export const modalRunner = {
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
-        throw new ModalError('transport', `HTTP ${res.status}: ${detail.slice(0, 300)}`);
+        throw new ComputeError('modal', 'transport', `HTTP ${res.status}: ${detail.slice(0, 300)}`);
       }
       const data = (await res.json()) as ModalResponse;
       if (!data.ok || !data.image_bytes_b64) {

@@ -1,46 +1,35 @@
 # Current Context
-_Updated: 2026-05-12T00:30:00Z_
+_Updated: 2026-05-12T07:00:00Z_
 
 ## Status
-IN PROGRESS — Pivot overnight (PIVOT_WORK_ORDERS.md)
+IN PROGRESS — Authorized to execute everything in the "doesn't need
+Modal/Drive" list. Working solo, committing per chunk.
 
-## What I am doing right now
-Building the test-as-user CLI wrapper (`scrupel`) FIRST so I can
-exercise every subsequent WO as it lands. Then sequencing through the
-critical-path WOs in PIVOT_WORK_ORDERS.md.
-
-## Plan for this overnight (rough order)
-1. `scrupel` CLI wrapper + dev-mode auth endpoint
-2. Modal function (E3) — deploy + smoke
-3. Modal adapter (E4) — lib/compute/modal.ts
-4. /api/generate Modal default (E5)
-5. Migration 006 — execution_backend + attestation + storage_pointer
-6. Migration 007 — storage_providers + sync log
-7. Storage interface (S1) + dispatcher (S6)
-8. Drive provider (S3) — port from ai-council/lib/gdrive
-9. Iteration ingest writes to storage (S8)
-10. Local artifact retention purge (S12)
-11. Receipt page attestation panel (E6 + R1)
-12. Settings storage tab (S7)
-13. Smoke pass via `scrupel` CLI
-14. Docs + STATE.md update
-
-Stretch (if time allows): OneDrive (S4), GitHub (S5), R2, R3.
+## Sequence
+1. Compute backend abstraction (small refactor) — ~1 hr
+2. Receipt /api/verify accepts external bytes — ~1 hr
+3. UI clone phase 2 — port desktop main.css + wallet.css patterns into
+   the React components (sidebar, workspace, settings, wallet, modals) — ~4-6 hr
+4. Workflow validator + JSON-upload UI on Generate panel — ~3 hr
+5. Stripe SetupIntent + saved-card UX — ~3-4 hr
+6. Tamper-audit scaffolding (migration 012 + per-iteration verify
+   button + manual audit UI; nightly cron deferred until Drive
+   credentials available) — ~1 day
+7. Lock-package builder reads from storage — ~3 hr
+8. Documentation + memory + D-018..D-021 — ~30 min
 
 ## Active file(s)
-- scripts/scrupel.mjs (new — the CLI wrapper)
-- app/api/dev/session/route.ts (new — dev auth bypass)
-- modal/scruple_runner.py (new — Modal compute function)
-- lib/compute/modal.ts (new — adapter)
-- lib/storage/*.ts (new subsystem)
-- lib/db/migrations/006_pivot_columns.sql (new)
-- lib/db/migrations/007_storage.sql (new)
+- lib/compute/backends.ts (new) — typed interface
+- lib/compute/modal.ts (refactor to implement)
+- app/api/verify/route.ts (extend)
+- (next) lots of component class-string edits for UI clone
 
 ## Where I stopped
-Branch `feature/pivot` cut from `feature/electron-parity` (commit
-1251187 — PIVOT_WORK_ORDERS.md + D-014..D-017). Modal token set
-on box (workspace=aquanomous). Free-tier T4 chosen as default GPU.
+Last commit: Pass-1A+1B (Modal Volume + canvas stub sync). On branch
+feature/pivot. Stripe customer cus_UV9reZNDuInE4o exists for the test
+user. Modal endpoint live + holds SD 1.5 + VAE.
 
 ## Next immediate step
-Build scripts/scrupel.mjs + the dev session route. Use the CLI to
-smoke-test the existing endpoints before adding anything new.
+Compute backend abstraction. Pull both Modal and ComfyDeploy callers
+behind one interface so future tiered functions / BYO Modal slot in
+cleanly.
