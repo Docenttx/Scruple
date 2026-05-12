@@ -24,6 +24,15 @@ export interface GenerationProvider {
   readonly name: ProviderName;
   submit(spec: GenerationSpec, ctx: ProviderContext): Promise<SubmitResult>;
   poll(jobId: string, ctx: ProviderContext): Promise<PollResult>;
+  /**
+   * Ad-hoc workflow execution (skips the saved-deployment indirection).
+   * Optional — providers without an ad-hoc shape can omit it.
+   */
+  submitWorkflow?(
+    workflowApiJson: Record<string, unknown>,
+    machineId: string,
+    ctx: ProviderContext,
+  ): Promise<SubmitResult>;
 }
 
 export interface ProviderContext {

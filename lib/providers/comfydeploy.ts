@@ -76,6 +76,46 @@ export const comfyDeployProvider: GenerationProvider = {
     return { jobId: data.run_id };
   },
 
+  /**
+   * Submit an ad-hoc workflow JSON (no pre-saved deployment). Used by
+   * the Canvas Queue intercept: the user composes a workflow in the
+   * local ComfyUI editor, the extension grabs `graphToPrompt().output`
+   * (the API-format JSON), we forward that here + a machine_id (per-user
+   * ComfyDeploy machine that has the required custom nodes installed).
+   */
+  async submitWorkflow(
+    workflowApiJson: Record<string, unknown>,
+    machineId: string,
+    ctx: ProviderContext,
+  ): Promise<SubmitResult> {
+    const headers = authHeaders(ctx.apiKey);
+    const body = {
+      machine_id: machineId,
+      workflow_api_json: workflowApiJson,
+    };
+    const res = await fetch(`${CD_BASE}/api/run`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      const code =
+        res.status === 401 || res.status === 403
+          ? 'auth'
+          : res.status === 429
+            ? 'rate_limit'
+            : 'provider_failure';
+      throw new ProviderError(
+        'comfydeploy',
+        code,
+        `workflow submit failed (${res.status}): ${text.slice(0, 500)}`,
+      );
+    }
+    const data = (await res.json()) as { run_id: string };
+    return { jobId: data.run_id };
+  },
+
   async poll(jobId: string, ctx: ProviderContext): Promise<PollResult> {
     const headers = authHeaders(ctx.apiKey);
     const res = await fetch(`${CD_BASE}/api/run/${jobId}`, { headers });
