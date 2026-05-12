@@ -8,6 +8,7 @@ import SidebarSearch from './SidebarSearch';
 import SidebarList from './SidebarList';
 import ActiveProjectBanner from './ActiveProjectBanner';
 import StatusPills from './StatusPills';
+import ProvenanceTerminal from './ProvenanceTerminal';
 
 export default async function Sidebar({
   activeId,
@@ -40,6 +41,7 @@ export default async function Sidebar({
       {active && (
         <ActiveProjectBanner project={active} recentIterations={recentIterations} />
       )}
+      {active && <ProvenanceTerminal />}
       <SidebarSearch initial={search} />
       <SidebarList
         projects={visible}
