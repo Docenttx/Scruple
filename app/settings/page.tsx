@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth/auth';
 import AppShell from '@/components/AppShell';
 import { getProviderKeyStatus } from '@/lib/settings/actions';
 import ProviderKeyForm from './ProviderKeyForm';
+import StorageSection from '@/components/settings/StorageSection';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,8 @@ export default async function SettingsPage() {
             <ProviderKeyForm provider="comfydeploy" status={status.comfydeploy} />
           </div>
         </section>
+
+        <StorageSection />
 
         <section className="mt-8">
           <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Witness server</h2>

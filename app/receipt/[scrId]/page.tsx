@@ -83,6 +83,7 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
                 <th className="px-2 py-2 text-left">#</th>
                 <th className="px-2 py-2 text-left">leaf hash</th>
                 <th className="px-2 py-2 text-left">timestamp</th>
+                <th className="px-2 py-2 text-left">backend</th>
                 <th className="px-2 py-2 text-left">witness</th>
               </tr>
             </thead>
@@ -96,6 +97,9 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
                   <td className="px-2 py-2 text-scruple-muted">
                     {new Date(it.timestamp).toLocaleString()}
                   </td>
+                  <td className="px-2 py-2 text-[10px]">
+                    <BackendBadge backend={(it as { execution_backend?: string | null }).execution_backend ?? null} />
+                  </td>
                   <td className="px-2 py-2 font-mono text-[10px]">
                     {it.witness_id ? (
                       <span className="text-scruple-success">{it.witness_id.slice(0, 16)}…</span>
@@ -108,6 +112,15 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* Pivot E6: execution attestation summary — promotes the trust ladder
+          (D-016) to the receipt. */}
+      <section className="mt-8">
+        <h2 className="text-xs uppercase tracking-widest text-scruple-muted">
+          Execution attestation
+        </h2>
+        <AttestationSummary iterations={iterations} />
       </section>
 
       {(project.rvn_txid || project.ipfs_cid || project.arweave_uri) && (
@@ -135,6 +148,69 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="rounded-md border border-scruple-border bg-scruple-surface px-3 py-2">
       <div className="text-[9px] uppercase tracking-widest text-scruple-muted">{label}</div>
       <div className="mt-1 text-sm">{value}</div>
+    </div>
+  );
+}
+
+function BackendBadge({ backend }: { backend: string | null }) {
+  if (!backend) return <span className="text-scruple-muted">—</span>;
+  const styles: Record<string, string> = {
+    'modal-tee': 'border-scruple-success/40 bg-scruple-success/10 text-scruple-success',
+    'modal-test': 'border-scruple-warn/40 bg-scruple-warn/10 text-scruple-warn',
+    comfydeploy: 'border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-400',
+    'local-tunnel': 'border-scruple-border bg-scruple-bg text-scruple-text',
+  };
+  const cls = styles[backend] ?? 'border-scruple-border bg-scruple-bg text-scruple-muted';
+  return (
+    <span className={`rounded-full border px-1.5 py-0.5 font-mono text-[9px] ${cls}`}>
+      {backend}
+    </span>
+  );
+}
+
+function AttestationSummary({ iterations }: { iterations: Array<{ execution_backend?: string | null; execution_attestation?: string | null }> }) {
+  const backends = new Map<string, number>();
+  let attested = 0;
+  for (const it of iterations) {
+    const b = it.execution_backend ?? 'unknown';
+    backends.set(b, (backends.get(b) ?? 0) + 1);
+    if (it.execution_attestation) attested += 1;
+  }
+  if (backends.size === 1 && backends.has('unknown')) {
+    return (
+      <p className="mt-2 text-xs text-scruple-muted">
+        These iterations predate the execution-backend recording (Pivot Phase E).
+        The chain still witnesses the bytes, but doesn&apos;t carry per-iteration
+        backend attribution.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="rounded-md border border-scruple-border bg-scruple-surface p-3 text-xs">
+        <div className="flex items-baseline justify-between">
+          <span>Trust ceiling for this project</span>
+          <strong>
+            {attested === iterations.length && iterations.length > 0
+              ? 'L1 + L2 + L3 (hardware-attested)'
+              : attested > 0
+                ? 'Mixed — some iterations attested'
+                : 'L1 + L2 (chain isolation + witness)'}
+          </strong>
+        </div>
+        <div className="mt-1 text-[10px] text-scruple-muted">
+          L1 capture isolation (server-side hashing) + L2 witness chain
+          {attested > 0 ? ` + L3 hardware attestation on ${attested}/${iterations.length} iterations` : ''}.
+        </div>
+      </div>
+      <ul className="space-y-1 text-[11px]">
+        {Array.from(backends.entries()).map(([backend, count]) => (
+          <li key={backend} className="flex items-center justify-between rounded-md border border-scruple-border bg-scruple-bg px-3 py-1.5">
+            <span><BackendBadge backend={backend === 'unknown' ? null : backend} /></span>
+            <span className="text-scruple-muted">{count} iteration{count === 1 ? '' : 's'}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

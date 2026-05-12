@@ -69,6 +69,10 @@ export interface IterationRow {
   witness_id: string | null;
   witness_timestamp: string | null;
   witness_signature: string | null;
+  // Pivot (migration 006)
+  execution_backend: string | null;
+  execution_attestation: string | null;  // JSON
+  storage_pointer: string | null;        // JSON
 }
 
 export interface MerkleNodeRow {
