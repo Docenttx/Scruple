@@ -49,9 +49,13 @@ export default function ModalShell({
     >
       <div
         className={
-          `border-t-2 ${TONE_BORDER[tone]} ` +
-          'flex max-h-[85vh] w-full flex-col rounded-lg border border-scruple-border bg-scruple-surface shadow-2xl ' +
-          (wide ? 'max-w-2xl' : 'max-w-md')
+          // Desktop catalog §2: .modal-content — max-width 480px,
+          // max-height calc(100vh - 40px), modalSlideIn animation,
+          // border-radius 12px, modal box shadow.
+          `border-t-2 ${TONE_BORDER[tone]} animate-modal-in ` +
+          'flex w-full flex-col rounded-xl border border-scruple-border-color bg-scruple-bg-secondary shadow-modal ' +
+          'max-h-[calc(100vh-40px)] ' +
+          (wide ? 'max-w-2xl' : 'max-w-[480px]')
         }
         onClick={e => e.stopPropagation()}
       >

@@ -28,20 +28,23 @@ export default function WorkspaceView({
   const isLocked = project.status !== 'unlocked' && project.status !== 'checkpointed';
 
   return (
-    <div className="flex flex-col gap-8 p-8">
+    // Desktop catalog §2 Layout: .workspace — max-width 1200px,
+    // centered margin: 0 auto, 24px padding.
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-light">{project.name}</h1>
+            <h1 className="text-2xl font-light text-scruple-text-primary">{project.name}</h1>
             <StatusBadge status={project.status} />
             {isActive && (
-              <span className="rounded-full border border-scruple-success/40 bg-scruple-success/10 px-2 py-0.5 text-[10px] text-scruple-success">
+              // Desktop TRACKING badge: red, not green
+              <span className="rounded-full border border-scruple-danger/40 bg-scruple-danger/15 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider2 text-scruple-danger">
                 ● Tracking
               </span>
             )}
           </div>
-          <p className="mt-1 text-xs text-scruple-muted">
+          <p className="mt-1 text-xs text-scruple-text-secondary">
             Created {new Date(project.created_at).toLocaleDateString()} · Type {project.type}
           </p>
           <div className="mt-2">
@@ -76,9 +79,11 @@ export default function WorkspaceView({
         <Stat label="Witnessed" value={String(project.witnessed_count)} />
       </div>
 
-      {/* Iterations */}
+      {/* Iterations — desktop uses CSS Grid auto-fill 280px minmax */}
       <section>
-        <h2 className="mb-3 text-xs uppercase tracking-widest text-scruple-muted">Iterations</h2>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
+          Iterations
+        </h2>
         <IterationGridLive
           initial={iterations}
           projectId={project.id}

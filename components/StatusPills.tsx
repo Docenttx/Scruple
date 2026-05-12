@@ -60,7 +60,9 @@ export default function StatusPills() {
   }, []);
 
   return (
-    <div className="flex items-center gap-1 border-b border-scruple-border bg-scruple-surface px-3 py-1.5">
+    // Desktop catalog §3 "Wallet connection flags": flex gap 12px,
+    // 10px 16px padding, panel bg + border.
+    <div className="flex items-center gap-2 border-b border-scruple-border-color bg-scruple-bg-secondary px-3 py-2">
       <Pill data={snap.witness} onClick={refresh} pending={pending} />
       <Pill data={snap.rvn} onClick={refresh} pending={pending} />
       <Pill data={snap.stripe} onClick={refresh} pending={pending} />
@@ -90,9 +92,16 @@ function Pill({
       onClick={onClick}
       disabled={pending}
       title={data.detail || (data.ok === true ? 'OK' : data.ok === false ? 'Down' : 'Unknown')}
-      className="flex items-center gap-1 rounded-full border border-scruple-border bg-scruple-bg px-1.5 py-0.5 text-[10px] text-scruple-muted hover:border-scruple-accent disabled:opacity-50"
+      // .connection-flag: 4px 10px padding, 12px radius, --flag-bg, text-muted
+      className="flex items-center gap-1.5 rounded-full bg-scruple-flag-bg px-2 py-0.5 text-2xs text-scruple-text-secondary transition-colors hover:text-scruple-text-primary disabled:opacity-50"
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+      {/* .flag-dot: 8x8px, with subtle glow when connected per desktop */}
+      <span
+        className={`h-2 w-2 rounded-full ${dotClass}`}
+        style={{
+          boxShadow: data.ok === true ? '0 0 6px currentColor' : undefined,
+        }}
+      />
       <span>{data.label}</span>
     </button>
   );

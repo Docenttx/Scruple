@@ -99,7 +99,9 @@ export default function LockButtons({
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      {/* Desktop: .lock-buttons-row grid-template-columns repeat(3,1fr),
+          collapses to 1fr at 900px. Tailwind md:= 768px is close. */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-locks">
         <LockButton
           title="Finalize Project"
           desc="Permanently seal this project"
@@ -172,22 +174,33 @@ function LockButton({
   disabled: boolean;
   onClick: () => void;
 }) {
+  // Desktop styling per catalog §3 "Lock Buttons":
+  //   .lock-btn-large — flex column center, 24px 16px padding, 2px
+  //   border, 8px radius, secondary bg, text-align center.
+  // Per-kind hover border:
+  //   .lock-btn-large.local:hover     → border --accent-warning  (#f59e0b)
+  //   .lock-btn-large.chain:hover     → border --accent-secondary (#3b82f6)
+  //   .lock-btn-large.persistent:hover → border --accent-purple (#8b5cf6)
+  // checkpoint is treated as local on desktop.
   const accent =
-    kind === 'local'
-      ? 'border-scruple-success/40 hover:border-scruple-success'
-      : kind === 'checkpoint'
-        ? 'border-scruple-warn/40 hover:border-scruple-warn'
-        : 'border-scruple-accent/40 hover:border-scruple-accent';
+    kind === 'local' || kind === 'checkpoint'
+      ? 'hover:border-scruple-warn'
+      : 'hover:border-scruple-accent-secondary';
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex flex-col items-start gap-1 rounded-md border bg-scruple-surface p-4 text-left transition disabled:opacity-30 ${accent}`}
+      className={
+        'flex flex-col items-center rounded-lg border-2 border-scruple-border-color ' +
+        'bg-scruple-bg-secondary px-4 py-6 text-center transition-colors duration-fast ' +
+        'disabled:opacity-30 ' +
+        accent
+      }
     >
-      <span className="text-2xl">{icon}</span>
-      <span className="text-sm">{title}</span>
-      <span className="text-[10px] text-scruple-muted">{desc}</span>
+      <span className="mb-3 text-3xl">{icon}</span>
+      <span className="text-sm font-semibold text-scruple-text-primary">{title}</span>
+      <span className="mt-1 text-2xs text-scruple-text-secondary">{desc}</span>
     </button>
   );
 }
