@@ -22,6 +22,7 @@ import { comfyDeployProvider } from '@/lib/providers/comfydeploy';
 import { ProviderError } from '@/lib/providers/types';
 import { getDecryptedProviderKey } from '@/lib/settings/actions';
 import { ingestIteration } from '@/lib/iterations/ingest';
+import { modalRunner, ModalError } from '@/lib/compute/modal';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProject } from '@/lib/projects/actions';
 import type { GenerationSpec, ProjectRow } from '@/lib/types';
@@ -133,6 +134,69 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Workflow mode + Modal configured → cloud GPU via Modal (pivot default).
+  // Falls through to ComfyDeploy path if no Modal endpoint set OR user
+  // is on explicit BYO path (passed an explicit comfyDeploy machineId).
+  const startedAt = Date.now();
+  const url = new URL(req.url);
+  const forceBackend = url.searchParams.get('backend');
+  const wantsModal =
+    forceBackend === 'modal' ||
+    (forceBackend !== 'comfydeploy' && workflowBody && !workflowBody.machineId && modalRunner.isConfigured());
+
+  if (wantsModal && workflowBody) {
+    try {
+      const modalResult = await modalRunner.runWorkflow(workflowBody.workflowApiJson);
+      if (!modalResult.ok) {
+        try {
+          logTelemetry({
+            userId,
+            projectId: project.id,
+            provider: 'comfydeploy',
+            providerJobId: modalResult.jobId,
+            prompt: '(canvas workflow / modal)',
+            spec: {} as Record<string, unknown>,
+            success: false,
+            error: modalResult.rawError ?? 'modal_failed',
+          });
+        } catch {}
+        return NextResponse.json(
+          { error: 'generation_failed', detail: modalResult.rawError, backend: 'modal' },
+          { status: 502 },
+        );
+      }
+      const { iteration, leafHash, runSequence } = await ingestIteration({
+        userId,
+        projectId: project.id,
+        provider: 'comfydeploy', // stays in the ProviderName union; backend distinction is via execution_backend
+        providerJobId: modalResult.jobId,
+        prompt: '(canvas workflow / modal)',
+        spec: {
+          prompt: '(canvas workflow)',
+          providerExtras: { workflowApiJson: workflowBody.workflowApiJson },
+        },
+        imageBytes: modalResult.imageBytes,
+        imageContentType: modalResult.contentType,
+        executionBackend: modalResult.attestation ? 'modal-tee' : 'modal-test',
+        executionAttestation: modalResult.attestation,
+      });
+      return NextResponse.json({
+        ok: true,
+        iteration,
+        leafHash,
+        runSequence,
+        durationMs: Date.now() - startedAt,
+        backend: 'modal',
+        gpu: modalResult.gpu,
+        attested: !!modalResult.attestation,
+      });
+    } catch (e) {
+      const detail = e instanceof ModalError ? e.message : e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ error: 'modal_error', detail }, { status: 502 });
+    }
+  }
+
+  // ── Legacy / BYO ComfyDeploy path ─────────────────────────────────────
   const apiKey = await getDecryptedProviderKey('comfydeploy');
   if (!apiKey) {
     return NextResponse.json(
@@ -140,8 +204,6 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-
-  const startedAt = Date.now();
 
   // Build spec + submit.
   let jobId: string;
@@ -258,7 +320,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'generation_failed', detail: 'no result payload' }, { status: 502 });
   }
   const { imageBytes, contentType } = result.result;
-  const { iteration, leafHash, runSequence } = ingestIteration({
+  const { iteration, leafHash, runSequence } = await ingestIteration({
     userId,
     projectId: project.id,
     provider: 'comfydeploy',

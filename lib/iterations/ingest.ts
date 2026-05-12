@@ -1,21 +1,27 @@
-// Shared iteration ingest. Used by:
-//   - POST /api/iterations (raw client/server upload of image bytes)
-//   - POST /api/generate   (server-side after polling a provider)
+// Shared iteration ingest.
 //
-// Pure side-effects: writes artifact bytes, inserts iterations row,
-// bumps projects.iteration_count, fires telemetry. Caller is
-// responsible for auth and project-ownership checks; this function
-// trusts its inputs.
+// Pivot version (Phase S8): write artifact bytes to the user's chosen
+// storage provider (Drive / OneDrive / GitHub) instead of the local
+// `artifacts/` filesystem. Scruple-web records only the leaf_hash + the
+// storage_pointer + chain metadata. Local copy is purged shortly after
+// upload by the retention sweeper.
+//
+// Backward-compat: if no provider is connected, falls back to the
+// existing local-FS path (lib/scruple/artifacts.storeArtifact). This
+// keeps the lock pipeline + dev mode workable while users decide on a
+// storage backend.
 
 import { conn } from '@/lib/db/sqlite';
 import { sha256Hex } from '@/lib/scruple/hash';
 import { storeArtifact } from '@/lib/scruple/artifacts';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
+import { getActiveProvider } from '@/lib/storage/dispatch';
 import type {
   GenerationSpec,
   IterationRow,
   ProviderName,
 } from '@/lib/types';
+import type { StoragePointer } from '@/lib/storage/types';
 
 export interface IngestParams {
   userId: string;
@@ -27,15 +33,20 @@ export interface IngestParams {
   imageBytes: Buffer;
   imageContentType: string;
   imageFilename?: string | null;
+  /** Backend that ran this generation (Pivot — set by /api/generate). */
+  executionBackend?: 'modal-tee' | 'modal-test' | 'comfydeploy' | 'local-tunnel' | null;
+  /** TEE attestation receipt, if available. */
+  executionAttestation?: Record<string, unknown> | null;
 }
 
 export interface IngestResult {
   iteration: IterationRow;
   leafHash: string;
   runSequence: number;
+  storagePointer: StoragePointer | null;
 }
 
-export function ingestIteration(p: IngestParams): IngestResult {
+export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   const outputHash = sha256Hex(p.imageBytes);
   const inputCanonical = JSON.stringify({
     provider: p.provider,
@@ -43,9 +54,31 @@ export function ingestIteration(p: IngestParams): IngestResult {
     spec: p.spec,
   });
   const inputHash = sha256Hex(inputCanonical);
-  // Leaf hash convention matches studio_terminal.py._hash_image_file.
   const leafHash = outputHash;
 
+  // Pivot S8: write to user's storage. Falls back to local FS if no
+  // provider is connected (dev / pre-onboarding state).
+  let storagePointer: StoragePointer | null = null;
+  const provider = getActiveProvider(p.userId);
+  if (provider) {
+    const ext = p.imageContentType.includes('jpeg') ? 'jpg' : 'png';
+    const filename = `${leafHash.slice(0, 12)}.${ext}`;
+    const path = `iterations/${filename}`;
+    try {
+      const { pointer } = await provider.uploadFile(
+        p.userId,
+        path,
+        p.imageBytes,
+        p.imageContentType,
+      );
+      storagePointer = pointer;
+    } catch (e) {
+      console.error('[ingest] storage upload failed, falling back to local FS', e);
+    }
+  }
+  // Always keep a local copy short-term — the iteration grid serves
+  // from /api/artifact/[hash] which hits this. Retention sweeper purges
+  // these after the storage upload is confirmed (Pivot S12).
   storeArtifact(outputHash, p.imageBytes);
 
   const now = new Date().toISOString();
@@ -64,8 +97,9 @@ export function ingestIteration(p: IngestParams): IngestResult {
       .prepare(
         `INSERT INTO iterations (
            project_id, run_sequence, timestamp, leaf_hash, input_hash, output_hash,
-           previous_hash, metadata, source_file, image_filename, prompt, provider, provider_job_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           previous_hash, metadata, source_file, image_filename, prompt, provider, provider_job_id,
+           execution_backend, execution_attestation, storage_pointer
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -81,6 +115,9 @@ export function ingestIteration(p: IngestParams): IngestResult {
         p.prompt,
         p.provider,
         p.providerJobId,
+        p.executionBackend ?? null,
+        p.executionAttestation ? JSON.stringify(p.executionAttestation) : null,
+        storagePointer ? JSON.stringify(storagePointer) : null,
       );
 
     conn()
@@ -111,5 +148,5 @@ export function ingestIteration(p: IngestParams): IngestResult {
     console.error('[telemetry] insert failed', e);
   }
 
-  return { iteration, leafHash, runSequence };
+  return { iteration, leafHash, runSequence, storagePointer };
 }

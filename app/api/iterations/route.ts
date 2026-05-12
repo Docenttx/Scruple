@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { iteration, leafHash, runSequence } = ingestIteration({
+  const { iteration, leafHash, runSequence } = await ingestIteration({
     userId,
     projectId: body.projectId,
     provider: body.provider,
