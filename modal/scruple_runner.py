@@ -24,7 +24,7 @@ import time
 import json
 import urllib.request
 import urllib.error
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional  # Optional used by admin function
 
 import modal
 
@@ -63,10 +63,22 @@ comfy_image = (
     .run_commands(
         "git clone --depth=1 https://github.com/comfyanonymous/ComfyUI /opt/ComfyUI",
         "pip install -r /opt/ComfyUI/requirements.txt",
+        # Modal Volumes can only be mounted onto empty directories. The git
+        # clone above ships with placeholder subdirs under models/ that
+        # would block our scruple-models volume mount. Clear them so the
+        # Volume mount point is empty; subdirs are recreated on the Volume
+        # by fetch_to_volume / the seed entrypoint.
+        "rm -rf /opt/ComfyUI/models && mkdir /opt/ComfyUI/models",
     )
 )
 
 app = modal.App("scruple-runner", image=comfy_image)
+
+# Pass-1A: Modal Volume for the model library. Persistent across deploys.
+# Mounted at /opt/ComfyUI/models inside the runner container so ComfyUI
+# finds checkpoints / loras / vae / controlnet via its standard
+# filesystem-scan mechanism.
+models_volume = modal.Volume.from_name("scruple-models", create_if_missing=True)
 
 
 def _comfy_running() -> bool:
@@ -124,7 +136,12 @@ def _get_bytes(path: str) -> bytes:
 
 
 # ── The main entrypoint ──────────────────────────────────────────────────
-@app.function(gpu=GPU, timeout=600)
+@app.function(
+    gpu=GPU,
+    timeout=600,
+    volumes={"/opt/ComfyUI/models": models_volume},
+    scaledown_window=600,  # 10-min warm window per session (was container_idle_timeout)
+)
 def run_workflow(workflow_api_json: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a ComfyUI workflow and return the resulting image bytes.
 
@@ -206,6 +223,108 @@ def web_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     return run_workflow.remote(workflow)
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Model library admin (Pass-1A)
+# ─────────────────────────────────────────────────────────────────────────
+
+@app.function(
+    image=comfy_image,
+    volumes={"/opt/ComfyUI/models": models_volume},
+    timeout=3600,  # large models can take a while
+)
+def fetch_to_volume(source_url: str, target_subpath: str, hf_token: Optional[str] = None) -> Dict[str, Any]:
+    """Download a model from a URL (HF, Civitai, direct) onto the shared
+    Modal Volume. Idempotent — skips if the file already exists.
+
+    target_subpath is relative to /opt/ComfyUI/models/, e.g.
+       "checkpoints/sd-1.5.safetensors"
+       "loras/user-123/myStyle.safetensors"
+    """
+    import os
+    import shutil
+    import hashlib
+    import urllib.request
+
+    target_path = os.path.join("/opt/ComfyUI/models", target_subpath)
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+    if os.path.exists(target_path):
+        size = os.path.getsize(target_path)
+        print(f"[fetch_to_volume] already present: {target_subpath} ({size} bytes)")
+        return {"ok": True, "skipped": True, "target": target_subpath, "size": size}
+
+    tmp_path = target_path + ".part"
+    print(f"[fetch_to_volume] fetching {source_url} → {target_subpath}")
+    req = urllib.request.Request(source_url, headers={"User-Agent": "scruple-runner/1.0"})
+    if hf_token and "huggingface.co" in source_url:
+        req.add_header("Authorization", f"Bearer {hf_token}")
+
+    started = time.time()
+    bytes_seen = 0
+    sha = hashlib.sha256()
+    with urllib.request.urlopen(req, timeout=600) as r, open(tmp_path, "wb") as out:
+        while True:
+            chunk = r.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+            sha.update(chunk)
+            bytes_seen += len(chunk)
+    shutil.move(tmp_path, target_path)
+    models_volume.commit()
+    duration = time.time() - started
+
+    return {
+        "ok": True,
+        "skipped": False,
+        "target": target_subpath,
+        "size": bytes_seen,
+        "sha256": sha.hexdigest(),
+        "duration_seconds": round(duration, 1),
+    }
+
+
+@app.function(
+    volumes={"/opt/ComfyUI/models": models_volume},
+    timeout=60,
+)
+def list_volume() -> Dict[str, Any]:
+    """List every file on the models volume with size + mtime + sha256-of-name.
+    Used by the canvas stub-sync script to mirror filenames into the
+    canvas.stooges.ai ComfyUI install."""
+    import os
+    out: Dict[str, list] = {}
+    root = "/opt/ComfyUI/models"
+    for dirpath, _, filenames in os.walk(root):
+        for fn in filenames:
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root)
+            top = rel.split(os.sep, 1)[0]  # checkpoints / loras / vae / etc.
+            entry = {
+                "path": rel,
+                "size": os.path.getsize(full),
+                "mtime": int(os.path.getmtime(full)),
+            }
+            out.setdefault(top, []).append(entry)
+    return {"ok": True, "by_category": out}
+
+
+@app.function(
+    volumes={"/opt/ComfyUI/models": models_volume},
+    timeout=60,
+)
+def delete_from_volume(target_subpath: str) -> Dict[str, Any]:
+    """Remove a file from the volume. Used by the Settings UI's
+    'Remove from library' button + the library-eviction job."""
+    import os
+    target = os.path.join("/opt/ComfyUI/models", target_subpath)
+    if not os.path.exists(target):
+        return {"ok": False, "error": "not_found"}
+    os.remove(target)
+    models_volume.commit()
+    return {"ok": True, "removed": target_subpath}
+
+
 # Local invocation for testing without a web endpoint
 @app.local_entrypoint()
 def main(workflow_json: str = ""):
@@ -214,3 +333,32 @@ def main(workflow_json: str = ""):
         return
     result = run_workflow.remote(json.loads(workflow_json))
     print(json.dumps({k: (v if k != "image_bytes_b64" else "<base64 omitted>") for k, v in result.items()}, indent=2))
+
+
+@app.local_entrypoint()
+def seed():
+    """Seed the volume with the initial catalog. Idempotent."""
+    seeds = [
+        # SD 1.5 base — small, free, works as the smoke-test default
+        (
+            "https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors",
+            "checkpoints/v1-5-pruned-emaonly.safetensors",
+        ),
+        # SD 1.5 VAE (separate file, useful for sharper outputs)
+        (
+            "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors",
+            "vae/vae-ft-mse-840000-ema-pruned.safetensors",
+        ),
+    ]
+    for src, dst in seeds:
+        print(f"\n→ {dst}")
+        r = fetch_to_volume.remote(src, dst)
+        print(json.dumps(r, indent=2))
+    print("\n=== Final listing ===")
+    print(json.dumps(list_volume.remote(), indent=2))
+
+
+@app.local_entrypoint()
+def ls():
+    """Quick CLI: modal run modal/scruple_runner.py::ls"""
+    print(json.dumps(list_volume.remote(), indent=2))
