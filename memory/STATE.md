@@ -1,61 +1,55 @@
 # Scruple Web — Current State
-_Last updated: 2026-05-11T23:30:00Z_
+_Last updated: 2026-05-12T04:00:00Z_
 
-## Phase: Electron parity overnight — Block A+B+D shipped
+## Phase: Pivot — substantial portion shipped, awaiting morning verification
 
-10 commits on `feature/electron-parity` since branch creation. Build
-green (npx tsc --noEmit clean). Witness + RVN + Stripe pills all green
-on live server.
+Branch `feature/pivot` (cut from `feature/electron-parity` after the
+parity overnight). 7 new commits on this branch. End-to-end pipeline
+verified by `scrupel` CLI smoke test.
 
-## Branch
-`feature/electron-parity` — 10 commits ahead of main (3 pre-parity,
-7 parity WOs).
+## What runs (live, smoke-verified)
 
-## Work orders status
-| WO | Status | Commit |
-|---|---|---|
-| 31 — Active-project sidebar banner | ✅ | (parity) |
-| 32 — Sidebar status pills | ✅ | (parity) |
-| 33 — Top-level view toggle + /canvas + /wallet | ✅ | (parity) |
-| 34 — Interlock overlay | ✅ | (parity) |
-| 35 — Debug console | ✅ | (parity) |
-| 36+37+43 — Wallet shell + Fiat/Blockchain + 6 modals | ✅ | (parity) |
-| 38+39+40 — Stripe Payment Element + TSD wiring | 🟡 partial (TSD endpoint wired; Element pending) | — |
-| 41 — IPFS config save endpoint | ❌ | — |
-| 42 — RVN RPC client | ✅ | (parity) |
-| 44 — ElectrumX testnet client | ❌ | — |
-| 45+46 — Lock confirm + progress + result modals | ✅ | (parity) |
-| 47 — Persistent lock executor | ❌ | — |
+- `scrupel` CLI authenticates against dev session route, drives the
+  full pipeline server-side
+- `/api/health` — all three pills green (Witness, RVN mainnet @ 4.3M
+  blocks, Stripe sandbox config returns 200)
+- Project create → iteration ingest → local lock → SCR-ID issued
+- Modal endpoint `https://aquanomous--run.modal.run` responds to POST
+  (422 to empty body, 500 for workflows needing an SD model not yet in
+  the image)
+- Drive OAuth routes wired and serve responses; real Drive connect
+  flow untested in browser yet (Google client redirect-URI whitelist
+  may need scruple.stooges.ai/api/auth/gdrive/callback added)
+- Local artifact retention sweep script works (dry-run today reports 0
+  stale entries, expected)
 
-## System status
-- [x] Workspace / Canvas / Wallet top-level view toggle
-- [x] Active-project sidebar banner (TRACKING + thumbnails)
-- [x] Connection status pills (Witness ● RVN ● Stripe ●)
-- [x] Interlock overlay (chain lock blocks all UI)
-- [x] Debug console drawer (last 100 entries)
-- [x] Wallet view — Fiat (Stripe + TSD + IPFS) + Blockchain (RVN + IPFS)
-- [x] 6 wallet management modals (Create/Import/Unlock/Save/Settings/IPFS)
-- [x] Lock confirmation + result modals (success/error/per-network status)
-- [x] RVN RPC client + live mainnet health probe
-- [x] TSD balance + fund proxy through witness server
+## Schema deltas (migrations 006+007+008)
 
-## Server connections verified
-- `scruple-witness.service` (:5799) — `/health` 200, `/api/stripe-config` 200
-- `ravend-mainnet.service` — RPC :8766, scruple/scruplerpc2026main, height 4,362,441
-- `ravend-testnet.service` — RPC :18766 (config) / actual listen 18770
-- All wallet endpoints respond with auth gate
+- `iterations.execution_backend` TEXT (with `idx_iterations_backend`)
+- `iterations.execution_attestation` TEXT (JSON)
+- `iterations.storage_pointer` TEXT (JSON)
+- `storage_providers (user_id PK, provider, encrypted_creds, ...)`
+- `storage_sync_log (id, user_id, iteration_id, operation, provider, status, detail, size_bytes, ts)`
+- `gdrive_tokens (user_id PK, access_token_enc, refresh_token_enc, expires_at, user_email, user_name, scope, connected_at)`
 
-## Notes
-- D-012: per-user wallet storage architecture deferred. Modal handlers
-  show "next build" toast; UI shell is complete.
-- D-013: Workspace/Canvas/Wallet are top-level routes; ProjectShell removed.
-- Stripe Payment Element wiring deferred — needs real Stripe keys + the
-  @stripe/react-stripe-js + @stripe/stripe-js npm packages installed first.
-  Replacement: when LockConfirmModal fires for a fiat chain lock, it should
-  POST to /api/stripe/payment-intent, mount the Element in the modal with
-  the returned clientSecret, then POST to /api/stripe/confirm. Current
-  fiat-mode flow stubs through to the existing /api/lock/chain (which
-  routes through the witness server's Stripe).
-- Persistent lock (WO-47): the witness server's chain-lock executor
-  already covers RVN + Arweave. WO-47 = add IPFS pin step + surface
-  per-step progress via SSE so LockProgressModal can light up.
+## What's deferred from this overnight
+
+- SD 1.5 base model in the Modal image (so a real workflow runs end-to-end)
+- OneDrive provider (S4)
+- GitHub provider (S5)
+- Lock-package builder pulls bytes from storage (S10/S11) — currently
+  still reads from local FS, which works because purge only runs after
+  storage_pointer is set
+
+## Files in flux that morning-me should read first
+
+- `HANDOFF_PIVOT.md` — this doc's longer cousin
+- `PIVOT_WORK_ORDERS.md` — overall plan; tells you what each WO ID means
+- `memory/DECISIONS.md` D-014..D-017 — the architectural decisions this overnight rests on
+
+## Commits this session (in order)
+
+1. Pivot tooling: scrupel CLI + dev-mode auth
+2. Pivot E2+E3+E4+E5+S1+S2+S3+S6+S7+S8: Modal compute + BYOS storage
+3. Pivot E6+S7+S12+S14: receipt attestation, settings storage tab, purge
+4. (final) handoff doc

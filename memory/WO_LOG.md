@@ -38,3 +38,14 @@
 [2026-05-11T23:28:00Z] WO-45+46 | components/wallet/{LockConfirmModal,LockProgressModal,LockResultModal}.tsx; refactored LockButtons | confirmation→execute→result flow
 [2026-05-11T23:35:00Z] DISCOVERY | scruple-witness service has Stripe test keys loaded via /etc/systemd/system/scruple-witness.service.d/override.conf | sk_test_/pk_test_ active; /api/stripe-config returns live publishableKey
 [2026-05-11T23:45:00Z] WO-38+40 | npm install @stripe/{stripe-js,react-stripe-js}; StripePaymentModal.tsx + /api/stripe/confirm route; LockButtons refactored for fiat-mode Stripe routing | end-to-end PaymentElement → confirmPayment → confirm-and-execute
+
+# Pivot Overnight (2026-05-11 → 2026-05-12)
+[2026-05-12T00:30:00Z] PIVOT-START | feature/pivot cut from feature/electron-parity; CONTEXT.md rewritten | starting test wrapper first
+[2026-05-12T01:00:00Z] TOOLING | scripts/scrupel.mjs + app/api/dev/session + GET/POST /api/projects | dev session lookup via DB strategy; __Secure-authjs.session-token cookie name when NEXTAUTH_URL is https
+[2026-05-12T02:00:00Z] PIVOT-SCHEMA | migrations 006 (execution_backend/attestation/storage_pointer) + 007 (storage_providers, sync_log) + 008 (gdrive_tokens per-user) applied
+[2026-05-12T02:30:00Z] PIVOT-STORAGE | lib/storage/{types,gdrive,dispatch}; /api/auth/gdrive/{connect,callback,status,disconnect}; /api/storage/status | per-user Drive tokens AES-GCM encrypted; drive.file scope
+[2026-05-12T03:00:00Z] PIVOT-COMPUTE | modal/scruple_runner.py deployed to aquanomous workspace; lib/compute/modal.ts adapter; /api/generate workflow-mode defaults to Modal when MODAL_RUNNER_ENDPOINT set
+[2026-05-12T03:30:00Z] PIVOT-INGEST | ingestIteration now async, writes to user storage when connected, records storage_pointer + execution_backend + execution_attestation on the iteration row
+[2026-05-12T03:50:00Z] SMOKE | full pipeline: project create → ingest synthetic 1x1 PNG → local lock → SCR_497790 issued | all green
+[2026-05-12T04:00:00Z] PIVOT-UI | settings/StorageSection.tsx for Drive connect; receipt page BackendBadge + AttestationSummary; storage-purge.mjs retention sweep
+[2026-05-12T04:00:00Z] PIVOT-HANDOFF | HANDOFF_PIVOT.md + STATE.md updated
