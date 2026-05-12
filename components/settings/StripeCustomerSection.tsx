@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { addToast } from '@/lib/toast';
+import AddPaymentMethodModal from './AddPaymentMethodModal';
 
 interface PaymentMethod {
   id: string;
@@ -30,6 +31,46 @@ export default function StripeCustomerSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [busyPmId, setBusyPmId] = useState<string | null>(null);
+
+  async function detachCard(pmId: string) {
+    setBusyPmId(pmId);
+    try {
+      const res = await fetch(`/api/stripe/payment-method/${pmId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+      addToast({ tone: 'success', title: 'Card removed' });
+      await refresh();
+    } catch (e) {
+      addToast({
+        tone: 'error',
+        title: 'Could not remove card',
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setBusyPmId(null);
+    }
+  }
+
+  async function setDefault(pmId: string) {
+    setBusyPmId(pmId);
+    try {
+      const res = await fetch(`/api/stripe/payment-method/${pmId}/default`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+      addToast({ tone: 'success', title: 'Default card updated' });
+      await refresh();
+    } catch (e) {
+      addToast({
+        tone: 'error',
+        title: 'Could not set default',
+        detail: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setBusyPmId(null);
+    }
+  }
 
   async function refresh() {
     setLoading(true);
@@ -121,11 +162,10 @@ export default function StripeCustomerSection() {
                 </span>
                 <button
                   type="button"
-                  disabled
-                  title="Saved-card management lands in the next build"
-                  className="rounded-md border border-scruple-border bg-scruple-bg px-2 py-1 text-[10px] text-scruple-muted disabled:cursor-not-allowed"
+                  onClick={() => setShowAddModal(true)}
+                  className="rounded-md border border-scruple-accent-primary bg-scruple-accent-primary/15 px-3 py-1 text-2xs text-scruple-text-primary hover:bg-scruple-accent-primary/30"
                 >
-                  + Add (next build)
+                  + Add card
                 </button>
               </div>
 
@@ -139,20 +179,40 @@ export default function StripeCustomerSection() {
                   {snap.paymentMethods.map(pm => (
                     <li
                       key={pm.id}
-                      className="flex items-center justify-between rounded-md border border-scruple-border bg-scruple-bg px-3 py-1.5"
+                      className="flex items-center justify-between rounded-md border border-scruple-border-color bg-scruple-bg-primary px-3 py-1.5"
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-mono uppercase">{pm.brand}</span>
-                        <span className="font-mono text-scruple-muted">•••• {pm.last4}</span>
-                        <span className="text-[10px] text-scruple-muted">
+                        <span className="font-mono text-scruple-text-secondary">•••• {pm.last4}</span>
+                        <span className="text-2xs text-scruple-text-deep-muted">
                           {pm.expMonth.toString().padStart(2, '0')}/{pm.expYear.toString().slice(-2)}
                         </span>
                       </div>
-                      {pm.isDefault && (
-                        <span className="text-[9px] uppercase tracking-widest text-scruple-success">
-                          default
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {pm.isDefault ? (
+                          <span className="text-3xs uppercase tracking-wider2 text-scruple-success">
+                            default
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setDefault(pm.id)}
+                            disabled={busyPmId === pm.id}
+                            className="text-3xs uppercase tracking-wider2 text-scruple-text-deep-muted hover:text-scruple-text-primary disabled:opacity-50"
+                          >
+                            set default
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => detachCard(pm.id)}
+                          disabled={busyPmId === pm.id}
+                          title="Remove card"
+                          className="text-scruple-text-deep-muted hover:text-scruple-danger disabled:opacity-50"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -161,6 +221,13 @@ export default function StripeCustomerSection() {
           </>
         )}
       </div>
+
+      {showAddModal && (
+        <AddPaymentMethodModal
+          onClose={() => setShowAddModal(false)}
+          onSuccess={refresh}
+        />
+      )}
     </section>
   );
 }
