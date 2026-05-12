@@ -20,7 +20,7 @@ export default async function AppShell({
   const user = session?.user;
 
   return (
-    <div className="grid h-screen grid-cols-[260px_1fr] grid-rows-[48px_1fr]">
+    <div className="grid h-screen grid-cols-shell grid-rows-[48px_1fr]">
       {/* Top bar */}
       <header className="col-span-2 flex items-center justify-between border-b border-scruple-border bg-scruple-surface px-4">
         <div className="flex items-center gap-3">

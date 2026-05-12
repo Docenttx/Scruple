@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* https://api.coingecko.com https://arweave.net; frame-src http://127.0.0.1:*">
+  <title>SCRUPLE Studio</title>
+  <link rel="stylesheet" href="renderer/styles/main.css">
+  <link rel="stylesheet" href="renderer/styles/wallet.css">
+</head>
+<body>
+  <div id="root">
+    <div class="loading-screen">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Loading SCRUPLE Studio...</div>
+    </div>
+  </div>
+  
+  <script src="renderer/state.js"></script>
+  <script src="renderer/api.js"></script>
+  <script src="renderer/render-workspace.js"></script>
+  <script src="renderer/render-wallet.js"></script>
+  <script src="renderer/render-wallet-testnet.js"></script>
+  <script src="renderer/render-main.js"></script>
+  <script src="renderer/handlers.js"></script>
+  <script src="renderer/bundle-final.js"></script>
+</body>
+</html>
