@@ -118,9 +118,9 @@ export async function POST(req: NextRequest) {
   const pkg = buildLockPackage(body.projectId);
   recordPackageHash(body.projectId, pkg.packageHash);
 
-  // Update local project row to chain_locked. RVN/IPFS/Arweave fields
-  // are populated when the witness server has those modules wired live;
-  // for now we record what came back.
+  // Update local project row to chain_locked. The witness server now mints
+  // on RVN testnet — persist the proofTxId + scrId. mintError (when set)
+  // surfaces as a soft-warning in the response; lock still records.
   conn()
     .prepare(
       `UPDATE projects SET
@@ -128,6 +128,8 @@ export async function POST(req: NextRequest) {
          merkle_root = ?,
          witness_signature = ?,
          witnessed_count = ?,
+         scr_id = COALESCE(?, scr_id),
+         rvn_txid = COALESCE(?, rvn_txid),
          locked_at = ?, updated_at = ?,
          is_active = 0
        WHERE id = ?`,
@@ -136,6 +138,8 @@ export async function POST(req: NextRequest) {
       lockResult.merkle_root,
       lockResult.server_signature,
       iterations.length,
+      lockResult.scrId ?? null,
+      lockResult.proofTxId ?? null,
       now,
       now,
       body.projectId,
@@ -148,5 +152,9 @@ export async function POST(req: NextRequest) {
     serverSignature: lockResult.server_signature,
     lockedAt: now,
     packageHash: pkg.packageHash,
+    scrId: lockResult.scrId ?? null,
+    proofTxId: lockResult.proofTxId ?? null,
+    proofChain: lockResult.proofChain ?? null,
+    mintError: lockResult.mintError ?? null,
   });
 }

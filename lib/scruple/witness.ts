@@ -33,6 +33,11 @@ export interface LockProjectResult {
   merkle_root: string;
   server_signature: string;
   locked_at: string;
+  // Pivot: witness server now mints on RVN testnet (post-pivot patch).
+  scrId?: string | null;
+  proofTxId?: string | null;
+  proofChain?: string | null;
+  mintError?: string | null;
   [k: string]: unknown;
 }
 
