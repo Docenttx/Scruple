@@ -166,3 +166,22 @@ export interface LockPackageManifest {
   }>;
   builtAt: string;
 }
+
+// Subset of training_runs needed for receipt + fingerprint UI. Full row
+// has 50+ kohya/lineage columns we don't read at render time.
+export interface TrainingRunRow {
+  id: number;
+  project_id: number;
+  run_sequence: number;
+  status: string | null;
+  created_at: string;
+  completed_at: string | null;
+  output_filename: string | null;
+  output_path: string | null;
+  model_hash: string | null;          // = contentHash (full SHA-256 of file bytes)
+  header_hash: string | null;         // = structuralHash (SHA-256 of safetensors header)
+  header_size: number | null;
+  tensor_count: number | null;
+  structural_summary: string | null;  // JSON; see StructuralSummary in model-fingerprint.ts
+  scr_id: string | null;
+}

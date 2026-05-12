@@ -229,3 +229,45 @@ verifies everything" posture.
 **Implication:** Settings page must show the user where their content
 actually lives. Receipt page must surface storage_pointer (and tamper
 status as L2/L3 lands). PRIVACY.md needs to capture this verbatim.
+
+## D-022 · Dual-hash model fingerprint (content + structural)
+**Decision:** Every training output (Lora, checkpoint) is fingerprinted
+with two independent SHA-256s:
+  contentHash    — full file bytes; canonical authenticity anchor,
+                   binds the SCR-ID, same scheme as image iterations.
+  structuralHash — safetensors JSON header bytes only; ~1 KB.
+                   Instant to compute and verify. Confirms the model's
+                   tensor topology (names, shapes, dtypes) is unchanged.
+Plus a structural_summary JSON capturing tensor count, parameter total,
+dtypes, shape patterns, and a model-type guess (FluxLora / SDXLLora /
+SD15Lora / Unknown).
+**Rationale:** Patent-novel dual-anchor provenance. Bit-exact verify
+is provably tight but slow on multi-GB checkpoints. Structural verify
+is instant and meaningful — confirms architecture without paying the
+full hash cost. Receipts can render the structural fingerprint live;
+content verify is a click-through. Sampling-based hashes are
+cryptographically weak (a sample-aware attacker preserves the
+sampled offsets) and explicitly rejected.
+**Implication:** Migration 011 added structural_summary column;
+existing model_hash/header_hash/header_size/tensor_count cols already
+present from migration 001. lib/scruple/safetensors.ts + lib/scruple/
+model-fingerprint.ts wire it. Training-completion handler (Modal-
+side, deferred) must call fingerprintModelFile() before BYOS upload
+and stamp all four columns on the training_runs row. Receipt page
+already renders ModelFingerprintCard when training_runs.model_hash
+or header_hash is non-null.
+
+## D-023 · No sampled hashing for any artifact
+**Decision:** No deterministic-offset sampling, no chunked-Merkle for
+model files in v1. Authenticity hashes are always SHA-256 over the
+complete byte stream.
+**Rationale:** Sampling weakens tamper-evidence — an attacker who
+knows the sample pattern preserves those bytes and substitutes the
+rest. The patent claim hinges on bit-exact verification being
+mathematically tight. Multi-GB SHA-256 cost is amortized over
+training time (minutes-to-hours) and only paid once.
+**Implication:** Future BLAKE3 migration (5-10x faster, internally
+Merkle-based, same cryptographic strength) revisitable once we have
+multi-TB model libraries. Per-tensor Merkle for forensic analysis
+documented in lib/scruple/model-fingerprint.ts comments as a
+deferred enhancement.

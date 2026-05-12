@@ -5,7 +5,13 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { conn } from '@/lib/db/sqlite';
-import { LOCK_STATE_LABELS, type ProjectRow, type IterationRow, type MerkleNodeRow } from '@/lib/types';
+import {
+  LOCK_STATE_LABELS,
+  type ProjectRow,
+  type IterationRow,
+  type MerkleNodeRow,
+  type TrainingRunRow,
+} from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +31,17 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
   const nodes = conn()
     .prepare(`SELECT * FROM merkle_nodes WHERE project_id = ? ORDER BY level ASC, position ASC`)
     .all(project.id) as MerkleNodeRow[];
+
+  const trainingRuns = conn()
+    .prepare(
+      `SELECT id, project_id, run_sequence, status, created_at, completed_at,
+              output_filename, output_path, model_hash, header_hash, header_size,
+              tensor_count, structural_summary, scr_id
+         FROM training_runs
+        WHERE project_id = ? AND (model_hash IS NOT NULL OR header_hash IS NOT NULL)
+        ORDER BY run_sequence ASC`,
+    )
+    .all(project.id) as TrainingRunRow[];
 
   const witnessedCount = iterations.filter((i) => i.witnessed === 1).length;
 
@@ -123,6 +140,25 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
         <AttestationSummary iterations={iterations} />
       </section>
 
+      {trainingRuns.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-xs uppercase tracking-widest text-scruple-muted">
+            Model fingerprints ({trainingRuns.length})
+          </h2>
+          <p className="mt-1 text-[10px] text-scruple-muted">
+            Each training output is fingerprinted with two independent hashes — a
+            full-bytes SHA-256 (<span className="font-mono">content</span>) and a
+            SHA-256 of the safetensors header (<span className="font-mono">structural</span>).
+            Anyone holding the file can verify either or both.
+          </p>
+          <div className="mt-3 space-y-3">
+            {trainingRuns.map(run => (
+              <ModelFingerprintCard key={run.id} run={run} />
+            ))}
+          </div>
+        </section>
+      )}
+
       {(project.rvn_txid || project.ipfs_cid || project.arweave_uri) && (
         <section className="mt-8">
           <h2 className="text-xs uppercase tracking-widest text-scruple-muted">
@@ -217,4 +253,98 @@ function AttestationSummary({ iterations }: { iterations: Array<{ execution_back
 
 function maxDepth(nodes: MerkleNodeRow[]): number {
   return nodes.reduce((max, n) => Math.max(max, n.level), 0);
+}
+
+interface StructuralSummaryJSON {
+  tensorCount?: number;
+  totalParamCount?: number;
+  dtypes?: string[];
+  shapesSketch?: Record<string, string>;
+  modelTypeGuess?: string;
+  fileSize?: number;
+  headerSize?: number;
+  metadata?: Record<string, string>;
+}
+
+function ModelFingerprintCard({ run }: { run: TrainingRunRow }) {
+  let summary: StructuralSummaryJSON | null = null;
+  if (run.structural_summary) {
+    try {
+      summary = JSON.parse(run.structural_summary) as StructuralSummaryJSON;
+    } catch {
+      summary = null;
+    }
+  }
+  const guess = summary?.modelTypeGuess ?? '—';
+  const tensorCount = run.tensor_count ?? summary?.tensorCount ?? null;
+  const params = summary?.totalParamCount;
+  const fileSize = summary?.fileSize;
+  const dtypes = summary?.dtypes;
+  return (
+    <div className="rounded-md border border-scruple-border bg-scruple-surface p-3 text-xs">
+      <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline gap-2">
+          <span className="rounded-full border border-scruple-accent/40 bg-scruple-accent/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-scruple-accent">
+            {guess}
+          </span>
+          <span className="font-mono text-[11px] text-scruple-text">
+            {run.output_filename ?? `run #${run.run_sequence}`}
+          </span>
+        </div>
+        <span className="text-[10px] text-scruple-muted">
+          run #{run.run_sequence}
+          {run.completed_at && ` · ${new Date(run.completed_at).toLocaleDateString()}`}
+        </span>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+        <dt className="text-[10px] uppercase tracking-widest text-scruple-muted">content hash</dt>
+        <dd className="font-mono text-scruple-text">
+          {run.model_hash ? `${run.model_hash.slice(0, 16)}…${run.model_hash.slice(-8)}` : '—'}
+        </dd>
+        <dt className="text-[10px] uppercase tracking-widest text-scruple-muted">structural hash</dt>
+        <dd className="font-mono text-scruple-text">
+          {run.header_hash ? `${run.header_hash.slice(0, 16)}…${run.header_hash.slice(-8)}` : '—'}
+        </dd>
+        {tensorCount !== null && (
+          <>
+            <dt className="text-[10px] uppercase tracking-widest text-scruple-muted">tensors</dt>
+            <dd className="font-mono text-scruple-text">{tensorCount.toLocaleString()}</dd>
+          </>
+        )}
+        {params !== undefined && (
+          <>
+            <dt className="text-[10px] uppercase tracking-widest text-scruple-muted">parameters</dt>
+            <dd className="font-mono text-scruple-text">{formatParamCount(params)}</dd>
+          </>
+        )}
+        {fileSize !== undefined && (
+          <>
+            <dt className="text-[10px] uppercase tracking-widest text-scruple-muted">file size</dt>
+            <dd className="font-mono text-scruple-text">{formatBytes(fileSize)}</dd>
+          </>
+        )}
+        {dtypes && dtypes.length > 0 && (
+          <>
+            <dt className="text-[10px] uppercase tracking-widest text-scruple-muted">dtypes</dt>
+            <dd className="font-mono text-scruple-text">{dtypes.join(', ')}</dd>
+          </>
+        )}
+      </dl>
+
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatParamCount(n: number): string {
+  if (n < 1_000_000) return n.toLocaleString();
+  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
+  return `${(n / 1_000_000_000).toFixed(2)} B`;
 }

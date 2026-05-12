@@ -1,9 +1,9 @@
 # Scruple Web — Current State
-_Last updated: 2026-05-12T08:30:00Z_
+_Last updated: 2026-05-12T10:30:00Z_
 
-## Phase: Pivot + UI clone phase 2 + non-Drive/Modal items
+## Phase: Pivot + UI clone phase 2 + non-Drive/Modal items + train-1
 
-29 commits on `feature/pivot` since branch creation. Branch is healthy
+30+ commits on `feature/pivot` since branch creation. Branch is healthy
 + ready to merge to main. Build green throughout.
 
 ## What runs (live, smoke-verified)
@@ -19,7 +19,7 @@ _Last updated: 2026-05-12T08:30:00Z_
 
 ## Schema state (migrations applied)
 
-001..010 all applied. Tables:
+001..011 all applied. Tables:
   projects, iterations, merkle_nodes (001 core)
   users, sessions, accounts, verification_tokens (002 auth)
   telemetry (003)
@@ -30,8 +30,10 @@ _Last updated: 2026-05-12T08:30:00Z_
   gdrive_tokens (008 — per-user, AES-GCM)
   users.stripe_customer_id (009)
   tamper_audit_log (010)
+  training_runs.structural_summary + checkpoints.structural_summary (011)
+    plus indexes on model_hash / header_hash
 
-## Decisions logged through D-021
+## Decisions logged through D-023
 
 See memory/DECISIONS.md. The big ones from this session:
   D-014..D-017 — Python nodes deprecated, one product, TEE-only, BYOS
@@ -39,6 +41,8 @@ See memory/DECISIONS.md. The big ones from this session:
   D-019 — BYO Modal compute as escape hatch
   D-020 — 3-layer tamper-evidence policy
   D-021 — No scruple server content storage
+  D-022 — Dual-hash model fingerprint (content + structural)
+  D-023 — No sampled hashing — bit-exact only
 
 ## This session's deliverables
 
@@ -61,6 +65,15 @@ Non-Drive/Modal items:
   - Tamper-audit migration 010 + lib/audit/tamper.ts + /api/audit/iteration/:id
   - Modal `seed` entrypoint downloaded SD 1.5 base + VAE
   - Canvas stub-sync script
+
+Train-1 — dual-hash model fingerprint:
+  - lib/scruple/safetensors.ts — header parser (file + buffer)
+  - lib/scruple/model-fingerprint.ts — fingerprintModelFile() +
+                                        structuralFingerprintOnly()
+  - migrations/011_model_fingerprint.sql
+  - lib/types.ts — TrainingRunRow shape
+  - app/receipt/[scrId]/page.tsx — ModelFingerprintCard
+  - scripts/test-fingerprint.ts — synthetic safetensors smoke (passes)
 
 ## What's left before merge to main
 

@@ -63,3 +63,9 @@
 [2026-05-12T08:25:00Z] CLONE-12 | migration 010 + lib/audit/tamper.ts + /api/audit/iteration/:id | tamper-audit Layer 2 scaffolding
 [2026-05-12T08:30:00Z] CLONE-13 | /api/stripe/setup-intent + payment-method/:id (delete + default) + AddPaymentMethodModal | saved-card UX live
 [2026-05-12T08:30:00Z] DECISIONS | D-018..D-021 appended to DECISIONS.md
+[2026-05-12T10:30:00Z] train-1 | shipped lib/scruple/safetensors.ts | header parser + file streamer + dtype size table
+[2026-05-12T10:30:00Z] train-1 | shipped lib/scruple/model-fingerprint.ts | dual-hash (content + structural) + model-type guess + kohya metadata reading
+[2026-05-12T10:30:00Z] train-1 | shipped migrations/011_model_fingerprint.sql | structural_summary cols + 3 hash indexes
+[2026-05-12T10:30:00Z] train-1 | shipped ModelFingerprintCard in receipt page | renders content/structural/tensors/params/dtypes per training_run
+[2026-05-12T10:30:00Z] train-1 | shipped scripts/test-fingerprint.ts | synthetic safetensors smoke, all assertions pass
+[2026-05-12T10:30:00Z] train-1 | logged D-022 (dual-hash fingerprint) + D-023 (no sampled hashing)
