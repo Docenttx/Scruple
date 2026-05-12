@@ -54,38 +54,43 @@ export default function ProvenanceTerminal() {
   if (!snap || !snap.active) return null;
 
   return (
-    <div className="border-b border-scruple-border bg-scruple-surface/60">
+    // Console aesthetic: monospace, cyan accent header, dark backing.
+    // Mirrors the desktop's .debug-console + .iteration-list panel
+    // hybrid — the "Scruple Terminal" pattern the user described.
+    <div className="border-b border-scruple-border-color bg-scruple-bg-primary font-mono">
       <div className="px-3 py-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-medium uppercase tracking-widest text-scruple-accent-primary">
-            Provenance
+        <div className="mb-1.5 flex items-center justify-between border-b border-scruple-border-color/50 pb-1">
+          <span className="text-2xs font-bold uppercase tracking-wider2 text-scruple-accent-primary">
+            ▸ Provenance
           </span>
           {snap.iterationId != null && (
-            <span className="font-mono text-[10px] text-scruple-muted">
-              #{snap.runSequence} · {snap.leafHash?.slice(0, 8)}
+            <span className="text-3xs text-scruple-text-deep-muted">
+              #{snap.runSequence}·{snap.leafHash?.slice(0, 6)}
             </span>
           )}
         </div>
 
         {snap.rows.length === 0 ? (
-          <div className="mt-2 text-[10px] text-scruple-muted">
+          <div className="text-3xs italic text-scruple-text-deep-muted">
             {snap.iterationId == null
-              ? 'No iterations yet on this project.'
-              : 'No workflow metadata recorded for the most recent run.'}
+              ? '// no iterations yet'
+              : '// no metadata for last run'}
           </div>
         ) : (
-          <ul className="mt-2 space-y-0.5 font-mono text-[10px] leading-tight">
+          <ul className="space-y-0 text-3xs leading-relaxed">
             {snap.rows.map((r, i) => (
               <li
                 key={`${r.category}-${i}`}
                 className="flex items-baseline gap-1.5"
                 title={r.detail ?? r.value}
               >
-                <span className="w-3 flex-shrink-0 text-scruple-accent-primary">
-                  {r.checked ? '✓' : '·'}
+                <span
+                  className={`w-2 flex-shrink-0 ${r.checked ? 'text-scruple-success' : 'text-scruple-text-deep-muted'}`}
+                >
+                  {r.checked ? '✓' : '∙'}
                 </span>
-                <span className="w-16 flex-shrink-0 text-scruple-muted">{r.category}</span>
-                <span className="truncate text-scruple-text">{r.value}</span>
+                <span className="w-14 flex-shrink-0 text-scruple-text-secondary">{r.category}</span>
+                <span className="truncate text-scruple-text-primary">{r.value}</span>
               </li>
             ))}
           </ul>

@@ -27,38 +27,57 @@ export default function SidebarList({
             : 'No projects yet. Click + New to create one.'}
         </p>
       ) : (
-        <ul className="divide-y divide-scruple-border">
+        // Desktop catalog §3 "Project List Rows":
+        // .project-item — 12px padding, bg tertiary, border 1px, 8px
+        // radius, cursor pointer, hover: accent-primary border.
+        // .project-item.selected — left border 2px accent + name color
+        // accent. .project-item.active — accent border + bg tint.
+        <ul className="flex flex-col gap-1 px-2 py-2">
           {projects.map((p) => (
             <li
               key={p.id}
               className={clsx(
-                'group relative px-4 py-2 transition hover:bg-scruple-bg',
-                activeId === p.id && 'bg-scruple-bg',
+                'group relative rounded-lg border bg-scruple-bg-tertiary transition-colors duration-fast',
+                activeId === p.id
+                  // Selected: left accent stripe + name turns cyan
+                  ? 'border-scruple-accent-primary/40 bg-scruple-accent-primary/10'
+                  : 'border-scruple-border-color hover:border-scruple-accent-primary',
               )}
             >
-              <Link href={`/projects/${p.id}`} className="flex flex-col gap-1">
+              <Link
+                href={`/projects/${p.id}`}
+                className="flex flex-col gap-1 px-3 py-2"
+              >
                 <div className="flex items-center justify-between">
-                  <span className="truncate text-sm">{p.name}</span>
+                  <span
+                    className={clsx(
+                      'truncate text-sm font-medium',
+                      activeId === p.id ? 'text-scruple-accent-primary' : 'text-scruple-text-primary',
+                    )}
+                  >
+                    {p.name}
+                  </span>
                   {p.is_active === 1 && (
                     <span
-                      className="ml-2 h-1.5 w-1.5 shrink-0 rounded-full bg-scruple-success"
+                      className="ml-2 inline-block h-2 w-2 shrink-0 rounded-full bg-scruple-danger"
+                      style={{ boxShadow: '0 0 6px currentColor' }}
                       title="Tracking"
                     />
                   )}
                 </div>
-                <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
+                <div className="flex flex-wrap items-center gap-2 text-2xs text-scruple-text-deep-muted">
                   <StatusBadge status={p.status} />
                   <span>·</span>
                   <span>{p.iteration_count} iter</span>
                   {p.scr_id && (
                     <>
                       <span>·</span>
-                      <span className="font-mono">{p.scr_id}</span>
+                      <span className="font-mono text-scruple-accent-primary">{p.scr_id}</span>
                     </>
                   )}
                 </div>
               </Link>
-              <div className="absolute right-2 top-1 hidden group-hover:block">
+              <div className="absolute right-2 top-2 hidden group-hover:block">
                 <ProjectRowActions projectId={p.id} />
               </div>
             </li>
