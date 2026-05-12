@@ -1,9 +1,24 @@
+// Settings page — post-clone-3 layout.
+//
+// Sections (in order):
+//   1. Account     — Google profile + sign-out
+//   2. Storage     — Drive (BYOS)
+//   3. Payment Mode — Fiat / Blockchain toggle (server-persisted)
+//   4. Stripe Account — read-only customer snapshot
+//   5. RVN Wallet — wallet management (visible when mode = blockchain)
+//   6. Provider Keys — fal + ComfyDeploy
+//   7. Witness Server — read-only diagnostic
+
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth/auth';
 import AppShell from '@/components/AppShell';
 import { getProviderKeyStatus } from '@/lib/settings/actions';
 import ProviderKeyForm from './ProviderKeyForm';
+import AccountSection from '@/components/settings/AccountSection';
 import StorageSection from '@/components/settings/StorageSection';
+import PaymentModeSection from '@/components/settings/PaymentModeSection';
+import StripeCustomerSection from '@/components/settings/StripeCustomerSection';
+import RvnWalletSection from '@/components/settings/RvnWalletSection';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,21 +30,24 @@ export default async function SettingsPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-2xl px-8 py-12">
+      <div className="mx-auto max-w-3xl px-8 py-10">
         <h1 className="text-2xl font-light">Settings</h1>
 
-        <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Account</h2>
-          <div className="mt-2 rounded-md border border-scruple-border bg-scruple-surface p-4 text-sm">
-            <div>{session.user.email}</div>
-            <div className="mt-1 text-[10px] text-scruple-muted">User id: {(session.user as { id?: string }).id}</div>
-          </div>
-        </section>
+        <AccountSection />
+
+        <StorageSection />
+
+        <PaymentModeSection />
+
+        <StripeCustomerSection />
+
+        <RvnWalletSection />
 
         <section className="mt-8">
           <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Provider keys</h2>
           <p className="mt-1 text-xs text-scruple-muted">
-            Keys are encrypted at rest with AES-256-GCM (key derived from <code>AUTH_SECRET</code>).
+            Keys are encrypted at rest with AES-256-GCM (key derived from{' '}
+            <code>AUTH_SECRET</code>).
           </p>
           <div className="mt-4 space-y-4">
             <ProviderKeyForm provider="fal" status={status.fal} />
@@ -37,9 +55,7 @@ export default async function SettingsPage() {
           </div>
         </section>
 
-        <StorageSection />
-
-        <section className="mt-8">
+        <section className="mt-8 mb-12">
           <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Witness server</h2>
           <div className="mt-2 rounded-md border border-scruple-border bg-scruple-surface p-4 text-xs">
             <div>
