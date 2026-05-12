@@ -1,20 +1,28 @@
 'use client';
 
-// WO-45/46 · Lock buttons + confirmation + progress + result flow.
+// WO-45/46/40 · Lock buttons + confirm → (Stripe payment in fiat) →
+// result flow.
 //
-// Click → LockConfirmModal opens (action-aware copy, fee display, RVN
-// password gate for blockchain chain lock, tier picker for fiat chain
-// lock). Confirm → InterlockOverlay shows the global busy state while
-// the lock executor runs (existing /api/lock/{local,checkpoint,chain}).
-// On done → LockResultModal renders the SCR-ID + per-network status.
+// Click → LockConfirmModal (fee display, RVN password or TSD tier).
+// Fiat mode: → StripePaymentModal (Stripe Element). On success, the
+// witness server's confirm-and-execute fires the lock; we surface
+// SCR-ID + per-network status in LockResultModal.
+// Blockchain mode: → direct POST /api/lock/{kind}, then LockResultModal.
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ProjectRow } from '@/lib/types';
 import { useInterlock } from '@/lib/store/interlock';
 import { useToast } from '@/lib/store/toast';
+import { useWallet } from '@/lib/store/wallet';
 import LockConfirmModal, { type LockKind, type ChainTier } from './wallet/LockConfirmModal';
 import LockResultModal, { type LockResult } from './wallet/LockResultModal';
+import StripePaymentModal from './wallet/StripePaymentModal';
+
+type PendingPayment = {
+  kind: LockKind;
+  tier?: ChainTier;
+};
 
 export default function LockButtons({
   project,
@@ -27,12 +35,24 @@ export default function LockButtons({
   const [pending, start] = useTransition();
   const interlocked = useInterlock(s => s.busy);
   const setInterlock = useInterlock(s => s.set);
+  const walletMode = useWallet(s => s.mode);
   const [confirmKind, setConfirmKind] = useState<LockKind | null>(null);
+  const [payment, setPayment] = useState<PendingPayment | null>(null);
   const [result, setResult] = useState<LockResult | null>(null);
   const disabled = !hasContent || pending || interlocked;
 
-  function execute(kind: LockKind, _opts: { tier?: ChainTier; password?: string }) {
+  function onConfirm(kind: LockKind, opts: { tier?: ChainTier; password?: string }) {
     setConfirmKind(null);
+    // Fiat mode → route through Stripe Element for paid actions.
+    if (walletMode === 'fiat') {
+      setPayment({ kind, tier: opts.tier });
+      return;
+    }
+    // Blockchain mode → direct lock executor.
+    fireBlockchain(kind);
+  }
+
+  function fireBlockchain(kind: LockKind) {
     start(async () => {
       setInterlock(true, `Locking project (${kind})`);
       try {
@@ -43,11 +63,7 @@ export default function LockButtons({
         });
         const data = (await res.json()) as Partial<LockResult> & { error?: string };
         if (!res.ok) {
-          setResult({
-            ok: false,
-            kind,
-            error: data.error ?? `HTTP ${res.status}`,
-          });
+          setResult({ ok: false, kind, error: data.error ?? `HTTP ${res.status}` });
           return;
         }
         setResult({
@@ -61,11 +77,7 @@ export default function LockButtons({
         });
         router.refresh();
       } catch (e) {
-        setResult({
-          ok: false,
-          kind,
-          error: e instanceof Error ? e.message : String(e),
-        });
+        setResult({ ok: false, kind, error: e instanceof Error ? e.message : String(e) });
         useToast.getState().push({
           tone: 'error',
           title: 'Lock failed',
@@ -119,7 +131,22 @@ export default function LockButtons({
           project={project}
           kind={confirmKind}
           onClose={() => setConfirmKind(null)}
-          onConfirm={opts => execute(confirmKind, opts)}
+          onConfirm={opts => onConfirm(confirmKind, opts)}
+        />
+      )}
+
+      {payment && (
+        <StripePaymentModal
+          projectId={project.id}
+          projectName={project.name}
+          kind={payment.kind}
+          tier={payment.tier}
+          onClose={() => setPayment(null)}
+          onSuccess={r => {
+            setPayment(null);
+            setResult(r);
+            router.refresh();
+          }}
         />
       )}
 

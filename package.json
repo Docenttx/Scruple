@@ -12,29 +12,31 @@
     "db:seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^6.3.0",
+    "@stripe/stripe-js": "^9.4.0",
+    "archiver": "^7.0.1",
+    "better-sqlite3": "^11.3.0",
+    "clsx": "^2.1.1",
+    "nanoid": "^5.0.7",
     "next": "14.2.15",
+    "next-auth": "5.0.0-beta.20",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "next-auth": "5.0.0-beta.20",
-    "better-sqlite3": "^11.3.0",
     "zod": "^3.23.8",
-    "zustand": "^4.5.5",
-    "nanoid": "^5.0.7",
-    "clsx": "^2.1.1",
-    "archiver": "^7.0.1"
+    "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.2",
+    "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.16.5",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/archiver": "^6.0.2",
-    "typescript": "^5.5.4",
-    "tsx": "^4.19.0",
-    "tailwindcss": "^3.4.10",
-    "postcss": "^8.4.45",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.15"
+    "eslint-config-next": "14.2.15",
+    "postcss": "^8.4.45",
+    "tailwindcss": "^3.4.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
   }
 }
