@@ -31,11 +31,6 @@ export default async function CanvasPage() {
       viewingProjectName={active?.name}
     >
       <div className="relative h-full">
-        {!active && (
-          <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md border border-scruple-warn/40 bg-scruple-warn/10 px-3 py-1.5 text-[11px] text-scruple-warn">
-            ⚠ No active project — Queue Prompt is disabled. Start Tracking a project from the sidebar.
-          </div>
-        )}
         <iframe
           id={IFRAME_ID}
           src={CANVAS_URL}
