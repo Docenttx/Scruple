@@ -123,3 +123,52 @@ one-active-per-user), so it doesn't need to live inside a project URL.
 **Implication:** ProjectShell is removed. The active-project context
 flows through the sidebar's ActiveProjectBanner + the workspace's
 TrackingButton, not via the URL.
+
+## D-014 · Scruple Python custom nodes deprecated for the cloud product
+**Decision:** The four Scruple ComfyUI nodes are removed from
+Scruple-managed cloud machine recipes. JS Queue intercept captures
+workflow JSON; the cloud-side response carries output bytes.
+**Rationale:** Python nodes were a desktop-era pattern. Don't fit
+TEE-attested execution (we don't control the runtime), add machine-
+build complexity, are invasive (users had to drop them in workflows).
+**Implication:** Optional cosmetic JS-only "SCRUPLE" badge nodes may
+exist purely as menu decoration. The existing scruple_nodes Python
+package remains deployed on local canvas.stooges.ai for development
+only.
+
+## D-015 · One product (Scruple Web) — Desktop sunset for cloud path
+**Decision:** Scruple Web is the only Scruple-managed product. The
+cloud execution backend is TEE-attested NVIDIA H100. Local GPU tunnel
+("Scruple Agent") is a planned future capability — out of scope for
+the v1 pivot.
+**Rationale:** Two products fork the codebase. Local tunnel adds a
+second compute path with a different trust ceiling needing separate
+marketing + pricing. Punt until after single-product launch.
+**Implication:** Scruple Desktop becomes archive code. No new
+releases. Future local-GPU support ships as a thin tunnel agent, not
+a full second app.
+
+## D-016 · TEE-attested cloud only — no non-attested middle tier
+**Decision:** The cloud backend runs exclusively in TEE-attested mode
+(NVIDIA H100 CC via Modal or Phala). No "Standard" non-attested
+fallback.
+**Rationale:** Every cloud run on the patentable path. Pricing and
+positioning don't have to explain two cloud tiers. CC mode premium
+is ~10–20% over plain H100 — small enough that per-lock pricing
+absorbs it.
+**Implication:** Custom nodes incompatible with CC mode are fixed
+(CC-built) or documented as unsupported. The compatibility envelope
+becomes part of the trust story.
+
+## D-017 · BYOS (Bring Your Own Storage) — no scruple-web content store
+**Decision:** Scruple Web does not persist user images, workflow JSON,
+or any content beyond ephemeral working storage for an in-progress
+run. Persistent home for every artifact is the user's Drive /
+OneDrive / GitHub.
+**Rationale:** Privacy by architecture, not by promise. Mirrors
+Stooges' "no user data on Stooges" architecture (D-046–D-054 over in
+ai-council). Same legal/compliance posture.
+**Implication:** New `lib/storage/` subsystem (Drive + OneDrive +
+GitHub providers + dispatcher). Iteration ingest writes to user
+storage immediately; local copy purges within N minutes. Scruple-web
+holds only the hash + pointer + chain metadata.
