@@ -1,55 +1,91 @@
 # Scruple Web — Current State
-_Last updated: 2026-05-12T04:00:00Z_
+_Last updated: 2026-05-12T08:30:00Z_
 
-## Phase: Pivot — substantial portion shipped, awaiting morning verification
+## Phase: Pivot + UI clone phase 2 + non-Drive/Modal items
 
-Branch `feature/pivot` (cut from `feature/electron-parity` after the
-parity overnight). 7 new commits on this branch. End-to-end pipeline
-verified by `scrupel` CLI smoke test.
+29 commits on `feature/pivot` since branch creation. Branch is healthy
++ ready to merge to main. Build green throughout.
 
 ## What runs (live, smoke-verified)
 
-- `scrupel` CLI authenticates against dev session route, drives the
-  full pipeline server-side
-- `/api/health` — all three pills green (Witness, RVN mainnet @ 4.3M
-  blocks, Stripe sandbox config returns 200)
-- Project create → iteration ingest → local lock → SCR-ID issued
-- Modal endpoint `https://aquanomous--run.modal.run` responds to POST
-  (422 to empty body, 500 for workflows needing an SD model not yet in
-  the image)
-- Drive OAuth routes wired and serve responses; real Drive connect
-  flow untested in browser yet (Google client redirect-URI whitelist
-  may need scruple.stooges.ai/api/auth/gdrive/callback added)
-- Local artifact retention sweep script works (dry-run today reports 0
-  stale entries, expected)
+- Scruple-web on Oracle, served via Cloudflare Tunnel at scruple.stooges.ai
+- Modal `scruple-runner` app deployed; SD 1.5 + VAE on the `scruple-models` Volume
+- Canvas stub-sync mirrors Volume filenames into local ComfyUI; dropdowns populated
+- Witness server `/api/lock/*` now mints real RVN testnet assets (3 minted this session)
+- Stripe Customer `cus_UV9reZNDuInE4o` exists; SetupIntent endpoint returns live clientSecrets
+- `/api/verify` accepts both manifest + external-bytes modes
+- Tamper-audit table + manual audit endpoint shipped (cron pending Drive connection)
+- Workflow validator catches missing models + structural problems with actionable hints
 
-## Schema deltas (migrations 006+007+008)
+## Schema state (migrations applied)
 
-- `iterations.execution_backend` TEXT (with `idx_iterations_backend`)
-- `iterations.execution_attestation` TEXT (JSON)
-- `iterations.storage_pointer` TEXT (JSON)
-- `storage_providers (user_id PK, provider, encrypted_creds, ...)`
-- `storage_sync_log (id, user_id, iteration_id, operation, provider, status, detail, size_bytes, ts)`
-- `gdrive_tokens (user_id PK, access_token_enc, refresh_token_enc, expires_at, user_email, user_name, scope, connected_at)`
+001..010 all applied. Tables:
+  projects, iterations, merkle_nodes (001 core)
+  users, sessions, accounts, verification_tokens (002 auth)
+  telemetry (003)
+  projects.comfy_workflow_id (004)
+  user_settings (005)
+  iterations.execution_backend / execution_attestation / storage_pointer (006)
+  storage_providers, storage_sync_log (007)
+  gdrive_tokens (008 — per-user, AES-GCM)
+  users.stripe_customer_id (009)
+  tamper_audit_log (010)
 
-## What's deferred from this overnight
+## Decisions logged through D-021
 
-- SD 1.5 base model in the Modal image (so a real workflow runs end-to-end)
-- OneDrive provider (S4)
-- GitHub provider (S5)
-- Lock-package builder pulls bytes from storage (S10/S11) — currently
-  still reads from local FS, which works because purge only runs after
-  storage_pointer is set
+See memory/DECISIONS.md. The big ones from this session:
+  D-014..D-017 — Python nodes deprecated, one product, TEE-only, BYOS
+  D-018 — Tiered warm-cache (free/pro/premium ↔ cold/warm/attested)
+  D-019 — BYO Modal compute as escape hatch
+  D-020 — 3-layer tamper-evidence policy
+  D-021 — No scruple server content storage
 
-## Files in flux that morning-me should read first
+## This session's deliverables
 
-- `HANDOFF_PIVOT.md` — this doc's longer cousin
-- `PIVOT_WORK_ORDERS.md` — overall plan; tells you what each WO ID means
-- `memory/DECISIONS.md` D-014..D-017 — the architectural decisions this overnight rests on
+UI clone phase 1 (design tokens) — committed
+UI clone phase 2 (components):
+  - ActiveProjectBanner — TRACKING is RED per desktop
+  - LockButtons — per-kind hover borders matching desktop
+  - WorkspaceView — max-width 1200, proper padding, font-semibold
+  - IterationGrid — CSS Grid auto-fill 280px minmax
+  - ModalShell — modal-in animation, 480px max-w
+  - StatusPills — flag-bg styling with glow on connected
+  - SidebarList — tertiary bg, accent border, accent-tinted selected
+  - ProvenanceTerminal — full terminal aesthetic, monospace
 
-## Commits this session (in order)
+Non-Drive/Modal items:
+  - lib/compute/backends.ts — ComputeBackend interface
+  - /api/verify external-bytes mode with SSRF guards
+  - Workflow validator + /api/workflow/validate + WorkflowUploader UI
+  - Stripe SetupIntent + saved-card UX (add/detach/default)
+  - Tamper-audit migration 010 + lib/audit/tamper.ts + /api/audit/iteration/:id
+  - Modal `seed` entrypoint downloaded SD 1.5 base + VAE
+  - Canvas stub-sync script
 
-1. Pivot tooling: scrupel CLI + dev-mode auth
-2. Pivot E2+E3+E4+E5+S1+S2+S3+S6+S7+S8: Modal compute + BYOS storage
-3. Pivot E6+S7+S12+S14: receipt attestation, settings storage tab, purge
-4. (final) handoff doc
+## What's left before merge to main
+
+Critical path items (none of which block beta launch — all polish):
+  - Cron scheduled for sync-canvas-stubs.mjs + storage-purge.mjs
+  - Drive OAuth redirect URI verified in Google Cloud Console
+  - Real Modal generation end-to-end smoke (haven't run a real workflow yet)
+  - HANDOFF_PIVOT.md refresh (last update was at the parity overnight close)
+
+Deferred per docs (next-session work):
+  - BYO Modal compute UI in Settings (D-019 — endpoint typing already in place)
+  - Lock-package builder pulling from BYOS (S10/S11)
+  - PRIVACY.md doc
+  - Nightly tamper-audit cron + Settings audit log tab + email notifications
+  - Curated model catalog browsing in Settings
+  - Drive-Lora picker (Pass-3 of model flow)
+  - Video / training (per docs/video-training-tamper-evident-2026-05-12.md)
+
+## Commit graph since main
+
+```
+0cfee4e clone-2 cont'd: sidebar list + provenance terminal
+124b5c8 UI clone phase 2: spacing + radii + animations + key components
+… see git log main..feature/pivot for the full 29
+```
+
+## Branch
+`feature/pivot` — health: green, typecheck clean, hot-reload working.

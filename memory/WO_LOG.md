@@ -49,3 +49,17 @@
 [2026-05-12T03:50:00Z] SMOKE | full pipeline: project create → ingest synthetic 1x1 PNG → local lock → SCR_497790 issued | all green
 [2026-05-12T04:00:00Z] PIVOT-UI | settings/StorageSection.tsx for Drive connect; receipt page BackendBadge + AttestationSummary; storage-purge.mjs retention sweep
 [2026-05-12T04:00:00Z] PIVOT-HANDOFF | HANDOFF_PIVOT.md + STATE.md updated
+
+# Pass 1A+1B + clone-7..n + non-Drive/Modal items (2026-05-12 morning)
+[2026-05-12T05:30:00Z] PASS-1A | modal/scruple_runner.py — scruple-models Volume mount + fetch_to_volume + list_volume + delete_from_volume admin functions + scaledown_window=600 | redeployed
+[2026-05-12T06:00:00Z] PASS-1B | scripts/sync-canvas-stubs.mjs | mirrors Volume filenames as 0-byte stubs in /data/reference/ui-inspire/ComfyUI/models
+[2026-05-12T06:15:00Z] SEED | SD 1.5 base + VAE downloaded to scruple-models volume | ckpts dropdown live
+[2026-05-12T06:30:00Z] PROPOSAL | docs/video-training-tamper-evident-2026-05-12.md | full design + effort estimates for txt2video / img2video / training / audit
+[2026-05-12T07:15:00Z] CLONE-7 | lib/compute/backends.ts + modal.ts refactored | ComputeBackend interface
+[2026-05-12T07:30:00Z] CLONE-8 | /api/verify external-bytes mode | SSRF guards + 200MB cap
+[2026-05-12T07:45:00Z] CLONE-9 | UI phase 2 batch 1 — tailwind tokens + ActiveProjectBanner (red TRACKING) + LockButtons (per-kind hover) + WorkspaceView (max-w 1200) + IterationGrid (auto-fill) + ModalShell (animate-modal-in) + StatusPills (flag-bg + glow) | from desktop main.css ground truth
+[2026-05-12T08:00:00Z] CLONE-10 | UI phase 2 batch 2 — SidebarList project rows (.project-item) + ProvenanceTerminal (full terminal aesthetic) | desktop-aligned
+[2026-05-12T08:15:00Z] CLONE-11 | lib/provenance/validate.ts + /api/workflow/validate + WorkflowUploader.tsx | structural + model-file existence checks
+[2026-05-12T08:25:00Z] CLONE-12 | migration 010 + lib/audit/tamper.ts + /api/audit/iteration/:id | tamper-audit Layer 2 scaffolding
+[2026-05-12T08:30:00Z] CLONE-13 | /api/stripe/setup-intent + payment-method/:id (delete + default) + AddPaymentMethodModal | saved-card UX live
+[2026-05-12T08:30:00Z] DECISIONS | D-018..D-021 appended to DECISIONS.md
