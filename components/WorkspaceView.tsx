@@ -10,6 +10,7 @@ import LockButtons from './LockButtons';
 import IterationGridLive from './IterationGridLive';
 import WorkflowField from './WorkflowField';
 import GeneratePanel from './GeneratePanel';
+import WorkflowUploader from './WorkflowUploader';
 
 function truncateHash(h: string | null): string {
   if (!h) return 'N/A';
@@ -58,13 +59,16 @@ export default function WorkspaceView({
         <TrackingButton projectId={project.id} isActive={isActive} disabled={isLocked} />
       </div>
 
-      {/* Generate panel */}
+      {/* Generate panel + Workflow uploader (advanced users) */}
       {!isLocked && (
-        <GeneratePanel
-          projectId={project.id}
-          workflowReady={!!project.comfy_workflow_id}
-          disabled={isLocked}
-        />
+        <>
+          <GeneratePanel
+            projectId={project.id}
+            workflowReady={!!project.comfy_workflow_id}
+            disabled={isLocked}
+          />
+          <WorkflowUploader projectId={project.id} disabled={isLocked} />
+        </>
       )}
 
       {/* Stats */}
