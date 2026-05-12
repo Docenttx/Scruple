@@ -12,10 +12,12 @@ import { usePathname } from 'next/navigation';
 
 type Pill = { label: string; href: string; match: (p: string) => boolean };
 
+// Wallet was a top-level pill; per the clone-2 refactor, payment-mode
+// + saved-method management now live under /settings. Settings is
+// reachable via the gear icon in the topbar — not a view pill.
 const PILLS: Pill[] = [
   { label: 'Workspace', href: '/', match: p => p === '/' || p.startsWith('/projects/') },
   { label: 'Canvas', href: '/canvas', match: p => p.startsWith('/canvas') },
-  { label: 'Wallet', href: '/wallet', match: p => p.startsWith('/wallet') },
 ];
 
 export default function ViewToggle() {
