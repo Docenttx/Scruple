@@ -1,28 +1,31 @@
 // WorkspaceView — port of renderer/render-workspace.js (desktop).
 // Read-only project state view. Prompts + workflow editing live on the
-// /canvas page — the workspace observes what gets captured, it does not
-// dispatch generation.
+// /canvas page. Start/Stop Tracking lives in the sidebar project-footer.
 //
-// Header (name + status badge + tracking badge + Start/Stop Tracking),
-// stats row (count / Merkle Root / SCR-ID),
-// content section that branches on project.type:
-//   image    → IterationGridLive (covers txt2img/img2img/upscale/etc.)
-//   video    → placeholder "Video pipeline not yet implemented"
-//   training → PreflightPanel + reverse-ordered TrainingRunCards
-// Lock section (when not actively tracking) — Finalize/Checkpoint/Chain.
+// Structure (matching desktop main.css .workspace):
+//
+//   .workspace-header  ────────────────────────────────  (bottom border)
+//     .workspace-title   h1 (28px bold) + StatusBadgeSolid + active-badge
+//
+//   .workspace-stats   3 .stat-box (tertiary bg, 28px bold value)
+//
+//   .workspace-merkle  separate tertiary-bg card with Merkle Root +
+//                      SCR-ID rows (label | monospace value, SCR green)
+//
+//   Content (branched on project.type):
+//     image    → IterationGridLive (covers txt2img/img2img/upscale/etc.)
+//     video    → placeholder card "Video pipeline not yet implemented"
+//     training → PreflightPanel + reverse-ordered TrainingRunCards
+//
+//   .workspace-lock-section (when !isActive)
+//     Wrapped in tertiary-bg padded card. Hint above three buttons.
 
-import clsx from 'clsx';
-import { LOCK_STATE_LABELS, type ProjectRow, type IterationRow, type TrainingRunRow } from '@/lib/types';
-import TrackingButton from './TrackingButton';
+import { type ProjectRow, type IterationRow, type TrainingRunRow } from '@/lib/types';
 import LockButtons from './LockButtons';
 import IterationGridLive from './IterationGridLive';
 import TrainingRunCard from './TrainingRunCard';
 import PreflightPanel from './PreflightPanel';
-
-function truncateHash(h: string | null): string {
-  if (!h) return 'N/A';
-  return h.length > 16 ? `${h.slice(0, 8)}…${h.slice(-6)}` : h;
-}
+import StatusBadgeSolid from './StatusBadgeSolid';
 
 export default function WorkspaceView({
   project,
@@ -39,53 +42,75 @@ export default function WorkspaceView({
   const hasContent =
     project.type === 'training' ? hasTrainingRuns :
     project.type === 'image' ? hasIterations :
-    false; // video has no content concept yet
-  const isLocked = project.status !== 'unlocked' && project.status !== 'checkpointed';
+    false;
   const currentRunId = trainingRuns.length > 0 ? trainingRuns[trainingRuns.length - 1].id : null;
 
   return (
-    // Desktop catalog §2 Layout: .workspace — max-width 1200px,
-    // centered margin: 0 auto, 24px padding.
-    <div className="mx-auto flex max-w-[1200px] flex-col gap-6 p-6">
-      {/* Header — workspace-title (left) + workspace-actions (right) */}
-      <div className="flex items-start justify-between gap-4">
+    // .workspace — max-width 1200, 24px padding
+    <div className="mx-auto max-w-[1200px] p-6">
+      {/* .workspace-header — flex row, bottom border */}
+      <div className="mb-6 flex items-start justify-between gap-4 border-b border-scruple-border-color pb-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-light text-scruple-text-primary">{project.name}</h1>
-            <StatusBadge status={project.status} />
+          <h1 className="mb-2 text-[28px] font-semibold leading-tight text-scruple-text-primary">
+            {project.name}
+          </h1>
+          <div className="flex items-center gap-2">
+            <StatusBadgeSolid status={project.status} />
             {isActive && (
-              // Desktop TRACKING badge: red, not green
-              <span className="rounded-full border border-scruple-danger/40 bg-scruple-danger/15 px-2 py-0.5 text-2xs font-bold uppercase tracking-wider2 text-scruple-danger">
+              <span
+                className="inline-block rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider"
+                style={{ backgroundColor: '#e53935', color: '#ffffff' }}
+              >
                 ● Tracking
               </span>
             )}
+            <span className="ml-2 text-xs text-scruple-text-secondary">
+              Created {new Date(project.created_at).toLocaleDateString()} · Type {project.type}
+            </span>
           </div>
-          <p className="mt-1 text-xs text-scruple-text-secondary">
-            Created {new Date(project.created_at).toLocaleDateString()} · Type {project.type}
-          </p>
-        </div>
-        <div className="shrink-0">
-          <TrackingButton projectId={project.id} isActive={isActive} disabled={isLocked} />
         </div>
       </div>
 
-      {/* Stats — desktop has 3 max (count / Merkle / SCR) */}
-      <div className="grid grid-cols-3 gap-4">
-        <Stat label={statLabelForType(project.type)} value={String(countForType(project, trainingRuns))} />
-        <Stat label="Merkle Root" value={truncateHash(project.merkle_root)} mono />
-        {project.scr_id ? (
-          <Stat label="SCR ID" value={project.scr_id} highlight mono />
-        ) : (
-          <Stat label="SCR ID" value="—" />
+      {/* .workspace-stats — flex row of stat-box */}
+      <div className="mb-6 flex flex-wrap gap-4">
+        <StatBox label={statLabelForType(project.type)} value={countForType(project, trainingRuns)} />
+        <StatBox label="Witnessed" value={project.witnessed_count} />
+        {project.scr_id && <StatBox label="SCR-ID" value={project.scr_id} highlight />}
+      </div>
+
+      {/* .workspace-merkle — separate card */}
+      <div className="mb-6 rounded-lg bg-scruple-bg-tertiary p-4">
+        <div className="flex items-center gap-3 py-2">
+          <span className="min-w-[120px] text-xs text-scruple-text-secondary">Merkle Root</span>
+          <code className="break-all rounded bg-scruple-bg-primary px-2 py-1 font-mono text-xs text-scruple-accent-primary">
+            {project.merkle_root || '— not yet computed —'}
+          </code>
+        </div>
+        {project.scr_id && (
+          <div className="flex items-center gap-3 border-t border-scruple-border-color/50 py-2">
+            <span className="min-w-[120px] text-xs text-scruple-text-secondary">SCR-ID</span>
+            <code
+              className="rounded bg-scruple-bg-primary px-2 py-1 font-mono text-xs"
+              style={{ color: '#4caf50' }}
+            >
+              {project.scr_id}
+            </code>
+          </div>
+        )}
+        {project.pre_scr_id && !project.scr_id && (
+          <div className="flex items-center gap-3 border-t border-scruple-border-color/50 py-2">
+            <span className="min-w-[120px] text-xs text-scruple-text-secondary">Pre-SCR</span>
+            <code className="rounded bg-scruple-bg-primary px-2 py-1 font-mono text-xs text-scruple-text-deep-muted">
+              {project.pre_scr_id}
+            </code>
+          </div>
         )}
       </div>
 
       {/* Content — branches on project type */}
       {project.type === 'training' ? (
-        <section>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
-            Training Runs
-          </h2>
+        <section className="mb-8">
+          <h2 className="mb-4 text-lg font-semibold text-scruple-text-primary">Training Runs</h2>
           <PreflightPanel runId={currentRunId} />
           <div className="mt-4 space-y-3">
             {hasTrainingRuns ? (
@@ -95,30 +120,22 @@ export default function WorkspaceView({
                   <TrainingRunCard key={run.id} run={run} allRuns={trainingRuns} />
                 ))
             ) : (
-              <div className="rounded-md border border-dashed border-scruple-border-color bg-scruple-surface/50 p-8 text-center">
-                <p className="text-sm text-scruple-text-deep-muted">
-                  No training runs captured yet. Start training in Kohya to see them here.
-                </p>
+              <div className="rounded-lg bg-scruple-bg-tertiary p-12 text-center text-sm text-scruple-text-secondary">
+                No training runs captured yet. Start training in Kohya to see them here.
               </div>
             )}
           </div>
         </section>
       ) : project.type === 'video' ? (
-        <section>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
-            Video
-          </h2>
-          <div className="rounded-md border border-dashed border-scruple-border-color bg-scruple-surface/50 p-8 text-center">
-            <p className="text-sm text-scruple-text-deep-muted">
-              Video pipeline not yet implemented. This project type is reserved — capture support lands in a future release.
-            </p>
+        <section className="mb-8">
+          <h2 className="mb-4 text-lg font-semibold text-scruple-text-primary">Video</h2>
+          <div className="rounded-lg bg-scruple-bg-tertiary p-12 text-center text-sm text-scruple-text-secondary">
+            Video pipeline not yet implemented. This project type is reserved — capture support lands in a future release.
           </div>
         </section>
       ) : (
-        <section>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
-            Iterations
-          </h2>
+        <section className="mb-8">
+          <h2 className="mb-4 text-lg font-semibold text-scruple-text-primary">Iterations</h2>
           <IterationGridLive
             initial={iterations}
             projectId={project.id}
@@ -127,20 +144,46 @@ export default function WorkspaceView({
         </section>
       )}
 
-      {/* Lock section */}
+      {/* .workspace-lock-section — wrapped in tertiary-bg card */}
       {!isActive && (
-        <section>
-          <h2 className="mb-3 text-xs uppercase tracking-widest text-scruple-muted">
-            Lock project
-          </h2>
-          {!hasContent && (
-            <p className="mb-3 rounded-md border border-scruple-border bg-scruple-surface/50 p-3 text-xs text-scruple-muted">
-              {hintForType(project.type)}
-            </p>
-          )}
+        <section className="rounded-lg bg-scruple-bg-tertiary p-6">
+          <h2 className="mb-2 text-lg font-semibold text-scruple-text-primary">Lock Project</h2>
+          <p className="mb-4 text-sm text-scruple-text-secondary">
+            {hasContent
+              ? 'Finalize to permanently seal your creative history, or Checkpoint to preserve progress and keep working.'
+              : hintForType(project.type)}
+          </p>
           <LockButtons project={project} hasContent={hasContent} />
         </section>
       )}
+    </div>
+  );
+}
+
+// .stat-box — tertiary bg, 8px radius, 16px 24px padding, centered.
+// .stat-value 28px bold. .stat-label 11px uppercase muted.
+function StatBox({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: string | number;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="min-w-[100px] flex-1 rounded-lg bg-scruple-bg-tertiary px-6 py-4 text-center">
+      <div
+        className={
+          'text-[28px] font-bold leading-tight ' +
+          (highlight ? 'font-mono text-scruple-accent-primary' : 'text-scruple-text-primary')
+        }
+      >
+        {value}
+      </div>
+      <div className="mt-1 text-[11px] uppercase tracking-wider text-scruple-text-secondary">
+        {label}
+      </div>
     </div>
   );
 }
@@ -155,7 +198,6 @@ function statLabelForType(type: ProjectRow['type']): string {
 
 function countForType(project: ProjectRow, trainingRuns: TrainingRunRow[]): number {
   if (project.type === 'training') return trainingRuns.length;
-  // image + video both use iteration_count for now (video is placeholder).
   return project.iteration_count;
 }
 
@@ -165,43 +207,4 @@ function hintForType(type: ProjectRow['type']): string {
     case 'video':    return 'Video capture is not yet implemented — locking will be enabled once at least one clip is captured.';
     case 'image':    return 'Generate at least one iteration to enable locking.';
   }
-}
-
-function Stat({
-  label,
-  value,
-  mono,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className={clsx(
-        'rounded-md border px-3 py-2',
-        highlight
-          ? 'border-scruple-accent/40 bg-scruple-accent/5'
-          : 'border-scruple-border bg-scruple-surface',
-      )}
-    >
-      <div className="text-[10px] uppercase tracking-widest text-scruple-muted">{label}</div>
-      <div className={clsx('mt-1 text-sm', mono && 'font-mono')}>{value}</div>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: keyof typeof LOCK_STATE_LABELS }) {
-  const tone = clsx(
-    'rounded px-2 py-0.5 text-[10px]',
-    status === 'unlocked' && 'border border-scruple-border text-scruple-muted',
-    status === 'checkpointed' && 'border border-scruple-warn/40 text-scruple-warn',
-    status === 'local_locked' && 'border border-scruple-success/40 text-scruple-success',
-    status === 'chain_locked' && 'border border-scruple-accent/40 text-scruple-accent',
-    (status === 'persistent_locked' || status === 'permanent_locked') &&
-      'border border-scruple-accent text-scruple-accent',
-  );
-  return <span className={tone}>{LOCK_STATE_LABELS[status]}</span>;
 }

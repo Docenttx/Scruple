@@ -1,5 +1,14 @@
-// IterationGrid — workspace iteration cards. Real ingestion lands in WO-14;
-// this renders whatever rows exist in `iterations`.
+// IterationGrid — port of desktop .iterations-grid + .iteration-card.
+//
+// Card layout (top → bottom):
+//   .iteration-image  — 180px tall, full width, object-cover, bg-primary
+//   .iteration-details (12px padding):
+//     .iteration-header — flex: #N (16px bold) ↔ witnessed marker
+//     .iteration-hash   — "Leaf:" label + monospace truncated code
+//     .iteration-time   — 10px muted timestamp
+//
+// Card itself: tertiary bg, 8px radius, overflow hidden, no border;
+// hover lifts -2px with shadow. Grid: auto-fill 280px minmax.
 
 import type { IterationRow } from '@/lib/types';
 
@@ -10,22 +19,22 @@ function truncate(h: string, n = 16) {
 export default function IterationGrid({ iterations }: { iterations: IterationRow[] }) {
   if (iterations.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-scruple-border bg-scruple-surface/50 p-12 text-center">
-        <p className="text-sm text-scruple-muted">
-          No iterations yet. Start tracking and generate an image to capture the first iteration.
-        </p>
+      <div className="rounded-lg bg-scruple-bg-tertiary p-12 text-center text-sm text-scruple-text-secondary">
+        No iterations captured yet. Generate images in ComfyUI to see them here.
       </div>
     );
   }
 
   return (
+    // grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap 16px
     <div className="grid grid-cols-iters gap-4">
       {iterations.map((it) => (
         <article
           key={it.id}
-          className="overflow-hidden rounded-md border border-scruple-border bg-scruple-surface"
+          className="overflow-hidden rounded-lg bg-scruple-bg-tertiary transition-all duration-fast hover:-translate-y-0.5 hover:shadow-card"
         >
-          <div className="aspect-square bg-scruple-bg">
+          {/* .iteration-image — 180px tall, object-cover */}
+          <div className="flex h-[180px] w-full items-center justify-center overflow-hidden bg-scruple-bg-primary">
             {it.output_hash ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -34,26 +43,38 @@ export default function IterationGrid({ iterations }: { iterations: IterationRow
                 className="h-full w-full object-cover"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs text-scruple-muted">
-                no image
-              </div>
+              <span className="text-5xl opacity-30">[IMG]</span>
             )}
           </div>
-          <div className="p-2 text-[10px]">
-            <div className="flex items-center justify-between">
-              <span className="text-scruple-text">#{it.run_sequence}</span>
-              {it.witnessed === 1 && (
-                <span title="Witnessed" className="text-scruple-success">
-                  ◇
-                </span>
-              )}
+
+          {/* .iteration-details — 12px padding */}
+          <div className="p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-base font-semibold text-scruple-text-primary">
+                #{it.run_sequence}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {it.witnessed === 1 && (
+                  <span
+                    title="Witnessed"
+                    className="text-xs text-scruple-success"
+                  >
+                    ● witnessed
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="mt-1 font-mono text-scruple-muted">leaf {truncate(it.leaf_hash, 12)}</div>
-            <div className="text-scruple-muted">
-              {new Date(it.timestamp).toLocaleTimeString()}
+            <div className="mb-1 text-[11px] text-scruple-text-secondary">
+              <span>Leaf: </span>
+              <code className="rounded bg-scruple-bg-primary px-1.5 py-0.5 text-scruple-accent-primary">
+                {truncate(it.leaf_hash, 12)}
+              </code>
+            </div>
+            <div className="text-[10px] text-scruple-text-deep-muted">
+              {new Date(it.timestamp).toLocaleString()}
             </div>
             {it.prompt && (
-              <div className="mt-1 truncate text-scruple-muted" title={it.prompt}>
+              <div className="mt-1 truncate text-[11px] text-scruple-text-secondary" title={it.prompt}>
                 {it.prompt}
               </div>
             )}

@@ -2,6 +2,41 @@ import Link from 'next/link';
 import clsx from 'clsx';
 import { LOCK_STATE_LABELS, type ProjectRow } from '@/lib/types';
 import ProjectRowActions from './ProjectRowActions';
+import SidebarTrackingButton from './SidebarTrackingButton';
+
+// Status dot colors — match desktop render-main.js statusColors:
+//   unlocked            → #4caf50 (green)
+//   local_locked        → #ff9800 (orange)
+//   chain_locked        → #2196f3 (blue)
+//   persistent_locked   → #9c27b0 (purple)
+//   permanent_locked    → #9c27b0 (purple)
+//   checkpointed        → web addition (yellow)
+function statusDotColor(status: ProjectRow['status']): string {
+  switch (status) {
+    case 'unlocked':           return '#4caf50';
+    case 'checkpointed':       return '#ffc107';
+    case 'local_locked':       return '#ff9800';
+    case 'chain_locked':       return '#2196f3';
+    case 'persistent_locked':
+    case 'permanent_locked':   return '#9c27b0';
+    default:                   return '#4caf50';
+  }
+}
+
+// Type prefix per desktop convention.
+function typePrefix(type: ProjectRow['type']): string {
+  switch (type) {
+    case 'training': return '[T]';
+    case 'video':    return '[V]';
+    case 'image':    return '[I]';
+  }
+}
+
+function countAndLabel(p: ProjectRow): string {
+  if (p.type === 'training') return '— runs'; // training count not on ProjectRow yet
+  if (p.type === 'video')    return `${p.iteration_count} clips`;
+  return `${p.iteration_count} iterations`;
+}
 
 export default function SidebarList({
   projects,
@@ -27,61 +62,72 @@ export default function SidebarList({
             : 'No projects yet. Click + New to create one.'}
         </p>
       ) : (
-        // Desktop catalog §3 "Project List Rows":
-        // .project-item — 12px padding, bg tertiary, border 1px, 8px
-        // radius, cursor pointer, hover: accent-primary border.
-        // .project-item.selected — left border 2px accent + name color
-        // accent. .project-item.active — accent border + bg tint.
-        <ul className="flex flex-col gap-1 px-2 py-2">
-          {projects.map((p) => (
-            <li
-              key={p.id}
-              className={clsx(
-                'group relative rounded-lg border bg-scruple-bg-tertiary transition-colors duration-fast',
-                activeId === p.id
-                  // Selected: left accent stripe + name turns cyan
-                  ? 'border-scruple-accent-primary/40 bg-scruple-accent-primary/10'
-                  : 'border-scruple-border-color hover:border-scruple-accent-primary',
-              )}
-            >
-              <Link
-                href={`/projects/${p.id}`}
-                className="flex flex-col gap-1 px-3 py-2"
+        // Desktop catalog §3 Project List Rows:
+        // .project-item — tertiary bg, 1px border, 8px radius.
+        //   .project-main — clickable area (name + meta + status dot).
+        //   .project-footer — Archive + Start/Stop Tracking buttons.
+        <ul className="flex flex-col gap-2 px-2 py-2">
+          {projects.map((p) => {
+            const isSelected = activeId === p.id;
+            const isTracking = p.is_active === 1;
+            return (
+              <li
+                key={p.id}
+                className={clsx(
+                  'rounded-lg border bg-scruple-bg-tertiary transition-colors duration-fast',
+                  isSelected
+                    ? 'border-scruple-accent-primary'
+                    : isTracking
+                      ? 'border-scruple-success/40'
+                      : 'border-scruple-border-color hover:border-scruple-accent-primary/60',
+                )}
               >
-                <div className="flex items-center justify-between">
-                  <span
-                    className={clsx(
-                      'truncate text-sm font-medium',
-                      activeId === p.id ? 'text-scruple-accent-primary' : 'text-scruple-text-primary',
-                    )}
-                  >
-                    {p.name}
-                  </span>
-                  {p.is_active === 1 && (
+                {/* .project-main — clickable name/meta block */}
+                <Link
+                  href={`/projects/${p.id}`}
+                  className="block px-3 pt-2 pb-1"
+                >
+                  <div className="flex items-start justify-between gap-2">
                     <span
-                      className="ml-2 inline-block h-2 w-2 shrink-0 rounded-full bg-scruple-danger"
-                      style={{ boxShadow: '0 0 6px currentColor' }}
-                      title="Tracking"
+                      className={clsx(
+                        'truncate text-sm font-medium',
+                        isSelected ? 'text-scruple-accent-primary' : 'text-scruple-text-primary',
+                      )}
+                    >
+                      <span className="mr-1 font-mono text-2xs text-scruple-text-deep-muted">
+                        {typePrefix(p.type)}
+                      </span>
+                      {p.name}
+                    </span>
+                    {/* Status dot — solid colored circle per desktop */}
+                    <span
+                      className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor: statusDotColor(p.status),
+                        boxShadow: isTracking ? `0 0 6px ${statusDotColor(p.status)}` : undefined,
+                      }}
+                      title={LOCK_STATE_LABELS[p.status]}
                     />
-                  )}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-2xs text-scruple-text-deep-muted">
+                    <span>{countAndLabel(p)}</span>
+                    {p.scr_id && (
+                      <>
+                        <span>·</span>
+                        <span className="font-mono text-scruple-accent-primary">{p.scr_id}</span>
+                      </>
+                    )}
+                  </div>
+                </Link>
+
+                {/* .project-footer — Archive + Start/Stop Tracking */}
+                <div className="flex items-center justify-between border-t border-scruple-border-color/50 px-3 py-1.5">
+                  <ProjectRowActions projectId={p.id} />
+                  <SidebarTrackingButton projectId={p.id} isActive={isTracking} />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-2xs text-scruple-text-deep-muted">
-                  <StatusBadge status={p.status} />
-                  <span>·</span>
-                  <span>{p.iteration_count} iter</span>
-                  {p.scr_id && (
-                    <>
-                      <span>·</span>
-                      <span className="font-mono text-scruple-accent-primary">{p.scr_id}</span>
-                    </>
-                  )}
-                </div>
-              </Link>
-              <div className="absolute right-2 top-2 hidden group-hover:block">
-                <ProjectRowActions projectId={p.id} />
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -120,17 +166,4 @@ function PageLink({ page, search, children }: { page: number; search: string; ch
       {children}
     </Link>
   );
-}
-
-function StatusBadge({ status }: { status: keyof typeof LOCK_STATE_LABELS }) {
-  const tone = clsx(
-    'rounded px-1 py-0.5 text-[9px]',
-    status === 'unlocked' && 'border border-scruple-border text-scruple-muted',
-    status === 'checkpointed' && 'border border-scruple-warn/40 text-scruple-warn',
-    status === 'local_locked' && 'border border-scruple-success/40 text-scruple-success',
-    status === 'chain_locked' && 'border border-scruple-accent/40 text-scruple-accent',
-    (status === 'persistent_locked' || status === 'permanent_locked') &&
-      'border border-scruple-accent text-scruple-accent',
-  );
-  return <span className={tone}>{LOCK_STATE_LABELS[status]}</span>;
 }

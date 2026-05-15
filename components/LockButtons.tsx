@@ -89,14 +89,8 @@ export default function LockButtons({
     });
   }
 
-  if (!hasContent) {
-    return (
-      <p className="rounded-md border border-scruple-border bg-scruple-surface/50 p-3 text-xs text-scruple-muted">
-        Capture at least one iteration to enable locking.
-      </p>
-    );
-  }
-
+  // Desktop always renders the 3 buttons. They go disabled when there's
+  // no content; the surrounding lock section already prints the hint.
   return (
     <>
       {/* Desktop: .lock-buttons-row grid-template-columns repeat(3,1fr),
@@ -174,18 +168,18 @@ function LockButton({
   disabled: boolean;
   onClick: () => void;
 }) {
-  // Desktop styling per catalog §3 "Lock Buttons":
-  //   .lock-btn-large — flex column center, 24px 16px padding, 2px
-  //   border, 8px radius, secondary bg, text-align center.
-  // Per-kind hover border:
-  //   .lock-btn-large.local:hover     → border --accent-warning  (#f59e0b)
-  //   .lock-btn-large.chain:hover     → border --accent-secondary (#3b82f6)
-  //   .lock-btn-large.persistent:hover → border --accent-purple (#8b5cf6)
-  // checkpoint is treated as local on desktop.
-  const accent =
+  // Desktop main.css .lock-btn-large:
+  //   flex column center, 24px 16px padding, 2px border --border-color,
+  //   8px radius, --bg-secondary background, transition.
+  //   Default hover: border --accent-primary (cyan).
+  //   .local:hover     → border --accent-warning  (orange)
+  //   .chain:hover     → border --accent-secondary (blue)
+  //   .persistent:hover → border --accent-purple
+  //   checkpoint is treated as local on desktop.
+  const hoverBorder =
     kind === 'local' || kind === 'checkpoint'
-      ? 'hover:border-scruple-warn'
-      : 'hover:border-scruple-accent-secondary';
+      ? 'hover:enabled:border-scruple-warn'
+      : 'hover:enabled:border-scruple-accent-secondary';
   return (
     <button
       type="button"
@@ -194,8 +188,8 @@ function LockButton({
       className={
         'flex flex-col items-center rounded-lg border-2 border-scruple-border-color ' +
         'bg-scruple-bg-secondary px-4 py-6 text-center transition-colors duration-fast ' +
-        'disabled:opacity-30 ' +
-        accent
+        'disabled:cursor-not-allowed disabled:opacity-50 ' +
+        hoverBorder
       }
     >
       <span className="mb-3 text-3xl">{icon}</span>
