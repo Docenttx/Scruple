@@ -1,19 +1,20 @@
 // WorkspaceView — port of renderer/render-workspace.js (desktop).
-// Header (name + status badge + tracking badge + workspace-actions slot),
+// Read-only project state view. Prompts + workflow editing live on the
+// /canvas page — the workspace observes what gets captured, it does not
+// dispatch generation.
+//
+// Header (name + status badge + tracking badge + Start/Stop Tracking),
 // stats row (Iterations|Training Runs / Merkle Root / SCR-ID),
 // content section that branches on project.type:
-//   txt2img  → IterationGridLive
+//   image    → IterationGridLive (covers txt2img/img2img/upscale/etc.)
 //   training → PreflightPanel + reverse-ordered TrainingRunCards
-// Lock section (when not actively tracking) with Finalize/Checkpoint/Chain.
+// Lock section (when not actively tracking) — Finalize/Checkpoint/Chain.
 
 import clsx from 'clsx';
 import { LOCK_STATE_LABELS, type ProjectRow, type IterationRow, type TrainingRunRow } from '@/lib/types';
 import TrackingButton from './TrackingButton';
 import LockButtons from './LockButtons';
 import IterationGridLive from './IterationGridLive';
-import WorkflowField from './WorkflowField';
-import GeneratePanel from './GeneratePanel';
-import WorkflowUploader from './WorkflowUploader';
 import TrainingRunCard from './TrainingRunCard';
 import PreflightPanel from './PreflightPanel';
 
@@ -59,32 +60,11 @@ export default function WorkspaceView({
           <p className="mt-1 text-xs text-scruple-text-secondary">
             Created {new Date(project.created_at).toLocaleDateString()} · Type {project.type}
           </p>
-          {!isTraining && (
-            <div className="mt-2">
-              <WorkflowField
-                projectId={project.id}
-                initialWorkflowId={project.comfy_workflow_id}
-                disabled={isLocked}
-              />
-            </div>
-          )}
         </div>
         <div className="shrink-0">
           <TrackingButton projectId={project.id} isActive={isActive} disabled={isLocked} />
         </div>
       </div>
-
-      {/* Generate panel + Workflow uploader — txt2img only */}
-      {!isTraining && !isLocked && (
-        <>
-          <GeneratePanel
-            projectId={project.id}
-            workflowReady={!!project.comfy_workflow_id}
-            disabled={isLocked}
-          />
-          <WorkflowUploader projectId={project.id} disabled={isLocked} />
-        </>
-      )}
 
       {/* Stats — desktop has 3 max (count / Merkle / SCR) */}
       <div className="grid grid-cols-3 gap-4">
