@@ -78,8 +78,13 @@ export default function ModelLibrarySection() {
     return () => clearInterval(t);
   }, [inflightIds.size]);
 
-  async function startFetch(payload: object, trackingId: string) {
-    setInflightIds(prev => new Set(prev).add(trackingId));
+  async function startFetch(payload: object, placeholderId: string) {
+    // Two-phase tracking: register an immediate placeholder so the UI
+    // shows "fetching…" right away, then swap to the actual
+    // target_subpath returned by the server (Civitai callers don't know
+    // the final filename up front). Polling matches against
+    // target_subpath, not the placeholder.
+    setInflightIds(prev => new Set(prev).add(placeholderId));
     try {
       const res = await fetch('/api/models/fetch', {
         method: 'POST',
@@ -88,6 +93,15 @@ export default function ModelLibrarySection() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+      // Swap placeholder → real target_subpath so the polling effect
+      // that watches the Volume listing actually fires when the file
+      // appears on the Volume.
+      setInflightIds(prev => {
+        const next = new Set(prev);
+        next.delete(placeholderId);
+        if (data.target_subpath) next.add(data.target_subpath);
+        return next;
+      });
       addToast({
         tone: 'success',
         title: 'Fetch started',
@@ -101,7 +115,7 @@ export default function ModelLibrarySection() {
       });
       setInflightIds(prev => {
         const next = new Set(prev);
-        next.delete(trackingId);
+        next.delete(placeholderId);
         return next;
       });
     }
