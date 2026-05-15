@@ -100,7 +100,8 @@ export default function ModelLibrarySection() {
   }
 
   // When a file appears in the listing under an inflight target, drop
-  // it from the inflight set so polling can stop.
+  // it from the inflight set so polling can stop AND fire stub-sync so
+  // the canvas dropdown picks it up.
   useEffect(() => {
     if (!listing || inflightIds.size === 0) return;
     const allPaths = new Set<string>();
@@ -108,8 +109,25 @@ export default function ModelLibrarySection() {
       for (const f of files) allPaths.add(f.path);
     }
     const stillInflight = new Set<string>();
+    const justCompleted: string[] = [];
     for (const id of inflightIds) {
-      if (!allPaths.has(id)) stillInflight.add(id);
+      if (allPaths.has(id)) justCompleted.push(id);
+      else stillInflight.add(id);
+    }
+    if (justCompleted.length > 0) {
+      // Fire-and-forget stub-sync so canvas updates. Don't block the UI.
+      fetch('/api/models/sync', { method: 'POST' })
+        .then(r => r.json())
+        .then(r => {
+          if (r?.added?.length > 0 || r?.removed?.length > 0) {
+            addToast({
+              tone: 'success',
+              title: 'Canvas synced',
+              detail: `+${r.added?.length ?? 0} / −${r.removed?.length ?? 0} stubs`,
+            });
+          }
+        })
+        .catch(() => { /* non-fatal — user can re-run from script if needed */ });
     }
     if (stillInflight.size !== inflightIds.size) {
       setInflightIds(stillInflight);
@@ -128,6 +146,8 @@ export default function ModelLibrarySection() {
       if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
       addToast({ tone: 'success', title: 'Removed', detail: target_subpath });
       await refresh();
+      // Stub-sync so canvas drops the dead entry too.
+      void fetch('/api/models/sync', { method: 'POST' }).catch(() => {});
     } catch (e) {
       addToast({
         tone: 'error',
