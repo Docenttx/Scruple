@@ -1,13 +1,12 @@
-// Settings page — post-clone-3 layout.
+// Settings page — sidebar-nav layout.
 //
-// Sections (in order):
-//   1. Account     — Google profile + sign-out
-//   2. Storage     — Drive (BYOS)
-//   3. Payment Mode — Fiat / Blockchain toggle (server-persisted)
-//   4. Stripe Account — read-only customer snapshot
-//   5. RVN Wallet — wallet management (visible when mode = blockchain)
-//   6. Provider Keys — fal + ComfyDeploy
-//   7. Witness Server — read-only diagnostic
+// Categories (sidebar order):
+//   Account       — Google profile + sign-out
+//   Storage       — Drive (BYOS)
+//   Billing       — Payment mode, Stripe customer, RVN wallet
+//   Models        — Provider tokens (HF/Civitai), Model Library
+//   API Keys      — fal + ComfyDeploy
+//   Diagnostics   — Witness server status
 
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth/auth';
@@ -21,8 +20,18 @@ import StripeCustomerSection from '@/components/settings/StripeCustomerSection';
 import RvnWalletSection from '@/components/settings/RvnWalletSection';
 import ProviderTokensSection from '@/components/settings/ProviderTokensSection';
 import ModelLibrarySection from '@/components/settings/ModelLibrarySection';
+import SettingsNav, { type NavItem } from '@/components/settings/SettingsNav';
 
 export const dynamic = 'force-dynamic';
+
+const NAV_ITEMS: NavItem[] = [
+  { id: 'account',     label: 'Account' },
+  { id: 'storage',     label: 'Storage' },
+  { id: 'billing',     label: 'Billing' },
+  { id: 'models',      label: 'Models' },
+  { id: 'api-keys',    label: 'API Keys' },
+  { id: 'diagnostics', label: 'Diagnostics' },
+];
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -32,52 +41,84 @@ export default async function SettingsPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-3xl px-8 py-10">
-        <h1 className="text-2xl font-light">Settings</h1>
+      <div className="mx-auto flex max-w-5xl gap-8 px-8 py-10">
+        <SettingsNav items={NAV_ITEMS} />
 
-        <AccountSection />
+        <div className="min-w-0 flex-1">
+          <h1 className="mb-8 text-2xl font-light">Settings</h1>
 
-        <StorageSection />
+          {/* Account */}
+          <section id="account" className="scroll-mt-12">
+            <CategoryHeader>Account</CategoryHeader>
+            <AccountSection />
+          </section>
 
-        <PaymentModeSection />
+          {/* Storage */}
+          <section id="storage" className="mt-10 scroll-mt-12">
+            <CategoryHeader>Storage</CategoryHeader>
+            <StorageSection />
+          </section>
 
-        <StripeCustomerSection />
+          {/* Billing — payment mode, Stripe customer, RVN wallet */}
+          <section id="billing" className="mt-10 scroll-mt-12">
+            <CategoryHeader>Billing</CategoryHeader>
+            <PaymentModeSection />
+            <StripeCustomerSection />
+            <RvnWalletSection />
+          </section>
 
-        <RvnWalletSection />
+          {/* Models — provider tokens + model library */}
+          <section id="models" className="mt-10 scroll-mt-12">
+            <CategoryHeader>Models</CategoryHeader>
+            <ProviderTokensSection />
+            <ModelLibrarySection />
+          </section>
 
-        <ProviderTokensSection />
-
-        <ModelLibrarySection />
-
-        <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Provider keys</h2>
-          <p className="mt-1 text-xs text-scruple-muted">
-            Keys are encrypted at rest with AES-256-GCM (key derived from{' '}
-            <code>AUTH_SECRET</code>).
-          </p>
-          <div className="mt-4 space-y-4">
-            <ProviderKeyForm provider="fal" status={status.fal} />
-            <ProviderKeyForm provider="comfydeploy" status={status.comfydeploy} />
-          </div>
-        </section>
-
-        <section className="mt-8 mb-12">
-          <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Witness server</h2>
-          <div className="mt-2 rounded-md border border-scruple-border bg-scruple-surface p-4 text-xs">
-            <div>
-              URL:{' '}
-              <span className="font-mono">
-                {process.env.WITNESS_SERVER_URL || 'http://127.0.0.1:5799'}
-              </span>
+          {/* API Keys — provider keys for fal + comfydeploy */}
+          <section id="api-keys" className="mt-10 scroll-mt-12">
+            <CategoryHeader>API Keys</CategoryHeader>
+            <div className="mt-3">
+              <p className="text-xs text-scruple-muted">
+                Keys are encrypted at rest with AES-256-GCM (key derived from{' '}
+                <code>AUTH_SECRET</code>).
+              </p>
+              <div className="mt-4 space-y-4">
+                <ProviderKeyForm provider="fal" status={status.fal} />
+                <ProviderKeyForm provider="comfydeploy" status={status.comfydeploy} />
+              </div>
             </div>
-            <div className="mt-1 text-scruple-muted">
-              Configured via <code>WITNESS_SERVER_URL</code>. Reuses the existing
-              SCRUPLE Witness service — same hashing + signature conventions
-              as desktop.
+          </section>
+
+          {/* Diagnostics — witness server status */}
+          <section id="diagnostics" className="mt-10 mb-12 scroll-mt-12">
+            <CategoryHeader>Diagnostics</CategoryHeader>
+            <div className="mt-3">
+              <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Witness server</h2>
+              <div className="mt-2 rounded-md border border-scruple-border bg-scruple-surface p-4 text-xs">
+                <div>
+                  URL:{' '}
+                  <span className="font-mono">
+                    {process.env.WITNESS_SERVER_URL || 'http://127.0.0.1:5799'}
+                  </span>
+                </div>
+                <div className="mt-1 text-scruple-muted">
+                  Configured via <code>WITNESS_SERVER_URL</code>. Reuses the existing
+                  SCRUPLE Witness service — same hashing + signature conventions
+                  as desktop.
+                </div>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </div>
     </AppShell>
+  );
+}
+
+function CategoryHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-b border-scruple-border-color pb-2">
+      <h2 className="text-lg font-semibold text-scruple-text-primary">{children}</h2>
+    </div>
   );
 }
