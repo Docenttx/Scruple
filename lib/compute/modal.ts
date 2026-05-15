@@ -96,3 +96,91 @@ export const modalRunner: ComputeBackend = {
     }
   },
 };
+
+// ── Async spawn + poll (Replicate-style) ──────────────────────────────────
+//
+// Workflow:
+//   const { callId } = await spawnWorkflow(json);          // fire async
+//   const status     = await getWorkflowStatus(callId);    // poll until done
+//
+// Modal-side endpoints: admin-spawn-workflow + admin-workflow-status.
+// Auth via SCRUPLE_MODAL_ADMIN_TOKEN (same shared secret as the model
+// library admin endpoints).
+
+const MODAL_WORKSPACE = process.env.MODAL_WORKSPACE ?? 'aquanomous';
+const ADMIN_TOKEN = process.env.SCRUPLE_MODAL_ADMIN_TOKEN ?? '';
+
+function adminUrl(label: string): string {
+  return `https://${MODAL_WORKSPACE}--${label}.modal.run/`;
+}
+
+export interface SpawnResult {
+  ok: boolean;
+  callId?: string;
+  error?: string;
+}
+
+export interface WorkflowStatusRunning {
+  status: 'running';
+}
+export interface WorkflowStatusDone {
+  status: 'done';
+  result: {
+    ok: boolean;
+    image_bytes_b64?: string;
+    content_type?: string;
+    prompt_id?: string;
+    duration_ms?: number;
+    gpu?: string;
+    attestation?: Record<string, unknown> | null;
+    error?: string;
+  };
+}
+export interface WorkflowStatusFailed {
+  status: 'failed';
+  error: string;
+  preempted: boolean;
+}
+export type WorkflowStatus = WorkflowStatusRunning | WorkflowStatusDone | WorkflowStatusFailed;
+
+export async function spawnWorkflow(
+  workflowApiJson: Record<string, unknown>,
+): Promise<SpawnResult> {
+  if (!ADMIN_TOKEN) {
+    return { ok: false, error: 'SCRUPLE_MODAL_ADMIN_TOKEN not set' };
+  }
+  const res = await fetch(adminUrl('admin-spawn-workflow'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': ADMIN_TOKEN },
+    body: JSON.stringify({ workflow_api_json: workflowApiJson }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
+  }
+  const data = (await res.json()) as { ok: boolean; call_id?: string; error?: string };
+  if (!data.ok || !data.call_id) {
+    return { ok: false, error: data.error ?? 'spawn returned no call_id' };
+  }
+  return { ok: true, callId: data.call_id };
+}
+
+export async function getWorkflowStatus(callId: string): Promise<WorkflowStatus> {
+  if (!ADMIN_TOKEN) {
+    return { status: 'failed', error: 'SCRUPLE_MODAL_ADMIN_TOKEN not set', preempted: false };
+  }
+  const url = new URL(adminUrl('admin-workflow-status'));
+  url.searchParams.set('call_id', callId);
+  const res = await fetch(url.toString(), {
+    headers: { 'X-Admin-Token': ADMIN_TOKEN },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return {
+      status: 'failed',
+      error: `status_endpoint_${res.status}: ${text.slice(0, 200)}`,
+      preempted: false,
+    };
+  }
+  return (await res.json()) as WorkflowStatus;
+}

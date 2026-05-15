@@ -21,7 +21,8 @@ import { comfyDeployProvider } from '@/lib/providers/comfydeploy';
 import { ProviderError } from '@/lib/providers/types';
 import { getDecryptedProviderKey } from '@/lib/settings/actions';
 import { ingestIteration } from '@/lib/iterations/ingest';
-import { modalRunner, ModalError } from '@/lib/compute/modal';
+import { modalRunner, ModalError, spawnWorkflow } from '@/lib/compute/modal';
+import { nanoid } from 'nanoid';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProject } from '@/lib/projects/actions';
 import type { GenerationSpec, ProjectRow } from '@/lib/types';
@@ -120,6 +121,75 @@ export async function POST(req: NextRequest) {
     forceBackend === 'modal' ||
     (forceBackend !== 'comfydeploy' && !workflowBody.machineId && modalRunner.isConfigured());
 
+  // Pre-flight provenance capture — write the workflow JSON to disk
+  // BEFORE we ship it to Modal/Comfy. Survives any downstream failure.
+  // Path: /tmp/scruple-dispatch/<projectId>/<unix-ms>.json
+  // Returned in both success and error responses as `dispatchLogPath`.
+  let dispatchLogPath: string | null = null;
+  try {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const dir = path.join('/tmp/scruple-dispatch', String(project.id));
+    fs.mkdirSync(dir, { recursive: true });
+    dispatchLogPath = path.join(dir, `${Date.now()}.json`);
+    fs.writeFileSync(
+      dispatchLogPath,
+      JSON.stringify(
+        {
+          ts: new Date().toISOString(),
+          userId,
+          projectId: project.id,
+          projectName: project.name,
+          backend: wantsModal ? 'modal' : 'comfydeploy',
+          machineId: workflowBody.machineId,
+          // Both formats — API (what Modal/Comfy executes) AND UI (the
+          // intent-bearing graph with control_after_generate, widget
+          // titles, node positions, etc.). A future verifier can prove
+          // exact bytes executed AND the user's authoring intent.
+          workflowApiJson: workflowBody.workflowApiJson,
+          workflow: workflowBody.workflow ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch {
+    // Best-effort — don't fail dispatch if log write breaks.
+    dispatchLogPath = null;
+  }
+
+  // Async dispatch (default): spawn Modal call, insert generation_jobs row,
+  // return 202 with jobId. Client (CanvasBridge) polls /api/generate/status.
+  // Avoids Cloudflare's 100s response timeout and enables clean
+  // preemption-retry. Sync path preserved behind `?sync=1` for tests.
+  const wantsSync = url.searchParams.get('sync') === '1';
+
+  if (wantsModal && !wantsSync) {
+    const spawn = await spawnWorkflow(workflowBody.workflowApiJson);
+    if (!spawn.ok || !spawn.callId) {
+      return NextResponse.json(
+        { error: 'spawn_failed', detail: spawn.error ?? 'unknown', dispatchLogPath },
+        { status: 502 },
+      );
+    }
+    const jobId = nanoid();
+    conn().prepare(
+      `INSERT INTO generation_jobs
+         (id, user_id, project_id, status, modal_call_id, dispatch_log_path)
+        VALUES (?, ?, ?, 'running', ?, ?)`,
+    ).run(jobId, userId, project.id, spawn.callId, dispatchLogPath);
+    return NextResponse.json(
+      {
+        ok: true,
+        jobId,
+        modalCallId: spawn.callId,
+        dispatchLogPath,
+        status: 'running',
+      },
+      { status: 202 },
+    );
+  }
+
   if (wantsModal) {
     try {
       const modalResult = await modalRunner.runWorkflow(workflowBody.workflowApiJson);
@@ -137,7 +207,7 @@ export async function POST(req: NextRequest) {
           });
         } catch {}
         return NextResponse.json(
-          { error: 'generation_failed', detail: modalResult.rawError, backend: 'modal' },
+          { error: 'generation_failed', detail: modalResult.rawError, backend: 'modal', dispatchLogPath },
           { status: 502 },
         );
       }

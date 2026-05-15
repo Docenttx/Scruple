@@ -88,8 +88,26 @@ comfy_image = (
         "fastapi[standard]",  # required by Modal web endpoints
     )
     .run_commands(
-        "git clone --depth=1 https://github.com/comfyanonymous/ComfyUI /opt/ComfyUI",
+        # Pin ComfyUI to v0.18.5 — matches the user's local canvas
+        # (v0.18.1-44-g...) and is compatible with Easy-Use 1.3.6. Latest
+        # ComfyUI (0.21+) has a stricter prompt validator that rejects
+        # Easy-Use's node names even when registered.
+        "git clone --depth=1 --branch v0.18.5 https://github.com/comfyanonymous/ComfyUI /opt/ComfyUI",
         "pip install -r /opt/ComfyUI/requirements.txt",
+        # ── Custom node packs ──────────────────────────────────────────
+        # ComfyUI-Easy-Use — provides easy loraStack / loraStackApply /
+        # and many other QoL nodes used in user workflows. Pinned to
+        # v1.3.6 to match the user's local canvas (otherwise the schema
+        # for `easy loraStack` can drift between versions and the same
+        # workflow validates locally but 400s on Modal).
+        "git clone --depth=1 --branch v1.3.6 https://github.com/yolain/ComfyUI-Easy-Use "
+        "/opt/ComfyUI/custom_nodes/ComfyUI-Easy-Use",
+        # Easy-Use has its own requirements; install them. Plus a couple
+        # of indirect deps (lark, opencv-python-headless) that its newer
+        # modules import directly.
+        "pip install -r /opt/ComfyUI/custom_nodes/ComfyUI-Easy-Use/requirements.txt || true",
+        "pip install lark opencv-python-headless",
+        # ── End custom nodes ──────────────────────────────────────────
         # Modal Volumes can only be mounted onto empty directories. The git
         # clone above ships with placeholder subdirs under models/ that
         # would block our scruple-models volume mount. Clear them so the
@@ -120,15 +138,18 @@ def _comfy_running() -> bool:
 
 
 def _start_comfy() -> None:
-    """Boot ComfyUI in the background (single process per container)."""
+    """Boot ComfyUI in the background (single process per container).
+    Stdout/stderr land in /tmp/comfyui.log so failed custom-node imports
+    show up via the diagnose_startup local_entrypoint."""
     import subprocess
     if _comfy_running():
         return
+    logf = open("/tmp/comfyui.log", "ab", buffering=0)
     subprocess.Popen(
         ["python", "main.py", "--listen", "127.0.0.1", "--port", "8188"],
         cwd="/opt/ComfyUI",
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=logf,
+        stderr=subprocess.STDOUT,
     )
     # Wait up to 60s for the server to come up.
     for _ in range(60):
@@ -138,7 +159,48 @@ def _start_comfy() -> None:
     raise RuntimeError("ComfyUI failed to start")
 
 
+@app.function(gpu=GPU, timeout=120, volumes={"/opt/ComfyUI/models": models_volume})
+def diagnose_startup() -> Dict[str, Any]:
+    """Boot ComfyUI, then read /tmp/comfyui.log. Reads the log even when
+    startup fails so we can see WHY ComfyUI crashed."""
+    import subprocess
+    started = False
+    err = None
+    try:
+        if not _comfy_running():
+            logf = open("/tmp/comfyui.log", "ab", buffering=0)
+            subprocess.Popen(
+                ["python", "main.py", "--listen", "127.0.0.1", "--port", "8188"],
+                cwd="/opt/ComfyUI",
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+            )
+            # Wait up to 30s for it to come up. If it doesn't, that's fine —
+            # we still want the log.
+            for _ in range(30):
+                if _comfy_running():
+                    started = True
+                    break
+                time.sleep(1)
+        else:
+            started = True
+    except Exception as e:
+        err = str(e)
+    # Always read the log
+    try:
+        with open("/tmp/comfyui.log", "rb") as f:
+            data = f.read()
+    except Exception as e:
+        data = f"<could not read log: {e}>".encode()
+    tail = data[-8000:].decode("utf-8", errors="replace")
+    return {"started": started, "error": err, "log_tail": tail}
+
+
 def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """POST JSON to local ComfyUI. On HTTP errors, capture the response
+    body and raise a RuntimeError with it inline — otherwise Modal's
+    pickle serialization swallows the original HTTPError and we lose
+    ComfyUI's validation message."""
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         f"http://127.0.0.1:8188{path}",
@@ -146,8 +208,16 @@ def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # Read body BEFORE the BufferedReader gets closed/garbage-collected.
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = "<could not read response body>"
+        raise RuntimeError(f"ComfyUI {path} HTTP {e.code}: {err_body}") from None
 
 
 def _get_json(path: str) -> Dict[str, Any]:
@@ -184,28 +254,44 @@ def run_workflow(workflow_api_json: Dict[str, Any]) -> Dict[str, Any]:
         }
     """
     import base64
+    import traceback
 
     started = time.time()
 
-    _start_comfy()
+    try:
+        _start_comfy()
+    except Exception as e:
+        return {"ok": False, "error": "start_comfy_failed", "detail": str(e), "traceback": traceback.format_exc()}
 
-    # Queue the workflow
-    queued = _post_json("/prompt", {"prompt": workflow_api_json})
+    # Queue the workflow — wrapped so HTTPErrors don't trip Modal's pickle layer.
+    try:
+        queued = _post_json("/prompt", {"prompt": workflow_api_json})
+    except Exception as e:
+        return {"ok": False, "error": "comfy_prompt_post_failed", "detail": str(e)}
     prompt_id = queued.get("prompt_id")
     if not prompt_id:
         return {"ok": False, "error": f"comfy /prompt missing prompt_id: {queued}"}
 
-    # Poll history until the prompt appears with outputs
+    # Poll history until the prompt appears with outputs. Flux dev FP8 +
+    # a LoRA on T4 can take >2 min when the container is doing real work;
+    # bump to 8 min so cold-loaded LoRAs + Flux don't get prematurely killed.
+    # The function-level timeout is 10 min (600s) so we stay safely under.
     outputs: Optional[Dict[str, Any]] = None
-    for _ in range(120):  # ~2 minutes max
+    poll_started = time.time()
+    while time.time() - poll_started < 480:  # 8 minutes max
         hist = _get_json(f"/history/{prompt_id}")
         if prompt_id in hist and hist[prompt_id].get("outputs"):
             outputs = hist[prompt_id]["outputs"]
             break
-        time.sleep(1)
+        time.sleep(2)
 
     if not outputs:
-        return {"ok": False, "error": "timeout waiting for outputs", "prompt_id": prompt_id}
+        return {
+            "ok": False,
+            "error": "timeout waiting for outputs",
+            "prompt_id": prompt_id,
+            "polled_seconds": int(time.time() - poll_started),
+        }
 
     # Find the first image among the outputs (workflow may have multiple)
     image_info = None
@@ -428,6 +514,62 @@ def admin_delete(payload: Dict[str, Any], x_admin_token: str = Header(default=""
 
 
 @app.function(timeout=60, secrets=[ADMIN_SECRET])
+@modal.fastapi_endpoint(method="POST", label="admin-spawn-workflow")
+def admin_spawn_workflow(payload: Dict[str, Any], x_admin_token: str = Header(default="")) -> Dict[str, Any]:
+    """Spawn a run_workflow function call. Returns the FunctionCall.object_id
+    immediately so the caller can poll via admin-workflow-status. Body:
+    {workflow_api_json: {...}}."""
+    if not _check_admin(x_admin_token):
+        return {"ok": False, "error": "unauthorized"}
+    workflow = payload.get("workflow_api_json")
+    if not isinstance(workflow, dict):
+        return {"ok": False, "error": "workflow_api_json (object) required"}
+    call = run_workflow.spawn(workflow)
+    return {"ok": True, "call_id": call.object_id}
+
+
+@app.function(timeout=60, secrets=[ADMIN_SECRET])
+@modal.fastapi_endpoint(method="GET", label="admin-workflow-status")
+def admin_workflow_status(call_id: str, x_admin_token: str = Header(default="")) -> Dict[str, Any]:
+    """Poll a spawned run_workflow call. Returns one of:
+      - {status: 'running'}                          — still in flight
+      - {status: 'done',  result: {ok, image_bytes_b64, ...}}  — terminal success
+      - {status: 'failed', error: str, preempted: bool}        — terminal failure
+    `preempted: true` lets the caller decide to re-spawn the same workflow."""
+    if not _check_admin(x_admin_token):
+        return {"status": "failed", "error": "unauthorized"}
+    try:
+        fc = modal.FunctionCall.from_id(call_id)
+    except Exception as e:
+        return {"status": "failed", "error": f"unknown call_id: {e}"}
+    try:
+        result = fc.get(timeout=0)
+        # run_workflow returns a dict — could be {ok: True, image_bytes_b64,...}
+        # or {ok: False, error: '...'}. Pass through.
+        if isinstance(result, dict) and result.get("ok") is False:
+            err = result.get("error", "")
+            return {
+                "status": "failed",
+                "error": result.get("detail") or err,
+                "preempted": "preempt" in str(err).lower(),
+                "result": result,
+            }
+        return {"status": "done", "result": result}
+    except TimeoutError:
+        return {"status": "running"}
+    except Exception as e:
+        # Modal raises certain exceptions when the FunctionCall failed
+        # (e.g. preemption that exhausted Modal's own retries). Treat any
+        # raise as terminal failure but flag preemption keywords.
+        msg = str(e)
+        return {
+            "status": "failed",
+            "error": msg,
+            "preempted": "preempt" in msg.lower(),
+        }
+
+
+@app.function(timeout=60, secrets=[ADMIN_SECRET])
 @modal.fastapi_endpoint(method="GET", label="admin-job-status")
 def admin_job_status(call_id: str, x_admin_token: str = Header(default="")) -> Dict[str, Any]:
     """Check the status of a previously-spawned fetch. Returns the
@@ -443,6 +585,109 @@ def admin_job_status(call_id: str, x_admin_token: str = Header(default="")) -> D
             return {"ok": True, "pending": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# Diagnostic — list installed custom nodes + verify Easy-Use is importable.
+@app.function(timeout=30)
+def inspect_image() -> Dict[str, Any]:
+    import os, sys, importlib
+    out: Dict[str, Any] = {}
+    try:
+        out["custom_nodes_dir"] = sorted(os.listdir("/opt/ComfyUI/custom_nodes"))
+    except Exception as e:
+        out["custom_nodes_dir_error"] = str(e)
+    out["python_version"] = sys.version
+    # Try importing dependencies the Easy-Use pack needs
+    deps: Dict[str, str] = {}
+    for mod in ("lark", "cv2", "torch", "comfy"):
+        try:
+            m = importlib.import_module(mod)
+            deps[mod] = getattr(m, "__version__", "(no __version__)")
+        except Exception as e:
+            deps[mod] = f"IMPORT FAILED: {e}"
+    out["deps"] = deps
+    return out
+
+
+@app.local_entrypoint()
+def inspect():
+    """Run inspect_image remotely and print its output."""
+    result = inspect_image.remote()
+    print(json.dumps(result, indent=2))
+
+
+@app.local_entrypoint()
+def diagnose():
+    """Boot ComfyUI in a fresh container, print the startup log."""
+    result = diagnose_startup.remote()
+    print(f"started={result.get('started')}  error={result.get('error')}")
+    print("--- log tail ---")
+    print(result.get("log_tail", "(no log)"))
+
+
+@app.function(gpu=GPU, timeout=120, volumes={"/opt/ComfyUI/models": models_volume})
+def list_nodes(filter_substr: str = "") -> Dict[str, Any]:
+    """Boot ComfyUI and return its registered node class names. Optionally
+    filter by substring (case-insensitive)."""
+    _start_comfy()
+    info = _get_json("/object_info")
+    keys = sorted(info.keys())
+    if filter_substr:
+        f = filter_substr.lower()
+        keys = [k for k in keys if f in k.lower()]
+    return {"count": len(keys), "names": keys}
+
+
+@app.function(gpu=GPU, timeout=120, volumes={"/opt/ComfyUI/models": models_volume})
+def probe_prompt_minimal() -> Dict[str, Any]:
+    """Hit /object_info for 'easy loraStack' specifically (bypasses the
+    full-dump issue), then POST a minimal /prompt with one loraStack node
+    to see EXACTLY what ComfyUI says when the class lookup happens."""
+    import urllib.parse
+    _start_comfy()
+    result: Dict[str, Any] = {}
+    # 1. Direct lookup
+    try:
+        encoded = urllib.parse.quote("easy loraStack", safe="")
+        obj = _get_json(f"/object_info/{encoded}")
+        result["object_info_lookup"] = list(obj.keys())
+    except Exception as e:
+        result["object_info_error"] = str(e)
+
+    # 2. Minimal /prompt with one easy loraStack node
+    workflow = {
+        "1": {
+            "class_type": "easy loraStack",
+            "inputs": {
+                "toggle": True,
+                "mode": "simple",
+                "num_loras": 1,
+                "lora_1_name": "None",
+                "lora_1_strength": 1.0,
+                "lora_1_model_strength": 1.0,
+                "lora_1_clip_strength": 1.0,
+            },
+        },
+    }
+    try:
+        r = _post_json("/prompt", {"prompt": workflow})
+        result["prompt_response"] = r
+    except Exception as e:
+        result["prompt_error"] = str(e)
+    return result
+
+
+@app.local_entrypoint()
+def probe():
+    result = probe_prompt_minimal.remote()
+    print(json.dumps(result, indent=2))
+
+
+@app.local_entrypoint()
+def nodes(filter_substr: str = ""):
+    """List registered node class names, optionally filtered."""
+    result = list_nodes.remote(filter_substr)
+    print(json.dumps(result, indent=2))
 
 
 # Local invocation for testing without a web endpoint

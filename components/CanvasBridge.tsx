@@ -70,7 +70,10 @@ export default function CanvasBridge({
         return;
       }
 
-      // Queue intercept: route the workflow to ComfyDeploy.
+      // Queue intercept: spawn the Modal call async, then poll status.
+      // The POST returns 202 with a jobId in <1s (no Cloudflare 100s
+      // timeout to worry about). We then poll /api/generate/status every
+      // 3s until terminal. Preemption retries are handled server-side.
       if (data.type === 'scruple:queue-prompt') {
         const ev = data as QueuePromptMessage;
         const iframe = document.getElementById(iframeId) as HTMLIFrameElement | null;
@@ -83,45 +86,86 @@ export default function CanvasBridge({
 
         setInterlock(true, 'ComfyDeploy queue running');
 
-        fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectId: activeProjectId,
-            workflowApiJson: ev.workflowApiJson,
-            workflow: ev.workflow,
-          }),
-        })
-          .then(async res => {
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+        const failQueue = (err: string) => {
+          logEvent('error', 'canvas-bridge', 'queue failed', { error: err });
+          target?.postMessage(
+            { type: 'scruple:queue-result', ok: false, error: err },
+            '*',
+          );
+          setInterlock(false);
+        };
+
+        const succeedQueue = (runSequence: number | null) => {
+          target?.postMessage(
+            { type: 'scruple:queue-result', ok: true, runSequence },
+            '*',
+          );
+          router.refresh();
+          setInterlock(false);
+        };
+
+        (async () => {
+          let dispatchRes: Response;
+          try {
+            dispatchRes = await fetch('/api/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                projectId: activeProjectId,
+                workflowApiJson: ev.workflowApiJson,
+                workflow: ev.workflow,
+              }),
+            });
+          } catch (e) {
+            failQueue(e instanceof Error ? e.message : String(e));
+            return;
+          }
+          const dispatchBody = await dispatchRes.json().catch(() => ({}));
+          if (!dispatchRes.ok || !dispatchBody.jobId) {
+            failQueue(dispatchBody.detail || dispatchBody.error || `dispatch HTTP ${dispatchRes.status}`);
+            return;
+          }
+          const jobId = dispatchBody.jobId as string;
+          logEvent('info', 'canvas-bridge', 'job started', { jobId });
+
+          // Poll. Max 15 minutes (300 attempts × 3s). Server may re-spawn
+          // on preemption — we stay polling.
+          const MAX_ATTEMPTS = 300;
+          for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            await new Promise(r => setTimeout(r, 3000));
+            let statusRes: Response;
+            try {
+              statusRes = await fetch(`/api/generate/status?jobId=${encodeURIComponent(jobId)}`);
+            } catch (e) {
+              // Transient network blip — keep polling
+              continue;
             }
-            logEvent('info', 'canvas-bridge', 'iteration captured', data);
-            target?.postMessage(
-              {
-                type: 'scruple:queue-result',
-                ok: true,
-                runSequence: data.runSequence,
-              },
-              '*',
-            );
-            router.refresh();
-          })
-          .catch(e => {
-            logEvent('error', 'canvas-bridge', 'queue failed', e);
-            target?.postMessage(
-              {
-                type: 'scruple:queue-result',
-                ok: false,
-                error: e instanceof Error ? e.message : String(e),
-              },
-              '*',
-            );
-          })
-          .finally(() => {
-            setInterlock(false);
-          });
+            if (!statusRes.ok) {
+              failQueue(`status HTTP ${statusRes.status}`);
+              return;
+            }
+            const sb = await statusRes.json().catch(() => ({}));
+            if (sb.status === 'done') {
+              logEvent('info', 'canvas-bridge', 'iteration captured', sb);
+              succeedQueue(sb.runSequence ?? null);
+              return;
+            }
+            if (sb.status === 'failed') {
+              failQueue(sb.error || 'generation failed');
+              return;
+            }
+            // status === 'running' → keep polling. Logging every 5th
+            // attempt (~15s) so the log isn't noisy.
+            if (attempt % 5 === 0) {
+              logEvent('info', 'canvas-bridge', 'still running', {
+                jobId,
+                elapsedSec: sb.elapsedSec,
+                retryCount: sb.retryCount,
+              });
+            }
+          }
+          failQueue('client polling timed out (15 min)');
+        })();
       }
     }
 
