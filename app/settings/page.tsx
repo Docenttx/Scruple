@@ -19,6 +19,8 @@ import StorageSection from '@/components/settings/StorageSection';
 import PaymentModeSection from '@/components/settings/PaymentModeSection';
 import StripeCustomerSection from '@/components/settings/StripeCustomerSection';
 import RvnWalletSection from '@/components/settings/RvnWalletSection';
+import ProviderTokensSection from '@/components/settings/ProviderTokensSection';
+import ModelLibrarySection from '@/components/settings/ModelLibrarySection';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +44,10 @@ export default async function SettingsPage() {
         <StripeCustomerSection />
 
         <RvnWalletSection />
+
+        <ProviderTokensSection />
+
+        <ModelLibrarySection />
 
         <section className="mt-8">
           <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Provider keys</h2>

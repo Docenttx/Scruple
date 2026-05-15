@@ -28,6 +28,33 @@ from typing import Any, Dict, Optional  # Optional used by admin function
 
 import modal
 
+# ── Admin shared secret ───────────────────────────────────────────────────
+# Web backend (scruple-web) passes this in the X-Admin-Token header when
+# calling admin_list / admin_fetch / admin_delete. Set the matching value
+# in scruple-web/.env.local as SCRUPLE_MODAL_ADMIN_TOKEN.
+# Deploy with the token attached via Modal secret:
+#   modal secret create scruple-admin SCRUPLE_MODAL_ADMIN_TOKEN=<random>
+# Then add  secrets=[modal.Secret.from_name("scruple-admin")]  to the
+# admin functions. For local dev the env var falls back to empty string,
+# which disables admin endpoints (they all 401).
+ADMIN_TOKEN = os.environ.get("SCRUPLE_MODAL_ADMIN_TOKEN", "")
+
+
+def _check_admin(token: Optional[str]) -> bool:
+    """Constant-time-ish compare against the configured admin token.
+    Returns False if no token is configured server-side."""
+    if not ADMIN_TOKEN:
+        return False
+    if not token:
+        return False
+    if len(token) != len(ADMIN_TOKEN):
+        return False
+    # bitwise XOR over the bytes for constant-time-ish equality
+    result = 0
+    for a, b in zip(token.encode(), ADMIN_TOKEN.encode()):
+        result |= a ^ b
+    return result == 0
+
 # ── GPU selection ─────────────────────────────────────────────────────────
 # Free tier: T4. Paid tier: "H100" or "A100". TEE-attested H100: see
 # Modal's docs on enabling Confidential Computing mode.
@@ -323,6 +350,99 @@ def delete_from_volume(target_subpath: str) -> Dict[str, Any]:
     os.remove(target)
     models_volume.commit()
     return {"ok": True, "removed": target_subpath}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Admin HTTP endpoints (called by scruple-web Settings → Model Library)
+# ─────────────────────────────────────────────────────────────────────────
+
+# These need FastAPI's Header dependency so we can read X-Admin-Token off
+# the request without going through Modal's payload arg.
+from fastapi import Header  # noqa: E402
+
+# Required Modal Secret holding the admin token. Create before deploy:
+#   modal secret create scruple-admin SCRUPLE_MODAL_ADMIN_TOKEN=$(openssl rand -hex 32)
+# The matching value goes in scruple-web/.env.local as
+#   SCRUPLE_MODAL_ADMIN_TOKEN=<same>
+ADMIN_SECRET = modal.Secret.from_name(
+    "scruple-admin",
+    required_keys=["SCRUPLE_MODAL_ADMIN_TOKEN"],
+)
+
+
+@app.function(
+    timeout=60,
+    volumes={"/opt/ComfyUI/models": models_volume},
+    secrets=[ADMIN_SECRET],
+)
+@modal.fastapi_endpoint(method="GET", label="admin-list")
+def admin_list(x_admin_token: str = Header(default="")) -> Dict[str, Any]:
+    """List every file on the models volume — same shape as list_volume.
+    Auth via X-Admin-Token header (must match SCRUPLE_MODAL_ADMIN_TOKEN
+    in the scruple-admin Modal Secret)."""
+    if not _check_admin(x_admin_token):
+        return {"ok": False, "error": "unauthorized"}
+    return list_volume.remote()
+
+
+@app.function(timeout=60, secrets=[ADMIN_SECRET])
+@modal.fastapi_endpoint(method="POST", label="admin-fetch")
+def admin_fetch(payload: Dict[str, Any], x_admin_token: str = Header(default="")) -> Dict[str, Any]:
+    """Kick off a fetch_to_volume in the background. Returns immediately
+    with the FunctionCall handle id; client polls admin_job_status to
+    track progress or admin_list to see the file appear.
+
+    Body: {source_url, target_subpath, hf_token?}"""
+    if not _check_admin(x_admin_token):
+        return {"ok": False, "error": "unauthorized"}
+    source_url = payload.get("source_url")
+    target_subpath = payload.get("target_subpath")
+    hf_token = payload.get("hf_token")
+    if not isinstance(source_url, str) or not source_url:
+        return {"ok": False, "error": "source_url required"}
+    if not isinstance(target_subpath, str) or not target_subpath:
+        return {"ok": False, "error": "target_subpath required"}
+    # spawn fires async, returns immediately
+    call = fetch_to_volume.spawn(source_url, target_subpath, hf_token)
+    return {
+        "ok": True,
+        "function_call_id": call.object_id,
+        "target_subpath": target_subpath,
+    }
+
+
+@app.function(
+    timeout=60,
+    volumes={"/opt/ComfyUI/models": models_volume},
+    secrets=[ADMIN_SECRET],
+)
+@modal.fastapi_endpoint(method="POST", label="admin-delete")
+def admin_delete(payload: Dict[str, Any], x_admin_token: str = Header(default="")) -> Dict[str, Any]:
+    """Delete a file from the volume. Body: {target_subpath}."""
+    if not _check_admin(x_admin_token):
+        return {"ok": False, "error": "unauthorized"}
+    target_subpath = payload.get("target_subpath")
+    if not isinstance(target_subpath, str) or not target_subpath:
+        return {"ok": False, "error": "target_subpath required"}
+    return delete_from_volume.remote(target_subpath)
+
+
+@app.function(timeout=60, secrets=[ADMIN_SECRET])
+@modal.fastapi_endpoint(method="GET", label="admin-job-status")
+def admin_job_status(call_id: str, x_admin_token: str = Header(default="")) -> Dict[str, Any]:
+    """Check the status of a previously-spawned fetch. Returns the
+    function call's result if complete, or {pending: true} if still running."""
+    if not _check_admin(x_admin_token):
+        return {"ok": False, "error": "unauthorized"}
+    try:
+        fc = modal.FunctionCall.from_id(call_id)
+        try:
+            result = fc.get(timeout=0)
+            return {"ok": True, "pending": False, "result": result}
+        except TimeoutError:
+            return {"ok": True, "pending": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # Local invocation for testing without a web endpoint

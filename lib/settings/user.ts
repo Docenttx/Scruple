@@ -13,6 +13,11 @@ export interface UserSettings {
   payment_mode?: PaymentMode;
   chain_tier?: ChainTier;          // basic = RVN only; pinned = +IPFS+Arweave
   comfy_machine_id?: string;
+  // Model library provider tokens. Plain text for v1 — moved to AES-GCM
+  // in a follow-up to match the gdrive_tokens pattern. Never returned
+  // by GET responses; UI shows a "*** set ***" / "not set" hint instead.
+  hf_token?: string;
+  civitai_token?: string;
   ipfs?: {
     gateway?: string;
     service?: 'none' | 'pinata';
