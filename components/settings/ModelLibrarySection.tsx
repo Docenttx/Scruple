@@ -13,11 +13,19 @@
 import { useEffect, useState } from 'react';
 import { addToast } from '@/lib/toast';
 import { CATALOG, type CatalogModel, type ModelCategory } from '@/lib/modelLibrary/catalog';
+import BrowseCivitaiTab from './BrowseCivitaiTab';
+import BrowseHfTab from './BrowseHfTab';
 
 interface VolumeFile { path: string; size: number; mtime: number; }
 interface VolumeListing { by_category: Record<string, VolumeFile[]>; }
 
-const TAB_LABELS = { installed: 'Installed', catalog: 'Catalog', custom: 'Add URL' } as const;
+const TAB_LABELS = {
+  installed: 'Installed',
+  catalog:   'Catalog',
+  civitai:   'Browse Civitai',
+  hf:        'Browse HF',
+  custom:    'Add URL',
+} as const;
 type Tab = keyof typeof TAB_LABELS;
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -209,6 +217,21 @@ export default function ModelLibrarySection() {
             onInstall={item => startFetch({ catalogId: item.id }, item.target_subpath)}
           />
         )}
+        {tab === 'civitai' && (
+          <BrowseCivitaiTab
+            inflightUrls={inflightIds}
+            installedFilenames={installedFilenamesOf(listing)}
+            onInstall={(pageUrl, trackingId) => startFetch({ civitaiUrl: pageUrl }, trackingId)}
+          />
+        )}
+        {tab === 'hf' && (
+          <BrowseHfTab
+            inflightUrls={inflightIds}
+            installedFilenames={installedFilenamesOf(listing)}
+            onInstall={(sourceUrl, targetSubpath, trackingId) =>
+              startFetch({ sourceUrl, targetSubpath }, trackingId)}
+          />
+        )}
         {tab === 'custom' && (
           <CustomUrlTab
             onSubmit={(payload, target) => startFetch(payload, target)}
@@ -217,6 +240,21 @@ export default function ModelLibrarySection() {
       </div>
     </section>
   );
+}
+
+// Set of bare filenames (no path) for fast lookup from browse tabs —
+// when a browse result's primary file already exists, render
+// "installed" instead of "Install".
+function installedFilenamesOf(listing: VolumeListing | null): Set<string> {
+  const out = new Set<string>();
+  if (!listing) return out;
+  for (const files of Object.values(listing.by_category)) {
+    for (const f of files) {
+      const name = f.path.split('/').pop();
+      if (name) out.add(name);
+    }
+  }
+  return out;
 }
 
 function InstalledTab({
