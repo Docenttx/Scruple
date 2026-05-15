@@ -69,3 +69,10 @@
 [2026-05-12T10:30:00Z] train-1 | shipped ModelFingerprintCard in receipt page | renders content/structural/tensors/params/dtypes per training_run
 [2026-05-12T10:30:00Z] train-1 | shipped scripts/test-fingerprint.ts | synthetic safetensors smoke, all assertions pass
 [2026-05-12T10:30:00Z] train-1 | logged D-022 (dual-hash fingerprint) + D-023 (no sampled hashing)
+[2026-05-15T10:00:00Z] hotfix | killed/cleared/restarted scruple-web | corrupted .next vendor-chunks/@auth.js after today's HMR; pid 1094922
+[2026-05-15T10:05:00Z] hotfix | login button → official Google Sign-In | dark variant per Google brand guidelines, inline 4-color G SVG
+[2026-05-15T10:10:00Z] hotfix | db-adapter.ts updateSession dynamic SET | fixed SqliteError: NOT NULL constraint failed: sessions.user_id during rolling-expiry updates
+[2026-05-15T10:30:00Z] ws-port | TrainingRunCard component | lineage indicator, status badge, parent connector, detail rows, locked footer
+[2026-05-15T10:35:00Z] ws-port | PreflightPanel component | idle/running/complete states; SSE-ready, runtime endpoint deferred
+[2026-05-15T10:40:00Z] ws-port | WorkspaceView training-vs-iter branching | type='training' → preflight + reverse-ordered cards; type='txt2img' → IterationGridLive
+[2026-05-15T10:45:00Z] ws-port | TrainingRunRow extended + getTrainingRuns | actions.ts now exposes the query

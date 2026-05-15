@@ -1,16 +1,21 @@
 // WorkspaceView — port of renderer/render-workspace.js (desktop).
-// Header (name + status badge + active indicator + tracking button),
-// stats row (iteration_count, merkle_root, scr_id), iteration grid,
-// lock buttons.
+// Header (name + status badge + tracking badge + workspace-actions slot),
+// stats row (Iterations|Training Runs / Merkle Root / SCR-ID),
+// content section that branches on project.type:
+//   txt2img  → IterationGridLive
+//   training → PreflightPanel + reverse-ordered TrainingRunCards
+// Lock section (when not actively tracking) with Finalize/Checkpoint/Chain.
 
 import clsx from 'clsx';
-import { LOCK_STATE_LABELS, type ProjectRow, type IterationRow } from '@/lib/types';
+import { LOCK_STATE_LABELS, type ProjectRow, type IterationRow, type TrainingRunRow } from '@/lib/types';
 import TrackingButton from './TrackingButton';
 import LockButtons from './LockButtons';
 import IterationGridLive from './IterationGridLive';
 import WorkflowField from './WorkflowField';
 import GeneratePanel from './GeneratePanel';
 import WorkflowUploader from './WorkflowUploader';
+import TrainingRunCard from './TrainingRunCard';
+import PreflightPanel from './PreflightPanel';
 
 function truncateHash(h: string | null): string {
   if (!h) return 'N/A';
@@ -20,21 +25,27 @@ function truncateHash(h: string | null): string {
 export default function WorkspaceView({
   project,
   iterations,
+  trainingRuns,
 }: {
   project: ProjectRow;
   iterations: IterationRow[];
+  trainingRuns: TrainingRunRow[];
 }) {
   const isActive = project.is_active === 1;
-  const hasContent = iterations.length > 0;
+  const isTraining = project.type === 'training';
+  const hasIterations = iterations.length > 0;
+  const hasTrainingRuns = trainingRuns.length > 0;
+  const hasContent = isTraining ? hasTrainingRuns : hasIterations;
   const isLocked = project.status !== 'unlocked' && project.status !== 'checkpointed';
+  const currentRunId = trainingRuns.length > 0 ? trainingRuns[trainingRuns.length - 1].id : null;
 
   return (
     // Desktop catalog §2 Layout: .workspace — max-width 1200px,
     // centered margin: 0 auto, 24px padding.
     <div className="mx-auto flex max-w-[1200px] flex-col gap-6 p-6">
-      {/* Header */}
+      {/* Header — workspace-title (left) + workspace-actions (right) */}
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-light text-scruple-text-primary">{project.name}</h1>
             <StatusBadge status={project.status} />
@@ -48,19 +59,23 @@ export default function WorkspaceView({
           <p className="mt-1 text-xs text-scruple-text-secondary">
             Created {new Date(project.created_at).toLocaleDateString()} · Type {project.type}
           </p>
-          <div className="mt-2">
-            <WorkflowField
-              projectId={project.id}
-              initialWorkflowId={project.comfy_workflow_id}
-              disabled={isLocked}
-            />
-          </div>
+          {!isTraining && (
+            <div className="mt-2">
+              <WorkflowField
+                projectId={project.id}
+                initialWorkflowId={project.comfy_workflow_id}
+                disabled={isLocked}
+              />
+            </div>
+          )}
         </div>
-        <TrackingButton projectId={project.id} isActive={isActive} disabled={isLocked} />
+        <div className="shrink-0">
+          <TrackingButton projectId={project.id} isActive={isActive} disabled={isLocked} />
+        </div>
       </div>
 
-      {/* Generate panel + Workflow uploader (advanced users) */}
-      {!isLocked && (
+      {/* Generate panel + Workflow uploader — txt2img only */}
+      {!isTraining && !isLocked && (
         <>
           <GeneratePanel
             projectId={project.id}
@@ -71,29 +86,56 @@ export default function WorkspaceView({
         </>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 md:grid-cols-4">
-        <Stat label="Iterations" value={String(project.iteration_count)} />
+      {/* Stats — desktop has 3 max (count / Merkle / SCR) */}
+      <div className="grid grid-cols-3 gap-4">
+        {isTraining ? (
+          <Stat label="Training Runs" value={String(trainingRuns.length)} />
+        ) : (
+          <Stat label="Iterations" value={String(project.iteration_count)} />
+        )}
         <Stat label="Merkle Root" value={truncateHash(project.merkle_root)} mono />
         {project.scr_id ? (
           <Stat label="SCR ID" value={project.scr_id} highlight mono />
         ) : (
           <Stat label="SCR ID" value="—" />
         )}
-        <Stat label="Witnessed" value={String(project.witnessed_count)} />
       </div>
 
-      {/* Iterations — desktop uses CSS Grid auto-fill 280px minmax */}
-      <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
-          Iterations
-        </h2>
-        <IterationGridLive
-          initial={iterations}
-          projectId={project.id}
-          isActive={isActive}
-        />
-      </section>
+      {/* Content — training vs iterations */}
+      {isTraining ? (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
+            Training Runs
+          </h2>
+          <PreflightPanel runId={currentRunId} />
+          <div className="mt-4 space-y-3">
+            {hasTrainingRuns ? (
+              [...trainingRuns]
+                .reverse()
+                .map(run => (
+                  <TrainingRunCard key={run.id} run={run} allRuns={trainingRuns} />
+                ))
+            ) : (
+              <div className="rounded-md border border-dashed border-scruple-border-color bg-scruple-surface/50 p-8 text-center">
+                <p className="text-sm text-scruple-text-deep-muted">
+                  No training runs captured yet. Start training in Kohya to see them here.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      ) : (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
+            Iterations
+          </h2>
+          <IterationGridLive
+            initial={iterations}
+            projectId={project.id}
+            isActive={isActive}
+          />
+        </section>
+      )}
 
       {/* Lock section */}
       {!isActive && (
@@ -101,6 +143,13 @@ export default function WorkspaceView({
           <h2 className="mb-3 text-xs uppercase tracking-widest text-scruple-muted">
             Lock project
           </h2>
+          {!hasContent && (
+            <p className="mb-3 rounded-md border border-scruple-border bg-scruple-surface/50 p-3 text-xs text-scruple-muted">
+              {isTraining
+                ? 'Complete at least one training run to enable locking.'
+                : 'Generate at least one iteration to enable locking.'}
+            </p>
+          )}
           <LockButtons project={project} hasContent={hasContent} />
         </section>
       )}

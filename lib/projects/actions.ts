@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { conn } from '@/lib/db/sqlite';
 import { auth } from '@/lib/auth/auth';
-import type { ProjectRow, ProjectType, IterationRow, MerkleNodeRow } from '@/lib/types';
+import type { ProjectRow, ProjectType, IterationRow, MerkleNodeRow, TrainingRunRow } from '@/lib/types';
 
 async function userId(): Promise<string> {
   const session = await auth();
@@ -87,6 +87,28 @@ export async function getIterations(projectId: number): Promise<IterationRow[]> 
   return conn()
     .prepare(`SELECT * FROM iterations WHERE project_id = ? ORDER BY run_sequence ASC`)
     .all(projectId) as IterationRow[];
+}
+
+export async function getTrainingRuns(projectId: number): Promise<TrainingRunRow[]> {
+  const uid = await userId();
+  const project = conn()
+    .prepare(`SELECT id FROM projects WHERE id = ? AND user_id = ?`)
+    .get(projectId, uid);
+  if (!project) return [];
+  return conn()
+    .prepare(
+      `SELECT id, project_id, run_sequence, status, created_at, started_at, completed_at,
+              output_filename, output_path, model_hash, header_hash, header_size,
+              tensor_count, structural_summary,
+              base_model_path, dataset_merkle, image_count, caption_count,
+              network_dim, network_alpha,
+              parent_run_id, lineage_type, parent_seal, input_witness_id,
+              is_locked, lock_txid, ipfs_cid, scr_id
+         FROM training_runs
+        WHERE project_id = ?
+        ORDER BY run_sequence ASC`,
+    )
+    .all(projectId) as TrainingRunRow[];
 }
 
 export async function getMerkleNodes(projectId: number): Promise<MerkleNodeRow[]> {

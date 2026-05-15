@@ -167,21 +167,40 @@ export interface LockPackageManifest {
   builtAt: string;
 }
 
-// Subset of training_runs needed for receipt + fingerprint UI. Full row
-// has 50+ kohya/lineage columns we don't read at render time.
+// Subset of training_runs needed for receipt + workspace + fingerprint UI.
+// Full row has 50+ kohya/lineage columns we don't read at render time.
 export interface TrainingRunRow {
   id: number;
   project_id: number;
   run_sequence: number;
-  status: string | null;
+  status: string | null;                  // pending | running | complete | incomplete
   created_at: string;
+  started_at: string | null;
   completed_at: string | null;
+  // Output artifact
   output_filename: string | null;
   output_path: string | null;
-  model_hash: string | null;          // = contentHash (full SHA-256 of file bytes)
-  header_hash: string | null;         // = structuralHash (SHA-256 of safetensors header)
+  model_hash: string | null;              // = contentHash (full SHA-256 of file bytes)
+  header_hash: string | null;             // = structuralHash (SHA-256 of safetensors header)
   header_size: number | null;
   tensor_count: number | null;
-  structural_summary: string | null;  // JSON; see StructuralSummary in model-fingerprint.ts
+  structural_summary: string | null;      // JSON; see StructuralSummary in model-fingerprint.ts
+  // Inputs
+  base_model_path: string | null;
+  dataset_merkle: string | null;
+  image_count: number | null;
+  caption_count: number | null;
+  // Network hyperparameters
+  network_dim: number | null;
+  network_alpha: number | null;
+  // Lineage (Phase 7)
+  parent_run_id: number | null;
+  lineage_type: 'ROOT' | 'VERSION' | 'BRANCH' | string | null;
+  parent_seal: string | null;
+  input_witness_id: string | null;
+  // Lock state
+  is_locked: 0 | 1 | null;
+  lock_txid: string | null;
+  ipfs_cid: string | null;
   scr_id: string | null;
 }

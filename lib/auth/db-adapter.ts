@@ -130,11 +130,23 @@ export function SqliteAdapter(): Adapter {
     },
 
     async updateSession(session) {
-      db.prepare(`UPDATE sessions SET expires = ?, user_id = ? WHERE session_token = ?`).run(
-        session.expires?.toISOString() ?? null,
-        session.userId ?? null,
-        session.sessionToken,
-      );
+      // @auth/core passes a Partial — typically only { sessionToken, expires }
+      // for rolling-expiry updates. Only UPDATE the columns that were actually
+      // provided so we never null out user_id (NOT NULL in schema).
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      if (session.expires !== undefined) {
+        sets.push('expires = ?');
+        args.push(session.expires.toISOString());
+      }
+      if (session.userId !== undefined) {
+        sets.push('user_id = ?');
+        args.push(session.userId);
+      }
+      if (sets.length > 0) {
+        args.push(session.sessionToken);
+        db.prepare(`UPDATE sessions SET ${sets.join(', ')} WHERE session_token = ?`).run(...args);
+      }
       const row: any = db
         .prepare(`SELECT user_id, session_token, expires FROM sessions WHERE session_token = ?`)
         .get(session.sessionToken);
