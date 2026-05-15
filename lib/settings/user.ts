@@ -7,9 +7,11 @@
 import { conn } from '@/lib/db/sqlite';
 
 export type PaymentMode = 'fiat' | 'blockchain';
+export type ChainTier = 'basic' | 'pinned';
 
 export interface UserSettings {
   payment_mode?: PaymentMode;
+  chain_tier?: ChainTier;          // basic = RVN only; pinned = +IPFS+Arweave
   comfy_machine_id?: string;
   ipfs?: {
     gateway?: string;
@@ -58,4 +60,9 @@ export function writeUserSettings(userId: string, patch: Partial<UserSettings>):
 export function getPaymentMode(userId: string): PaymentMode {
   const s = readUserSettings(userId);
   return s.payment_mode ?? 'fiat';
+}
+
+export function getChainTier(userId: string): ChainTier {
+  const s = readUserSettings(userId);
+  return s.chain_tier ?? 'basic';
 }

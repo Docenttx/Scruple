@@ -7,6 +7,7 @@ import { create } from 'zustand';
 
 export type WalletMode = 'fiat' | 'blockchain';
 export type RvnNetwork = 'mainnet' | 'testnet';
+export type ChainTier = 'basic' | 'pinned';
 export type WalletModalKind =
   | null
   | 'rvn-create'
@@ -19,9 +20,11 @@ export type WalletModalKind =
 interface WalletState {
   mode: WalletMode;
   network: RvnNetwork;
+  chainTier: ChainTier;          // user-preferred chain-lock tier
   modal: WalletModalKind;
   setMode(m: WalletMode): void;
   setNetwork(n: RvnNetwork): void;
+  setChainTier(t: ChainTier): void;
   openModal(m: WalletModalKind): void;
   closeModal(): void;
 }
@@ -29,12 +32,16 @@ interface WalletState {
 export const useWallet = create<WalletState>(set => ({
   mode: 'fiat',
   network: 'mainnet',
+  chainTier: 'basic',
   modal: null,
   setMode(mode) {
     set({ mode });
   },
   setNetwork(network) {
     set({ network });
+  },
+  setChainTier(chainTier) {
+    set({ chainTier });
   },
   openModal(modal) {
     set({ modal });

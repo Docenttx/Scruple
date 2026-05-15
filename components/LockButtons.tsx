@@ -1,13 +1,23 @@
 'use client';
 
-// WO-45/46/40 · Lock buttons + confirm → (Stripe payment in fiat) →
-// result flow.
+// Lock buttons — three direct actions matching desktop:
 //
-// Click → LockConfirmModal (fee display, RVN password or TSD tier).
-// Fiat mode: → StripePaymentModal (Stripe Element). On success, the
-// witness server's confirm-and-execute fires the lock; we surface
-// SCR-ID + per-network status in LockResultModal.
-// Blockchain mode: → direct POST /api/lock/{kind}, then LockResultModal.
+//   ◇ Checkpoint   → seal progress, keep working (yellow hover)
+//   ◆ Finalize     → permanently seal locally  (orange hover)
+//   ⛓ Chain Lock   → anchor on-chain           (blue hover)
+//
+// Hover color of each button matches the destination status colour
+// (checkpointed=yellow, local_locked=orange, chain_locked=blue), so
+// the button visually telegraphs the state it produces.
+//
+// Chain-lock tier (basic = RVN-only, pinned = RVN+IPFS+Arweave) and
+// payment rail (fiat vs RVN wallet) are user preferences set in
+// Settings — the workspace buttons are dumb triggers.
+//
+// Click flow:
+//   button → setConfirmKind
+//   LockConfirmModal opens
+//   onConfirm → fiat: StripePaymentModal | blockchain: /api/lock/{kind}
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -24,6 +34,38 @@ type PendingPayment = {
   tier?: ChainTier;
 };
 
+type ButtonSpec = {
+  kind: LockKind;
+  title: string;
+  desc: string;
+  icon: string;
+  hoverBorder: string;
+};
+
+const BUTTONS: ButtonSpec[] = [
+  {
+    kind: 'checkpoint',
+    title: 'Checkpoint',
+    desc: 'Seal progress, keep working',
+    icon: '◇',
+    hoverBorder: 'hover:enabled:border-[#ffc107]',
+  },
+  {
+    kind: 'local',
+    title: 'Finalize Project',
+    desc: 'Permanently seal locally',
+    icon: '◆',
+    hoverBorder: 'hover:enabled:border-[#ff9800]',
+  },
+  {
+    kind: 'chain',
+    title: 'Chain Lock',
+    desc: 'Anchor on-chain (RVN + Arweave)',
+    icon: '⛓',
+    hoverBorder: 'hover:enabled:border-[#2196f3]',
+  },
+];
+
 export default function LockButtons({
   project,
   hasContent,
@@ -36,6 +78,9 @@ export default function LockButtons({
   const interlocked = useInterlock(s => s.busy);
   const setInterlock = useInterlock(s => s.set);
   const walletMode = useWallet(s => s.mode);
+  // Chain-lock tier comes from user settings (Settings → Payment Mode).
+  // The workspace button is "dumb" — it always uses the preference.
+  const chainTier = useWallet(s => s.chainTier);
   const [confirmKind, setConfirmKind] = useState<LockKind | null>(null);
   const [payment, setPayment] = useState<PendingPayment | null>(null);
   const [result, setResult] = useState<LockResult | null>(null);
@@ -43,23 +88,23 @@ export default function LockButtons({
 
   function onConfirm(kind: LockKind, opts: { tier?: ChainTier; password?: string }) {
     setConfirmKind(null);
-    // Fiat mode → route through Stripe Element for paid actions.
+    // Resolution order: explicit tier from modal → user setting → 'basic'.
+    const tier = kind === 'chain' ? (opts.tier ?? chainTier) : undefined;
     if (walletMode === 'fiat') {
-      setPayment({ kind, tier: opts.tier });
+      setPayment({ kind, tier });
       return;
     }
-    // Blockchain mode → direct lock executor.
-    fireBlockchain(kind);
+    fireBlockchain(kind, tier);
   }
 
-  function fireBlockchain(kind: LockKind) {
+  function fireBlockchain(kind: LockKind, tier?: ChainTier) {
     start(async () => {
-      setInterlock(true, `Locking project (${kind})`);
+      setInterlock(true, `Locking project (${kind}${tier ? `, ${tier}` : ''})`);
       try {
         const res = await fetch(`/api/lock/${kind}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: project.id }),
+          body: JSON.stringify({ projectId: project.id, tier }),
         });
         const data = (await res.json()) as Partial<LockResult> & { error?: string };
         if (!res.ok) {
@@ -89,37 +134,17 @@ export default function LockButtons({
     });
   }
 
-  // Desktop always renders the 3 buttons. They go disabled when there's
-  // no content; the surrounding lock section already prints the hint.
   return (
     <>
-      {/* Desktop: .lock-buttons-row grid-template-columns repeat(3,1fr),
-          collapses to 1fr at 900px. Tailwind md:= 768px is close. */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-locks">
-        <LockButton
-          title="Finalize Project"
-          desc="Permanently seal this project"
-          icon="◆"
-          kind="local"
-          disabled={disabled}
-          onClick={() => setConfirmKind('local')}
-        />
-        <LockButton
-          title="Checkpoint"
-          desc="Seal progress, keep working"
-          icon="◇"
-          kind="checkpoint"
-          disabled={disabled}
-          onClick={() => setConfirmKind('checkpoint')}
-        />
-        <LockButton
-          title="Chain Lock"
-          desc="RVN + IPFS + Arweave"
-          icon="⛓"
-          kind="chain"
-          disabled={disabled}
-          onClick={() => setConfirmKind('chain')}
-        />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {BUTTONS.map(spec => (
+          <LockButton
+            key={spec.kind}
+            spec={spec}
+            disabled={disabled}
+            onClick={() => setConfirmKind(spec.kind)}
+          />
+        ))}
       </div>
 
       {confirmKind && (
@@ -154,32 +179,16 @@ export default function LockButtons({
 }
 
 function LockButton({
-  title,
-  desc,
-  icon,
-  kind,
+  spec,
   disabled,
   onClick,
 }: {
-  title: string;
-  desc: string;
-  icon: string;
-  kind: LockKind;
+  spec: ButtonSpec;
   disabled: boolean;
   onClick: () => void;
 }) {
-  // Desktop main.css .lock-btn-large:
-  //   flex column center, 24px 16px padding, 2px border --border-color,
-  //   8px radius, --bg-secondary background, transition.
-  //   Default hover: border --accent-primary (cyan).
-  //   .local:hover     → border --accent-warning  (orange)
-  //   .chain:hover     → border --accent-secondary (blue)
-  //   .persistent:hover → border --accent-purple
-  //   checkpoint is treated as local on desktop.
-  const hoverBorder =
-    kind === 'local' || kind === 'checkpoint'
-      ? 'hover:enabled:border-scruple-warn'
-      : 'hover:enabled:border-scruple-accent-secondary';
+  // Desktop main.css .lock-btn-large — 2px border, 8px radius, bg-secondary,
+  // 24px 16px padding, flex column center. Hover border = destination status.
   return (
     <button
       type="button"
@@ -189,12 +198,12 @@ function LockButton({
         'flex flex-col items-center rounded-lg border-2 border-scruple-border-color ' +
         'bg-scruple-bg-secondary px-4 py-6 text-center transition-colors duration-fast ' +
         'disabled:cursor-not-allowed disabled:opacity-50 ' +
-        hoverBorder
+        spec.hoverBorder
       }
     >
-      <span className="mb-3 text-3xl">{icon}</span>
-      <span className="text-sm font-semibold text-scruple-text-primary">{title}</span>
-      <span className="mt-1 text-2xs text-scruple-text-secondary">{desc}</span>
+      <span className="mb-3 text-3xl">{spec.icon}</span>
+      <span className="text-sm font-semibold text-scruple-text-primary">{spec.title}</span>
+      <span className="mt-1 text-2xs text-scruple-text-secondary">{spec.desc}</span>
     </button>
   );
 }
