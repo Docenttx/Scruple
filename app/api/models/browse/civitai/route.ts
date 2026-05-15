@@ -72,6 +72,33 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const sp = req.nextUrl.searchParams;
+
+  // Direct model lookup mode — when the UI parses a pasted Civitai URL
+  // it sends `modelId=<id>`. Skips search entirely and returns a single
+  // normalized item.
+  const modelId = sp.get('modelId');
+  if (modelId) {
+    const token = readUserSettings(userId).civitai_token;
+    const headers: Record<string, string> = { 'User-Agent': 'scruple-web/1.0' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    try {
+      const res = await fetch(`https://civitai.com/api/v1/models/${modelId}`, { headers });
+      if (!res.ok) {
+        return NextResponse.json(
+          { error: `civitai_${res.status}`, detail: await res.text() },
+          { status: res.status },
+        );
+      }
+      const item = (await res.json()) as CivitaiSearchItem;
+      return NextResponse.json({ ok: true, items: [normalize(item)], nextCursor: null });
+    } catch (e) {
+      return NextResponse.json(
+        { error: 'civitai_lookup_failed', detail: e instanceof Error ? e.message : String(e) },
+        { status: 502 },
+      );
+    }
+  }
+
   // Civitai's /api/v1/models has a known quirk: combining `query` with
   // `types` + `baseModels` AND-filters wrong and returns 0 results even
   // when matches exist. When the user enters a query, drop the type/base

@@ -47,16 +47,36 @@ export default function BrowseCivitaiTab({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Detect a pasted Civitai page URL and pull modelId out. Civitai's
+  // search API is bad at name matching, so URL paste is the reliable
+  // way to surface a known item.
+  function parseCivitaiUrl(text: string): string | null {
+    try {
+      const u = new URL(text.trim());
+      if (!u.hostname.endsWith('civitai.com')) return null;
+      const m = u.pathname.match(/^\/models\/(\d+)/);
+      return m ? m[1] : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function search() {
     setLoading(true);
     setError(null);
     try {
       const sp = new URLSearchParams();
-      if (q) sp.set('q', q);
-      if (type) sp.set('types', type);
-      if (baseModel) sp.set('baseModel', baseModel);
-      sp.set('sort', sort);
-      sp.set('limit', '24');
+      // URL paste → direct lookup by modelId, skip search.
+      const directModelId = parseCivitaiUrl(q);
+      if (directModelId) {
+        sp.set('modelId', directModelId);
+      } else {
+        if (q) sp.set('q', q);
+        if (type) sp.set('types', type);
+        if (baseModel) sp.set('baseModel', baseModel);
+        sp.set('sort', sort);
+        sp.set('limit', '24');
+      }
       const res = await fetch(`/api/models/browse/civitai?${sp.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
@@ -84,7 +104,7 @@ export default function BrowseCivitaiTab({
           type="text"
           value={q}
           onChange={e => setQ(e.target.value)}
-          placeholder="Search Civitai…"
+          placeholder="Search Civitai or paste a civitai.com/models/… URL"
           className="col-span-5 rounded-md border border-scruple-border bg-scruple-bg px-2 py-1 text-xs focus:border-scruple-accent focus:outline-none"
         />
         <select
