@@ -16,6 +16,7 @@ import { sha256Hex } from '@/lib/scruple/hash';
 import { storeArtifact } from '@/lib/scruple/artifacts';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProvider } from '@/lib/storage/dispatch';
+import { witness } from '@/lib/scruple/witness';
 import type {
   GenerationSpec,
   IterationRow,
@@ -128,6 +129,41 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   });
 
   const { id, runSequence } = tx();
+
+  // Auto-witness every successfully ingested iteration. Per [[D-002]]
+  // every captured artifact gets a witness signature at ingestion time
+  // — this IS the provenance. Lock actions later aggregate witnessed
+  // iterations into a Merkle root with chain anchoring; per-iteration
+  // witnessing is the foundation, not an opt-in for lock-time.
+  //
+  // Degradable: if the witness server is unreachable, the iteration
+  // still lands with witnessed=0 — operator can backfill via a sweeper.
+  // Non-fatal so we don't block image delivery on witness-server health.
+  try {
+    const projectRow = conn()
+      .prepare(`SELECT name FROM projects WHERE id = ?`)
+      .get(p.projectId) as { name?: string } | undefined;
+    const w = await witness.witnessIteration({
+      projectId: String(p.projectId),
+      projectName: projectRow?.name ?? `project-${p.projectId}`,
+      runSequence,
+      contentHash: leafHash,
+    });
+    conn().prepare(
+      `UPDATE iterations
+          SET witnessed = 1,
+              witness_id = ?,
+              witness_timestamp = ?,
+              witness_signature = ?
+        WHERE id = ?`,
+    ).run(w.witness_id, w.server_timestamp, w.signature, id);
+    conn().prepare(
+      `UPDATE projects SET witnessed_count = witnessed_count + 1 WHERE id = ?`,
+    ).run(p.projectId);
+  } catch (e) {
+    console.error('[ingest] auto-witness failed (iteration kept with witnessed=0):', e);
+  }
+
   const iteration = conn()
     .prepare(`SELECT * FROM iterations WHERE id = ?`)
     .get(id) as IterationRow;
