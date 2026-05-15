@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 
 const CreateBody = z.object({
   name: z.string().min(1).max(160),
-  type: z.enum(['txt2img', 'training']).default('txt2img'),
+  type: z.enum(['image', 'video', 'training']).default('image'),
 });
 
 export async function POST(req: NextRequest) {

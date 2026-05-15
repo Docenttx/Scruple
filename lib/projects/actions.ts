@@ -126,7 +126,7 @@ export async function getMerkleNodes(projectId: number): Promise<MerkleNodeRow[]
 
 const NewProjectSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  type: z.enum(['txt2img', 'training']),
+  type: z.enum(['image', 'video', 'training']),
 });
 
 export async function createProject(input: { name: string; type: ProjectType }): Promise<ProjectRow> {
@@ -199,11 +199,6 @@ export async function deleteProject(id: number): Promise<void> {
   revalidatePath('/');
 }
 
-export async function setProjectWorkflow(id: number, workflowId: string | null): Promise<void> {
-  const uid = await userId();
-  const value = workflowId && workflowId.trim() !== '' ? workflowId.trim() : null;
-  conn()
-    .prepare(`UPDATE projects SET comfy_workflow_id = ?, updated_at = ? WHERE id = ? AND user_id = ?`)
-    .run(value, new Date().toISOString(), id, uid);
-  revalidatePath(`/projects/${id}`);
-}
+// setProjectWorkflow was removed in migration 012 — workspace is a
+// read-only observer, workflow selection lives on /canvas now.
+// comfy_workflow_id column dropped at the same time.

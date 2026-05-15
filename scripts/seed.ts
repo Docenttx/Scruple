@@ -39,7 +39,7 @@ if (exProj) {
   const res = db
     .prepare(
       `INSERT INTO projects (user_id, name, type, created_at, updated_at)
-       VALUES (?, ?, 'txt2img', datetime('now'), datetime('now'))`,
+       VALUES (?, ?, 'image', datetime('now'), datetime('now'))`,
     )
     .run(userId, projectName);
   projectId = res.lastInsertRowid as number;

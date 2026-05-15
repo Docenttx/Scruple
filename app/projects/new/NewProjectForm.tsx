@@ -3,11 +3,38 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createProject } from '@/lib/projects/actions';
+import type { ProjectType } from '@/lib/types';
+
+interface TypeOption {
+  value: ProjectType;
+  label: string;
+  hint: string;
+  disabled?: boolean;
+  disabledHint?: string;
+}
+
+const TYPES: TypeOption[] = [
+  {
+    value: 'image',
+    label: 'Image',
+    hint: 'txt2img, img2img, upscale, inpaint',
+  },
+  {
+    value: 'video',
+    label: 'Video',
+    hint: 'short clips, animation, video extension',
+  },
+  {
+    value: 'training',
+    label: 'Training',
+    hint: 'Lora or checkpoint capture',
+  },
+];
 
 export default function NewProjectForm() {
   const router = useRouter();
   const [name, setName] = useState('');
-  const [type, setType] = useState<'txt2img' | 'training'>('txt2img');
+  const [type, setType] = useState<ProjectType>('image');
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -41,28 +68,26 @@ export default function NewProjectForm() {
 
       <div>
         <label className="block text-xs uppercase tracking-widest text-scruple-muted">Type</label>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setType('txt2img')}
-            className={`rounded-md border px-3 py-2 text-left text-sm transition ${
-              type === 'txt2img'
-                ? 'border-scruple-accent bg-scruple-accent/10'
-                : 'border-scruple-border bg-scruple-bg hover:border-scruple-accent/40'
-            }`}
-          >
-            <div>txt2img</div>
-            <div className="text-[10px] text-scruple-muted">Image generation iterations</div>
-          </button>
-          <button
-            type="button"
-            disabled
-            title="Training capture is deferred to v2 (requires desktop bridge or hosted Kohya)"
-            className="cursor-not-allowed rounded-md border border-scruple-border bg-scruple-bg px-3 py-2 text-left text-sm opacity-40"
-          >
-            <div>training</div>
-            <div className="text-[10px] text-scruple-muted">deferred to v2</div>
-          </button>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          {TYPES.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => !opt.disabled && setType(opt.value)}
+              disabled={opt.disabled}
+              title={opt.disabled ? opt.disabledHint : undefined}
+              className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                opt.disabled
+                  ? 'cursor-not-allowed border-scruple-border bg-scruple-bg opacity-40'
+                  : type === opt.value
+                    ? 'border-scruple-accent bg-scruple-accent/10'
+                    : 'border-scruple-border bg-scruple-bg hover:border-scruple-accent/40'
+              }`}
+            >
+              <div>{opt.label}</div>
+              <div className="text-[10px] text-scruple-muted">{opt.hint}</div>
+            </button>
+          ))}
         </div>
       </div>
 

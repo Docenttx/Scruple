@@ -18,7 +18,11 @@ export const LOCK_STATE_LABELS: Record<LockState, string> = {
   permanent_locked: 'Permanent Locked',
 };
 
-export type ProjectType = 'txt2img' | 'training';
+// Project type — migration 012 consolidated the previous txt2img enum
+// into a single 'image' type that covers txt2img/img2img/upscale/etc
+// (workflow specifics live in canvas nodes). 'video' is registered now
+// but its UI is a placeholder until the video pipeline lands.
+export type ProjectType = 'image' | 'video' | 'training';
 
 export type ProviderName = 'fal' | 'comfydeploy' | 'manual';
 
@@ -46,7 +50,6 @@ export interface ProjectRow {
   witnessed_count: number;
   witness_signature: string | null;
   is_archived: 0 | 1;
-  comfy_workflow_id: string | null;
 }
 
 export interface IterationRow {

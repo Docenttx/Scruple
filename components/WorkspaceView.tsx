@@ -4,9 +4,10 @@
 // dispatch generation.
 //
 // Header (name + status badge + tracking badge + Start/Stop Tracking),
-// stats row (Iterations|Training Runs / Merkle Root / SCR-ID),
+// stats row (count / Merkle Root / SCR-ID),
 // content section that branches on project.type:
 //   image    → IterationGridLive (covers txt2img/img2img/upscale/etc.)
+//   video    → placeholder "Video pipeline not yet implemented"
 //   training → PreflightPanel + reverse-ordered TrainingRunCards
 // Lock section (when not actively tracking) — Finalize/Checkpoint/Chain.
 
@@ -33,10 +34,12 @@ export default function WorkspaceView({
   trainingRuns: TrainingRunRow[];
 }) {
   const isActive = project.is_active === 1;
-  const isTraining = project.type === 'training';
   const hasIterations = iterations.length > 0;
   const hasTrainingRuns = trainingRuns.length > 0;
-  const hasContent = isTraining ? hasTrainingRuns : hasIterations;
+  const hasContent =
+    project.type === 'training' ? hasTrainingRuns :
+    project.type === 'image' ? hasIterations :
+    false; // video has no content concept yet
   const isLocked = project.status !== 'unlocked' && project.status !== 'checkpointed';
   const currentRunId = trainingRuns.length > 0 ? trainingRuns[trainingRuns.length - 1].id : null;
 
@@ -68,11 +71,7 @@ export default function WorkspaceView({
 
       {/* Stats — desktop has 3 max (count / Merkle / SCR) */}
       <div className="grid grid-cols-3 gap-4">
-        {isTraining ? (
-          <Stat label="Training Runs" value={String(trainingRuns.length)} />
-        ) : (
-          <Stat label="Iterations" value={String(project.iteration_count)} />
-        )}
+        <Stat label={statLabelForType(project.type)} value={String(countForType(project, trainingRuns))} />
         <Stat label="Merkle Root" value={truncateHash(project.merkle_root)} mono />
         {project.scr_id ? (
           <Stat label="SCR ID" value={project.scr_id} highlight mono />
@@ -81,8 +80,8 @@ export default function WorkspaceView({
         )}
       </div>
 
-      {/* Content — training vs iterations */}
-      {isTraining ? (
+      {/* Content — branches on project type */}
+      {project.type === 'training' ? (
         <section>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
             Training Runs
@@ -102,6 +101,17 @@ export default function WorkspaceView({
                 </p>
               </div>
             )}
+          </div>
+        </section>
+      ) : project.type === 'video' ? (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider2 text-scruple-text-secondary">
+            Video
+          </h2>
+          <div className="rounded-md border border-dashed border-scruple-border-color bg-scruple-surface/50 p-8 text-center">
+            <p className="text-sm text-scruple-text-deep-muted">
+              Video pipeline not yet implemented. This project type is reserved — capture support lands in a future release.
+            </p>
           </div>
         </section>
       ) : (
@@ -125,9 +135,7 @@ export default function WorkspaceView({
           </h2>
           {!hasContent && (
             <p className="mb-3 rounded-md border border-scruple-border bg-scruple-surface/50 p-3 text-xs text-scruple-muted">
-              {isTraining
-                ? 'Complete at least one training run to enable locking.'
-                : 'Generate at least one iteration to enable locking.'}
+              {hintForType(project.type)}
             </p>
           )}
           <LockButtons project={project} hasContent={hasContent} />
@@ -135,6 +143,28 @@ export default function WorkspaceView({
       )}
     </div>
   );
+}
+
+function statLabelForType(type: ProjectRow['type']): string {
+  switch (type) {
+    case 'training': return 'Training Runs';
+    case 'video':    return 'Clips';
+    case 'image':    return 'Iterations';
+  }
+}
+
+function countForType(project: ProjectRow, trainingRuns: TrainingRunRow[]): number {
+  if (project.type === 'training') return trainingRuns.length;
+  // image + video both use iteration_count for now (video is placeholder).
+  return project.iteration_count;
+}
+
+function hintForType(type: ProjectRow['type']): string {
+  switch (type) {
+    case 'training': return 'Complete at least one training run to enable locking.';
+    case 'video':    return 'Video capture is not yet implemented — locking will be enabled once at least one clip is captured.';
+    case 'image':    return 'Generate at least one iteration to enable locking.';
+  }
 }
 
 function Stat({

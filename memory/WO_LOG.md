@@ -76,3 +76,8 @@
 [2026-05-15T10:35:00Z] ws-port | PreflightPanel component | idle/running/complete states; SSE-ready, runtime endpoint deferred
 [2026-05-15T10:40:00Z] ws-port | WorkspaceView training-vs-iter branching | type='training' → preflight + reverse-ordered cards; type='txt2img' → IterationGridLive
 [2026-05-15T10:45:00Z] ws-port | TrainingRunRow extended + getTrainingRuns | actions.ts now exposes the query
+[2026-05-15T11:30:00Z] pt | migration 012 — project types v2 (image|video|training), wiped existing data, dropped comfy_workflow_id
+[2026-05-15T11:35:00Z] pt | type system + Zod schemas + NewProjectForm swap to image|video|training
+[2026-05-15T11:40:00Z] pt | /api/generate prompt-mode branch removed (workspace observes; only workflow mode survives for Canvas)
+[2026-05-15T11:45:00Z] pt | deleted GeneratePanel, WorkflowField, WorkflowUploader (all dispatched from project page)
+[2026-05-15T11:50:00Z] pt | WorkspaceView 3-way branch — image/video/training, video shows placeholder card

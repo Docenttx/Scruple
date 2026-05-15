@@ -1,18 +1,17 @@
 // POST /api/generate
 //
-// Two modes:
+// Workflow-JSON mode only (Canvas Queue intercept).
+//   { projectId?, workflowApiJson, machineId? }
+//   → modalRunner.runWorkflow(workflowApiJson)   [pivot default]
+//   → comfyDeployProvider.submitWorkflow(...)    [legacy / BYO]
 //
-//   1. Prompt mode (workspace GeneratePanel)
-//      { projectId, prompt, ...spec }
-//      → comfyDeployProvider.submit({prompt}, {apiKey, workflowId=project.comfy_workflow_id})
+// Project-page "prompt mode" was removed in migration 012 — the
+// workspace tab is now a passive observer; prompts live in canvas
+// nodes. Project rows no longer carry comfy_workflow_id.
 //
-//   2. Workflow-JSON mode (Canvas Queue intercept)
-//      { projectId?, workflowApiJson, machineId? }
-//      → comfyDeployProvider.submitWorkflow(workflowApiJson, machineId, {apiKey})
-//
-// In workflow mode the projectId is optional — if absent we look up
-// the user's currently-active project. machineId defaults to the
-// per-user `comfy_machine_id` saved in user_settings.
+// projectId is optional in this body — if absent we resolve to the
+// user's currently-active project. machineId defaults to the per-user
+// `comfy_machine_id` saved in user_settings.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -30,18 +29,6 @@ import type { GenerationSpec, ProjectRow } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const PromptBody = z.object({
-  projectId: z.number().int().positive(),
-  prompt: z.string().min(1),
-  negativePrompt: z.string().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  seed: z.number().int().optional(),
-  steps: z.number().int().positive().optional(),
-  cfgScale: z.number().positive().optional(),
-  providerExtras: z.record(z.unknown()).optional(),
-});
-
 const WorkflowBody = z.object({
   projectId: z.number().int().positive().optional(),
   workflowApiJson: z.record(z.unknown()),
@@ -49,7 +36,6 @@ const WorkflowBody = z.object({
   machineId: z.string().optional(),
 });
 
-type PromptInput = z.infer<typeof PromptBody>;
 type WorkflowInput = z.infer<typeof WorkflowBody>;
 
 const POLL_SCHEDULE_MS = [
@@ -90,27 +76,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const isWorkflowMode =
-    typeof rawBody === 'object' &&
-    rawBody !== null &&
-    'workflowApiJson' in rawBody;
-
-  let workflowBody: WorkflowInput | null = null;
-  let promptBody: PromptInput | null = null;
+  let workflowBody: WorkflowInput;
   try {
-    if (isWorkflowMode) {
-      workflowBody = WorkflowBody.parse(rawBody);
-    } else {
-      promptBody = PromptBody.parse(rawBody);
-    }
+    workflowBody = WorkflowBody.parse(rawBody);
   } catch (e) {
     return NextResponse.json(
-      { error: 'Invalid body', detail: e instanceof Error ? e.message : String(e) },
+      { error: 'Invalid body — workflowApiJson is required', detail: e instanceof Error ? e.message : String(e) },
       { status: 400 },
     );
   }
 
-  const projectId = workflowBody?.projectId ?? promptBody?.projectId;
+  const projectId = workflowBody.projectId;
 
   // Resolve project: explicit projectId wins; else active project.
   let project: ProjectRow | undefined;
@@ -142,9 +118,9 @@ export async function POST(req: NextRequest) {
   const forceBackend = url.searchParams.get('backend');
   const wantsModal =
     forceBackend === 'modal' ||
-    (forceBackend !== 'comfydeploy' && workflowBody && !workflowBody.machineId && modalRunner.isConfigured());
+    (forceBackend !== 'comfydeploy' && !workflowBody.machineId && modalRunner.isConfigured());
 
-  if (wantsModal && workflowBody) {
+  if (wantsModal) {
     try {
       const modalResult = await modalRunner.runWorkflow(workflowBody.workflowApiJson);
       if (!modalResult.ok) {
@@ -211,60 +187,33 @@ export async function POST(req: NextRequest) {
   let promptForRecord: string;
 
   try {
-    if (workflowBody) {
-      const machineId = workflowBody.machineId ?? getUserMachineId(userId);
-      if (!machineId) {
-        return NextResponse.json(
-          {
-            error:
-              'No ComfyDeploy machine_id configured. Set comfy_machine_id in your user settings.',
-          },
-          { status: 400 },
-        );
-      }
-      spec = {
-        prompt: '(canvas workflow)',
-        providerExtras: { workflowApiJson: workflowBody.workflowApiJson, machineId },
-      };
-      promptForRecord = '(canvas workflow)';
-      if (!comfyDeployProvider.submitWorkflow) {
-        return NextResponse.json(
-          { error: 'submitWorkflow not implemented for this provider' },
-          { status: 501 },
-        );
-      }
-      const submitResult = await comfyDeployProvider.submitWorkflow(
-        workflowBody.workflowApiJson,
-        machineId,
-        { apiKey },
+    const machineId = workflowBody.machineId ?? getUserMachineId(userId);
+    if (!machineId) {
+      return NextResponse.json(
+        {
+          error:
+            'No ComfyDeploy machine_id configured. Set comfy_machine_id in your user settings.',
+        },
+        { status: 400 },
       );
-      jobId = submitResult.jobId;
-    } else if (promptBody) {
-      if (!project.comfy_workflow_id) {
-        return NextResponse.json(
-          { error: 'Project has no ComfyDeploy workflow configured. Set one in the workspace.' },
-          { status: 400 },
-        );
-      }
-      spec = {
-        prompt: promptBody.prompt,
-        negativePrompt: promptBody.negativePrompt,
-        width: promptBody.width,
-        height: promptBody.height,
-        seed: promptBody.seed,
-        steps: promptBody.steps,
-        cfgScale: promptBody.cfgScale,
-        providerExtras: promptBody.providerExtras,
-      };
-      promptForRecord = promptBody.prompt;
-      const submitResult = await comfyDeployProvider.submit(spec, {
-        apiKey,
-        workflowId: project.comfy_workflow_id,
-      });
-      jobId = submitResult.jobId;
-    } else {
-      return NextResponse.json({ error: 'No valid body' }, { status: 400 });
     }
+    spec = {
+      prompt: '(canvas workflow)',
+      providerExtras: { workflowApiJson: workflowBody.workflowApiJson, machineId },
+    };
+    promptForRecord = '(canvas workflow)';
+    if (!comfyDeployProvider.submitWorkflow) {
+      return NextResponse.json(
+        { error: 'submitWorkflow not implemented for this provider' },
+        { status: 501 },
+      );
+    }
+    const submitResult = await comfyDeployProvider.submitWorkflow(
+      workflowBody.workflowApiJson,
+      machineId,
+      { apiKey },
+    );
+    jobId = submitResult.jobId;
   } catch (e) {
     const detail = e instanceof ProviderError ? e.message : String(e);
     try {
@@ -272,7 +221,7 @@ export async function POST(req: NextRequest) {
         userId,
         projectId: project.id,
         provider: 'comfydeploy',
-        prompt: promptBody?.prompt ?? '(canvas workflow)',
+        prompt: '(canvas workflow)',
         spec: {} as Record<string, unknown>,
         success: false,
         error: detail,
