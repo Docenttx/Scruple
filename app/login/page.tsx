@@ -10,8 +10,8 @@ export default async function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
       <div className="w-full max-w-sm rounded-lg border border-scruple-border bg-scruple-surface p-8">
-        <h1 className="text-2xl font-light tracking-tight">SCRUPLE</h1>
-        <p className="mt-1 text-xs text-scruple-muted">AI Provenance Middleware</p>
+        <h1 className="text-2xl font-bold tracking-widest2 text-scruple-accent-primary">SCRUPLE</h1>
+        <p className="mt-1 text-xs text-scruple-muted">Studio Web</p>
 
         <div className="mt-8 space-y-4">
           {hasGoogle ? (

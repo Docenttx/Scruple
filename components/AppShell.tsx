@@ -21,16 +21,9 @@ export default async function AppShell({
 
   return (
     <div className="grid h-screen grid-cols-shell grid-rows-[48px_1fr]">
-      {/* Top bar */}
-      <header className="col-span-2 flex items-center justify-between border-b border-scruple-border bg-scruple-surface px-4">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-lg font-light tracking-wide">
-            SCRUPLE
-          </Link>
-          <span className="text-[10px] uppercase tracking-widest text-scruple-muted">
-            Provenance Middleware
-          </span>
-        </div>
+      {/* Top bar — user controls only. SCRUPLE brand lives in the
+          sidebar header per desktop parity (main.css .sidebar-header). */}
+      <header className="col-span-2 flex items-center justify-end border-b border-scruple-border bg-scruple-surface px-4">
         <div className="flex items-center gap-3">
           {user && (
             <>
