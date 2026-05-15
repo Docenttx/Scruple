@@ -159,7 +159,11 @@ export async function archiveProject(id: number): Promise<void> {
     );
   });
   tx();
+  // Revalidate both the homepage (sidebar drops the row) and the project
+  // page itself (so any viewer on /projects/N gets redirected to / via
+  // the is_archived check in the page).
   revalidatePath('/');
+  revalidatePath(`/projects/${id}`);
 }
 
 export async function unarchiveProject(id: number): Promise<void> {

@@ -13,6 +13,9 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
   const project = await getProject(id);
   if (!project) notFound();
+  // Archived projects don't render their workspace — they live as
+  // history accessible from the archive view, not the active sidebar.
+  if (project.is_archived === 1) redirect('/');
 
   const [iterations, trainingRuns] = await Promise.all([
     getIterations(id),
