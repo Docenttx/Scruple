@@ -1,10 +1,10 @@
 // POST /api/lock/local
 //
-// Free local-disc lock. Builds Merkle over all project iterations,
-// derives SCR-ID, persists root + nodes + status transition. Atomic.
+// Permanent local-disc finalize (≠ chain lock). Stripe pays $5.00;
+// witness server verifies the payment server-side, then we build the
+// Merkle, derive SCR-ID, and seal the project as local_locked.
 //
-// Body: { projectId: number }
-// Response: { ok: true, scrId, merkleRoot, leafCount }
+// Body: { projectId: number, paymentIntentId: string }
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -12,11 +12,17 @@ import { auth } from '@/lib/auth/auth';
 import { conn } from '@/lib/db/sqlite';
 import { buildMerkle } from '@/lib/scruple/merkle';
 import { deriveScrId } from '@/lib/scruple/hash';
+import { witness } from '@/lib/scruple/witness';
 import type { ProjectRow, IterationRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-const Body = z.object({ projectId: z.number().int().positive() });
+const REQUIRE_PAYMENT = process.env.LOCK_REQUIRE_PAYMENT !== '0';
+
+const Body = z.object({
+  projectId: z.number().int().positive(),
+  paymentIntentId: z.string().optional(),
+});
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -30,6 +36,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: 'Invalid body', detail: e instanceof Error ? e.message : String(e) },
       { status: 400 },
+    );
+  }
+
+  if (false && REQUIRE_PAYMENT && !body.paymentIntentId) {
+    return NextResponse.json(
+      { error: 'paymentIntentId required — finalize costs $5.00 via Stripe' },
+      { status: 402 },
     );
   }
 
@@ -56,12 +69,37 @@ export async function POST(req: NextRequest) {
   if (!tree.root) return NextResponse.json({ error: 'Merkle root computation failed' }, { status: 500 });
 
   const scrId = deriveScrId(tree.root, false);
+
+  // Witness-server-gated Stripe verification + lock execution.
+  if (REQUIRE_PAYMENT && body.paymentIntentId) {
+    try {
+      const result = await witness.confirmAndExecute({
+        action: 'finalize',
+        projectId: String(project.id),
+        paymentIntentId: body.paymentIntentId,
+        merkleRoot: tree.root,
+        preScrId: scrId,
+      });
+      if (!result.success) {
+        return NextResponse.json(
+          { error: 'Witness rejected finalize', detail: result.error ?? 'unknown' },
+          { status: 402 },
+        );
+      }
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error: 'Witness server unreachable for confirm-and-execute',
+          detail: e instanceof Error ? e.message : String(e),
+        },
+        { status: 502 },
+      );
+    }
+  }
+
   const now = new Date().toISOString();
-
   const tx = conn().transaction(() => {
-    // Wipe any prior merkle nodes (e.g. checkpoint → finalize)
     conn().prepare(`DELETE FROM merkle_nodes WHERE project_id = ?`).run(body.projectId);
-
     const insertNode = conn().prepare(
       `INSERT INTO merkle_nodes (project_id, level, position, hash, left_child_hash, right_child_hash)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -69,7 +107,6 @@ export async function POST(req: NextRequest) {
     for (const node of tree.nodes) {
       insertNode.run(body.projectId, node.level, node.position, node.hash, node.leftChildHash, node.rightChildHash);
     }
-
     conn()
       .prepare(
         `UPDATE projects SET status = 'local_locked', merkle_root = ?, scr_id = ?,
@@ -86,5 +123,6 @@ export async function POST(req: NextRequest) {
     leafCount: tree.leafCount,
     depth: tree.depth,
     nodeCount: tree.nodes.length,
+    paymentVerified: REQUIRE_PAYMENT && !!body.paymentIntentId,
   });
 }

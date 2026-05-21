@@ -41,6 +41,34 @@ export interface LockProjectResult {
   [k: string]: unknown;
 }
 
+/**
+ * Result shape returned by witness server's /api/confirm-and-execute.
+ * The witness server's responses differ slightly per action:
+ *   finalize/checkpoint → {success, action, projectId, paymentIntentId, lockedAt, note}
+ *   chain-lock-*        → {success, action, projectId, scrId, proofTxId, proofChain,
+ *                          mintError, lockTier, lockedAt}
+ */
+export interface ConfirmAndExecuteResult {
+  success: boolean;
+  action?: string;
+  projectId?: string | number;
+  paymentIntentId?: string;
+  lockedAt?: string;
+  note?: string;
+  // chain-lock fields
+  scrId?: string | null;
+  proofTxId?: string | null;
+  proofChain?: string | null;
+  mintError?: string | null;
+  lockTier?: 'basic' | 'pinned';
+  ipfsCid?: string | null;
+  ipfsError?: string | null;
+  arweaveTxId?: string | null;
+  arweaveError?: string | null;
+  error?: string;
+  [k: string]: unknown;
+}
+
 export interface VerifyInput {
   project_id: string;
   local_chain?: Array<{ run_sequence: number; content_hash: string }>;
@@ -103,8 +131,45 @@ export const witness = {
     return getJson(`/api/witness/${encodeURIComponent(projectId)}`);
   },
 
-  async lockProject(projectId: string): Promise<LockProjectResult> {
-    return postJson<LockProjectResult>(`/api/lock/${encodeURIComponent(projectId)}`, {});
+  async lockProject(projectId: string, merkleRoot?: string): Promise<LockProjectResult> {
+    // Pass the canonical (sorted-pair) Merkle root so the witness anchors
+    // and derives the SCR-ID from the same root our verifier reproduces.
+    return postJson<LockProjectResult>(`/api/lock/${encodeURIComponent(projectId)}`, {
+      merkleRoot: merkleRoot ?? null,
+    });
+  },
+
+  /**
+   * Stripe-verified lock execution. Witness server retrieves the
+   * PaymentIntent from Stripe, verifies status='succeeded', verifies
+   * metadata.action matches, verifies amount matches the expected fee,
+   * then executes the lock and (for chain actions) mints the RVN
+   * testnet asset.
+   *
+   * This is the canonical entry point — matches desktop's flow exactly.
+   * Never call /api/lock/{projectId} directly from a paid path; it
+   * skips Stripe verification.
+   */
+  async confirmAndExecute(input: {
+    action: 'finalize' | 'checkpoint' | 'chain-lock-basic' | 'chain-lock-pinned';
+    projectId: string;
+    paymentIntentId: string;
+    installationId?: string;
+    merkleRoot?: string;
+    preScrId?: string;
+  }): Promise<ConfirmAndExecuteResult> {
+    return postJson<ConfirmAndExecuteResult>('/api/confirm-and-execute', {
+      paymentIntentId: input.paymentIntentId,
+      action: input.action,
+      projectId: input.projectId,
+      lockTier:
+        input.action === 'chain-lock-pinned' ? 'pinned'
+        : input.action === 'chain-lock-basic' ? 'basic'
+        : null,
+      installationId: input.installationId,
+      merkleRoot: input.merkleRoot,
+      preScrId: input.preScrId,
+    });
   },
 
   async verify(input: VerifyInput): Promise<{
