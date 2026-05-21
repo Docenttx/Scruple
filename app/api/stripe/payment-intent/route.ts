@@ -52,7 +52,8 @@ export async function POST(req: NextRequest) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       action: body.action,
-      project_id: witnessProjectId,
+      projectId: witnessProjectId,
+      installationId: userId,
     }),
   });
   const data = await res.json().catch(() => ({}));
