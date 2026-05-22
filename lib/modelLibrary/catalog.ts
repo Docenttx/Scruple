@@ -63,6 +63,33 @@ export const CATALOG: CatalogModel[] = [
     recommended_for: ['flux'],
   },
 
+  {
+    id: 'flux1-dev-full',
+    name: 'FLUX.1 dev (full / bf16)',
+    category: 'diffusion_models',
+    source: 'hf',
+    url: 'https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/flux1-dev.safetensors',
+    target_subpath: 'diffusion_models/flux1-dev.safetensors',
+    size_mb: 23800,
+    description: 'Black Forest Labs FLUX.1-dev, full bf16 weights. Highest fidelity; needs ~24 GB VRAM (A10G/L40S/A100, not T4). Gated — requires an HF token with access granted.',
+    gated: true,
+    license: 'FLUX.1-dev non-commercial',
+    recommended_for: ['flux'],
+  },
+  {
+    id: 'flux1-schnell-full',
+    name: 'FLUX.1 schnell (full / bf16)',
+    category: 'diffusion_models',
+    source: 'hf',
+    url: 'https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/flux1-schnell.safetensors',
+    target_subpath: 'diffusion_models/flux1-schnell.safetensors',
+    size_mb: 23800,
+    description: 'Distilled 4-step FLUX.1-schnell, full bf16 weights. Faster than dev; needs ~24 GB VRAM. Gated download — requires an HF token.',
+    gated: true,
+    license: 'Apache 2.0',
+    recommended_for: ['flux'],
+  },
+
   // ── Flux text encoders ──────────────────────────────────────────────────
   {
     id: 'flux-clip-l',
