@@ -143,6 +143,8 @@ export interface WorkflowStatusDone {
     ok: boolean;
     image_bytes_b64?: string;
     content_type?: string;
+    output_kind?: 'image' | 'video' | 'checkpoint';
+    output_filename?: string;
     prompt_id?: string;
     duration_ms?: number;
     gpu?: string;
@@ -159,6 +161,7 @@ export type WorkflowStatus = WorkflowStatusRunning | WorkflowStatusDone | Workfl
 
 export async function spawnWorkflow(
   workflowApiJson: Record<string, unknown>,
+  inputs?: RunnerInput[],
 ): Promise<SpawnResult> {
   if (!ADMIN_TOKEN) {
     return { ok: false, error: 'SCRUPLE_MODAL_ADMIN_TOKEN not set' };
@@ -166,7 +169,10 @@ export async function spawnWorkflow(
   const res = await fetch(adminUrl('admin-spawn-workflow'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Admin-Token': ADMIN_TOKEN },
-    body: JSON.stringify({ workflow_api_json: workflowApiJson }),
+    body: JSON.stringify({
+      workflow_api_json: workflowApiJson,
+      ...(inputs && inputs.length ? { inputs } : {}),
+    }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');

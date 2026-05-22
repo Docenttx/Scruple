@@ -42,13 +42,48 @@ async function main() {
   }
 
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+  const cookie = `__Secure-authjs.session-token=${session}`;
+  // Async mode (spec.async:true OR --async): spawn + poll. Required for long
+  // workflows (training) that exceed the synchronous request window.
+  const wantAsync = spec.async === true || process.argv.includes('--async');
   const started = Date.now();
+
+  if (wantAsync) {
+    const sres = await fetch(`${base}/api/runs?async=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify(spec),
+    });
+    const sdata = await sres.json().catch(() => ({}));
+    if (!sres.ok || !sdata.ok) {
+      console.error(`✗ spawn failed (HTTP ${sres.status}):`, JSON.stringify(sdata, null, 2));
+      process.exit(1);
+    }
+    console.log(`↑ spawned job ${sdata.jobId} (modal call ${sdata.callId}); polling…`);
+    const maxMs = Number(process.env.SCRUPLE_RUN_TIMEOUT_MS ?? 30 * 60 * 1000);
+    while (Date.now() - started < maxMs) {
+      await new Promise((r) => setTimeout(r, 15000));
+      const pr = await fetch(`${base}/api/runs/status?jobId=${sdata.jobId}`, { headers: { Cookie: cookie } });
+      const pd = await pr.json().catch(() => ({}));
+      const elapsed = ((Date.now() - started) / 1000).toFixed(0);
+      if (pd.status === 'running') { console.log(`  …running (${elapsed}s)`); continue; }
+      if (pd.status === 'failed') { console.error(`✗ run failed (${elapsed}s):`, pd.error); process.exit(1); }
+      if (pd.status === 'done') {
+        console.log(`✓ run captured in ${elapsed}s`);
+        console.log(`  output_kind : ${pd.outputKind}`);
+        console.log(`  leaf_hash   : ${pd.leafHash}`);
+        console.log(`  run_sequence: ${pd.runSequence}`);
+        console.log(`  inputs      : ${JSON.stringify(pd.inputHashes)}`);
+        return;
+      }
+      console.error('✗ unexpected status:', JSON.stringify(pd)); process.exit(1);
+    }
+    console.error('✗ polling timed out'); process.exit(1);
+  }
+
   const res = await fetch(`${base}/api/runs`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Cookie: `__Secure-authjs.session-token=${session}`,
-    },
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify(spec),
   });
   const data = await res.json().catch(() => ({}));

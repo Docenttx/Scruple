@@ -58,7 +58,16 @@ def _check_admin(token: Optional[str]) -> bool:
 # ── GPU selection ─────────────────────────────────────────────────────────
 # Free tier: T4. Paid tier: "H100" or "A100". TEE-attested H100: see
 # Modal's docs on enabling Confidential Computing mode.
+#
+# GPU      — cheap warm/ping ComfyUI containers (short, preemption-tolerant).
+# RUN_GPU  — the heavy run_workflow function. Sustained multi-minute work
+#            (LoRA training, LoRA SVD extraction) cannot survive free-tier
+#            spot-T4 preemption: each preemption restarts the function from
+#            scratch (re-cold-start + re-load model), so the job never
+#            completes. A dedicated on-demand GPU (A10G+) gives an
+#            uninterrupted window. Defaults to GPU so smoke tests stay cheap.
 GPU = os.getenv("SCRUPLE_MODAL_GPU", "T4")
+RUN_GPU = os.getenv("SCRUPLE_MODAL_RUN_GPU", GPU)
 
 # ── Image build ───────────────────────────────────────────────────────────
 # A small ComfyUI install + the SD 1.5 base model for smoke tests. Build
@@ -159,6 +168,16 @@ def _start_comfy() -> None:
     raise RuntimeError("ComfyUI failed to start")
 
 
+def _tail_comfy_log(n: int = 60) -> str:
+    """Last n lines of ComfyUI's stdout/stderr (where node errors land).
+    Surfaced in run_workflow error/timeout returns so failures aren't opaque."""
+    try:
+        with open("/tmp/comfyui.log", "r", errors="replace") as fh:
+            return "".join(fh.readlines()[-n:])
+    except Exception as e:
+        return f"(comfy log unavailable: {e})"
+
+
 @app.function(gpu=GPU, timeout=120, volumes={"/opt/ComfyUI/models": models_volume})
 def diagnose_startup() -> Dict[str, Any]:
     """Boot ComfyUI, then read /tmp/comfyui.log. Reads the log even when
@@ -234,7 +253,7 @@ def _get_bytes(path: str) -> bytes:
 
 # ── The main entrypoint ──────────────────────────────────────────────────
 @app.function(
-    gpu=GPU,
+    gpu=RUN_GPU,  # dedicated GPU for sustained work (training/extraction)
     timeout=1800,
     volumes={"/opt/ComfyUI/models": models_volume},
     scaledown_window=600,  # 10-min warm window per session (was container_idle_timeout)
@@ -332,21 +351,48 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     # a LoRA on T4 can take >2 min when the container is doing real work;
     # bump to 8 min so cold-loaded LoRAs + Flux don't get prematurely killed.
     # The function-level timeout is 10 min (600s) so we stay safely under.
+    #
+    # IMPORTANT: break on prompt COMPLETION, not just on the presence of
+    # /view outputs. Terminal nodes that write a file straight to disk —
+    # SaveLoRA, CheckpointSave, TrainLoraNode — register NO entry under
+    # `outputs`, so a check for `outputs` alone never trips and the loop
+    # spins to the full 1700s ("timeout waiting for outputs") even though
+    # the prompt finished in seconds. ComfyUI's /history status carries
+    # `completed: true` / `status_str: "success"` regardless of UI outputs;
+    # use that as the real done-signal, then collect the artifact (a
+    # disk-written .safetensors for training, or /view files otherwise).
     outputs: Optional[Dict[str, Any]] = None
+    completed = False
+    last_status: Optional[Dict[str, Any]] = None
     poll_started = time.time()
     while time.time() - poll_started < 1700:  # up to ~28 min (training runs)
         hist = _get_json(f"/history/{prompt_id}")
-        if prompt_id in hist and hist[prompt_id].get("outputs"):
-            outputs = hist[prompt_id]["outputs"]
-            break
+        entry = hist.get(prompt_id)
+        if entry:
+            st = entry.get("status") or {}
+            last_status = st
+            if st.get("status_str") == "error":
+                return {
+                    "ok": False,
+                    "error": "comfy_execution_error",
+                    "detail": json.dumps(st)[:1500],
+                    "comfy_log": _tail_comfy_log(),
+                    "prompt_id": prompt_id,
+                }
+            if entry.get("outputs") or st.get("completed") is True or st.get("status_str") == "success":
+                outputs = entry.get("outputs") or {}
+                completed = True
+                break
         time.sleep(2)
 
-    if not outputs:
+    if not completed:
         return {
             "ok": False,
             "error": "timeout waiting for outputs",
             "prompt_id": prompt_id,
             "polled_seconds": int(time.time() - poll_started),
+            "last_status": last_status,
+            "comfy_log": _tail_comfy_log(),
         }
 
     # Training run: the deliverable is a .safetensors LoRA written to
@@ -376,7 +422,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
                     "output_filename": os.path.basename(ckpt_path),
                     "prompt_id": prompt_id,
                     "duration_ms": int((time.time() - started) * 1000),
-                    "gpu": GPU,
+                    "gpu": RUN_GPU,
                     "attestation": None,
                 }
             # fall through — maybe the workflow also emitted an image
@@ -430,7 +476,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
         "output_filename": fn,
         "prompt_id": prompt_id,
         "duration_ms": duration_ms,
-        "gpu": GPU,
+        "gpu": RUN_GPU,
         "attestation": None,  # populated on H100 CC builds
     }
 
@@ -641,7 +687,10 @@ def admin_spawn_workflow(payload: Dict[str, Any], x_admin_token: str = Header(de
     workflow = payload.get("workflow_api_json")
     if not isinstance(workflow, dict):
         return {"ok": False, "error": "workflow_api_json (object) required"}
-    call = run_workflow.spawn(workflow)
+    inputs = payload.get("inputs")
+    if inputs is not None and not isinstance(inputs, list):
+        return {"ok": False, "error": "inputs must be a list of {filename, bytes_b64}"}
+    call = run_workflow.spawn(workflow, inputs)
     return {"ok": True, "call_id": call.object_id}
 
 
