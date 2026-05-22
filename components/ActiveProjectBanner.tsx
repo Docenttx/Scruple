@@ -67,10 +67,13 @@ export default function ActiveProjectBanner({
               className="aspect-square overflow-hidden rounded border border-scruple-border-color bg-scruple-bg-primary"
               title={`#${it.run_sequence}`}
             >
-              {it.leaf_hash ? (
+              {it.output_hash ? (
+                // /api/artifact is keyed by content hash (output_hash);
+                // leaf_hash is the Merkle leaf, which for v2 iterations
+                // is the record_hash and has no stored bytes.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={`/api/artifact/${it.leaf_hash}`}
+                  src={`/api/artifact/${it.output_hash}`}
                   alt={`Iteration ${it.run_sequence}`}
                   className="h-full w-full object-cover"
                 />

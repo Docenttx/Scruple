@@ -8,15 +8,23 @@ export interface WitnessIterationInput {
   projectId: string;       // free-form; we use scruple-web project IDs as strings
   projectName?: string;
   runSequence: number;
-  contentHash: string;     // SHA-256 of the iteration's leaf content (hex)
+  contentHash: string;     // SHA-256 of the iteration's OUTPUT bytes (hex)
   visualHash?: string;
   clientTimestamp?: string;
+  // v2 — fold inputs + workflow into the canonical record so the
+  // RVN-anchored Merkle leaf commits the full provenance package.
+  inputHash?: string;      // SHA-256 of canonical(provider, prompt, spec, inputs[])
+  workflowHash?: string;   // SHA-256 of canonical(workflowApiJson) or omitted
 }
 
 export interface WitnessIterationResult {
   witness_id: string;
   server_timestamp: string;
   signature: string;
+  // v2 fields (absent from pre-v2 servers; treat as optional).
+  leaf_hash?: string;       // sha256(canonical(record)) — the Merkled leaf
+  prev_record_hash?: string;
+  leaf_scheme?: 'v1' | 'v2';
   // Whatever else the server returns
   [k: string]: unknown;
 }
@@ -114,6 +122,8 @@ export const witness = {
       content_hash: input.contentHash,
       visual_hash: input.visualHash,
       client_timestamp: input.clientTimestamp ?? new Date().toISOString(),
+      input_hash: input.inputHash,
+      workflow_hash: input.workflowHash,
     });
   },
 

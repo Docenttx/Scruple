@@ -96,7 +96,11 @@ function extFor(kind: OutputKind | 'input', contentType: string): string {
 export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   const outputKind: OutputKind = p.outputKind ?? 'image';
   const outputHash = sha256Hex(p.imageBytes);
-  const leafHash = outputHash;
+  // leafHash is *not* outputHash anymore in v2 — the witness server
+  // computes leaf_hash = sha256(canonical(record)), where record commits
+  // to inputs, workflow, order, and time too. We fill leafHash in after
+  // the witness call below; if the witness is unreachable we fall back to
+  // v1 semantics (leafHash = outputHash, leaf_scheme='v1', witnessed=0).
   const provider = getActiveProvider(p.userId);
 
   // ── Inputs: hash + store + (optionally) upload each, build manifest ──
@@ -143,12 +147,22 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   });
   const inputHash = sha256Hex(inputCanonical);
 
+  // workflow_hash binds the ComfyUI graph that produced the output. Sync
+  // executeRun puts it under spec.providerExtras.workflowApiJson; async
+  // pollRunJob does the same after T4. NULL when the path has no workflow.
+  let workflowHash: string | null = null;
+  const wf = (p.spec as unknown as { providerExtras?: { workflowApiJson?: unknown } })?.providerExtras?.workflowApiJson;
+  if (wf) workflowHash = sha256Hex(JSON.stringify(wf));
+
   // Pivot S8: write output to user's storage. Falls back to local FS if no
-  // provider is connected (dev / pre-onboarding state).
+  // provider is connected (dev / pre-onboarding state). Storage paths are
+  // keyed by OUTPUT hash (content-addressed by the actual bytes), NOT by
+  // leaf_hash — leaf_hash is the Merkle leaf identity (record_hash for v2)
+  // and is not the address of any stored byte stream.
   let storagePointer: StoragePointer | null = null;
   if (provider) {
     const ext = extFor(outputKind, p.imageContentType);
-    const path = `iterations/${leafHash.slice(0, 12)}.${ext}`;
+    const path = `iterations/${outputHash.slice(0, 12)}.${ext}`;
     try {
       const { pointer } = await provider.uploadFile(
         p.userId,
@@ -166,12 +180,44 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   // these after the storage upload is confirmed (Pivot S12).
   storeArtifact(outputHash, p.imageBytes);
 
+  // ── Witness BEFORE insert so the v2 record-hash leaf lands directly ──
+  // Allocate the run_sequence outside the tx so we can witness with it.
+  // (Single-writer-per-project is the implicit assumption everywhere else;
+  // a uniqueness violation would surface as an INSERT failure below.)
+  const next = (conn()
+    .prepare(`SELECT COALESCE(MAX(run_sequence), 0) + 1 AS n FROM iterations WHERE project_id = ?`)
+    .get(p.projectId) as { n: number }).n;
+  const projectRow = conn()
+    .prepare(`SELECT name FROM projects WHERE id = ?`)
+    .get(p.projectId) as { name?: string } | undefined;
+
+  // Auto-witness every ingested iteration. Per [[D-002]] this IS the
+  // provenance; lock-time Merkle/anchoring builds on the per-iteration
+  // witnesses. For v2 the server returns leaf_hash = sha256(canonical
+  // record) — that's what gets Merkled, so the RVN-anchored root commits
+  // inputs + workflow + order + time, not just the output. Degradable: if
+  // the witness server is unreachable, the iteration still lands with
+  // leaf_scheme='v1' (leaf_hash = output_hash) and witnessed=0 so the
+  // capture path doesn't block on witness-server health.
+  let witnessResult: Awaited<ReturnType<typeof witness.witnessIteration>> | null = null;
+  try {
+    witnessResult = await witness.witnessIteration({
+      projectId: String(p.projectId),
+      projectName: projectRow?.name ?? `project-${p.projectId}`,
+      runSequence: next,
+      contentHash: outputHash,
+      inputHash,
+      workflowHash: workflowHash ?? undefined,
+    });
+  } catch (e) {
+    console.error('[ingest] auto-witness failed (iteration will land with witnessed=0):', e);
+  }
+
+  const leafHash = witnessResult?.leaf_hash ?? outputHash;
+  const leafScheme: 'v1' | 'v2' = witnessResult?.leaf_scheme ?? 'v1';
+
   const now = new Date().toISOString();
   const tx = conn().transaction(() => {
-    const next = (conn()
-      .prepare(`SELECT COALESCE(MAX(run_sequence), 0) + 1 AS n FROM iterations WHERE project_id = ?`)
-      .get(p.projectId) as { n: number }).n;
-
     const previousHash = (conn()
       .prepare(
         `SELECT leaf_hash FROM iterations WHERE project_id = ? ORDER BY run_sequence DESC LIMIT 1`,
@@ -184,8 +230,10 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            project_id, run_sequence, timestamp, leaf_hash, input_hash, output_hash,
            previous_hash, metadata, source_file, image_filename, prompt, provider, provider_job_id,
            execution_backend, execution_attestation, storage_pointer,
-           output_kind, output_content_type, output_bytes, input_artifacts
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           output_kind, output_content_type, output_bytes, input_artifacts,
+           workflow_hash, leaf_scheme,
+           witnessed, witness_id, witness_timestamp, witness_signature
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -208,50 +256,28 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         p.imageContentType,
         p.imageBytes.length,
         JSON.stringify(inputArtifacts),
+        workflowHash,
+        leafScheme,
+        witnessResult ? 1 : 0,
+        witnessResult?.witness_id ?? null,
+        witnessResult?.server_timestamp ?? null,
+        witnessResult?.signature ?? null,
       );
 
     conn()
       .prepare(`UPDATE projects SET iteration_count = iteration_count + 1, updated_at = ? WHERE id = ?`)
       .run(now, p.projectId);
 
+    if (witnessResult) {
+      conn()
+        .prepare(`UPDATE projects SET witnessed_count = witnessed_count + 1 WHERE id = ?`)
+        .run(p.projectId);
+    }
+
     return { id: result.lastInsertRowid as number, runSequence: next };
   });
 
   const { id, runSequence } = tx();
-
-  // Auto-witness every successfully ingested iteration. Per [[D-002]]
-  // every captured artifact gets a witness signature at ingestion time
-  // — this IS the provenance. Lock actions later aggregate witnessed
-  // iterations into a Merkle root with chain anchoring; per-iteration
-  // witnessing is the foundation, not an opt-in for lock-time.
-  //
-  // Degradable: if the witness server is unreachable, the iteration
-  // still lands with witnessed=0 — operator can backfill via a sweeper.
-  // Non-fatal so we don't block image delivery on witness-server health.
-  try {
-    const projectRow = conn()
-      .prepare(`SELECT name FROM projects WHERE id = ?`)
-      .get(p.projectId) as { name?: string } | undefined;
-    const w = await witness.witnessIteration({
-      projectId: String(p.projectId),
-      projectName: projectRow?.name ?? `project-${p.projectId}`,
-      runSequence,
-      contentHash: leafHash,
-    });
-    conn().prepare(
-      `UPDATE iterations
-          SET witnessed = 1,
-              witness_id = ?,
-              witness_timestamp = ?,
-              witness_signature = ?
-        WHERE id = ?`,
-    ).run(w.witness_id, w.server_timestamp, w.signature, id);
-    conn().prepare(
-      `UPDATE projects SET witnessed_count = witnessed_count + 1 WHERE id = ?`,
-    ).run(p.projectId);
-  } catch (e) {
-    console.error('[ingest] auto-witness failed (iteration kept with witnessed=0):', e);
-  }
 
   const iteration = conn()
     .prepare(`SELECT * FROM iterations WHERE id = ?`)

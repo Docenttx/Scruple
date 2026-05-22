@@ -81,6 +81,9 @@ export interface IterationRow {
   output_content_type: string | null;
   output_bytes: number | null;
   input_artifacts: string;                // JSON array (InputArtifactRecord[])
+  // v2 full-record leaf (migration 016)
+  workflow_hash: string | null;           // sha256(canonical(workflowApiJson))
+  leaf_scheme: 'v1' | 'v2';               // v1=leaf_hash==output_hash, v2=record_hash
 }
 
 export interface MerkleNodeRow {

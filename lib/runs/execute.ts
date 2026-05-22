@@ -166,6 +166,7 @@ interface RunJobRow {
   run_inputs: string | null;
   run_output_kind: string | null;
   run_prompt: string | null;
+  run_workflow: string | null;
 }
 
 export interface RunJobStatus {
@@ -230,13 +231,25 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
   }
 
   const outputKind = (r.output_kind ?? (job.run_output_kind as OutputKind | null) ?? 'image') as OutputKind;
+  // Bind the producing workflow into spec so input_hash + workflow_hash
+  // cover it — parity with the sync executeRun path. Without this, async
+  // runs anchor only the prompt and the workflow is unwitnessed (T4
+  // regression introduced when run_workflow moved to generation_jobs).
+  let workflowApiJson: Record<string, unknown> | null = null;
+  if (job.run_workflow) {
+    try { workflowApiJson = JSON.parse(job.run_workflow) as Record<string, unknown>; }
+    catch { workflowApiJson = null; }
+  }
   const ingest = await ingestIteration({
     userId,
     projectId: job.project_id,
     provider: 'comfydeploy',
     providerJobId: r.prompt_id ?? jobId,
     prompt: job.run_prompt ?? '(cc dev run)',
-    spec: { prompt: job.run_prompt ?? '(cc dev run)' } as never,
+    spec: {
+      prompt: job.run_prompt ?? '(cc dev run)',
+      providerExtras: workflowApiJson ? { workflowApiJson } : {},
+    } as never,
     imageBytes: Buffer.from(r.image_bytes_b64, 'base64'),
     imageContentType: r.content_type ?? 'application/octet-stream',
     outputKind,
