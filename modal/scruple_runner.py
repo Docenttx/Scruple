@@ -235,7 +235,7 @@ def _get_bytes(path: str) -> bytes:
 # ── The main entrypoint ──────────────────────────────────────────────────
 @app.function(
     gpu=GPU,
-    timeout=600,
+    timeout=1800,
     volumes={"/opt/ComfyUI/models": models_volume},
     scaledown_window=600,  # 10-min warm window per session (was container_idle_timeout)
 )
@@ -279,14 +279,45 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
         try:
             os.makedirs(input_dir, exist_ok=True)
             for item in inputs:
-                fn = os.path.basename(str(item.get("filename") or ""))
+                # Allow a relative subfolder (training datasets land in
+                # input/<set>/img.png for LoadImageDataSetFromFolder), but
+                # normalize away any traversal.
+                raw = str(item.get("filename") or "").replace("\\", "/").lstrip("/")
+                rel = os.path.normpath(raw)
+                if rel.startswith("..") or os.path.isabs(rel):
+                    rel = os.path.basename(raw)
                 b64 = item.get("bytes_b64")
-                if not fn or not b64:
+                if not rel or not b64:
                     continue
-                with open(os.path.join(input_dir, fn), "wb") as fh:
+                dest = os.path.join(input_dir, rel)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with open(dest, "wb") as fh:
                     fh.write(base64.b64decode(b64))
         except Exception as e:
             return {"ok": False, "error": "input_write_failed", "detail": str(e)}
+
+    # Training workflows write a .safetensors to models/loras instead of an
+    # image via /view. Detect them and snapshot the loras dir so we can find
+    # + return the freshly trained checkpoint after the run.
+    TRAIN_CLASSES = {"TrainLoraNode", "SaveLoRA", "LoraSave"}
+    is_training = any(
+        isinstance(n, dict) and n.get("class_type") in TRAIN_CLASSES
+        for n in workflow_api_json.values()
+    )
+    # SaveLoRA/LoraSave may write to models/loras OR the ComfyUI output dir
+    # depending on node — scan both for the freshly produced .safetensors.
+    ckpt_scan_dirs = ["/opt/ComfyUI/models/loras", "/opt/ComfyUI/output"]
+    pre_loras = {}
+    if is_training:
+        for d in ckpt_scan_dirs:
+            try:
+                for root, _dirs, files in os.walk(d):
+                    for f in files:
+                        if f.endswith(".safetensors"):
+                            p = os.path.join(root, f)
+                            pre_loras[p] = os.path.getmtime(p)
+            except Exception:
+                pass
 
     # Queue the workflow — wrapped so HTTPErrors don't trip Modal's pickle layer.
     try:
@@ -303,7 +334,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     # The function-level timeout is 10 min (600s) so we stay safely under.
     outputs: Optional[Dict[str, Any]] = None
     poll_started = time.time()
-    while time.time() - poll_started < 480:  # 8 minutes max
+    while time.time() - poll_started < 1700:  # up to ~28 min (training runs)
         hist = _get_json(f"/history/{prompt_id}")
         if prompt_id in hist and hist[prompt_id].get("outputs"):
             outputs = hist[prompt_id]["outputs"]
@@ -317,6 +348,40 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
             "prompt_id": prompt_id,
             "polled_seconds": int(time.time() - poll_started),
         }
+
+    # Training run: the deliverable is a .safetensors LoRA written to
+    # models/loras (not served via /view). Return the freshly written one.
+    if is_training:
+        try:
+            new_files = []
+            for d in ckpt_scan_dirs:
+                for root, _dirs, files in os.walk(d):
+                    for f in files:
+                        if not f.endswith(".safetensors"):
+                            continue
+                        p = os.path.join(root, f)
+                        mt = os.path.getmtime(p)
+                        if p not in pre_loras or mt > pre_loras[p] + 0.001:
+                            new_files.append((mt, p))
+            if new_files:
+                new_files.sort()
+                ckpt_path = new_files[-1][1]
+                with open(ckpt_path, "rb") as fh:
+                    ckpt_bytes = fh.read()
+                return {
+                    "ok": True,
+                    "image_bytes_b64": base64.b64encode(ckpt_bytes).decode("ascii"),
+                    "content_type": "application/octet-stream",
+                    "output_kind": "checkpoint",
+                    "output_filename": os.path.basename(ckpt_path),
+                    "prompt_id": prompt_id,
+                    "duration_ms": int((time.time() - started) * 1000),
+                    "gpu": GPU,
+                    "attestation": None,
+                }
+            # fall through — maybe the workflow also emitted an image
+        except Exception as e:
+            return {"ok": False, "error": "checkpoint_collect_failed", "detail": str(e), "prompt_id": prompt_id}
 
     # Collect every emitted file across all output keys (images / gifs /
     # videos), then classify the primary output by FILE EXTENSION — native
@@ -373,7 +438,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
 # Web endpoint for the scruple-web Node backend to call without spawning
 # a Python client. Mounted at `${MODAL_RUNNER_ENDPOINT}` from the
 # Node adapter (lib/compute/modal.ts).
-@app.function(timeout=600)
+@app.function(timeout=1800)
 @modal.fastapi_endpoint(method="POST", label="run")
 def web_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Thin proxy: accept POST {workflow_api_json: ...}, return runner output."""
