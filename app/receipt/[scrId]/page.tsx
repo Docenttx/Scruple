@@ -12,6 +12,7 @@ import {
   type MerkleNodeRow,
   type TrainingRunRow,
 } from '@/lib/types';
+import type { InputArtifactRecord } from '@/lib/iterations/ingest';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,41 +94,80 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
         <h2 className="text-xs uppercase tracking-widest text-scruple-muted">
           Iterations ({iterations.length})
         </h2>
-        <div className="mt-2 overflow-x-auto rounded-md border border-scruple-border">
-          <table className="w-full text-[11px]">
-            <thead className="bg-scruple-surface text-scruple-muted">
-              <tr>
-                <th className="px-2 py-2 text-left">#</th>
-                <th className="px-2 py-2 text-left">leaf hash</th>
-                <th className="px-2 py-2 text-left">timestamp</th>
-                <th className="px-2 py-2 text-left">backend</th>
-                <th className="px-2 py-2 text-left">witness</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-scruple-border">
-              {iterations.map((it) => (
-                <tr key={it.id}>
-                  <td className="px-2 py-2 font-mono">{it.run_sequence}</td>
-                  <td className="px-2 py-2 font-mono text-scruple-muted">
-                    {it.leaf_hash.slice(0, 24)}…
-                  </td>
-                  <td className="px-2 py-2 text-scruple-muted">
-                    {new Date(it.timestamp).toLocaleString()}
-                  </td>
-                  <td className="px-2 py-2 text-[10px]">
-                    <BackendBadge backend={(it as { execution_backend?: string | null }).execution_backend ?? null} />
-                  </td>
-                  <td className="px-2 py-2 font-mono text-[10px]">
-                    {it.witness_id ? (
-                      <span className="text-scruple-success">{it.witness_id.slice(0, 16)}…</span>
-                    ) : (
-                      <span className="text-scruple-muted">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <p className="mt-1 text-[10px] text-scruple-muted">
+          Each iteration is one Merkle leaf under the root above. v2 leaves
+          commit the full record (inputs, workflow, order, time);
+          <span className="font-mono"> leaf_hash = sha256(canonical(record))</span>.
+          v1 leaves commit only the output bytes;
+          <span className="font-mono"> leaf_hash = output_hash</span>.
+        </p>
+        <div className="mt-3 space-y-3">
+          {iterations.map((it) => (
+            <IterationCard key={it.id} it={it} />
+          ))}
+        </div>
+      </section>
+
+      {/* Verification recipe — how an outsider with the asset ID + this
+          page can independently re-derive each leaf and the Merkle root,
+          then match it against the on-chain anchor. This IS the third-
+          party proof; nothing about it requires trusting Scruple. */}
+      <section className="mt-8">
+        <h2 className="text-xs uppercase tracking-widest text-scruple-muted">
+          Verification recipe
+        </h2>
+        <div className="mt-2 rounded-md border border-scruple-border bg-scruple-surface p-3 text-[11px]">
+          <p className="text-scruple-text">
+            Anyone with the SCR-ID can verify this receipt end-to-end:
+          </p>
+          <ol className="ml-4 mt-2 list-decimal space-y-2 text-scruple-muted">
+            <li>
+              For each iteration, recompute the leaf:
+              <ul className="ml-4 mt-1 list-disc space-y-1">
+                <li>
+                  <span className="font-mono">v1</span>:{' '}
+                  <span className="font-mono">leaf_hash == sha256(output_bytes)</span>.
+                  Confirm <span className="font-mono">output_hash</span> matches the bytes
+                  served from <span className="font-mono">/api/artifact/[output_hash]</span>.
+                </li>
+                <li>
+                  <span className="font-mono">v2</span>:{' '}
+                  <span className="font-mono">
+                    leaf_hash == sha256(canonical(record))
+                  </span>
+                  {' '}where{' '}
+                  <span className="font-mono">
+                    record = {'{'} run_sequence, output_hash, input_hash, workflow_hash,
+                    server_timestamp, prev_record_hash {'}'}
+                  </span>
+                  . Canonical = compact JSON (no spaces), fixed field order.
+                </li>
+              </ul>
+            </li>
+            <li>
+              Recompute <span className="font-mono">input_hash</span> as{' '}
+              <span className="font-mono">sha256(canonical(provider, prompt, spec, input_artifact_hashes))</span>.
+              Confirm each input artifact hash matches its bytes.
+            </li>
+            <li>
+              Build the sorted-pair Merkle tree over the leaves in
+              run_sequence order. Confirm the root matches{' '}
+              <span className="font-mono">{project.merkle_root || '(none yet)'}</span>.
+            </li>
+            <li>
+              Pull the on-chain anchor at <span className="font-mono">{scrId}</span>
+              {project.rvn_txid ? <> (RVN tx <span className="font-mono">{project.rvn_txid.slice(0, 16)}…</span>)</> : null}.
+              Its committed root must equal the root above. If it does, every
+              field shown — inputs, workflow, output, order, time — is provably
+              untampered as of the on-chain timestamp.
+            </li>
+          </ol>
+          <p className="mt-3 text-[10px] text-scruple-muted">
+            HMAC <code>witness_signature</code> on each row is Scruple&apos;s
+            per-record seal (symmetric); the on-chain mint wallet is the
+            public issuer identity. The leaf preimages above are what the
+            mint commits to.
+          </p>
         </div>
       </section>
 
@@ -176,6 +216,120 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
         Provenance receipt generated by Scruple Web. Patent Pending.
       </footer>
     </main>
+  );
+}
+
+function IterationCard({ it }: { it: IterationRow }) {
+  // Parse the input-artifact manifest (training images, init image, etc.)
+  // so we can render kind / filename / hash per input. The bytes themselves
+  // live at /api/artifact/[hash], content-addressed by the input bytes.
+  let inputs: InputArtifactRecord[] = [];
+  if (it.input_artifacts) {
+    try {
+      inputs = JSON.parse(it.input_artifacts) as InputArtifactRecord[];
+    } catch {
+      inputs = [];
+    }
+  }
+  const scheme = it.leaf_scheme ?? 'v1';
+  const backend = (it as { execution_backend?: string | null }).execution_backend ?? null;
+  return (
+    <div className="rounded-md border border-scruple-border bg-scruple-surface p-3 text-[11px]">
+      {/* header row: # · scheme · timestamp · backend · output_kind */}
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="font-mono text-scruple-text">#{it.run_sequence}</span>
+        <SchemeBadge scheme={scheme} />
+        <span className="rounded-full border border-scruple-border bg-scruple-bg px-1.5 py-0.5 font-mono text-[9px] text-scruple-muted">
+          {it.output_kind}
+        </span>
+        <BackendBadge backend={backend} />
+        <span className="ml-auto text-[10px] text-scruple-muted">
+          {new Date(it.timestamp).toLocaleString()}
+        </span>
+      </div>
+
+      {/* hash grid: leaf, output, input, workflow */}
+      <dl className="mt-2 grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
+        <HashRow label="leaf_hash" value={it.leaf_hash} />
+        <HashRow label="output_hash" value={it.output_hash} muted />
+        <HashRow label="input_hash" value={it.input_hash} muted />
+        {scheme === 'v2' && it.workflow_hash && (
+          <HashRow label="workflow_hash" value={it.workflow_hash} muted />
+        )}
+      </dl>
+
+      {/* input artifacts */}
+      {inputs.length > 0 && (
+        <div className="mt-2">
+          <div className="text-[9px] uppercase tracking-widest text-scruple-muted">
+            Input artifacts ({inputs.length})
+          </div>
+          <ul className="mt-1 space-y-0.5">
+            {inputs.map((a) => (
+              <li key={a.hash} className="flex items-baseline gap-2 text-[10px]">
+                <span className="rounded border border-scruple-border bg-scruple-bg px-1 py-0.5 font-mono text-[9px] text-scruple-muted">
+                  {a.kind}
+                </span>
+                <span className="font-mono text-scruple-muted">
+                  {a.filename ?? '(unnamed)'}
+                </span>
+                <span className="ml-auto font-mono text-[9px] text-scruple-muted">
+                  {a.hash.slice(0, 16)}…
+                </span>
+                <span className="text-[9px] text-scruple-muted">{formatBytes(a.bytes)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* witness footer */}
+      <div className="mt-2 flex items-baseline gap-2 border-t border-scruple-border pt-2 text-[10px]">
+        {it.witness_id ? (
+          <>
+            <span className="text-scruple-muted">witness</span>
+            <span className="font-mono text-scruple-success">{it.witness_id}</span>
+            {it.witness_signature && (
+              <span className="font-mono text-scruple-muted" title={it.witness_signature}>
+                · sig {it.witness_signature.slice(0, 12)}…
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="text-scruple-muted">unwitnessed</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HashRow({ label, value, muted }: { label: string; value: string | null; muted?: boolean }) {
+  return (
+    <>
+      <dt className="text-[9px] uppercase tracking-widest text-scruple-muted">{label}</dt>
+      <dd
+        className={`break-all font-mono text-[10px] ${muted ? 'text-scruple-muted' : 'text-scruple-text'}`}
+        title={value ?? ''}
+      >
+        {value ?? '—'}
+      </dd>
+    </>
+  );
+}
+
+function SchemeBadge({ scheme }: { scheme: 'v1' | 'v2' }) {
+  const cls =
+    scheme === 'v2'
+      ? 'border-scruple-accent/40 bg-scruple-accent/10 text-scruple-accent'
+      : 'border-scruple-border bg-scruple-bg text-scruple-muted';
+  return (
+    <span className={`rounded-full border px-1.5 py-0.5 font-mono text-[9px] ${cls}`} title={
+      scheme === 'v2'
+        ? 'Leaf hashes the full record (inputs + workflow + order + time)'
+        : 'Legacy leaf — hashes only the output bytes'
+    }>
+      leaf:{scheme}
+    </span>
   );
 }
 

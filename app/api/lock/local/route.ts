@@ -116,6 +116,9 @@ export async function POST(req: NextRequest) {
   });
   tx();
 
+  const mode = REQUIRE_PAYMENT && body.paymentIntentId ? 'paid' : 'dev-bypass';
+  console.log(`[LOCAL_LOCK] user=${userId} project=${body.projectId} scr=${scrId} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… (${mode})`);
+
   return NextResponse.json({
     ok: true,
     scrId,

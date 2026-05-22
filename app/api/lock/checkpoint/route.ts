@@ -126,6 +126,11 @@ export async function POST(req: NextRequest) {
   });
   tx();
 
+  // Audit log — runs for both the paid and the dev-bypass path so every
+  // checkpoint shows up with its project identifier and pre-SCR.
+  const mode = REQUIRE_PAYMENT && body.paymentIntentId ? 'paid' : 'dev-bypass';
+  console.log(`[CHECKPOINT] user=${userId} project=${body.projectId} preScr=${preScr} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… (${mode})`);
+
   return NextResponse.json({
     ok: true,
     preScrId: preScr,
