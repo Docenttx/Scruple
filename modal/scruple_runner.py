@@ -318,28 +318,23 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
             "polled_seconds": int(time.time() - poll_started),
         }
 
-    # Find the primary output across nodes. Order of preference: video
-    # (gifs/videos keys from VHS_VideoCombine etc.) → image. ComfyUI reports
-    # video outputs under "gifs" (mp4/webm included) in most video nodes.
-    out_info = None
-    out_kind = "image"
+    # Collect every emitted file across all output keys (images / gifs /
+    # videos), then classify the primary output by FILE EXTENSION — native
+    # SaveVideo/SaveWEBM may report a .mp4/.webm under the "images" key, so
+    # key name alone is unreliable. Prefer a video file if any is present.
+    candidates = []  # list of dicts {filename, subfolder, type}
     for node_outputs in outputs.values():
-        vids = node_outputs.get("gifs") or node_outputs.get("videos") or []
-        if vids:
-            out_info = vids[0]
-            out_kind = "video"
-            break
-    if not out_info:
-        for node_outputs in outputs.values():
-            images = node_outputs.get("images") or []
-            if images:
-                out_info = images[0]
-                out_kind = "image"
-                break
+        for key in ("gifs", "videos", "images"):
+            for item in (node_outputs.get(key) or []):
+                if item.get("filename"):
+                    candidates.append(item)
 
-    if not out_info:
-        return {"ok": False, "error": "no image/video in outputs", "prompt_id": prompt_id,
+    if not candidates:
+        return {"ok": False, "error": "no output files", "prompt_id": prompt_id,
                 "outputs_keys": list(outputs.keys()), "outputs": outputs}
+
+    VIDEO_EXTS = (".mp4", ".webm", ".gif", ".mkv", ".mov")
+    out_info = next((c for c in candidates if c["filename"].lower().endswith(VIDEO_EXTS)), candidates[0])
 
     fn = out_info["filename"]
     bytes_ = _get_bytes(
@@ -347,14 +342,18 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     )
 
     lower = fn.lower()
-    if out_kind == "video":
-        content_type = "video/webm" if lower.endswith(".webm") else "video/mp4"
-    elif lower.endswith(".jpg") or lower.endswith(".jpeg"):
-        content_type = "image/jpeg"
+    if lower.endswith(".webm"):
+        out_kind, content_type = "video", "video/webm"
+    elif lower.endswith((".mp4", ".mkv", ".mov")):
+        out_kind, content_type = "video", "video/mp4"
+    elif lower.endswith(".gif"):
+        out_kind, content_type = "video", "image/gif"
+    elif lower.endswith((".jpg", ".jpeg")):
+        out_kind, content_type = "image", "image/jpeg"
     elif lower.endswith(".webp"):
-        content_type = "image/webp"
+        out_kind, content_type = "image", "image/webp"
     else:
-        content_type = "image/png"
+        out_kind, content_type = "image", "image/png"
 
     duration_ms = int((time.time() - started) * 1000)
 
