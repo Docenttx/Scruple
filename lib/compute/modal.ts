@@ -19,11 +19,19 @@ interface ModalResponse {
   ok: boolean;
   image_bytes_b64?: string;
   content_type?: string;
+  output_kind?: 'image' | 'video' | 'checkpoint';
+  output_filename?: string;
   prompt_id?: string;
   duration_ms?: number;
   gpu?: string;
   attestation?: Record<string, unknown> | null;
   error?: string;
+}
+
+/** An input file shipped to the runner to place in ComfyUI's input dir. */
+export interface RunnerInput {
+  filename: string;
+  bytes_b64: string;
 }
 
 const ENDPOINT = process.env.MODAL_RUNNER_ENDPOINT;
@@ -47,6 +55,7 @@ export const modalRunner: ComputeBackend = {
   async runWorkflow(
     workflowApiJson: Record<string, unknown>,
     ctx?: ComputeContext,
+    inputs?: RunnerInput[],
   ): Promise<ComputeResult> {
     const endpoint = ctx?.endpointUrl || ENDPOINT;
     if (!endpoint) {
@@ -62,7 +71,10 @@ export const modalRunner: ComputeBackend = {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflow_api_json: workflowApiJson }),
+        body: JSON.stringify({
+          workflow_api_json: workflowApiJson,
+          ...(inputs && inputs.length ? { inputs } : {}),
+        }),
         signal: ac.signal,
       });
       if (!res.ok) {
@@ -90,6 +102,8 @@ export const modalRunner: ComputeBackend = {
         durationMs: data.duration_ms ?? 0,
         attestation: data.attestation ?? null,
         gpu: data.gpu ?? '?',
+        outputKind: data.output_kind ?? 'image',
+        outputFilename: data.output_filename,
       };
     } finally {
       clearTimeout(t);

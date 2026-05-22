@@ -239,14 +239,22 @@ def _get_bytes(path: str) -> bytes:
     volumes={"/opt/ComfyUI/models": models_volume},
     scaledown_window=600,  # 10-min warm window per session (was container_idle_timeout)
 )
-def run_workflow(workflow_api_json: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute a ComfyUI workflow and return the resulting image bytes.
+def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = None) -> Dict[str, Any]:
+    """Execute a ComfyUI workflow and return the resulting artifact bytes.
+
+    inputs (optional): list of input files to place in ComfyUI's input dir
+    BEFORE queueing, so LoadImage / LoadVideo / training nodes can read them:
+        [{ "filename": "init.png", "bytes_b64": "<base64>" }, ...]
+    This is what lets the CC dev pipeline pump source materials (from user
+    storage / Modal storage / local) into a workflow without the canvas.
 
     Returns:
         {
           "ok": True,
-          "image_bytes_b64": <base64>,
-          "content_type": "image/png",
+          "image_bytes_b64": <base64>,     # the output artifact (any kind)
+          "content_type": "image/png" | "video/mp4" | "application/octet-stream",
+          "output_kind": "image" | "video" | "checkpoint",
+          "output_filename": <str>,
           "prompt_id": <comfyui prompt id>,
           "duration_ms": <int>,
           "gpu": "T4" | ...,
@@ -254,6 +262,7 @@ def run_workflow(workflow_api_json: Dict[str, Any]) -> Dict[str, Any]:
         }
     """
     import base64
+    import os
     import traceback
 
     started = time.time()
@@ -262,6 +271,22 @@ def run_workflow(workflow_api_json: Dict[str, Any]) -> Dict[str, Any]:
         _start_comfy()
     except Exception as e:
         return {"ok": False, "error": "start_comfy_failed", "detail": str(e), "traceback": traceback.format_exc()}
+
+    # Place any provided inputs into ComfyUI's input dir so LoadImage et al.
+    # resolve them by filename.
+    if inputs:
+        input_dir = "/opt/ComfyUI/input"
+        try:
+            os.makedirs(input_dir, exist_ok=True)
+            for item in inputs:
+                fn = os.path.basename(str(item.get("filename") or ""))
+                b64 = item.get("bytes_b64")
+                if not fn or not b64:
+                    continue
+                with open(os.path.join(input_dir, fn), "wb") as fh:
+                    fh.write(base64.b64decode(b64))
+        except Exception as e:
+            return {"ok": False, "error": "input_write_failed", "detail": str(e)}
 
     # Queue the workflow — wrapped so HTTPErrors don't trip Modal's pickle layer.
     try:
@@ -293,27 +318,52 @@ def run_workflow(workflow_api_json: Dict[str, Any]) -> Dict[str, Any]:
             "polled_seconds": int(time.time() - poll_started),
         }
 
-    # Find the first image among the outputs (workflow may have multiple)
-    image_info = None
+    # Find the primary output across nodes. Order of preference: video
+    # (gifs/videos keys from VHS_VideoCombine etc.) → image. ComfyUI reports
+    # video outputs under "gifs" (mp4/webm included) in most video nodes.
+    out_info = None
+    out_kind = "image"
     for node_outputs in outputs.values():
-        images = node_outputs.get("images") or []
-        if images:
-            image_info = images[0]
+        vids = node_outputs.get("gifs") or node_outputs.get("videos") or []
+        if vids:
+            out_info = vids[0]
+            out_kind = "video"
             break
+    if not out_info:
+        for node_outputs in outputs.values():
+            images = node_outputs.get("images") or []
+            if images:
+                out_info = images[0]
+                out_kind = "image"
+                break
 
-    if not image_info:
-        return {"ok": False, "error": "no image in outputs", "prompt_id": prompt_id, "outputs_keys": list(outputs.keys())}
+    if not out_info:
+        return {"ok": False, "error": "no image/video in outputs", "prompt_id": prompt_id,
+                "outputs_keys": list(outputs.keys()), "outputs": outputs}
 
+    fn = out_info["filename"]
     bytes_ = _get_bytes(
-        f"/view?filename={image_info['filename']}&subfolder={image_info.get('subfolder', '')}&type={image_info.get('type', 'output')}"
+        f"/view?filename={fn}&subfolder={out_info.get('subfolder', '')}&type={out_info.get('type', 'output')}"
     )
+
+    lower = fn.lower()
+    if out_kind == "video":
+        content_type = "video/webm" if lower.endswith(".webm") else "video/mp4"
+    elif lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        content_type = "image/jpeg"
+    elif lower.endswith(".webp"):
+        content_type = "image/webp"
+    else:
+        content_type = "image/png"
 
     duration_ms = int((time.time() - started) * 1000)
 
     return {
         "ok": True,
         "image_bytes_b64": base64.b64encode(bytes_).decode("ascii"),
-        "content_type": "image/png",
+        "content_type": content_type,
+        "output_kind": out_kind,
+        "output_filename": fn,
         "prompt_id": prompt_id,
         "duration_ms": duration_ms,
         "gpu": GPU,
@@ -331,9 +381,12 @@ def web_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     workflow = payload.get("workflow_api_json")
     if not isinstance(workflow, dict):
         return {"ok": False, "error": "workflow_api_json (object) required"}
+    inputs = payload.get("inputs")
+    if inputs is not None and not isinstance(inputs, list):
+        return {"ok": False, "error": "inputs must be a list of {filename, bytes_b64}"}
     # Delegate to the GPU function. The web container is cheap; the GPU
     # container only runs when run_workflow.spawn is invoked.
-    return run_workflow.remote(workflow)
+    return run_workflow.remote(workflow, inputs)
 
 
 # ─────────────────────────────────────────────────────────────────────────

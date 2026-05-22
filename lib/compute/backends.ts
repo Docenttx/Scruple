@@ -41,6 +41,10 @@ export interface ComputeResult {
   attestation: Record<string, unknown> | null;
   /** Backend-native GPU label, e.g. "T4", "A100", "H100-CC". */
   gpu: string;
+  /** What the output IS — defaults to 'image' when the backend omits it. */
+  outputKind?: 'image' | 'video' | 'checkpoint';
+  /** Runner-side output filename (its extension informs content type). */
+  outputFilename?: string;
   /** Populated when ok=false. */
   rawError?: string;
 }
@@ -58,6 +62,8 @@ export interface ComputeBackend {
   runWorkflow(
     workflowApiJson: Record<string, unknown>,
     ctx?: ComputeContext,
+    /** Optional input files placed in the runner's input dir before run. */
+    inputs?: Array<{ filename: string; bytes_b64: string }>,
   ): Promise<ComputeResult>;
 }
 
