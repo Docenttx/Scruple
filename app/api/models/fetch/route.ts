@@ -61,8 +61,23 @@ export async function POST(req: NextRequest) {
       if (!item) {
         return NextResponse.json({ error: 'unknown_catalog_id' }, { status: 404 });
       }
-      sourceUrl = item.url;
       targetSubpath = item.target_subpath;
+      if (item.source === 'civitai') {
+        // Civitai download URLs require the API token as a query param —
+        // the HF token branch below only covers huggingface.co hosts.
+        if (!civitaiToken) {
+          return NextResponse.json(
+            {
+              error: 'civitai_token_required',
+              detail: 'This catalog model is hosted on Civitai. Add a Civitai API token in Settings → Provider Tokens.',
+            },
+            { status: 400 },
+          );
+        }
+        sourceUrl = withCivitaiToken(item.url, civitaiToken);
+      } else {
+        sourceUrl = item.url;
+      }
     } else if ('civitaiUrl' in body) {
       if (!civitaiToken) {
         return NextResponse.json(
