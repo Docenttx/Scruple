@@ -76,6 +76,11 @@ export interface IterationRow {
   execution_backend: string | null;
   execution_attestation: string | null;  // JSON
   storage_pointer: string | null;        // JSON
+  // Typed artifacts (migration 014)
+  output_kind: 'image' | 'video' | 'checkpoint';
+  output_content_type: string | null;
+  output_bytes: number | null;
+  input_artifacts: string;                // JSON array (InputArtifactRecord[])
 }
 
 export interface MerkleNodeRow {

@@ -24,6 +24,34 @@ import type {
 } from '@/lib/types';
 import type { StoragePointer } from '@/lib/storage/types';
 
+export type OutputKind = 'image' | 'video' | 'checkpoint';
+
+export type InputArtifactKind =
+  | 'init_image'
+  | 'control_image'
+  | 'source_image'
+  | 'training_image'
+  | 'base_checkpoint'
+  | 'other';
+
+/** An input that fed a run — hashed + stored alongside the output. */
+export interface IngestInputArtifact {
+  kind: InputArtifactKind;
+  bytes: Buffer;
+  filename?: string | null;
+  contentType: string;
+}
+
+/** Manifest entry persisted in iterations.input_artifacts (JSON). */
+export interface InputArtifactRecord {
+  kind: InputArtifactKind;
+  hash: string;
+  filename: string | null;
+  content_type: string;
+  bytes: number;
+  storage_pointer: StoragePointer | null;
+}
+
 export interface IngestParams {
   userId: string;
   projectId: number;
@@ -31,9 +59,15 @@ export interface IngestParams {
   providerJobId: string;
   prompt: string;
   spec: GenerationSpec;
+  /** The output artifact bytes (image/video/checkpoint). */
   imageBytes: Buffer;
+  /** Output mime/type, e.g. image/png, video/mp4, application/octet-stream. */
   imageContentType: string;
   imageFilename?: string | null;
+  /** What the output IS. Defaults to 'image' (txt2img backward-compat). */
+  outputKind?: OutputKind;
+  /** Inputs that fed this run — reference images, training sets, base ckpt. */
+  inputs?: IngestInputArtifact[];
   /** Backend that ran this generation (Pivot — set by /api/generate). */
   executionBackend?: 'modal-tee' | 'modal-test' | 'comfydeploy' | 'local-tunnel' | null;
   /** TEE attestation receipt, if available. */
@@ -45,26 +79,76 @@ export interface IngestResult {
   leafHash: string;
   runSequence: number;
   storagePointer: StoragePointer | null;
+  inputArtifacts: InputArtifactRecord[];
+}
+
+/** File extension for an output/input by kind + content-type. */
+function extFor(kind: OutputKind | 'input', contentType: string): string {
+  if (kind === 'video') return contentType.includes('webm') ? 'webm' : 'mp4';
+  if (kind === 'checkpoint') return 'safetensors';
+  if (contentType.includes('jpeg')) return 'jpg';
+  if (contentType.includes('webp')) return 'webp';
+  if (contentType.includes('mp4')) return 'mp4';
+  if (contentType.includes('octet-stream')) return 'safetensors';
+  return 'png';
 }
 
 export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
+  const outputKind: OutputKind = p.outputKind ?? 'image';
   const outputHash = sha256Hex(p.imageBytes);
+  const leafHash = outputHash;
+  const provider = getActiveProvider(p.userId);
+
+  // ── Inputs: hash + store + (optionally) upload each, build manifest ──
+  // Every input that fed the run is content-addressed the same way the
+  // output is — this is what makes input provenance verifiable. For LoRA
+  // training the whole image SET arrives here as many training_image
+  // entries; for img2img/upscale a single init/source image.
+  const inputArtifacts: InputArtifactRecord[] = [];
+  for (const inp of p.inputs ?? []) {
+    const hash = sha256Hex(inp.bytes);
+    storeArtifact(hash, inp.bytes);
+    let pointer: StoragePointer | null = null;
+    if (provider) {
+      const ext = extFor('input', inp.contentType);
+      try {
+        const up = await provider.uploadFile(
+          p.userId,
+          `inputs/${hash.slice(0, 12)}.${ext}`,
+          inp.bytes,
+          inp.contentType,
+        );
+        pointer = up.pointer;
+      } catch (e) {
+        console.error('[ingest] input upload failed, kept local FS only', e);
+      }
+    }
+    inputArtifacts.push({
+      kind: inp.kind,
+      hash,
+      filename: inp.filename ?? null,
+      content_type: inp.contentType,
+      bytes: inp.bytes.length,
+      storage_pointer: pointer,
+    });
+  }
+
+  // input_hash binds the run's inputs: the request canonical + every input
+  // artifact hash. Re-deriving it later proves the inputs are unchanged.
   const inputCanonical = JSON.stringify({
     provider: p.provider,
     prompt: p.prompt,
     spec: p.spec,
+    inputs: inputArtifacts.map((a) => ({ kind: a.kind, hash: a.hash })),
   });
   const inputHash = sha256Hex(inputCanonical);
-  const leafHash = outputHash;
 
-  // Pivot S8: write to user's storage. Falls back to local FS if no
+  // Pivot S8: write output to user's storage. Falls back to local FS if no
   // provider is connected (dev / pre-onboarding state).
   let storagePointer: StoragePointer | null = null;
-  const provider = getActiveProvider(p.userId);
   if (provider) {
-    const ext = p.imageContentType.includes('jpeg') ? 'jpg' : 'png';
-    const filename = `${leafHash.slice(0, 12)}.${ext}`;
-    const path = `iterations/${filename}`;
+    const ext = extFor(outputKind, p.imageContentType);
+    const path = `iterations/${leafHash.slice(0, 12)}.${ext}`;
     try {
       const { pointer } = await provider.uploadFile(
         p.userId,
@@ -99,8 +183,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         `INSERT INTO iterations (
            project_id, run_sequence, timestamp, leaf_hash, input_hash, output_hash,
            previous_hash, metadata, source_file, image_filename, prompt, provider, provider_job_id,
-           execution_backend, execution_attestation, storage_pointer
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           execution_backend, execution_attestation, storage_pointer,
+           output_kind, output_content_type, output_bytes, input_artifacts
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -119,6 +204,10 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         p.executionBackend ?? null,
         p.executionAttestation ? JSON.stringify(p.executionAttestation) : null,
         storagePointer ? JSON.stringify(storagePointer) : null,
+        outputKind,
+        p.imageContentType,
+        p.imageBytes.length,
+        JSON.stringify(inputArtifacts),
       );
 
     conn()
@@ -184,5 +273,5 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     console.error('[telemetry] insert failed', e);
   }
 
-  return { iteration, leafHash, runSequence, storagePointer };
+  return { iteration, leafHash, runSequence, storagePointer, inputArtifacts };
 }
