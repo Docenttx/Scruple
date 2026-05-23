@@ -25,6 +25,17 @@ interface ModalResponse {
   duration_ms?: number;
   gpu?: string;
   attestation?: Record<string, unknown> | null;
+  // In-container fingerprints of every model file the workflow loaded.
+  // Keyed by volume-relative path ('checkpoints/v1-5-...safetensors').
+  // Pins the bytes that produced this run; later swap detection is
+  // re-hashing the file at the same path.
+  model_fingerprints?: Record<string, {
+    content_hash?: string | null;
+    header_hash?: string | null;
+    header_size?: number | null;
+    bytes?: number;
+    mtime?: number;
+  }>;
   error?: string;
 }
 
@@ -102,6 +113,7 @@ export const modalRunner: ComputeBackend = {
         durationMs: data.duration_ms ?? 0,
         attestation: data.attestation ?? null,
         gpu: data.gpu ?? '?',
+        modelFingerprints: data.model_fingerprints ?? {},
         outputKind: data.output_kind ?? 'image',
         outputFilename: data.output_filename,
       };
@@ -149,6 +161,13 @@ export interface WorkflowStatusDone {
     duration_ms?: number;
     gpu?: string;
     attestation?: Record<string, unknown> | null;
+    model_fingerprints?: Record<string, {
+      content_hash?: string | null;
+      header_hash?: string | null;
+      header_size?: number | null;
+      bytes?: number;
+      mtime?: number;
+    }>;
     error?: string;
   };
 }

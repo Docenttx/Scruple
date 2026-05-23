@@ -178,6 +178,148 @@ def _tail_comfy_log(n: int = 60) -> str:
         return f"(comfy log unavailable: {e})"
 
 
+# ── Model fingerprinting ─────────────────────────────────────────────────
+# Workflows reference models by filename (e.g. CheckpointLoaderSimple
+# inputs.ckpt_name = "v1-5-pruned-emaonly.safetensors"). Provenance only
+# binds the filename string via workflow_hash — not the actual weight
+# bytes. Hashing each loaded model file in-container at run time pins the
+# bytes that produced this run; any later swap is detectable by re-hashing.
+#
+# Registry: known core ComfyUI loader nodes → (input_field, models_subdir).
+# Extending this catches more node classes; we also do an extension-based
+# fallback scan over every node input so custom-node workflows still
+# fingerprint anything that looks like a model file.
+MODEL_LOADERS: Dict[str, tuple] = {
+    "CheckpointLoaderSimple":  ("ckpt_name",      "checkpoints"),
+    "CheckpointLoader":        ("ckpt_name",      "checkpoints"),
+    "ImageOnlyCheckpointLoader": ("ckpt_name",    "checkpoints"),
+    "unCLIPCheckpointLoader":  ("ckpt_name",      "checkpoints"),
+    "LoraLoader":              ("lora_name",      "loras"),
+    "LoraLoaderModelOnly":     ("lora_name",      "loras"),
+    "VAELoader":               ("vae_name",       "vae"),
+    "UNETLoader":              ("unet_name",      "unet"),
+    "CLIPLoader":              ("clip_name",      "text_encoders"),  # comfy renamed clip → text_encoders
+    "DualCLIPLoader":          (("clip_name1", "clip_name2"), "text_encoders"),
+    "TripleCLIPLoader":        (("clip_name1", "clip_name2", "clip_name3"), "text_encoders"),
+    "ControlNetLoader":        ("control_net_name", "controlnet"),
+    "StyleModelLoader":        ("style_model_name", "style_models"),
+    "GLIGENLoader":            ("gligen_name",    "gligen"),
+    "UpscaleModelLoader":      ("model_name",     "upscale_models"),
+}
+MODEL_EXTS = (".safetensors", ".ckpt", ".pt", ".bin", ".gguf", ".pth")
+
+# Per-container hash cache keyed by (path, mtime_ns, size). Survives
+# multiple runs in the same warm container; canonical bases (e.g. SD1.5
+# 4.27 GB) are hashed once and looked up thereafter.
+_MODEL_HASH_CACHE: Dict[tuple, Dict[str, Any]] = {}
+
+
+def _safetensors_header_hash(path: str) -> tuple:
+    """Return (header_hash, header_size) by reading the first 8 bytes
+    (little-endian header length) + header JSON. None on non-safetensors."""
+    import hashlib, struct
+    try:
+        with open(path, "rb") as fh:
+            ln_bytes = fh.read(8)
+            if len(ln_bytes) != 8:
+                return (None, None)
+            (header_len,) = struct.unpack("<Q", ln_bytes)
+            if header_len <= 0 or header_len > 100 * 1024 * 1024:
+                return (None, None)
+            header = fh.read(header_len)
+            if len(header) != header_len:
+                return (None, None)
+        return (hashlib.sha256(header).hexdigest(), header_len)
+    except Exception:
+        return (None, None)
+
+
+def _fingerprint_file(volume_relpath: str) -> Optional[Dict[str, Any]]:
+    """Hash a model file under /opt/ComfyUI/models/<volume_relpath>. Returns
+    {content_hash, header_hash, header_size, bytes, mtime} or None if missing.
+    Caches by (path, mtime_ns, size) for the container lifetime."""
+    import hashlib
+    full = os.path.join("/opt/ComfyUI/models", volume_relpath)
+    try:
+        st = os.stat(full)
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+    cache_key = (full, st.st_mtime_ns, st.st_size)
+    cached = _MODEL_HASH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        h = hashlib.sha256()
+        with open(full, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):  # 1 MiB chunks
+                h.update(chunk)
+        content_hash = h.hexdigest()
+    except Exception:
+        return None
+    header_hash, header_size = _safetensors_header_hash(full)
+    result = {
+        "content_hash": content_hash,
+        "header_hash":  header_hash,
+        "header_size":  header_size,
+        "bytes":        st.st_size,
+        "mtime":        st.st_mtime,
+    }
+    _MODEL_HASH_CACHE[cache_key] = result
+    return result
+
+
+def _hash_workflow_models(workflow: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Walk the workflow JSON, find every model file referenced by known
+    loader nodes (and any input string ending in a model extension as a
+    fallback), hash each file on the Modal volume, return a stable
+    {volume_relpath: fingerprint} map.
+
+    Keys are relative to /opt/ComfyUI/models/ (e.g.
+    'checkpoints/v1-5-pruned-emaonly.safetensors'), which is the path the
+    workflow's filename refers to. The recorded hash pins THESE bytes as
+    the ones loaded for this run; later swap detection is then just a
+    re-hash of the file at the same relpath."""
+    refs: set = set()
+
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        cls = node.get("class_type")
+        inputs = node.get("inputs") or {}
+        spec = MODEL_LOADERS.get(cls)
+        if spec is not None:
+            fields, subdir = spec
+            if isinstance(fields, str):
+                fields = (fields,)
+            for f in fields:
+                v = inputs.get(f)
+                if isinstance(v, str) and v and v != "None":
+                    refs.add(f"{subdir}/{v}")
+        # Fallback: any string input ending in a model extension. Custom
+        # nodes use idiosyncratic field names but the value still names
+        # a real file. We search the standard subdirs to find it.
+        for v in inputs.values():
+            if isinstance(v, str) and v.lower().endswith(MODEL_EXTS):
+                # If already in refs via the registry, skip; else probe.
+                if any(v == r.split("/", 1)[1] for r in refs):
+                    continue
+                for subdir in ("checkpoints", "loras", "vae", "text_encoders",
+                               "clip", "unet", "controlnet", "style_models",
+                               "upscale_models", "gligen", "diffusion_models"):
+                    if os.path.isfile(os.path.join("/opt/ComfyUI/models", subdir, v)):
+                        refs.add(f"{subdir}/{v}")
+                        break
+
+    fingerprints: Dict[str, Dict[str, Any]] = {}
+    for rel in sorted(refs):
+        fp = _fingerprint_file(rel)
+        if fp is not None:
+            fingerprints[rel] = fp
+    return fingerprints
+
+
 @app.function(gpu=GPU, timeout=120, volumes={"/opt/ComfyUI/models": models_volume})
 def diagnose_startup() -> Dict[str, Any]:
     """Boot ComfyUI, then read /tmp/comfyui.log. Reads the log even when
@@ -315,6 +457,21 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
         except Exception as e:
             return {"ok": False, "error": "input_write_failed", "detail": str(e)}
 
+    # Fingerprint every model file the workflow will load, BEFORE we queue.
+    # The recorded {content_hash, header_hash} pins exactly the bytes that
+    # back the filenames the workflow references on this volume right now.
+    # Any later swap of a file at the same path produces a different hash
+    # on re-check, so the provenance is honest about what produced this run
+    # and any subsequent tampering is detectable by anyone who re-hashes.
+    # Cached by (path, mtime, size) so canonical bases hash once per warm
+    # container. Non-fatal: best-effort, swallow errors so a transient I/O
+    # issue can't break a run.
+    try:
+        model_fingerprints = _hash_workflow_models(workflow_api_json)
+    except Exception as e:
+        print(f"[FINGERPRINT] non-fatal: {e}")
+        model_fingerprints = {}
+
     # Training workflows write a .safetensors to models/loras instead of an
     # image via /view. Detect them and snapshot the loras dir so we can find
     # + return the freshly trained checkpoint after the run.
@@ -424,6 +581,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
                     "duration_ms": int((time.time() - started) * 1000),
                     "gpu": RUN_GPU,
                     "attestation": None,
+                    "model_fingerprints": model_fingerprints,
                 }
             # fall through — maybe the workflow also emitted an image
         except Exception as e:
@@ -478,6 +636,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
         "duration_ms": duration_ms,
         "gpu": RUN_GPU,
         "attestation": None,  # populated on H100 CC builds
+        "model_fingerprints": model_fingerprints,
     }
 
 

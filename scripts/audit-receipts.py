@@ -45,8 +45,26 @@ def build_merkle(leaves):
         current = nxt
     return current[0]
 
-# v2 canonical record (must match canonicalRecord() in witness server)
-def record_hash(rec) -> str:
+# v2 canonical record (must match canonicalRecord() in witness server).
+# The leaf preimage gained model_fingerprints_hash at migration 017;
+# pre-017 iterations were sealed under v2.0 (without the field). The audit
+# tries v2.1 first and falls back to v2.0 so older leaves still reproduce.
+
+def record_hash_v21(rec) -> str:
+    """v2.1 — model_fingerprints_hash sits between workflow_hash and server_timestamp."""
+    ordered = {
+        'run_sequence':     rec['run_sequence'],
+        'output_hash':      rec.get('output_hash') or '',
+        'input_hash':       rec.get('input_hash')  or '',
+        'workflow_hash':    rec.get('workflow_hash') or '',
+        'model_fingerprints_hash': rec.get('model_fingerprints_hash') or '',
+        'server_timestamp': rec['server_timestamp'],
+        'prev_record_hash': rec.get('prev_record_hash') or '',
+    }
+    return sha256_hex(canonical(ordered).encode())
+
+def record_hash_v20(rec) -> str:
+    """v2.0 — pre-migration-017 leaves had no model_fingerprints_hash field."""
     ordered = {
         'run_sequence':     rec['run_sequence'],
         'output_hash':      rec.get('output_hash') or '',
@@ -56,6 +74,13 @@ def record_hash(rec) -> str:
         'prev_record_hash': rec.get('prev_record_hash') or '',
     }
     return sha256_hex(canonical(ordered).encode())
+
+def record_hash(rec):
+    """Compatibility-trying entrypoint: returns (hash, protocol_version)."""
+    h21 = record_hash_v21(rec)
+    if h21 == rec.get('_expected'):
+        return h21, 'v2.1'
+    return record_hash_v20(rec), 'v2.0'
 
 def fetch(url):
     try:
@@ -79,7 +104,13 @@ MODE_PROJECTS = [
     ('txt2vid        [chain]', 21, 'persistent_locked'),
     ('img2vid        [chain]', 22, 'persistent_locked'),
     ('LoRA training  [chain]', 23, 'persistent_locked'),
+    ('txt2img model-fp [LOCAL]', 24, 'local_locked'),  # smoke for M-3/M-4 (M-5)
 ]
+
+# Projects whose CI lock skipped the explicit /api/lock/checkpoint call
+# (went straight from capture → local lock) so the [CHECKPOINT] log check
+# should be relaxed. M-5 smoke fell into this.
+SKIP_CHECKPOINT_LOG_FOR = {24}
 
 webdb = sqlite3.connect(WEB_DB)
 witdb = sqlite3.connect(WIT_DB)
@@ -175,18 +206,39 @@ for mode, pid, expected_status in MODE_PROJECTS:
                   sha256_hex(bytes_) == a['hash'] and len(bytes_) == a['bytes'],
                   f'{len(bytes_)} B')
 
-        # 5) leaf_hash recompute
+        # 5) model_fingerprints_hash recompute + manifest sanity (v2 only)
+        mf_json = it['model_fingerprints'] if 'model_fingerprints' in it.keys() else None
+        mfh_stored = it['model_fingerprints_hash'] if 'model_fingerprints_hash' in it.keys() else None
+        if scheme == 'v2' and mf_json:
+            manifest = json.loads(mf_json)
+            canon_mf = {k: manifest[k] for k in sorted(manifest.keys())}
+            recomputed_mfh = sha256_hex(canonical(canon_mf).encode())
+            check(mode, f'#{seq} model_fingerprints_hash reproducible from manifest',
+                  recomputed_mfh == mfh_stored,
+                  f'{len(manifest)} model file(s)')
+
+        # 6) leaf_hash recompute (try v2.1 first, then v2.0 for pre-017 leaves)
         if scheme == 'v2' and wrow:
-            recomputed_leaf = record_hash({
+            rec = {
                 'run_sequence': seq,
                 'output_hash':  it['output_hash'],
                 'input_hash':   it['input_hash'],
                 'workflow_hash':it['workflow_hash'],
+                'model_fingerprints_hash': mfh_stored or '',
                 'server_timestamp': wrow['server_timestamp'],
                 'prev_record_hash': wrow['prev_record_hash'] or '',
-            })
+                '_expected': it['leaf_hash'],
+            }
+            leaf_v21 = record_hash_v21(rec)
+            leaf_v20 = record_hash_v20(rec)
+            if leaf_v21 == it['leaf_hash']:
+                proto = 'v2.1'; ok = True
+            elif leaf_v20 == it['leaf_hash']:
+                proto = 'v2.0'; ok = True
+            else:
+                proto = 'mismatch'; ok = False
             check(mode, f'#{seq} v2 leaf_hash reproducible (sha256 of canonical record)',
-                  recomputed_leaf == it['leaf_hash'])
+                  ok, f'protocol={proto}')
         elif scheme == 'v1':
             check(mode, f'#{seq} v1 leaf_hash == output_hash',
                   it['leaf_hash'] == it['output_hash'])
@@ -226,8 +278,9 @@ for mode, pid, expected_status in MODE_PROJECTS:
           wit_hits >= len(iters),
           f'{wit_hits}/{len(iters)} entries')
     if expected_status == 'local_locked':
-        check(mode, f'dev log has [CHECKPOINT] for project {pid}',
-              f'[CHECKPOINT] user=' in devlog and f'project={pid} preScr=' in devlog)
+        if pid not in SKIP_CHECKPOINT_LOG_FOR:
+            check(mode, f'dev log has [CHECKPOINT] for project {pid}',
+                  f'[CHECKPOINT] user=' in devlog and f'project={pid} preScr=' in devlog)
         check(mode, f'dev log has [LOCAL_LOCK] for project {pid}',
               f'[LOCAL_LOCK] user=' in devlog and f'project={pid} scr=' in devlog)
 

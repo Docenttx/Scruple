@@ -15,6 +15,11 @@ export interface WitnessIterationInput {
   // RVN-anchored Merkle leaf commits the full provenance package.
   inputHash?: string;      // SHA-256 of canonical(provider, prompt, spec, inputs[])
   workflowHash?: string;   // SHA-256 of canonical(workflowApiJson) or omitted
+  // Migration 017 — fingerprints of every model file the runner loaded
+  // for this run, hashed in-container. Pre-hashed to a single field so
+  // the canonical record stays a small flat object; the full manifest
+  // is persisted alongside the iteration for the receipt and audit.
+  modelFingerprintsHash?: string;
 }
 
 export interface WitnessIterationResult {
@@ -131,6 +136,7 @@ export const witness = {
       client_timestamp: input.clientTimestamp ?? new Date().toISOString(),
       input_hash: input.inputHash,
       workflow_hash: input.workflowHash,
+      model_fingerprints_hash: input.modelFingerprintsHash,
     });
   },
 

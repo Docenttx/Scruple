@@ -45,6 +45,20 @@ export interface ComputeResult {
   outputKind?: 'image' | 'video' | 'checkpoint';
   /** Runner-side output filename (its extension informs content type). */
   outputFilename?: string;
+  /** In-container fingerprints of every model file loaded by the workflow.
+   *  Keyed by volume-relative path (e.g.
+   *  'checkpoints/v1-5-pruned-emaonly.safetensors'); each entry carries
+   *  the full-file sha256 (content_hash), safetensors header sha256
+   *  (header_hash), header_size, and total bytes. Folded into the v2
+   *  canonical record so the on-chain anchor commits the actual weights
+   *  that produced this run — not just the filename the workflow asked for. */
+  modelFingerprints?: Record<string, {
+    content_hash?: string | null;
+    header_hash?: string | null;
+    header_size?: number | null;
+    bytes?: number;
+    mtime?: number;
+  }>;
   /** Populated when ok=false. */
   rawError?: string;
 }

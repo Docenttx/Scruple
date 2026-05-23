@@ -141,13 +141,22 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
                   {' '}where{' '}
                   <span className="font-mono">
                     record = {'{'} run_sequence, output_hash, input_hash, workflow_hash,
-                    server_timestamp, prev_record_hash {'}'}
+                    model_fingerprints_hash, server_timestamp, prev_record_hash {'}'}
                   </span>
                   . Canonical = compact JSON (no spaces), fixed field order,
                   raw UTF-8 (no <span className="font-mono">\u</span>-escapes).
                   Matches Node{' '}
                   <span className="font-mono">JSON.stringify</span>; in Python use{' '}
                   <span className="font-mono">json.dumps(obj, separators=(&apos;,&apos;,&apos;:&apos;), ensure_ascii=False)</span>.
+                </li>
+                <li>
+                  Recompute <span className="font-mono">model_fingerprints_hash</span> as{' '}
+                  <span className="font-mono">sha256(canonical(manifest))</span> where{' '}
+                  <span className="font-mono">manifest</span> is the &quot;Model files loaded&quot; map
+                  with keys sorted ascending. Each file&apos;s <span className="font-mono">content_hash</span>
+                  {' '}must equal sha256 of the actual model bytes loaded by the runner. This is what
+                  detects a file-swap on the Modal volume between runs — re-hashing the file at the
+                  same path will diverge from the recorded value.
                 </li>
               </ul>
             </li>
@@ -255,7 +264,7 @@ function IterationCard({ it }: { it: IterationRow }) {
         </span>
       </div>
 
-      {/* hash grid: leaf, output, input, workflow */}
+      {/* hash grid: leaf, output, input, workflow, model fingerprints */}
       <dl className="mt-2 grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
         <HashRow label="leaf_hash" value={it.leaf_hash} />
         <HashRow label="output_hash" value={it.output_hash} muted />
@@ -263,7 +272,15 @@ function IterationCard({ it }: { it: IterationRow }) {
         {scheme === 'v2' && it.workflow_hash && (
           <HashRow label="workflow_hash" value={it.workflow_hash} muted />
         )}
+        {scheme === 'v2' && it.model_fingerprints_hash && (
+          <HashRow label="models_hash" value={it.model_fingerprints_hash} muted />
+        )}
       </dl>
+
+      {/* model files loaded in-container — pins the actual weights that
+          produced this run; later re-hash of the file at the same path
+          detects any swap. */}
+      <ModelFingerprintsBlock raw={it.model_fingerprints} />
 
       {/* input artifacts */}
       {inputs.length > 0 && (
@@ -306,6 +323,57 @@ function IterationCard({ it }: { it: IterationRow }) {
           <span className="text-scruple-muted">unwitnessed</span>
         )}
       </div>
+    </div>
+  );
+}
+
+interface ModelFingerprintEntry {
+  content_hash?: string | null;
+  header_hash?: string | null;
+  header_size?: number | null;
+  bytes?: number;
+  mtime?: number;
+}
+
+function ModelFingerprintsBlock({ raw }: { raw: string | null }) {
+  if (!raw) return null;
+  let manifest: Record<string, ModelFingerprintEntry> = {};
+  try {
+    manifest = JSON.parse(raw) as Record<string, ModelFingerprintEntry>;
+  } catch { return null; }
+  const entries = Object.entries(manifest);
+  if (entries.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <div className="text-[9px] uppercase tracking-widest text-scruple-muted">
+        Model files loaded ({entries.length})
+      </div>
+      <ul className="mt-1 space-y-1">
+        {entries.map(([path, fp]) => (
+          <li key={path} className="rounded border border-scruple-border bg-scruple-bg px-2 py-1 text-[10px]">
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono text-scruple-text">{path}</span>
+              {fp.bytes != null && (
+                <span className="ml-auto text-[9px] text-scruple-muted">{formatBytes(fp.bytes)}</span>
+              )}
+            </div>
+            <div className="mt-0.5 grid grid-cols-[80px_1fr] gap-x-2 gap-y-0.5 text-[9px]">
+              {fp.content_hash && (
+                <>
+                  <span className="uppercase tracking-widest text-scruple-muted">content</span>
+                  <span className="break-all font-mono text-scruple-muted" title={fp.content_hash}>{fp.content_hash}</span>
+                </>
+              )}
+              {fp.header_hash && (
+                <>
+                  <span className="uppercase tracking-widest text-scruple-muted">header</span>
+                  <span className="break-all font-mono text-scruple-muted" title={fp.header_hash}>{fp.header_hash}</span>
+                </>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

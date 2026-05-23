@@ -91,6 +91,7 @@ export async function executeRun(p: ExecuteRunParams): Promise<ExecuteRunResult>
     })),
     executionBackend: result.attestation ? 'modal-tee' : 'modal-test',
     executionAttestation: result.attestation,
+    modelFingerprints: result.modelFingerprints,
   });
 
   return {
@@ -257,6 +258,7 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
     inputs: resolved.map((x) => ({ kind: x.kind, bytes: x.bytes, filename: x.filename, contentType: x.contentType })),
     executionBackend: r.attestation ? 'modal-tee' : 'modal-test',
     executionAttestation: r.attestation,
+    modelFingerprints: r.model_fingerprints,
   });
 
   conn().prepare(

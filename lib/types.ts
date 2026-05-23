@@ -84,6 +84,9 @@ export interface IterationRow {
   // v2 full-record leaf (migration 016)
   workflow_hash: string | null;           // sha256(canonical(workflowApiJson))
   leaf_scheme: 'v1' | 'v2';               // v1=leaf_hash==output_hash, v2=record_hash
+  // Model fingerprinting (migration 017)
+  model_fingerprints: string | null;       // JSON manifest {path: {content_hash, header_hash, ...}}
+  model_fingerprints_hash: string | null;  // sha256(canonical(manifest)) — folded into v2 leaf preimage
 }
 
 export interface MerkleNodeRow {

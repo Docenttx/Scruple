@@ -72,6 +72,18 @@ export interface IngestParams {
   executionBackend?: 'modal-tee' | 'modal-test' | 'comfydeploy' | 'local-tunnel' | null;
   /** TEE attestation receipt, if available. */
   executionAttestation?: Record<string, unknown> | null;
+  /** In-container fingerprints of every model file loaded by the workflow.
+   *  Keyed by volume-relative path. Folded into the v2 canonical record
+   *  (as `model_fingerprints_hash = sha256(canonical(...))`) so the
+   *  on-chain anchor commits the exact weights that produced this run —
+   *  not just the filename string the workflow asked for. */
+  modelFingerprints?: Record<string, {
+    content_hash?: string | null;
+    header_hash?: string | null;
+    header_size?: number | null;
+    bytes?: number;
+    mtime?: number;
+  }>;
 }
 
 export interface IngestResult {
@@ -154,6 +166,20 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   const wf = (p.spec as unknown as { providerExtras?: { workflowApiJson?: unknown } })?.providerExtras?.workflowApiJson;
   if (wf) workflowHash = sha256Hex(JSON.stringify(wf));
 
+  // model_fingerprints_hash binds the actual weights loaded for this run.
+  // Canonicalize the manifest (keys sorted ascending) so the hash is
+  // reproducible by any verifier with the same manifest. NULL → ''  so the
+  // canonical record always has a stable shape.
+  let modelFingerprintsHash: string | null = null;
+  let modelFingerprintsJson: string | null = null;
+  if (p.modelFingerprints && Object.keys(p.modelFingerprints).length > 0) {
+    const sortedKeys = Object.keys(p.modelFingerprints).sort();
+    const canonical: Record<string, unknown> = {};
+    for (const k of sortedKeys) canonical[k] = p.modelFingerprints[k];
+    modelFingerprintsJson = JSON.stringify(canonical);
+    modelFingerprintsHash = sha256Hex(modelFingerprintsJson);
+  }
+
   // Pivot S8: write output to user's storage. Falls back to local FS if no
   // provider is connected (dev / pre-onboarding state). Storage paths are
   // keyed by OUTPUT hash (content-addressed by the actual bytes), NOT by
@@ -208,6 +234,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
       contentHash: outputHash,
       inputHash,
       workflowHash: workflowHash ?? undefined,
+      modelFingerprintsHash: modelFingerprintsHash ?? undefined,
     });
   } catch (e) {
     console.error('[ingest] auto-witness failed (iteration will land with witnessed=0):', e);
@@ -232,8 +259,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            execution_backend, execution_attestation, storage_pointer,
            output_kind, output_content_type, output_bytes, input_artifacts,
            workflow_hash, leaf_scheme,
+           model_fingerprints, model_fingerprints_hash,
            witnessed, witness_id, witness_timestamp, witness_signature
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -258,6 +286,8 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         JSON.stringify(inputArtifacts),
         workflowHash,
         leafScheme,
+        modelFingerprintsJson,
+        modelFingerprintsHash,
         witnessResult ? 1 : 0,
         witnessResult?.witness_id ?? null,
         witnessResult?.server_timestamp ?? null,
