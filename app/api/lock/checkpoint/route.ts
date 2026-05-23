@@ -1,23 +1,26 @@
 // POST /api/lock/checkpoint
 //
-// Soft-lock that preserves progress without sealing. Stripe pays $5.00;
-// witness server verifies the payment server-side, then we build the
-// local Merkle snapshot and record the checkpoint.
+// Soft-lock that preserves progress without sealing. Stripe pays $5.00
+// (test-mode in dev, live in prod); witness server verifies the payment
+// server-side, signs the lock event, and returns its countersignature.
 //
 // Flow:
 //   1. Verify project ownership + state (unlocked or checkpointed)
-//   2. Build local Merkle over witnessed iterations (so we have a
-//      consistent root + scrId to display in receipts)
+//   2. Build local Merkle over witnessed iterations
 //   3. POST witness /api/confirm-and-execute with action='checkpoint',
-//      paymentIntentId, projectId, merkleRoot. Witness server
-//      re-retrieves the PaymentIntent from Stripe and verifies status,
-//      amount ($5.00), metadata anti-tamper. Only then does it record
-//      the lock state and return success.
-//   4. Persist merkle_nodes + project status='checkpointed' locally.
+//      paymentIntentId, projectId, merkleRoot, preScrId. Witness
+//      re-retrieves the PaymentIntent from Stripe, verifies status +
+//      amount + metadata, signs the lock data, returns serverSignature.
+//   4. Persist merkle_nodes + project status='checkpointed' locally,
+//      plus the witness countersignature (lock_server_signature) so
+//      the receipt renders Scruple's second-party seal on this lock.
 //
 // Body: { projectId: number, paymentIntentId: string }
-// LOCK_REQUIRE_PAYMENT=0 env disables the Stripe step for dev — useful
-// before users have Stripe Customer + card on file.
+//
+// There is no "dev bypass" — dev is the same code against sandbox
+// endpoints (sk_test_*). Identity is gated at signin
+// (SCRUPLE_ALLOWED_EMAILS) and CLI uses scripts/stripe-test-pay to
+// drive the same Stripe Elements flow a browser would.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -30,13 +33,9 @@ import type { ProjectRow, IterationRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-// Default ON in prod — Stripe verification required on lock.
-// Set to '0' in .env.local to bypass for development.
-const REQUIRE_PAYMENT = process.env.LOCK_REQUIRE_PAYMENT !== '0';
-
 const Body = z.object({
   projectId: z.number().int().positive(),
-  paymentIntentId: z.string().optional(),
+  paymentIntentId: z.string().min(1),
 });
 
 export async function POST(req: NextRequest) {
@@ -48,13 +47,9 @@ export async function POST(req: NextRequest) {
   try {
     body = Body.parse(await req.json());
   } catch (e) {
-    return NextResponse.json({ error: 'Invalid body', detail: String(e) }, { status: 400 });
-  }
-
-  if (false && REQUIRE_PAYMENT && !body.paymentIntentId) {
     return NextResponse.json(
-      { error: 'paymentIntentId required — checkpoint costs $5.00 via Stripe' },
-      { status: 402 },
+      { error: 'paymentIntentId and projectId required', detail: String(e) },
+      { status: 400 },
     );
   }
 
@@ -79,35 +74,36 @@ export async function POST(req: NextRequest) {
 
   const preScr = deriveScrId(tree.root, false);
 
-  // Witness-server-gated Stripe verification + lock execution.
-  if (REQUIRE_PAYMENT && body.paymentIntentId) {
-    try {
-      const result = await witness.confirmAndExecute({
-        action: 'checkpoint',
-        projectId: String(project.id),
-        paymentIntentId: body.paymentIntentId,
-        merkleRoot: tree.root,
-        preScrId: preScr,
-      });
-      if (!result.success) {
-        return NextResponse.json(
-          { error: 'Witness rejected checkpoint', detail: result.error ?? 'unknown' },
-          { status: 402 },
-        );
-      }
-    } catch (e) {
-      return NextResponse.json(
-        {
-          error: 'Witness server unreachable for confirm-and-execute',
-          detail: e instanceof Error ? e.message : String(e),
-        },
-        { status: 502 },
-      );
-    }
+  // Witness-server-gated Stripe verification + countersignature.
+  let exec;
+  try {
+    exec = await witness.confirmAndExecute({
+      action: 'checkpoint',
+      projectId: String(project.id),
+      paymentIntentId: body.paymentIntentId,
+      merkleRoot: tree.root,
+      preScrId: preScr,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: 'Witness server unreachable for confirm-and-execute',
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 502 },
+    );
+  }
+  if (!exec.success) {
+    return NextResponse.json(
+      { error: 'Witness rejected checkpoint', detail: exec.error ?? 'unknown' },
+      { status: 402 },
+    );
   }
 
   // Local persistence — only after witness server has signed off.
   const now = new Date().toISOString();
+  const lockSig = exec.serverSignature ?? null;
+  const lockedAtWitnessed = exec.lockedAt ?? null;
   const tx = conn().transaction(() => {
     conn().prepare(`DELETE FROM merkle_nodes WHERE project_id = ?`).run(body.projectId);
     const insertNode = conn().prepare(
@@ -120,22 +116,22 @@ export async function POST(req: NextRequest) {
     conn()
       .prepare(
         `UPDATE projects SET status = 'checkpointed', merkle_root = ?, pre_scr_id = ?,
+         lock_server_signature = ?, lock_locked_at_witnessed = ?,
          updated_at = ? WHERE id = ?`,
       )
-      .run(tree.root, preScr, now, body.projectId);
+      .run(tree.root, preScr, lockSig, lockedAtWitnessed, now, body.projectId);
   });
   tx();
 
-  // Audit log — runs for both the paid and the dev-bypass path so every
-  // checkpoint shows up with its project identifier and pre-SCR.
-  const mode = REQUIRE_PAYMENT && body.paymentIntentId ? 'paid' : 'dev-bypass';
-  console.log(`[CHECKPOINT] user=${userId} project=${body.projectId} preScr=${preScr} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… (${mode})`);
+  console.log(`[CHECKPOINT] user=${userId} project=${body.projectId} preScr=${preScr} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… sig=${(lockSig ?? '').slice(0, 12)}…`);
 
   return NextResponse.json({
     ok: true,
     preScrId: preScr,
     merkleRoot: tree.root,
     leafCount: tree.leafCount,
-    paymentVerified: REQUIRE_PAYMENT && !!body.paymentIntentId,
+    paymentVerified: true,
+    serverSignature: lockSig,
+    lockedAtWitnessed,
   });
 }

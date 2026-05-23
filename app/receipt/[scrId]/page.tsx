@@ -84,11 +84,36 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
         {project.witness_signature && (
           <>
             <h2 className="mt-4 text-xs uppercase tracking-widest text-scruple-muted">
-              Witness server signature
+              Witness server signature (chain anchor)
             </h2>
             <pre className="mt-2 overflow-x-auto rounded-md border border-scruple-border bg-scruple-surface p-3 text-[11px] font-mono">
               {project.witness_signature}
             </pre>
+          </>
+        )}
+        {(project as { lock_server_signature?: string | null }).lock_server_signature && (
+          <>
+            <h2 className="mt-4 text-xs uppercase tracking-widest text-scruple-muted">
+              Lock countersignature (Scruple second-party seal)
+            </h2>
+            <p className="mt-1 text-[10px] text-scruple-muted">
+              HMAC the witness server returned on the <em>lock event itself</em>
+              (signed over <span className="font-mono">{'{'} project_id, action, merkle_root, witnessed_count, locked_at {'}'}</span>).
+              Distinct from each iteration&apos;s per-record signature. Action is
+              in the signed tuple, so a checkpoint signature cannot be replayed
+              as a finalize signature.
+            </p>
+            <pre className="mt-2 overflow-x-auto rounded-md border border-scruple-border bg-scruple-surface p-3 text-[11px] font-mono">
+              {(project as { lock_server_signature?: string | null }).lock_server_signature}
+            </pre>
+            {(project as { lock_locked_at_witnessed?: string | null }).lock_locked_at_witnessed && (
+              <p className="mt-1 text-[10px] text-scruple-muted">
+                witnessed-locked at{' '}
+                <span className="font-mono">
+                  {(project as { lock_locked_at_witnessed?: string | null }).lock_locked_at_witnessed}
+                </span>
+              </p>
+            )}
           </>
         )}
       </section>

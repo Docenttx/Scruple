@@ -75,6 +75,13 @@ export interface ConfirmAndExecuteResult {
   paymentIntentId?: string;
   lockedAt?: string;
   note?: string;
+  // Lock countersignature — returned for finalize, checkpoint, and the
+  // chain-lock-* actions. Signed over {project_id, action, merkle_root,
+  // witnessed_count, locked_at} so a checkpoint signature cannot be
+  // replayed as a finalize signature.
+  serverSignature?: string;
+  merkleRoot?: string | null;
+  witnessedCount?: number;
   // chain-lock fields
   scrId?: string | null;
   proofTxId?: string | null;

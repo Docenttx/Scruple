@@ -1,10 +1,15 @@
 // POST /api/lock/local
 //
 // Permanent local-disc finalize (≠ chain lock). Stripe pays $5.00;
-// witness server verifies the payment server-side, then we build the
-// Merkle, derive SCR-ID, and seal the project as local_locked.
+// witness server verifies the payment server-side, signs the finalize
+// lock event, and persists its own locked_projects row. We persist the
+// returned countersignature locally so the receipt renders Scruple's
+// second-party seal alongside the per-iteration witnesses.
 //
 // Body: { projectId: number, paymentIntentId: string }
+//
+// Dev is identical code against sandbox endpoints (sk_test_*); signin
+// is gated by SCRUPLE_ALLOWED_EMAILS. There is no payment bypass.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -17,11 +22,9 @@ import type { ProjectRow, IterationRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-const REQUIRE_PAYMENT = process.env.LOCK_REQUIRE_PAYMENT !== '0';
-
 const Body = z.object({
   projectId: z.number().int().positive(),
-  paymentIntentId: z.string().optional(),
+  paymentIntentId: z.string().min(1),
 });
 
 export async function POST(req: NextRequest) {
@@ -34,15 +37,8 @@ export async function POST(req: NextRequest) {
     body = Body.parse(await req.json());
   } catch (e) {
     return NextResponse.json(
-      { error: 'Invalid body', detail: e instanceof Error ? e.message : String(e) },
+      { error: 'paymentIntentId and projectId required', detail: e instanceof Error ? e.message : String(e) },
       { status: 400 },
-    );
-  }
-
-  if (false && REQUIRE_PAYMENT && !body.paymentIntentId) {
-    return NextResponse.json(
-      { error: 'paymentIntentId required — finalize costs $5.00 via Stripe' },
-      { status: 402 },
     );
   }
 
@@ -70,34 +66,35 @@ export async function POST(req: NextRequest) {
 
   const scrId = deriveScrId(tree.root, false);
 
-  // Witness-server-gated Stripe verification + lock execution.
-  if (REQUIRE_PAYMENT && body.paymentIntentId) {
-    try {
-      const result = await witness.confirmAndExecute({
-        action: 'finalize',
-        projectId: String(project.id),
-        paymentIntentId: body.paymentIntentId,
-        merkleRoot: tree.root,
-        preScrId: scrId,
-      });
-      if (!result.success) {
-        return NextResponse.json(
-          { error: 'Witness rejected finalize', detail: result.error ?? 'unknown' },
-          { status: 402 },
-        );
-      }
-    } catch (e) {
-      return NextResponse.json(
-        {
-          error: 'Witness server unreachable for confirm-and-execute',
-          detail: e instanceof Error ? e.message : String(e),
-        },
-        { status: 502 },
-      );
-    }
+  // Witness-server-gated Stripe verification + countersignature.
+  let exec;
+  try {
+    exec = await witness.confirmAndExecute({
+      action: 'finalize',
+      projectId: String(project.id),
+      paymentIntentId: body.paymentIntentId,
+      merkleRoot: tree.root,
+      preScrId: scrId,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: 'Witness server unreachable for confirm-and-execute',
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 502 },
+    );
+  }
+  if (!exec.success) {
+    return NextResponse.json(
+      { error: 'Witness rejected finalize', detail: exec.error ?? 'unknown' },
+      { status: 402 },
+    );
   }
 
   const now = new Date().toISOString();
+  const lockSig = exec.serverSignature ?? null;
+  const lockedAtWitnessed = exec.lockedAt ?? null;
   const tx = conn().transaction(() => {
     conn().prepare(`DELETE FROM merkle_nodes WHERE project_id = ?`).run(body.projectId);
     const insertNode = conn().prepare(
@@ -110,14 +107,14 @@ export async function POST(req: NextRequest) {
     conn()
       .prepare(
         `UPDATE projects SET status = 'local_locked', merkle_root = ?, scr_id = ?,
+         lock_server_signature = ?, lock_locked_at_witnessed = ?,
          locked_at = ?, updated_at = ?, is_active = 0 WHERE id = ?`,
       )
-      .run(tree.root, scrId, now, now, body.projectId);
+      .run(tree.root, scrId, lockSig, lockedAtWitnessed, now, now, body.projectId);
   });
   tx();
 
-  const mode = REQUIRE_PAYMENT && body.paymentIntentId ? 'paid' : 'dev-bypass';
-  console.log(`[LOCAL_LOCK] user=${userId} project=${body.projectId} scr=${scrId} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… (${mode})`);
+  console.log(`[LOCAL_LOCK] user=${userId} project=${body.projectId} scr=${scrId} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… sig=${(lockSig ?? '').slice(0, 12)}…`);
 
   return NextResponse.json({
     ok: true,
@@ -126,6 +123,8 @@ export async function POST(req: NextRequest) {
     leafCount: tree.leafCount,
     depth: tree.depth,
     nodeCount: tree.nodes.length,
-    paymentVerified: REQUIRE_PAYMENT && !!body.paymentIntentId,
+    paymentVerified: true,
+    serverSignature: lockSig,
+    lockedAtWitnessed,
   });
 }

@@ -105,6 +105,7 @@ MODE_PROJECTS = [
     ('img2vid        [chain]', 22, 'persistent_locked'),
     ('LoRA training  [chain]', 23, 'persistent_locked'),
     ('txt2img model-fp [LOCAL]', 24, 'local_locked'),  # smoke for M-3/M-4 (M-5)
+    ('paid checkpoint+local [LOCAL]', 25, 'local_locked'),  # smoke for L-1..L-6
 ]
 
 # Projects whose CI lock skipped the explicit /api/lock/checkpoint call
@@ -283,6 +284,17 @@ for mode, pid, expected_status in MODE_PROJECTS:
                   f'[CHECKPOINT] user=' in devlog and f'project={pid} preScr=' in devlog)
         check(mode, f'dev log has [LOCAL_LOCK] for project {pid}',
               f'[LOCAL_LOCK] user=' in devlog and f'project={pid} scr=' in devlog)
+
+    # 9b) Lock countersignature — post-L-series, every locked project must
+    # carry the witness server's signature on the lock event itself.
+    # Pre-L-series rows have NULL here; allow that legacy state to pass.
+    lock_sig = proj['lock_server_signature'] if 'lock_server_signature' in proj.keys() else None
+    if lock_sig is not None:
+        check(mode, 'lock_server_signature persisted',
+              len(lock_sig) >= 32,
+              f'sig={lock_sig[:14]}…')
+        check(mode, 'receipt renders lock_server_signature',
+              lock_sig in html)
 
     # 10) chain-anchor checks (pinned tier = RVN + IPFS + Arweave)
     if expected_status in ('chain_locked', 'persistent_locked'):

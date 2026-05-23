@@ -74,6 +74,7 @@ async function main() {
         console.log(`  leaf_hash   : ${pd.leafHash}`);
         console.log(`  run_sequence: ${pd.runSequence}`);
         console.log(`  inputs      : ${JSON.stringify(pd.inputHashes)}`);
+        await runLockIfRequested(spec, base, cookie, session);
         return;
       }
       console.error('✗ unexpected status:', JSON.stringify(pd)); process.exit(1);
@@ -99,6 +100,87 @@ async function main() {
   console.log(`  leaf_hash   : ${data.leafHash}`);
   console.log(`  run_sequence: ${data.runSequence}`);
   console.log(`  inputs      : ${JSON.stringify(data.inputHashes)}`);
+
+  await runLockIfRequested(spec, base, cookie, session);
+}
+
+/**
+ * --lock <action> : after capture, drives a sandbox Stripe PaymentIntent
+ * → confirm → /api/lock/<action>. Action maps:
+ *
+ *    --lock checkpoint     →  Stripe 'checkpoint'   → /api/lock/checkpoint
+ *    --lock local          →  Stripe 'finalize'     → /api/lock/local
+ *    --lock chain-basic    →  Stripe 'chain-lock-basic'  → /api/lock/chain (tier=basic)
+ *    --lock chain-pinned   →  Stripe 'chain-lock-pinned' → /api/lock/chain (tier=pinned)
+ *
+ * One CLI invocation drives capture → pay → lock with full witness
+ * countersignature. Same paths a browser user takes in the UI.
+ */
+async function runLockIfRequested(
+  spec: { projectId: number },
+  base: string,
+  cookie: string,
+  session: string,
+): Promise<void> {
+  const idx = process.argv.indexOf('--lock');
+  if (idx < 0) return;
+  const action = process.argv[idx + 1];
+  if (!action) { console.error('--lock requires an action: checkpoint|local|chain-basic|chain-pinned'); process.exit(2); }
+
+  const stripeAction = (
+    action === 'checkpoint' ? 'checkpoint' :
+    action === 'local'      ? 'finalize' :
+    action === 'chain-basic'  ? 'chain-lock-basic' :
+    action === 'chain-pinned' ? 'chain-lock-pinned' :
+    null
+  );
+  if (!stripeAction) { console.error(`unknown --lock action "${action}"`); process.exit(2); }
+
+  // 1) Drive a sandbox Stripe PaymentIntent to succeeded (same as a
+  //    browser Elements modal would).
+  console.log(`  → creating test-mode PaymentIntent for ${stripeAction}…`);
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('node', [
+    new URL('./stripe-test-pay.mjs', import.meta.url).pathname,
+    '--action', stripeAction,
+    '--project', String(spec.projectId),
+  ], { env: { ...process.env, SCRUPLE_SESSION: session, SCRUPLE_BASE: base }, encoding: 'utf8' });
+  if (r.status !== 0) {
+    console.error(`✗ stripe-test-pay failed:\n${r.stderr || r.stdout}`);
+    process.exit(1);
+  }
+  const piMatch = (r.stdout || '').match(/PAYMENT_INTENT=(\S+)/);
+  if (!piMatch) { console.error('✗ stripe-test-pay produced no PAYMENT_INTENT line'); process.exit(1); }
+  const paymentIntentId = piMatch[1];
+  console.log(`    payment_intent: ${paymentIntentId}`);
+
+  // 2) Hit the matching lock route with the succeeded PaymentIntent.
+  const lockPath =
+    action === 'checkpoint'   ? '/api/lock/checkpoint' :
+    action === 'local'        ? '/api/lock/local' :
+    /* chain-basic|chain-pinned */ '/api/lock/chain';
+  const body: Record<string, unknown> = { projectId: spec.projectId, paymentIntentId };
+  if (action === 'chain-basic')  body.tier = 'basic';
+  if (action === 'chain-pinned') body.tier = 'pinned';
+
+  console.log(`  → POST ${lockPath} (tier=${body.tier ?? 'n/a'})…`);
+  const lr = await fetch(`${base}${lockPath}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify(body),
+  });
+  const ld = await lr.json().catch(() => ({}));
+  if (!lr.ok || !ld.ok) {
+    console.error(`✗ lock failed (HTTP ${lr.status}):`, JSON.stringify(ld, null, 2));
+    process.exit(1);
+  }
+  console.log(`✓ ${action} locked`);
+  console.log(`  scr           : ${ld.scrId ?? ld.preScrId}`);
+  console.log(`  merkle_root   : ${(ld.merkleRoot ?? '').slice(0, 24)}…`);
+  console.log(`  server_sig    : ${(ld.serverSignature ?? '').slice(0, 24)}…`);
+  if (ld.proofTxId) console.log(`  rvn_tx        : ${ld.proofTxId.slice(0, 24)}…`);
+  if (ld.ipfsCid)   console.log(`  ipfs_cid      : ${ld.ipfsCid.slice(0, 24)}…`);
+  if (ld.arweaveTxId) console.log(`  arweave_tx    : ${ld.arweaveTxId.slice(0, 24)}…`);
 }
 
 main().catch((e) => {

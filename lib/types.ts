@@ -89,6 +89,23 @@ export interface IterationRow {
   model_fingerprints_hash: string | null;  // sha256(canonical(manifest)) — folded into v2 leaf preimage
 }
 
+// Project-row extension columns added by migration 018. Defined here
+// so ProjectRow callers see them at the type level; the existing
+// ProjectRow stays back-compat via interface merging below.
+export interface ProjectRowLockSignatureExt {
+  /** HMAC the witness server returned on the lock event itself
+   *  (finalize / checkpoint / chain-lock-*). Distinct from the
+   *  per-iteration witness_signature on each leaf. */
+  lock_server_signature: string | null;
+  /** ISO timestamp the witness server stamped onto the lock event. */
+  lock_locked_at_witnessed: string | null;
+}
+declare module './types' {
+  // Augment ProjectRow without rewriting its existing definition.
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface ProjectRow extends ProjectRowLockSignatureExt {}
+}
+
 export interface MerkleNodeRow {
   id: number;
   project_id: number;

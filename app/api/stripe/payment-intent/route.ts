@@ -46,13 +46,19 @@ export async function POST(req: NextRequest) {
 
   // Forward to witness server. Use namespaced project id so the witness
   // server's payment metadata maps back unambiguously.
-  const witnessProjectId = `sw:${userId}:${body.projectId}`;
+  //
+  // Use the bare project id — the witness's anti-tamper check on
+  // confirm-and-execute compares paymentIntent.metadata.projectId to
+  // the request's projectId, and every other web caller (witness.
+  // witnessIteration, witness.confirmAndExecute, witness.lockProject)
+  // passes bare ids. The previously-namespaced "sw:<userId>:<id>"
+  // form created a round-trip mismatch.
   const res = await fetch(`${WITNESS_URL}/api/create-payment-intent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       action: body.action,
-      projectId: witnessProjectId,
+      projectId: String(body.projectId),
       installationId: userId,
     }),
   });
