@@ -46,6 +46,13 @@ export interface LockProjectResult {
   proofTxId?: string | null;
   proofChain?: string | null;
   mintError?: string | null;
+  // Permanence anchors — populated by anchorPermanence on the witness
+  // server for both 'basic' (Arweave only) and 'pinned' (IPFS + Arweave).
+  lockTier?: 'basic' | 'pinned' | null;
+  ipfsCid?: string | null;
+  ipfsError?: string | null;
+  arweaveTxId?: string | null;
+  arweaveError?: string | null;
   [k: string]: unknown;
 }
 
@@ -141,11 +148,18 @@ export const witness = {
     return getJson(`/api/witness/${encodeURIComponent(projectId)}`);
   },
 
-  async lockProject(projectId: string, merkleRoot?: string): Promise<LockProjectResult> {
+  async lockProject(
+    projectId: string,
+    merkleRoot?: string,
+    tier: 'basic' | 'pinned' = 'basic',
+  ): Promise<LockProjectResult> {
     // Pass the canonical (sorted-pair) Merkle root so the witness anchors
     // and derives the SCR-ID from the same root our verifier reproduces.
+    // tier='pinned' tells handleLock to anchor IPFS + Arweave on top of
+    // the RVN testnet mint (basic = RVN + Arweave token record only).
     return postJson<LockProjectResult>(`/api/lock/${encodeURIComponent(projectId)}`, {
       merkleRoot: merkleRoot ?? null,
+      tier,
     });
   },
 

@@ -96,6 +96,11 @@ export async function POST(req: NextRequest) {
   let mintError: string | null = null;
   let resolvedScrId: string | null = null;
   let resolvedProofTxId: string | null = null;
+  // Path B captures these from witness.lockProject's lock response; Path A
+  // (Stripe) populates them via the exec result below. Either path leaves
+  // them null if anchoring failed (Arweave/IPFS errors don't fail the lock).
+  let resolvedIpfsCid: string | null = null;
+  let resolvedArweaveTxId: string | null = null;
 
   if (REQUIRE_PAYMENT && body.paymentIntentId) {
     // Path A — custodial Stripe.
@@ -133,10 +138,15 @@ export async function POST(req: NextRequest) {
     // the witness still returns the merkle + signature so we persist
     // local lock state and surface mintError for retry.
     try {
-      const lock = await witness.lockProject(String(project.id), tree.root);
+      const lock = await witness.lockProject(String(project.id), tree.root, tier);
       resolvedScrId = lock.scrId ?? preScr;
       resolvedProofTxId = lock.proofTxId ?? null;
       mintError = lock.mintError ?? null;
+      // handleLock runs anchorPermanence and returns ipfsCid/arweaveTxId
+      // (pinned tier anchors both; basic only Arweave). Capture them so
+      // they land on the project row alongside the RVN proofTxId.
+      resolvedIpfsCid = lock.ipfsCid ?? null;
+      resolvedArweaveTxId = lock.arweaveTxId ?? null;
     } catch (e) {
       return NextResponse.json(
         {
@@ -152,8 +162,11 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
   const scrId = resolvedScrId ?? preScr;
   const proofTxId = resolvedProofTxId;
-  const ipfsCid = exec?.ipfsCid ?? null;
-  const arweaveTxId = exec?.arweaveTxId ?? null;
+  // Either path: prefer the path's own resolved value, fall back to exec
+  // (Stripe path stashes its results on exec; wallet path on resolvedIpfsCid
+  // / resolvedArweaveTxId above).
+  const ipfsCid = resolvedIpfsCid ?? exec?.ipfsCid ?? null;
+  const arweaveTxId = resolvedArweaveTxId ?? exec?.arweaveTxId ?? null;
 
   const tx = conn().transaction(() => {
     conn().prepare(`DELETE FROM merkle_nodes WHERE project_id = ?`).run(body.projectId);

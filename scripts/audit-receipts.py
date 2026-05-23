@@ -64,13 +64,21 @@ def fetch(url):
     except Exception as e:
         return b''
 
-# ── load the 5 projects we want to audit ──────────────────────────────────
+# ── projects to audit ─────────────────────────────────────────────────────
+# Each tuple: (label, project_id, expected_status). Statuses:
+#   local_locked      → no on-chain anchors expected
+#   persistent_locked → rvn + ipfs + arweave anchors all expected
 MODE_PROJECTS = [
-    ('LoRA training', 13),
-    ('img2img',       14),
-    ('txt2vid',       15),
-    ('txt2img',       17),
-    ('img2vid',       18),
+    ('LoRA training  [local]', 13, 'local_locked'),
+    ('img2img        [local]', 14, 'local_locked'),
+    ('txt2vid        [local]', 15, 'local_locked'),
+    ('txt2img        [local]', 17, 'local_locked'),
+    ('img2vid        [local]', 18, 'local_locked'),
+    ('img2img        [chain]', 19, 'persistent_locked'),
+    ('txt2img        [chain]', 20, 'persistent_locked'),
+    ('txt2vid        [chain]', 21, 'persistent_locked'),
+    ('img2vid        [chain]', 22, 'persistent_locked'),
+    ('LoRA training  [chain]', 23, 'persistent_locked'),
 ]
 
 webdb = sqlite3.connect(WEB_DB)
@@ -98,7 +106,7 @@ def check(mode, name, ok, detail=''):
     color = '\033[32m' if ok else '\033[31m'
     print(f"  {color}{mark}\033[0m {name:42s} {detail}")
 
-for mode, pid in MODE_PROJECTS:
+for mode, pid, expected_status in MODE_PROJECTS:
     print(f"\n━━━ {mode} (project {pid}) ━━━")
 
     proj = webdb.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
@@ -106,6 +114,7 @@ for mode, pid in MODE_PROJECTS:
         check(mode, 'project exists', False, f'no project {pid}'); continue
     scr = proj['scr_id'] or proj['pre_scr_id']
     print(f"  scr_id={scr}  status={proj['status']}  type={proj['type']}  merkle_root={proj['merkle_root'][:16]}…")
+    check(mode, f'project.status == {expected_status}', proj['status'] == expected_status, proj['status'])
 
     iters = webdb.execute("SELECT * FROM iterations WHERE project_id=? ORDER BY run_sequence", (pid,)).fetchall()
     check(mode, f'iteration count > 0',           len(iters) > 0, f'n={len(iters)}')
@@ -211,15 +220,42 @@ for mode, pid in MODE_PROJECTS:
     check(mode, 'receipt shows verification recipe', 'Verification recipe' in html)
 
     # 9) audit log entries
-    check(mode, f'dev log has [CHECKPOINT] for project {pid}',
-          f'project={pid} ' in devlog and '[CHECKPOINT]' in devlog and f'project={pid} preScr=' in devlog)
-    check(mode, f'dev log has [LOCAL_LOCK] for project {pid}',
-          f'[LOCAL_LOCK] user=' in devlog and f'project={pid} scr=' in devlog)
     pname = proj['name']
     wit_hits = witlog.count(f'[WITNESS] {pname} #')
     check(mode, f'witness log has [WITNESS] entries for project name "{pname}"',
           wit_hits >= len(iters),
           f'{wit_hits}/{len(iters)} entries')
+    if expected_status == 'local_locked':
+        check(mode, f'dev log has [CHECKPOINT] for project {pid}',
+              f'[CHECKPOINT] user=' in devlog and f'project={pid} preScr=' in devlog)
+        check(mode, f'dev log has [LOCAL_LOCK] for project {pid}',
+              f'[LOCAL_LOCK] user=' in devlog and f'project={pid} scr=' in devlog)
+
+    # 10) chain-anchor checks (pinned tier = RVN + IPFS + Arweave)
+    if expected_status in ('chain_locked', 'persistent_locked'):
+        check(mode, 'project.rvn_txid populated', bool(proj['rvn_txid']),
+              proj['rvn_txid'][:24] + '…' if proj['rvn_txid'] else '(missing)')
+        if expected_status == 'persistent_locked':
+            check(mode, 'project.ipfs_cid populated', bool(proj['ipfs_cid']),
+                  proj['ipfs_cid'][:24] + '…' if proj['ipfs_cid'] else '(missing)')
+            check(mode, 'project.arweave_uri populated', bool(proj['arweave_uri']),
+                  proj['arweave_uri'][:24] + '…' if proj['arweave_uri'] else '(missing)')
+        if proj['rvn_txid']:
+            check(mode, 'receipt renders RVN tx', proj['rvn_txid'] in html)
+        if proj['ipfs_cid']:
+            check(mode, 'receipt renders IPFS CID', proj['ipfs_cid'] in html)
+        if proj['arweave_uri']:
+            check(mode, 'receipt renders Arweave URI', proj['arweave_uri'] in html)
+        check(mode, f'witness log has Project {pid} LOCKED line',
+              f'[WITNESS] Project {pid} LOCKED' in witlog)
+        if proj['scr_id']:
+            check(mode, f'witness log has mint success for {proj["scr_id"]}',
+                  f'[WITNESS] {proj["scr_id"]} minted on testnet' in witlog)
+            if expected_status == 'persistent_locked':
+                check(mode, f'witness log has [ANCHOR] IPFS for {proj["scr_id"]}',
+                      f'[ANCHOR] IPFS pinned {proj["scr_id"]}' in witlog)
+                check(mode, f'witness log has [ANCHOR] Arweave for {proj["scr_id"]}',
+                      f'[ANCHOR] Arweave record posted for {proj["scr_id"]}' in witlog)
 
 # ── final summary ─────────────────────────────────────────────────────────
 print('\n━━━ SUMMARY ━━━')

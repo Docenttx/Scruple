@@ -18,7 +18,10 @@ export const dynamic = 'force-dynamic';
 
 export default function ReceiptPage({ params }: { params: { scrId: string } }) {
   const { scrId } = params;
-  if (!/^(SCR|SCRB)_[A-F0-9]{6}$/.test(scrId)) notFound();
+  // Local lock derives a 6-hex suffix from the Merkle root; chain lock
+  // (witness server handleLock + handleConfirmAndExecute) derives an
+  // 8-hex suffix. Accept either so chain-locked SCR-IDs render.
+  if (!/^(SCR|SCRB)_[A-F0-9]{6,8}$/.test(scrId)) notFound();
 
   const project = conn()
     .prepare(`SELECT * FROM projects WHERE scr_id = ? OR pre_scr_id = ?`)
