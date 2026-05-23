@@ -140,7 +140,11 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
                     record = {'{'} run_sequence, output_hash, input_hash, workflow_hash,
                     server_timestamp, prev_record_hash {'}'}
                   </span>
-                  . Canonical = compact JSON (no spaces), fixed field order.
+                  . Canonical = compact JSON (no spaces), fixed field order,
+                  raw UTF-8 (no <span className="font-mono">\u</span>-escapes).
+                  Matches Node{' '}
+                  <span className="font-mono">JSON.stringify</span>; in Python use{' '}
+                  <span className="font-mono">json.dumps(obj, separators=(&apos;,&apos;,&apos;:&apos;), ensure_ascii=False)</span>.
                 </li>
               </ul>
             </li>
