@@ -390,6 +390,7 @@ Public, unauthenticated. Renders all v2.1 fields per iteration + verification re
 
 ## Reference Docs
 
+- **`docs/END_TO_END_FLOW.md`** — companion to this doc. Linear narrative trace of one user journey through every system in the order it happens (browser → web → Modal/ComfyUI → witness → RVN/IPFS/Arweave → receipt → third-party verify). Read this when you need to *follow* a request, not just look up where things live.
 - **`CHANGELOG.md`** — versioned release log. v2.1.0 entry has the full technical change set.
 - **`docs/sessions/2026-05-22.md`** — narrative dev log preserving the diagnostic arc that led to v2.1.
 - **`/opt/scruple-witness/PATCH_NOTES.md`** — witness server patch history.
