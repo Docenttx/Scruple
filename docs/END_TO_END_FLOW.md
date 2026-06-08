@@ -443,11 +443,20 @@ Witness `handleConfirmAndExecute()`:
    - Pull all witnesses for this project from witness DB.
    - Recompute the Merkle root from the witness's own copy.
    - Build `lockData = { project_id, action, merkle_root, witnessed_count, locked_at }`.
-   - `serverSignature = sign(lockData)` — **action is in the tuple, so a checkpoint sig can't be replayed as a finalize sig.**
+   - `serverSignature = sign(lockData)` — **action is in the tuple on THIS path, so a checkpoint sig can't be replayed as a finalize sig**. (See note below — other lock-sign sites use different tuples; this guarantee is local to `handleConfirmAndExecute` finalize/checkpoint, not a system-wide property.)
    - For finalize: `INSERT INTO locked_projects (project_id, merkle_root, witnessed_count, server_signature, locked_at)`.
    - For checkpoint: signed but NOT persisted (project remains open).
    - Insert a `tsd_auth_tokens` row for the Stripe payment audit trail.
 7. Returns `{ success, action, lockedAt, merkleRoot, witnessedCount, serverSignature }`.
+
+> **Honest scope note on lock signatures.** The witness server has **four** lock-event sign sites and they don't all use the same tuple:
+>
+> 1. `handleLock` (wallet chain-lock path, `server.js:521`): `sign({ project_id, merkle_root, witnessed_count, locked_at })` — **no action**.
+> 2. `handleConfirmAndExecute` finalize/checkpoint (`server.js:947`): `sign({ project_id, action, merkle_root, witnessed_count, locked_at })` — has action. *This is the one this section describes.*
+> 3. `handleConfirmAndExecute` chain-lock-* (`server.js:1012`): `sign({ projectId, scrId, tier, paymentIntentId, proofTxId, locked_at })` — has tier + paymentIntentId + proofTxId, no merkle_root or action.
+> 4. `handleFiatChainLock` (`server.js:1121`): `sign({ project_id, scrId, lock_tier, locked_at })` — minimal.
+>
+> Each site's signature commits to whatever its own tuple says. Cross-action replay is only structurally prevented on path #2 (because `action` is in the tuple). A future cleanup unifying these is worth doing.
 
 ### 4.5 Web persists the lock state
 ```ts
@@ -540,13 +549,32 @@ Anyone with the SCR-ID can verify the package is untampered. **No Scruple-side t
 ### 6.1 Pull the on-chain anchor
 ```bash
 # On RVN testnet (sandbox; prod would be mainnet)
-raven-cli getassetdata SCR_DD31408E
-# → { name, amount, units, ipfs_hash: <root-encoded-as-IPFS-style>, ... }
-# OR for richer metadata, query the Arweave record:
-curl http://arlocal:1984/<arweaveTxId>
-# → { type: 'scruple-proof-record', version: '2.0', scrId, merkleRoot, witnessedCount, lockedAt, ... }
+raven-cli -testnet getassetdata SCR_DD31408E
+# → { name, amount, units, reissuable, has_ipfs: false, ... }
+#
+# ⚠ The RVN asset is minted with the SCR-ID as its NAME and that's it —
+# `issueAsset` (testnet-locker.js) hardcodes has_ipfs=false. The asset's
+# value for verification is the BLOCK TIMESTAMP and the fact that the
+# asset with this exact name was minted by Scruple's known wallet at
+# that block. The Merkle root itself lives in the Arweave record.
+
+# So the Merkle root comes from Arweave (both basic and pinned tier):
+curl http://arlocal:1984/<arweaveTxId>     # dev
+# OR for prod: curl https://arweave.net/<arweaveTxId>
+# → { type: 'scruple-proof-record', version: '2.0', scrId, merkleRoot,
+#     rvnTxId, witnessedCount, lockedAt, witnessSignature, ... }
+
+# For pinned tier, the same record is ALSO content-pinned on IPFS:
+curl http://127.0.0.1:5001/ipfs/<ipfsCid>    # or any IPFS gateway
+# → same JSON
 ```
-You now have the **canonical Merkle root** as committed at lock time. RVN's blockchain timestamp says when (and no one can change either).
+
+You now have:
+- The **Merkle root** (from the Arweave record).
+- An **independent block-timestamped anchor** that Scruple's wallet minted an asset with this SCR-ID at this time (from RVN).
+- For pinned tier: a **content-addressed copy** of the proof record on IPFS, which the Arweave record references by CID.
+
+Three different chains; cross-check whichever you trust. The RVN asset's existence + the Arweave record's `rvnTxId` should both match, and the IPFS CID in the Arweave record should hash to the pinned record. This is the cross-anchor binding.
 
 ### 6.2 Fetch the receipt
 ```bash
@@ -743,35 +771,46 @@ USER         WEB           WITNESS       MODAL          STORAGE       CHAINS
 
 ## Appendix C — One iteration in numbers
 
-A real example from the audit (project 25, the v2.1 paid-flow smoke):
+A real example pulled live from the DB (project 25 = `v2-paid-flow-smoke`,
+the v2.1 paid-flow smoke; SD1.5 txt2img with no user inputs):
 
 ```
 run_sequence:            1
-output_hash:             e6f7b767d05673821809d54b32d8bbf31b34624cb0fd7bccde98beb2d58f68ef
-input_hash:              (empty — txt2img, no inputs)
-workflow_hash:           b58c64f0... (sha256 of the SD1.5 txt2img graph)
+output_hash:             2f5b4e9072397a7fc82395e217c510e961e31e920d42190b4ec7f6340862b33c
+                         (the PNG bytes ComfyUI returned — sha256)
+
+input_hash:              6b1a0599495249ac1a25bc9edb51bfa3f753887c14e2e8e403c8ead98ed0661f
+                         (sha256 of canonical({provider:'comfydeploy', prompt, spec, inputs:[]})
+                         — NOT empty even though inputs[] was empty)
+
+workflow_hash:           b58c64f0ee80603330eefd65a6e3441969742490cfda8c350cab1e5edccf5afd
+                         (sha256 of the SD1.5 txt2img graph JSON)
+
 model_fingerprints_hash: 592c8587838f0f3d183473143c232eb1df90a12a110bf2a05faf7887cd4dbe15
-   manifest entry:
+   manifest entry (only file loaded):
      checkpoints/v1-5-pruned-emaonly.safetensors
        content_hash: 6ce0161689b3853acaa03779ec93eafe75a02f4ced659bee03f50797806fa2fa
        header_hash:  ed6e1a1f33ba3a02193e599f6441e213f973f2949dedcfafefd570da536eae9e
        bytes:        4,265,146,304
-server_timestamp:        2026-05-23T01:25:05.000Z
+
+server_timestamp:        2026-05-23T02:07:30.300Z
 prev_record_hash:        "" (first iteration in this project)
 
-canonical(record) = '{"run_sequence":1,"output_hash":"e6f7b76...","input_hash":"...","workflow_hash":"b58c64f0...","model_fingerprints_hash":"592c8587...","server_timestamp":"2026-05-23T01:25:05.000Z","prev_record_hash":""}'
+canonical(record) = '{"run_sequence":1,"output_hash":"2f5b4e9072397a7fc82395e217c510e961e31e920d42190b4ec7f6340862b33c","input_hash":"6b1a0599495249ac1a25bc9edb51bfa3f753887c14e2e8e403c8ead98ed0661f","workflow_hash":"b58c64f0ee80603330eefd65a6e3441969742490cfda8c350cab1e5edccf5afd","model_fingerprints_hash":"592c8587838f0f3d183473143c232eb1df90a12a110bf2a05faf7887cd4dbe15","server_timestamp":"2026-05-23T02:07:30.300Z","prev_record_hash":""}'
 
-leaf_hash = sha256(canonical) = bc4d560981a74ac33fef7e960b5f2a329c0768d63ba5fa0addd7af1ad7f3e0a9
-signature = HMAC(SECRET, leaf_hash) = ... (per-record seal)
+leaf_hash = sha256(canonical) = e6f7b767d05673821809d54b32d8bbf31b34624cb0fd7bccde98beb2d58f68ef
+witness_signature        = 8d68a715bf4679e0968ac579059c5014a6a18e2a8e515523c5347138e425c6b2
+                            (HMAC of leaf_hash — Scruple's per-record seal)
 
-(After local lock — 1 leaf → root = leaf)
-merkle_root            = bc4d560981a74ac33fef7e960b5f2a329c0768d63ba5fa0addd7af1ad7f3e0a9
-scr_id                 = SCR_BC4D56
-lock_server_signature  = ebb986b1e2e614469b1840c81e86de9e61ce7cdc2948353091f8dae896f5a2a9
-                         signed over {project_id: "25", action: "finalize", merkle_root, witnessed_count: 1, locked_at: "..."}
+— After local lock — 1 leaf → root = leaf —
+merkle_root              = e6f7b767d05673821809d54b32d8bbf31b34624cb0fd7bccde98beb2d58f68ef
+scr_id                   = SCR_E6F7B7   (first 6 hex of root, uppercased; local lock uses 6)
+lock_server_signature    = ebb986b1e2e614469b1840c81e86de9e61ce7cdc2948353091f8dae896f5a2a9
+                            signed over {project_id:"25", action:"finalize", merkle_root, witnessed_count:1, locked_at:"2026-05-23T02:09:39.583Z"}
+                            (handleConfirmAndExecute finalize/checkpoint path — action is in this tuple)
 ```
 
-This is the actual data behind the audit. Receipt at `/receipt/SCR_BC4D56` shows all of it.
+This is the actual data behind the audit. Receipt at `/receipt/SCR_E6F7B7` shows all of it. (Project 24, `SCR_BC4D56`, leaf `bc4d560981a7…`, is a separate iteration — the M-5 model-fingerprinting smoke from earlier in the same session.)
 
 ---
 
