@@ -9,7 +9,7 @@
 
 Scruple Web is a Next.js 14 app at `/data/scruple-web` that proves the provenance of AI-generated content. Every iteration (image / video / checkpoint) is hashed end-to-end at creation time, sealed into a Merkle tree at lock time, and (optionally) anchored on a public chain (RVN testnet + IPFS + Arweave) so anyone with the public **SCR-ID** can verify the package is untampered. Branch: `feature/pivot`. Public dev URL: `https://scruple.stooges.ai` → proxied to local `:3001`.
 
-**The claim is real.** A standalone Python script (`scripts/audit-receipts.py`) independently re-derives every hash + Merkle root + cross-checks against the witness DB, the rendered receipt HTML, and the audit log. **331/331 across 12 projects** at end of session 2026-05-22.
+**The claim is real.** A standalone Python script (`scripts/audit-receipts.py`) independently re-derives every hash + Merkle root + cross-checks against the witness DB, the rendered receipt HTML, and the audit log. End of session 2026-05-22: **all 331 checks passed across 12 projects**. The **data-integrity checks** (~286 of those — hash reproduction, Merkle reproduction, DB ↔ witness DB ↔ receipt agreement) are repeatable forever from durable state. The **log-presence checks** (~45) check journalctl + `/tmp/scruple-dev.log` and **degrade over time** as the journal window expires and the dev-server log rotates; current re-run shows 286/331 with the 45 failures all log-based. The provenance is intact; the audit's log-vs-data split should be tightened (see Open Follow-ups).
 
 ---
 
@@ -163,11 +163,11 @@ leaf      = hashlib.sha256(canonical.encode()).hexdigest()
 
 - **NOT in git.** Lives at `/opt/scruple-witness/`. Single `server.js` plus testnet-locker/ipfs-pinner/arweave-treasury helpers.
 - **Patch convention:** every edit gets a `server.js.bak.<unix_ts>` and a `PATCH_NOTES.md` entry. Restart via `sudo systemctl restart scruple-witness`. Health: `curl :5799/health`.
-- **DB:** `/opt/scruple-witness/witness.db` (independent SQLite). Tables: `witnesses` (per-iteration), `locked_projects` (finalize/chain), `tsd_auth_tokens` (Stripe audit trail), and others.
+- **DB:** `/opt/scruple-witness/witness.db` (independent SQLite). Tables (verified `.tables`): `witnesses` (per-iteration), `locked_projects` (finalize/chain — original schema is {project_id, merkle_root, witnessed_count, server_signature, locked_at} + later-added columns {checkpoint_root, checkpointed_at, resumed_at, arweave_txid, ipfs_cid, rvn_txid, pre_scr_id, installation_id}), `projects` (pre-SCR registry for clone-project flow), `tsd_auth_tokens` (Stripe + TSD payment audit trail), `tsd_ledger` (TSD balance ledger).
 - **What it signs:** every iteration with HMAC over the canonical record (sealed by `signature` in the witnesses row). Every lock event is also HMAC-signed but the tuple varies by lock path: finalize/checkpoint (via `handleConfirmAndExecute`) signs `{project_id, action, merkle_root, witnessed_count, locked_at}` (action in tuple → no cross-action replay on this path); wallet chain-lock (`handleLock`) signs `{project_id, merkle_root, witnessed_count, locked_at}` (no action); Stripe-paid chain-lock signs `{projectId, scrId, tier, paymentIntentId, proofTxId, locked_at}`. Unifying these is a worthwhile future cleanup; today each site's signature commits to its own tuple.
 - **HMAC secret:** `SCRUPLE_WITNESS_SECRET` in the systemd unit env. **Don't paste this in code.** Symmetric — fine for web (it's a server-side seal; the public verifier is the RVN mint wallet, which is asymmetric by virtue of being on-chain).
 - **Stripe:** `STRIPE_SECRET_KEY=sk_test_*` in the systemd env. Witness creates + verifies PaymentIntents. Web proxies through it.
-- **Endpoints:** `/api/witness`, `/api/lock/:projectId`, `/api/confirm-and-execute`, `/api/verify`, `/api/stripe-config`, `/api/create-payment-intent`, `/api/admin/confirm-pi` (loopback-only dev helper).
+- **Endpoints** (verified from server.js dispatch): `/health` GET; `/api/witness` POST + `/api/witness/:projectId` GET; `/api/lock/:projectId` POST (handleLock); `/api/verify` POST; `/api/tsd/balance/:id` GET + `/api/tsd/{fund,pay,verify}` POST; `/api/clone-project` POST; `/api/fiat-chain-lock` POST; `/api/stripe-config` GET; `/api/create-payment-intent` POST; `/api/confirm-and-execute` POST; `/api/admin/confirm-pi` POST (loopback-only dev helper).
 
 ### Modal runner (Python, `scruple-runner` app)
 
@@ -286,7 +286,11 @@ Wait for HTTP 307 on `/`. First page load ~5s while Next compiles. **NEVER run o
 python3 /data/scruple-web/scripts/audit-receipts.py
 ```
 
-Should print `331/331` (or whatever the current total is) and exit 0. **Run this before any commit that touches the provenance pipeline.**
+Run this before any commit that touches the provenance pipeline. Two output bands to know about:
+- **Data-integrity checks** (~286 of ~331): hash reproduction, Merkle rebuild, witness DB ↔ web DB agreement, receipt HTML contains the right hashes. These are durable — they pass forever for any project whose DB rows + artifact bytes survive.
+- **Log-presence checks** (~45): asserts that `[WITNESS]`, `[CHECKPOINT]`, `[LOCAL_LOCK]`, `[ANCHOR]` lines exist in the witness journalctl + `/tmp/scruple-dev.log`. These **expire** when the journal window rotates (default `--since '6 hours ago'` in the script) or the dev-server log is overwritten on restart. Failures here mean "logs are old," not "provenance is broken."
+
+Right after a session that generated the captures + locks, expect 100%. Weeks later, expect ~86% with the 45 log-band failures. See Follow-up #0 for the cleanup.
 
 ### Drive a full capture + lock cycle from CLI
 
@@ -378,6 +382,7 @@ Public, unauthenticated. Renders all v2.1 fields per iteration + verification re
 
 ## Open Follow-ups (priority order)
 
+0. **Audit script log-vs-data split.** `scripts/audit-receipts.py` mixes durable data-integrity checks (hash reproduction, Merkle reproduction — repeatable forever) with ephemeral log-presence checks (journalctl + `/tmp/scruple-dev.log` — expire over time). Result: a clean session shows 100%; a re-run weeks later shows ~86% with all failures log-based. Either (a) split the score into two reported totals, or (b) write witness-log entries to a durable file and persist `/tmp/scruple-dev.log` over restarts.
 1. **M-2: hash-on-upload** for `fetch_to_volume`. Closes the window where a malicious model is uploaded AND used before any verifier looks. Pairs with a canonical-hash registry (HF/Civitai published hashes) so mismatches are flagged at upload.
 2. **Volume hygiene** — investigate why our SD1.5 hash differs from HF official. Replace or document.
 3. **Desktop reconciliation** — v2.x leaf scheme is web-only by user direction. Desktop verifier will need the leaf-scheme switch when desktop is next touched. See `project_scruple_v2_leaf` memory note for the decision context.

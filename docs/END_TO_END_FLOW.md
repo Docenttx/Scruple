@@ -86,9 +86,11 @@ Every subsequent request carries the cookie. `auth()` server-side looks up the s
 ## Phase 2 — Setup a Project
 
 ### 2.1 Optional: connect storage provider
-User goes to Settings → connects Google Drive (or OneDrive / GitHub). NextAuth OAuth flow for the provider runs; the access+refresh tokens land encrypted in `user_settings` via `lib/auth/encryption.ts`. The chosen provider goes into `storage_settings`. From now on, every artifact upload writes to that provider.
+User goes to Settings → connects Google Drive (or OneDrive / GitHub). The OAuth flow runs; **both the choice and the AES-GCM-encrypted access/refresh tokens land in the `storage_providers` table** (single row per user: `{user_id, provider, encrypted_creds, root_folder, metadata, ...}`). `lib/auth/encryption.ts` does the AES-GCM. `lib/storage/dispatch.ts getActiveProvider()` reads `storage_providers WHERE user_id = ?` to pick the active one. From now on, every artifact upload writes to that provider.
 
-If no provider is connected, web falls back to local FS (`lib/scruple/artifacts.storeArtifact` → `/data/scruple-web/artifacts/`). Receipts and `/api/artifact/[hash]` work from there too.
+(There is a separate `user_settings` table with a free-form JSON `settings` column — used for misc things like model-library API tokens (HF / Civitai). Don't confuse the two.)
+
+If no provider is connected, web falls back to local FS (`lib/scruple/artifacts.storeArtifact` → `/data/scruple-web/artifacts/<first 2 chars of hash>/<full hash>`). Receipts and `/api/artifact/[hash]` work from there too.
 
 ### 2.2 Create the project
 ```
@@ -420,7 +422,8 @@ Web: `app/api/lock/local/route.ts`:
    pad odd levels by duplicating last
    single leaf → root = that leaf (depth 0)
    ```
-4. **Derive SCR-ID:** `deriveScrId(merkleRoot, false)` → `SCR_<first 6 hex of merkleRoot, uppercased>` for local lock. (Chain lock uses 8 hex via witness; receipt regex accepts both.)
+4. **Derive SCR-ID:** `lib/scruple/hash.ts deriveScrId(merkleRoot, persistent)` → `<prefix>_<first 6 hex of merkleRoot, uppercased>` where prefix = `SCR_` (default) or `SCRB_` (`persistent=true`). Local lock currently uses `SCR_` always.
+   Chain lock derives a different 8-hex form on the witness server: `'SCR_' + sha256(merkleRoot || preScrId || String(projectId))[:8].toUpperCase()` — a hash-of-hash with fallback chain when no merkleRoot is available. Receipt regex `[A-F0-9]{6,8}` accepts both.
 
 ### 4.4 Web → Witness: confirmAndExecute
 ```
@@ -759,7 +762,8 @@ USER         WEB           WITNESS       MODAL          STORAGE       CHAINS
 | `workflow_hash` | `ingest.ts` `sha256Hex(JSON.stringify(wf))` | `iterations.workflow_hash` | `witnesses.workflow_hash` | ✓ |
 | `model_fingerprints_hash` | `ingest.ts` `sha256Hex(canonical(manifest))` | `iterations.model_fingerprints_hash` | `witnesses.model_fingerprints_hash` | ✓ (v2.1) |
 | `leaf_hash` | witness `handleWitness` `sha256(canonical(record))` | `iterations.leaf_hash` | `witnesses.leaf_hash` | — (it IS the leaf) |
-| `prev_record_hash` | witness lookup of prior leaf | — | `witnesses.prev_record_hash` | ✓ |
+| `prev_record_hash` (witness chain) | witness `SELECT leaf_hash … ORDER BY run_sequence DESC LIMIT 1` | — (lives on witness side) | `witnesses.prev_record_hash` | ✓ (in v2 leaf preimage) |
+| `previous_hash` (local chain) | web `SELECT leaf_hash … ORDER BY run_sequence DESC LIMIT 1` at INSERT | `iterations.previous_hash` | — | — (web-local convenience link, NOT under the anchor) |
 | `server_timestamp` | witness `new Date().toISOString()` | `iterations.witness_timestamp` | `witnesses.server_timestamp` | ✓ |
 | `signature` (per leaf) | witness `HMAC(leaf_hash)` | `iterations.witness_signature` | `witnesses.signature` | — (seals the leaf) |
 | `merkle_root` | web at lock `buildMerkle(leaves)` | `projects.merkle_root` + `merkle_nodes` | — (recomputed at lock) | n/a |
