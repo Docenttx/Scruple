@@ -39,3 +39,10 @@ artifacts/
 next-env.d.ts
 __pycache__/
 *.pyc
+
+# External Scruple-managed forks of ComfyUI custom nodes. The forks
+# are their own git repos (point at upstream); converting them to
+# submodules is the publish-time step. Upstream snapshots live next
+# to them as date-stamped archives — local-only.
+external/scruple-nodes/seedvr2_videoupscaler/
+external/scruple-nodes/_upstream-snapshots/
