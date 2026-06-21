@@ -87,6 +87,8 @@ export interface IterationRow {
   // Model fingerprinting (migration 017)
   model_fingerprints: string | null;       // JSON manifest {path: {content_hash, header_hash, ...}}
   model_fingerprints_hash: string | null;  // sha256(canonical(manifest)) — folded into v2 leaf preimage
+  // Compute Stage 1 (migration 019)
+  compute_machine_id: string | null;       // catalog id from lib/compute/machines.ts; NULL on legacy rows (T4)
 }
 
 // Project-row extension columns added by migration 018. Defined here

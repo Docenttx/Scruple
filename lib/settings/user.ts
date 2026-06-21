@@ -24,6 +24,13 @@ export interface UserSettings {
     pinataKeyEnc?: string;
     pinataSecretEnc?: string;
   };
+  // Compute machine selection — Stage 1 of the Settings → Compute
+  // work. machine_id refers to a row in lib/compute/machines.ts.
+  // If unset or invalid for the user's current plan, getActiveMachine
+  // falls back to the plan default.
+  compute?: {
+    machine_id?: string;
+  };
   // Future: notifications, locale, etc.
 }
 
@@ -49,6 +56,10 @@ export function writeUserSettings(userId: string, patch: Partial<UserSettings>):
   // Deep-merge nested ipfs config so partial saves don't blow it away
   if (patch.ipfs && existing.ipfs) {
     merged.ipfs = { ...existing.ipfs, ...patch.ipfs };
+  }
+  // Same for compute — let a partial compute patch merge with existing.
+  if (patch.compute && existing.compute) {
+    merged.compute = { ...existing.compute, ...patch.compute };
   }
   const json = JSON.stringify(merged);
   const now = new Date().toISOString();

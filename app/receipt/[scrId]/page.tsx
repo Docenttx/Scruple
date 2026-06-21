@@ -274,9 +274,10 @@ function IterationCard({ it }: { it: IterationRow }) {
   }
   const scheme = it.leaf_scheme ?? 'v1';
   const backend = (it as { execution_backend?: string | null }).execution_backend ?? null;
+  const computeMachineId = (it as { compute_machine_id?: string | null }).compute_machine_id ?? null;
   return (
     <div className="rounded-md border border-scruple-border bg-scruple-surface p-3 text-[11px]">
-      {/* header row: # · scheme · timestamp · backend · output_kind */}
+      {/* header row: # · scheme · timestamp · backend · machine · output_kind */}
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-mono text-scruple-text">#{it.run_sequence}</span>
         <SchemeBadge scheme={scheme} />
@@ -284,6 +285,7 @@ function IterationCard({ it }: { it: IterationRow }) {
           {it.output_kind}
         </span>
         <BackendBadge backend={backend} />
+        <MachineBadge machineId={computeMachineId} />
         <span className="ml-auto text-[10px] text-scruple-muted">
           {new Date(it.timestamp).toLocaleString()}
         </span>
@@ -454,6 +456,27 @@ function BackendBadge({ backend }: { backend: string | null }) {
   return (
     <span className={`rounded-full border px-1.5 py-0.5 font-mono text-[9px] ${cls}`}>
       {backend}
+    </span>
+  );
+}
+
+/**
+ * Stage 1 of Settings → Compute: surface the catalog id the user
+ * selected at the time of this iteration. Legacy rows (NULL) render
+ * as "T4 (legacy)" because every pre-Stage-1 iteration ran on the
+ * single shared Modal T4 endpoint.
+ */
+function MachineBadge({ machineId }: { machineId: string | null }) {
+  const label = machineId ?? 'T4 (legacy)';
+  const cls = machineId
+    ? 'border-scruple-accent-primary/40 bg-scruple-accent-primary/10 text-scruple-accent-primary'
+    : 'border-scruple-border bg-scruple-bg text-scruple-muted';
+  return (
+    <span
+      className={`rounded-full border px-1.5 py-0.5 font-mono text-[9px] ${cls}`}
+      title={machineId ? `compute machine: ${machineId}` : 'iteration predates Settings → Compute (Stage 1)'}
+    >
+      {label}
     </span>
   );
 }

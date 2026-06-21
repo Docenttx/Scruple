@@ -16,6 +16,7 @@ import { auth } from '@/lib/auth/auth';
 import { conn } from '@/lib/db/sqlite';
 import { getWorkflowStatus, spawnWorkflow } from '@/lib/compute/modal';
 import { ingestIteration } from '@/lib/iterations/ingest';
+import { getActiveMachine } from '@/lib/compute/getActiveMachine';
 
 export const dynamic = 'force-dynamic';
 
@@ -177,6 +178,12 @@ export async function GET(req: NextRequest) {
       imageContentType: result.content_type ?? 'image/png',
       executionBackend: result.attestation ? 'modal-tee' : 'modal-test',
       executionAttestation: result.attestation ?? null,
+      // The user's setting at the moment of completion. Stage 1
+      // accepts the edge case where a user changes their machine
+      // mid-run — the recorded value is "what was active when we
+      // ingested," consistent with how chain_tier is captured at
+      // lock time.
+      computeMachineId: getActiveMachine(job.user_id).id,
     });
     conn().prepare(
       `UPDATE generation_jobs

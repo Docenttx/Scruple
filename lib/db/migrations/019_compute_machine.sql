@@ -1,0 +1,23 @@
+-- Migration 019: persist the compute machine that ran each iteration.
+--
+-- WO docs/wo/2026-06-21-compute-stage1.md — Stage-1 of the
+-- Settings → Compute work. Adds the per-iteration "which GPU/machine
+-- produced this output" column so the receipt can render hardware
+-- provenance alongside model fingerprints and witness signatures.
+--
+-- The catalog (Stage 1) is hardcoded in lib/compute/machines.ts;
+-- Stage 2 will replace it with a `machines` DB table seeded from the
+-- same constants. This column holds the catalog id (e.g.,
+-- 't4-free', 'a10g-pro') so the migration to Stage 2 is a pure FK
+-- swap.
+--
+-- Legacy rows: compute_machine_id stays NULL. The receipt renders
+-- "T4 (legacy)" for those — they all ran on the pre-Stage-1 single
+-- Modal endpoint which was T4.
+--
+-- The user-settings side (which machine the user picked) lives in
+-- the existing user_settings.settings JSON blob under
+--   { compute: { machine_id: '...' } }
+-- — no schema change needed there.
+
+ALTER TABLE iterations ADD COLUMN compute_machine_id TEXT;

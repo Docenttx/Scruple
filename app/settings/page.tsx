@@ -15,6 +15,7 @@ import { getProviderKeyStatus } from '@/lib/settings/actions';
 import ProviderKeyForm from './ProviderKeyForm';
 import AccountSection from '@/components/settings/AccountSection';
 import StorageSection from '@/components/settings/StorageSection';
+import ComputeSection from '@/components/settings/ComputeSection';
 import PaymentModeSection from '@/components/settings/PaymentModeSection';
 import StripeCustomerSection from '@/components/settings/StripeCustomerSection';
 import RvnWalletSection from '@/components/settings/RvnWalletSection';
@@ -27,6 +28,7 @@ export const dynamic = 'force-dynamic';
 const NAV_ITEMS: NavItem[] = [
   { id: 'account',     label: 'Account' },
   { id: 'storage',     label: 'Storage' },
+  { id: 'compute',     label: 'Compute' },
   { id: 'billing',     label: 'Billing' },
   { id: 'models',      label: 'Models' },
   { id: 'api-keys',    label: 'API Keys' },
@@ -57,6 +59,12 @@ export default async function SettingsPage() {
           <section id="storage" className="mt-10 scroll-mt-12">
             <CategoryHeader>Storage</CategoryHeader>
             <StorageSection />
+          </section>
+
+          {/* Compute — which GPU class runs the user's workflows */}
+          <section id="compute" className="mt-10 scroll-mt-12">
+            <CategoryHeader>Compute</CategoryHeader>
+            <ComputeSection />
           </section>
 
           {/* Billing — payment mode, Stripe customer, RVN wallet */}

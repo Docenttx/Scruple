@@ -22,6 +22,8 @@ import { ProviderError } from '@/lib/providers/types';
 import { getDecryptedProviderKey } from '@/lib/settings/actions';
 import { ingestIteration } from '@/lib/iterations/ingest';
 import { modalRunner, ModalError, spawnWorkflow } from '@/lib/compute/modal';
+import { resolveActiveMachine } from '@/lib/compute/getActiveMachine';
+import { resolveEndpointForMachine } from '@/lib/compute/machines';
 import { nanoid } from 'nanoid';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProject } from '@/lib/projects/actions';
@@ -121,6 +123,27 @@ export async function POST(req: NextRequest) {
     forceBackend === 'modal' ||
     (forceBackend !== 'comfydeploy' && !workflowBody.machineId && modalRunner.isConfigured());
 
+  // Resolve the user's Settings → Compute choice. Drives:
+  //   - which Modal HTTP endpoint we POST the workflow to (via the
+  //     per-machine env var, with graceful fallback to the legacy
+  //     single MODAL_RUNNER_ENDPOINT)
+  //   - which catalog id we persist on the iteration row, so the
+  //     receipt and audit can report exactly which GPU class ran the
+  //     run
+  // For non-Modal backends (BYO ComfyDeploy) the machine selection
+  // is informational only — the receipt still cites the chosen
+  // catalog entry but BYO Comfy decides its own GPU.
+  const activeMachine = resolveActiveMachine(userId);
+  const machineEndpoint = wantsModal
+    ? resolveEndpointForMachine(activeMachine.machine)
+    : { url: null, fellBackToLegacy: false };
+  if (wantsModal && machineEndpoint.fellBackToLegacy) {
+    console.warn(
+      `[generate] user ${userId} machine=${activeMachine.machine.id} — per-machine endpoint ` +
+      `(${activeMachine.machine.endpointEnvVar}) not set, falling back to MODAL_RUNNER_ENDPOINT`,
+    );
+  }
+
   // Pre-flight provenance capture — write the workflow JSON to disk
   // BEFORE we ship it to Modal/Comfy. Survives any downstream failure.
   // Path: /tmp/scruple-dispatch/<projectId>/<unix-ms>.json
@@ -192,7 +215,10 @@ export async function POST(req: NextRequest) {
 
   if (wantsModal) {
     try {
-      const modalResult = await modalRunner.runWorkflow(workflowBody.workflowApiJson);
+      const modalResult = await modalRunner.runWorkflow(
+        workflowBody.workflowApiJson,
+        machineEndpoint.url ? { endpointUrl: machineEndpoint.url, userId } : { userId },
+      );
       if (!modalResult.ok) {
         try {
           logTelemetry({
@@ -225,6 +251,7 @@ export async function POST(req: NextRequest) {
         imageContentType: modalResult.contentType,
         executionBackend: modalResult.attestation ? 'modal-tee' : 'modal-test',
         executionAttestation: modalResult.attestation,
+        computeMachineId: activeMachine.machine.id,
       });
       return NextResponse.json({
         ok: true,

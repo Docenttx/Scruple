@@ -84,6 +84,10 @@ export interface IngestParams {
     bytes?: number;
     mtime?: number;
   }>;
+  /** Compute machine catalog id (`lib/compute/machines.ts`) that ran
+   *  this iteration. NULL for legacy rows (which always ran on T4
+   *  via the pre-Stage-1 single Modal endpoint). */
+  computeMachineId?: string | null;
 }
 
 export interface IngestResult {
@@ -260,8 +264,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            output_kind, output_content_type, output_bytes, input_artifacts,
            workflow_hash, leaf_scheme,
            model_fingerprints, model_fingerprints_hash,
-           witnessed, witness_id, witness_timestamp, witness_signature
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           witnessed, witness_id, witness_timestamp, witness_signature,
+           compute_machine_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -292,6 +297,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         witnessResult?.witness_id ?? null,
         witnessResult?.server_timestamp ?? null,
         witnessResult?.signature ?? null,
+        p.computeMachineId ?? null,
       );
 
     conn()
