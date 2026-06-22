@@ -1,33 +1,20 @@
 // /canvas — top-level Canvas view.
 //
-// Two code paths, gated by user plan:
-//
-//   Free tier:   embeds the local on-host ComfyUI editor
-//                (canvas.stooges.ai → :8188). Workflow composition
-//                only — execution dispatches via the Scruple Queue
-//                Intercept JS → /api/generate → per-request Modal.
-//
-//   Pro / Enterprise: embeds the user's own Modal-hosted ComfyUI
-//                session (one container per user). Workflow editing
-//                AND execution happen in the same container — no
-//                node-set parity gap. Provenance via the canvas
-//                intercept JS posting to /api/canvas/witness/*.
-//                See docs/wo/2026-06-22-canvas-on-modal.md.
-//
-// Captures land on whichever project is currently set as active
-// (Sidebar's ActiveProjectBanner). Activate a project from the
-// sidebar first; otherwise Queue is disabled in the canvas.
+// Canvas v2 (WO-2): tier-gating removed. Every signed-in user gets a
+// per-user Modal-hosted ComfyUI container. If there's no active
+// session yet, the page renders a minimal Start-canvas affordance —
+// WO-5 will replace this with auto-mint via the HTTP+WS proxy. The
+// existing on-host `canvas.stooges.ai` Free-tier fallback is retired
+// from the product surface; users without paid GPU should use
+// Scruple Studio Desktop (separate codebase).
 
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth/auth';
 import { getActiveProject } from '@/lib/projects/actions';
 import AppShell from '@/components/AppShell';
 import CanvasBridge from '@/components/CanvasBridge';
-import CanvasLauncher from '@/components/CanvasLauncher';
-import { getUserPlan } from '@/lib/compute/userPlan';
 import { getActiveCanvasSession } from '@/lib/canvas/session';
 
-const FREE_CANVAS_URL = 'https://canvas.stooges.ai/';
 const IFRAME_ID = 'scruple-canvas-iframe';
 
 export default async function CanvasPage() {
@@ -36,16 +23,11 @@ export default async function CanvasPage() {
   if (!userId) redirect('/login');
 
   const active = await getActiveProject();
-  const plan = getUserPlan(userId);
-  const canvasSession = plan === 'free' ? null : getActiveCanvasSession(userId);
+  const canvasSession = getActiveCanvasSession(userId);
 
-  // Pro/Enterprise with a live Modal session → iframe that.
   if (canvasSession) {
     return (
-      <AppShell
-        activeProjectId={active?.id}
-        viewingProjectName={active?.name}
-      >
+      <AppShell activeProjectId={active?.id} viewingProjectName={active?.name}>
         <div className="relative h-full">
           <iframe
             id={IFRAME_ID}
@@ -65,40 +47,42 @@ export default async function CanvasPage() {
     );
   }
 
-  // Pro/Enterprise without a session → launcher card.
-  if (plan !== 'free') {
-    return (
-      <AppShell
-        activeProjectId={active?.id}
-        viewingProjectName={active?.name}
-      >
-        <div className="flex h-full items-center justify-center bg-scruple-bg p-8">
-          <CanvasLauncher plan={plan} />
-        </div>
-      </AppShell>
-    );
-  }
-
-  // Free tier → local on-host CPU canvas, dispatch via /api/generate.
+  // No session yet — minimal Start affordance. WO-5 replaces this with
+  // auto-mint behavior + the HTTP+WS proxy.
   return (
-    <AppShell
-      activeProjectId={active?.id}
-      viewingProjectName={active?.name}
-    >
-      <div className="relative h-full">
-        <iframe
-          id={IFRAME_ID}
-          src={FREE_CANVAS_URL}
-          title="ComfyUI canvas (free tier)"
-          className="h-full w-full border-0 bg-scruple-bg"
-          allow="clipboard-read; clipboard-write; fullscreen"
-        />
-        <CanvasBridge
-          iframeId={IFRAME_ID}
-          activeProjectId={active?.id}
-          activeProjectName={active?.name}
-        />
+    <AppShell activeProjectId={active?.id} viewingProjectName={active?.name}>
+      <div className="flex h-full items-center justify-center bg-scruple-bg p-8">
+        <StartCanvasCard />
       </div>
     </AppShell>
+  );
+}
+
+function StartCanvasCard() {
+  return (
+    <form
+      action="/api/canvas/session"
+      method="POST"
+      className="max-w-md rounded-md border border-scruple-border bg-scruple-surface p-6 text-center"
+    >
+      <h2 className="text-base font-medium">Start a Canvas Session</h2>
+      <p className="mt-2 text-xs text-scruple-muted">
+        Per-second billing on Modal GPU. Stripe pre-authorizes 1 hour and captures only
+        your actual usage when you end the session.
+      </p>
+      <button
+        type="submit"
+        className="mt-4 rounded bg-scruple-accent-primary px-4 py-2 text-sm text-scruple-bg hover:opacity-90"
+      >
+        Start Canvas
+      </button>
+      <p className="mt-3 text-[10px] opacity-50">
+        Pick your default machine in{' '}
+        <a href="/settings#compute" className="underline">
+          Settings → Compute
+        </a>
+        .
+      </p>
+    </form>
   );
 }

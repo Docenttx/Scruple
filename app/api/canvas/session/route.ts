@@ -1,5 +1,5 @@
 // GET     /api/canvas/session                  → { active } | { active: null }
-// POST    /api/canvas/session  { machine_id? } → { ok, session }    (tier-gated; Pro+)
+// POST    /api/canvas/session  { machine_id? } → { ok, session }
 // DELETE  /api/canvas/session                  → { ok, revoked }
 //
 // Mint, read, and revoke per-user canvas sessions. The session token
@@ -8,7 +8,10 @@
 // sends back to /api/canvas/witness/* so we can attribute incoming
 // witness events to the right user.
 //
-// See docs/wo/2026-06-22-canvas-on-modal.md.
+// Canvas v2 (WO-2): tier-gating removed. Every signed-in user may mint
+// a canvas session. Stripe-card gating + PaymentIntent pre-auth land
+// in WO-6 (lifecycle). HTTP+WS proxy as the provenance gate lands in
+// WO-4.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -18,7 +21,6 @@ import {
   mintCanvasSession,
   revokeCanvasSession,
 } from '@/lib/canvas/session';
-import { getUserPlan } from '@/lib/compute/userPlan';
 import { resolveActiveMachine } from '@/lib/compute/getActiveMachine';
 import { getMachineById } from '@/lib/compute/machines';
 
@@ -54,14 +56,6 @@ export async function POST(req: NextRequest) {
   const userId = (sess?.user as { id?: string } | undefined)?.id;
   if (!userId) return unauthorized();
 
-  const plan = getUserPlan(userId);
-  if (plan === 'free') {
-    return NextResponse.json(
-      { error: 'Canvas sessions require Pro or Enterprise tier' },
-      { status: 403 },
-    );
-  }
-
   let body: z.infer<typeof PostBody>;
   try {
     body = PostBody.parse(await req.json().catch(() => ({})));
@@ -75,12 +69,6 @@ export async function POST(req: NextRequest) {
   if (body.machine_id) {
     const m = getMachineById(body.machine_id);
     if (!m) return NextResponse.json({ error: 'Unknown machine_id' }, { status: 400 });
-    if (!m.allowedPlans.includes(plan)) {
-      return NextResponse.json(
-        { error: 'Machine not available on your plan' },
-        { status: 403 },
-      );
-    }
     machineId = m.id;
   } else {
     machineId = resolveActiveMachine(userId).machine.id;

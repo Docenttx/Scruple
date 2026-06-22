@@ -1,26 +1,27 @@
 'use client';
 
 // Settings → Compute. The user picks the machine that runs their
-// workflows on Modal. Stage 1: fixed 4-entry catalog, tier-gated;
-// Free users see a read-only card and an Upgrade CTA, paid users
-// see a grid of allowed machines. Receipts cite the chosen
-// machine_id so verifiers can see exactly which GPU class ran a
-// given iteration. See docs/wo/2026-06-21-compute-stage1.md.
+// workflows on Modal. Canvas v2 (WO-2): tier-gating removed; the full
+// 4-machine catalog is always shown. Receipts cite the chosen
+// machine_id so verifiers can see exactly which GPU class ran a given
+// iteration.
+//
+// WO-7 will add user-customizable machines (Custom Machine setting);
+// the constants below remain as the catalog of default/built-in
+// machines.
 
 import { useEffect, useState } from 'react';
 import { addToast } from '@/lib/toast';
 
-type UserPlan = 'free' | 'pro' | 'enterprise';
 type TrustTier = 'L1+L2' | 'L1+L2+L3';
 
 interface Machine {
   id: string;
   name: string;
   description: string;
-  tierLabel: 'Free' | 'Pro' | 'Premium';
   gpuClass: string;
   trustTier: TrustTier;
-  allowedPlans: UserPlan[];
+  hourlyRateCents: number;
   monthlyEstimateUsd8hPerDay: number;
   coldStartSeconds: number;
   includedNodes: string[];
@@ -30,7 +31,6 @@ interface ComputeState {
   active: Machine;
   storedMachineId: string | null;
   fellBack: boolean;
-  plan: UserPlan;
   allowed: Machine[];
 }
 
@@ -92,21 +92,20 @@ export default function ComputeSection() {
     );
   }
 
-  const isFree = state.plan === 'free';
-
   return (
     <section id="compute" className="mt-8 scroll-mt-12">
       <h2 className="text-xs uppercase tracking-widest text-scruple-muted">Compute</h2>
       <p className="mt-1 text-xs text-scruple-muted">
-        Pick the GPU class that runs your workflows. Every iteration is captured into
-        provenance with the machine id so a third-party can verify which hardware
-        produced the output.
+        Pick the GPU class that runs your workflows. Pre-auth per canvas session is 1h
+        × the machine&apos;s hourly rate; Stripe captures only the actual elapsed usage
+        when the session ends. Every iteration is captured into provenance with the
+        machine id so a third-party can verify which hardware produced the output.
       </p>
 
       {state.fellBack && state.storedMachineId && state.storedMachineId !== state.active.id && (
         <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-300">
-          Your previously selected machine ({state.storedMachineId}) isn&apos;t available
-          on your current plan. Showing the default for {state.plan} instead.
+          Your previously selected machine ({state.storedMachineId}) is no longer in
+          the catalog. Showing default ({state.active.name}) instead.
         </p>
       )}
 
@@ -116,23 +115,11 @@ export default function ComputeSection() {
             key={m.id}
             machine={m}
             active={m.id === state.active.id}
-            disabled={isFree && m.id !== state.active.id}
             saving={saving}
             onClick={() => pick(m.id)}
           />
         ))}
       </div>
-
-      {isFree && (
-        <div className="mt-4 rounded-md border border-scruple-border bg-scruple-surface p-3 text-xs">
-          <span className="text-scruple-muted">
-            Pro and Enterprise tiers unlock larger GPUs and TEE-attested execution.{' '}
-          </span>
-          <a href="/account/redeem" className="text-scruple-accent-primary underline">
-            Upgrade →
-          </a>
-        </div>
-      )}
     </section>
   );
 }
@@ -140,13 +127,11 @@ export default function ComputeSection() {
 function MachineCard({
   machine,
   active,
-  disabled,
   saving,
   onClick,
 }: {
   machine: Machine;
   active: boolean;
-  disabled: boolean;
   saving: boolean;
   onClick: () => void;
 }) {
@@ -155,11 +140,12 @@ function MachineCard({
     accent === 'fuchsia'
       ? 'border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-200'
       : 'border-scruple-accent-primary bg-scruple-accent-primary/10 text-scruple-accent-primary';
+  const dollars = (machine.hourlyRateCents / 100).toFixed(2);
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled || saving}
+      disabled={saving}
       className={
         'flex flex-col items-start gap-2 rounded-md border p-4 text-left transition-colors disabled:opacity-40 ' +
         (active
@@ -172,8 +158,8 @@ function MachineCard({
         {active ? (
           <span className="text-[10px] uppercase tracking-widest opacity-80">active</span>
         ) : (
-          <span className="text-[10px] uppercase tracking-widest opacity-50">
-            {machine.tierLabel}
+          <span className="font-mono text-[10px] uppercase tracking-widest opacity-50">
+            ${dollars}/hr
           </span>
         )}
       </div>
@@ -183,8 +169,7 @@ function MachineCard({
         <li>Trust tier: {machine.trustTier}</li>
         <li>Cold start: ~{machine.coldStartSeconds}s</li>
         <li>
-          Est. cost (8h/day):{' '}
-          <span className="font-mono">${machine.monthlyEstimateUsd8hPerDay}/mo</span>
+          Rate: <span className="font-mono">${dollars}/hr</span> (~${machine.monthlyEstimateUsd8hPerDay}/mo at 8h/day)
         </li>
         <li>Nodes: {machine.includedNodes.join(', ')}</li>
       </ul>

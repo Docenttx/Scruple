@@ -6,11 +6,15 @@
 // the scruple-web server can attribute incoming events to the right
 // user without trusting the canvas iframe to be honest about identity.
 //
-// See docs/wo/2026-06-22-canvas-on-modal.md for the architecture.
+// See docs/architecture/canvas-v2.md for the architecture (WO-4 will
+// replace the iframe-direct-to-Modal pattern with an HTTP+WS proxy
+// that captures workflow + outputs server-side; tokens become opaque
+// session ids inside the proxy URL path).
 //
 // Schema: lib/db/migrations/020_canvas_sessions.sql.
 // Catalog: lib/compute/machines.ts.
-// Tier-gate: getUserPlan(userId) in lib/compute/userPlan.ts; Pro+ only.
+// Canvas v2 (WO-2): no tier-gating. Stripe-card requirement is added
+// in WO-6's session lifecycle.
 
 import crypto from 'node:crypto';
 import { nanoid } from 'nanoid';
