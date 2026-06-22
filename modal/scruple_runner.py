@@ -74,7 +74,7 @@ RUN_GPU = os.getenv("SCRUPLE_MODAL_RUN_GPU", GPU)
 # happens once when the app deploys; cached after that.
 comfy_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git", "wget")
+    .apt_install("git", "wget", "libgl1", "libglib2.0-0", "ffmpeg")
     .pip_install(
         "torch==2.4.0",
         "torchvision==0.19.0",
@@ -84,7 +84,11 @@ comfy_image = (
     .pip_install(
         "transformers>=4.40",
         "accelerate",
-        "diffusers",
+        # diffusers pinned to 0.33.x — seedvr2 needs >=0.33.1, but newer
+        # diffusers (0.36+) break torch custom_op schema inference at
+        # import time (attention_dispatch.py:739). 0.33.x is the
+        # last-known-good for seedvr2 + our torch 2.4.0.
+        "diffusers>=0.33.1,<0.34",
         "safetensors",
         "Pillow",
         "numpy",
@@ -118,15 +122,16 @@ comfy_image = (
         "pip install lark opencv-python-headless",
         # VideoHelperSuite — provides VHS_LoadVideo, VHS_VideoCombine,
         # and the video-frame helpers used by AnimateDiff / seedvr2
-        # workflows. Pinned to 1.7.9 to match the host canvas.
-        "git clone --depth=1 --branch v1.7.9 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite "
+        # workflows. Clones main; --depth=1 keeps it lean. The pyproject
+        # 'v1.7.9' is a pypi version string, not a git tag on the repo.
+        "git clone --depth=1 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite "
         "/opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite",
         "pip install -r /opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt || true",
-        # SeedVR2 upscaler (numz/ComfyUI-SeedVR2_VideoUpscaler) — pinned
-        # to v2.5.22. Upstream version works on Modal because the
-        # container has a real CUDA device; our scruple-canvas-fork's
-        # CPU-fallback patch only matters on the on-host canvas.
-        "git clone --depth=1 --branch v2.5.22 https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler "
+        # SeedVR2 upscaler (numz/ComfyUI-SeedVR2_VideoUpscaler) — main.
+        # Upstream works on Modal because the container has a real CUDA
+        # device; our scruple-canvas-fork's CPU-fallback patch only
+        # matters on the on-host canvas.
+        "git clone --depth=1 https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler "
         "/opt/ComfyUI/custom_nodes/seedvr2_videoupscaler",
         "pip install -r /opt/ComfyUI/custom_nodes/seedvr2_videoupscaler/requirements.txt || true",
         # ── End custom nodes ──────────────────────────────────────────
