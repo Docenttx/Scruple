@@ -20,6 +20,11 @@ export interface WitnessIterationInput {
   // the canonical record stays a small flat object; the full manifest
   // is persisted alongside the iteration for the receipt and audit.
   modelFingerprintsHash?: string;
+  // v2.2 — pinned manifest of custom-node packs the workflow ran on.
+  // Binds the artist's choice of toolchain into the leaf. Server includes
+  // it in the canonical record only when present; absent → v2 behavior.
+  // See docs/architecture/canvas-v2.md decision 5.
+  machineManifestHash?: string;
 }
 
 export interface WitnessIterationResult {
@@ -29,7 +34,7 @@ export interface WitnessIterationResult {
   // v2 fields (absent from pre-v2 servers; treat as optional).
   leaf_hash?: string;       // sha256(canonical(record)) — the Merkled leaf
   prev_record_hash?: string;
-  leaf_scheme?: 'v1' | 'v2';
+  leaf_scheme?: 'v1' | 'v2' | 'v2.2';
   // Whatever else the server returns
   [k: string]: unknown;
 }
@@ -144,6 +149,8 @@ export const witness = {
       input_hash: input.inputHash,
       workflow_hash: input.workflowHash,
       model_fingerprints_hash: input.modelFingerprintsHash,
+      // v2.2 — pre-v2.2 servers ignore this field harmlessly.
+      machine_manifest_hash: input.machineManifestHash,
     });
   },
 

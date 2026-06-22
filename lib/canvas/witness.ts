@@ -107,6 +107,21 @@ export async function captureOutput(opts: {
       ? 'checkpoint'
       : 'image';
 
+  // Look up the user's machine manifest hash to bind it into v2.2 leaf.
+  // canvas_sessions.machine_id is GPU class (catalog id like 't4-free');
+  // map that to the user's current canvas Machine row whose manifest is
+  // baked into the actual Modal image. Today everyone shares the default
+  // machine; WO-7 will let users have personal machines.
+  const machineRow = conn()
+    .prepare(
+      `SELECT manifest_hash FROM machines
+        WHERE (user_id = ? OR user_id IS NULL)
+          AND archived_at IS NULL
+        ORDER BY user_id IS NULL ASC, created_at DESC LIMIT 1`,
+    )
+    .get(opts.userId) as { manifest_hash: string } | undefined;
+  const machineManifestHash = machineRow?.manifest_hash ?? null;
+
   try {
     const result = await ingestIteration({
       userId: opts.userId,
@@ -125,6 +140,7 @@ export async function captureOutput(opts: {
       executionBackend: 'modal-test',
       executionAttestation: null,
       computeMachineId: opts.machineId,
+      machineManifestHash,
     });
 
     conn()

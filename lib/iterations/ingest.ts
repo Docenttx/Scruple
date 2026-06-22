@@ -88,6 +88,11 @@ export interface IngestParams {
    *  this iteration. NULL for legacy rows (which always ran on T4
    *  via the pre-Stage-1 single Modal endpoint). */
   computeMachineId?: string | null;
+  /** Per-user machine manifest hash (v2.2 leaf preimage component).
+   *  Resolved from canvas_sessions.machine_id → machines.manifest_hash
+   *  by the caller. NULL for /api/generate path (per-request runner has
+   *  no user-customizable manifest yet). */
+  machineManifestHash?: string | null;
 }
 
 export interface IngestResult {
@@ -239,13 +244,14 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
       inputHash,
       workflowHash: workflowHash ?? undefined,
       modelFingerprintsHash: modelFingerprintsHash ?? undefined,
+      machineManifestHash: p.machineManifestHash ?? undefined,
     });
   } catch (e) {
     console.error('[ingest] auto-witness failed (iteration will land with witnessed=0):', e);
   }
 
   const leafHash = witnessResult?.leaf_hash ?? outputHash;
-  const leafScheme: 'v1' | 'v2' = witnessResult?.leaf_scheme ?? 'v1';
+  const leafScheme: 'v1' | 'v2' | 'v2.2' = witnessResult?.leaf_scheme ?? 'v1';
 
   const now = new Date().toISOString();
   const tx = conn().transaction(() => {
@@ -265,8 +271,8 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            workflow_hash, leaf_scheme,
            model_fingerprints, model_fingerprints_hash,
            witnessed, witness_id, witness_timestamp, witness_signature,
-           compute_machine_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           compute_machine_id, machine_manifest_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -298,6 +304,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         witnessResult?.server_timestamp ?? null,
         witnessResult?.signature ?? null,
         p.computeMachineId ?? null,
+        p.machineManifestHash ?? null,
       );
 
     conn()

@@ -364,3 +364,68 @@ seedvr2 should be resolved.
 
 ---
 
+## WO-8 · Leaf v2.2 — machine_manifest_hash in provenance preimage
+
+**Commit:** `<pending>`
+**Status:** scruple-web + witness server patched; `tsc --noEmit` green;
+witness server backed up (`.bak.20260622-wo8`); witness needs PM2 reload
+to pick up changes (deferred to operator).
+**Files (4 changed):**
+- `/opt/scruple-witness/server.js` (NOT in scruple-web git; backup at
+  `.bak.20260622-wo8`, patch notes appended):
+  - Schema migration adds `witnesses.machine_manifest_hash` +
+    backfills the older v2 columns that ALTER TABLE never created on
+    existing installs (`leaf_scheme`, `leaf_hash`, `input_hash`,
+    `workflow_hash`, `prev_record_hash`, `model_fingerprints_hash`).
+  - Two canonical forms: `canonicalRecord` (v2) preserved verbatim
+    for old leaves, new `canonicalRecordV22` adds `machine_manifest_hash`
+    slot between `model_fingerprints_hash` and `server_timestamp`.
+    `recordHash(rec, scheme)` dispatches.
+  - `handleWitness` accepts `machine_manifest_hash` from POST body,
+    sets `leaf_scheme = 'v2.2'` when present (else 'v2'), passes scheme
+    to `recordHash`. Log line includes `mm=` mark.
+- `lib/scruple/witness.ts` — `WitnessIterationInput` gains
+  `machineManifestHash?: string`; sent as `machine_manifest_hash` in
+  the POST body. `WitnessIterationResult.leaf_scheme` type widened to
+  include 'v2.2'.
+- `lib/iterations/ingest.ts` — `IngestParams` gains
+  `machineManifestHash?: string | null`. Threaded into the witness call
+  + INSERTed into `iterations.machine_manifest_hash`. `leafScheme` type
+  widened to include 'v2.2'.
+- `lib/canvas/witness.ts` (proxy path) — `captureOutput()` looks up the
+  user's machine manifest hash (today: shared default) and passes it
+  into `ingestIteration`. Future per-user machines (WO-7) just change
+  which row that SELECT returns.
+
+**Decisions made:**
+- **Backward-compatible canonicalization.** v2 rows are NEVER replayed
+  through the v2.2 canonical form. Two separate functions; the
+  leaf_scheme on each row tells the audit script (WO-13) which to use.
+  This protects every previously-locked anchor — their hash didn't
+  silently change.
+- **leaf_scheme dispatches at write time.** Witness server picks v2 or
+  v2.2 based on whether the caller provided `machine_manifest_hash`.
+  The /api/generate path doesn't have a manifest concept yet, so its
+  iterations stay 'v2'. Canvas-via-proxy iterations will be 'v2.2'.
+- **Per-user machine lookup in captureOutput is the obvious place.**
+  scruple-web maintains the mapping (user → machines row → manifest
+  hash), the witness server just receives the hex string. Keeps the
+  witness server's role narrow: hash + sign + chain.
+- **PATCH_NOTES + .bak per the standing security instruction.** Witness
+  server is not in git; every patch carries its own diff record.
+
+**Verify done:**
+- `node -c /opt/scruple-witness/server.js` → exit 0
+- `npx tsc --noEmit` on scruple-web → exit 0
+- Canonical form dispatch: trace through reads correctly
+
+**What still needs to happen (operator-side):**
+- `pm2 restart scruple-witness` (or systemctl restart) to pick up the
+  new code. The DB migration runs idempotently on startup so the
+  schema change is automatic.
+- One smoke witness call with a `machine_manifest_hash` to confirm
+  the v2.2 path produces a different leaf than v2 for the same
+  inputs. (WO-13 audit script will do this systematically.)
+
+---
+
