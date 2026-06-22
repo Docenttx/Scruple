@@ -116,6 +116,19 @@ comfy_image = (
         # modules import directly.
         "pip install -r /opt/ComfyUI/custom_nodes/ComfyUI-Easy-Use/requirements.txt || true",
         "pip install lark opencv-python-headless",
+        # VideoHelperSuite — provides VHS_LoadVideo, VHS_VideoCombine,
+        # and the video-frame helpers used by AnimateDiff / seedvr2
+        # workflows. Pinned to 1.7.9 to match the host canvas.
+        "git clone --depth=1 --branch v1.7.9 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite "
+        "/opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite",
+        "pip install -r /opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt || true",
+        # SeedVR2 upscaler (numz/ComfyUI-SeedVR2_VideoUpscaler) — pinned
+        # to v2.5.22. Upstream version works on Modal because the
+        # container has a real CUDA device; our scruple-canvas-fork's
+        # CPU-fallback patch only matters on the on-host canvas.
+        "git clone --depth=1 --branch v2.5.22 https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler "
+        "/opt/ComfyUI/custom_nodes/seedvr2_videoupscaler",
+        "pip install -r /opt/ComfyUI/custom_nodes/seedvr2_videoupscaler/requirements.txt || true",
         # ── End custom nodes ──────────────────────────────────────────
         # Modal Volumes can only be mounted onto empty directories. The git
         # clone above ships with placeholder subdirs under models/ that
