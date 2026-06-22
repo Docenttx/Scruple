@@ -97,3 +97,62 @@ seedvr2 should be resolved.
 
 ---
 
+## WO-3 · Migration 021 + default manifest
+
+**Commit:** `<pending>`
+**Status:** migration applied on dev DB; manifest hash verified
+**Files touched (5):**
+- NEW: `lib/canvas/manifest.ts` — `canonicalizeManifest()` (sorted-key
+  recursive JSON serializer) + `hashManifest()` (sha256 hex over the
+  canonical form)
+- NEW: `config/default-machine-manifest.json` — 6 pinned packs:
+  - ComfyUI v0.18.5
+  - Easy-Use v1.3.6
+  - VHS v1.7.9
+  - Advanced-ControlNet `main`
+  - IPAdapter-plus `main`
+  - AnimateDiff-Evolved `main`
+  - seedvr2 (numz upstream) v2.5.22
+  Each pack has `commit_sha: null` — WO-7 build worker resolves to real
+  shas at first build, then UPDATEs the row + hash.
+- NEW: `lib/db/migrations/021_canvas_v2_schema.sql` — `machines` +
+  `machine_versions` tables; `iterations.machine_manifest_hash` +
+  `iterations.workflow_publication`; seeded `default-scruple-canvas-v1`
+  row with the canonical manifest JSON + hash inline.
+
+**Decisions made:**
+- **6 packs not 7.** v2 spec mentioned a separate "scruple-canvas-fork/seedvr2"
+  entry — but for the SHARED default machine on Modal, the upstream numz
+  package works (Modal has real GPU; the fork's CPU patch is on-host only).
+  The fork remains as a separate optional pack a user can add in their
+  Custom Machine if they explicitly want our CPU-fallback variant.
+- **Did NOT add `leaf_scheme` ALTER.** Column already exists from
+  migration 016 (default 'v1'). WO-8 will update the application code to
+  set 'v2.2' for new rows; the audit script dispatches on the actual
+  value. Removing this from migration 021 fixed the "duplicate column
+  name" error on first apply.
+- **Did NOT add `witnesses` table ALTER.** There is no `witnesses` table
+  in the operator DB — witness state lives on `iterations.witness_*`
+  columns + the standalone `/opt/scruple-witness/` process. WO-8 will
+  extend the witness server's canonical record server-side.
+- **`commit_sha: null` is intentional and committed.** The canonical
+  hash `273df14…b375` is bound to "the manifest before resolution".
+  When WO-7's build worker resolves shas + rebuilds, it writes a NEW
+  machines row with the post-resolution hash; the original null-sha row
+  stays so iterations that ran during the pending window can still
+  resolve to a manifest record.
+
+**Verify done:**
+- `npx tsx scripts/migrate.ts` → `Applied 1 new migration(s); skipped 20`
+- `machines` row exists with hash matching `hashManifest()` over the
+  config JSON: `273df1412170d94b0b64f1ce5f6c1f562802cc3cbdcbb4e1bcad67d2ea72b375`
+- `iterations.machine_manifest_hash` + `iterations.workflow_publication`
+  columns added, defaults sensible
+
+**What still needs to happen (out-of-WO-3):**
+- The build worker (WO-7) needs to resolve commit shas + build the image
+  + flip build_status to 'ready'. Until then the manifest_hash represents
+  the manifest-as-specified, not the manifest-as-built.
+
+---
+

@@ -1,0 +1,41 @@
+{
+  "comfyui_version": "v0.18.5",
+  "custom_nodes": [
+    {
+      "pack": "easy-use",
+      "repo": "yolain/ComfyUI-Easy-Use",
+      "ref": "v1.3.6",
+      "commit_sha": null
+    },
+    {
+      "pack": "videohelpersuite",
+      "repo": "Kosinkadink/ComfyUI-VideoHelperSuite",
+      "ref": "v1.7.9",
+      "commit_sha": null
+    },
+    {
+      "pack": "advanced-controlnet",
+      "repo": "Kosinkadink/ComfyUI-Advanced-ControlNet",
+      "ref": "main",
+      "commit_sha": null
+    },
+    {
+      "pack": "ipadapter-plus",
+      "repo": "cubiq/ComfyUI_IPAdapter_plus",
+      "ref": "main",
+      "commit_sha": null
+    },
+    {
+      "pack": "animatediff-evolved",
+      "repo": "Kosinkadink/ComfyUI-AnimateDiff-Evolved",
+      "ref": "main",
+      "commit_sha": null
+    },
+    {
+      "pack": "seedvr2",
+      "repo": "numz/ComfyUI-SeedVR2_VideoUpscaler",
+      "ref": "v2.5.22",
+      "commit_sha": null
+    }
+  ]
+}
