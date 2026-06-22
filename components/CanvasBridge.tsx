@@ -167,6 +167,79 @@ export default function CanvasBridge({
           failQueue('client polling timed out (15 min)');
         })();
       }
+
+      // ── Canvas-on-Modal witness events ────────────────────────────────
+      // Fired by scruple-canvas-witness.js inside the per-user Modal
+      // ComfyUI iframe. Workflow EXECUTES inside the iframe (Modal has
+      // the GPU); we just attach provenance after the fact.
+      //
+      // start    — workflow JSON captured at /prompt time
+      // complete — output bytes captured at execution_success time
+      //
+      // Both POST to scruple-web's /api/canvas/witness/* and pipe into
+      // the existing ingestIteration pipeline. See
+      // docs/wo/2026-06-22-canvas-on-modal.md.
+      if (data.type === 'scruple:canvas-witness-start') {
+        const ev = data as {
+          session_token: string;
+          project_id: number;
+          prompt_id: string;
+          workflow_api_json: Record<string, unknown>;
+        };
+        fetch('/api/canvas/witness/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_token: ev.session_token,
+            project_id: ev.project_id,
+            prompt_id: ev.prompt_id,
+            workflow_api_json: ev.workflow_api_json,
+          }),
+        }).catch(e => {
+          logEvent('error', 'canvas-bridge', 'witness/start fetch failed', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+        return;
+      }
+
+      if (data.type === 'scruple:canvas-witness-complete') {
+        const ev = data as {
+          session_token: string;
+          prompt_id: string;
+          output_bytes_b64: string;
+          output_content_type: string;
+          output_kind?: 'image' | 'video' | 'checkpoint';
+          output_filename?: string;
+        };
+        const iframe = document.getElementById(iframeId) as HTMLIFrameElement | null;
+        const target = iframe?.contentWindow ?? null;
+        (async () => {
+          const res = await fetch('/api/canvas/witness/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ev),
+          }).catch(e => null);
+          if (!res || !res.ok) {
+            const body = res ? await res.json().catch(() => ({})) : {};
+            const error = body.error || body.detail || `HTTP ${res?.status ?? 'network'}`;
+            target?.postMessage({ type: 'scruple:queue-result', ok: false, error }, '*');
+            return;
+          }
+          const body = await res.json().catch(() => ({}));
+          target?.postMessage(
+            {
+              type: 'scruple:queue-result',
+              ok: true,
+              runSequence: body.run_sequence ?? null,
+              leafHash: body.leaf_hash ?? null,
+            },
+            '*',
+          );
+          router.refresh();
+        })();
+        return;
+      }
     }
 
     window.addEventListener('message', onMessage);
