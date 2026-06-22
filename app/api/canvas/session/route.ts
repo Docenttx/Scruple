@@ -18,8 +18,10 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth/auth';
 import {
   getActiveCanvasSession,
-  mintCanvasSession,
+  mintCanvasSessionWithBilling,
   revokeCanvasSession,
+  CanvasMintError,
+  proxyUrlForSession,
 } from '@/lib/canvas/session';
 import { resolveActiveMachine } from '@/lib/compute/getActiveMachine';
 import { getMachineById } from '@/lib/compute/machines';
@@ -75,20 +77,28 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const minted = mintCanvasSession(userId, machineId);
+    const minted = await mintCanvasSessionWithBilling(userId, machineId);
     return NextResponse.json({
       ok: true,
       session: {
         id: minted.id,
         machine_id: machineId,
-        modal_url: minted.modalUrl,
+        proxy_url: proxyUrlForSession(minted.id),
+        payment_intent_id: minted.paymentIntentId,
+        hold_cents: minted.holdCents,
         expires_at: minted.expiresAt,
       },
     });
   } catch (e) {
+    if (e instanceof CanvasMintError) {
+      const status =
+        e.code === 'no_card' ? 402 :
+        e.code === 'not_deployed' ? 503 :
+        500;
+      return NextResponse.json({ error: e.code, detail: e.message }, { status });
+    }
     const message = e instanceof Error ? e.message : String(e);
-    // Most common: Modal canvas app not yet deployed for this machine.
-    return NextResponse.json({ error: message }, { status: 503 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

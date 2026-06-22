@@ -154,11 +154,13 @@ export function mintCanvasSession(userId: string, machineId: string): MintedSess
   // modal_url stored verbatim WITHOUT a ?t= query param. Only the
   // server-side proxy reads it; the browser never sees the Modal URL.
   // The proxy URL exposed to the browser is `/canvas-proxy/<id>/`.
+  // payment_status defaults to 'none' here; WO-6 path mints the Stripe
+  // hold via createCanvasHold() right after this insert.
   conn()
     .prepare(
       `INSERT INTO canvas_sessions
-         (id, user_id, machine_id, modal_url, signed_token, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?)`,
+         (id, user_id, machine_id, modal_url, signed_token, expires_at, last_heartbeat)
+        VALUES (?, ?, ?, ?, ?, ?, unixepoch())`,
     )
     .run(id, userId, machineId, baseUrl, signedToken, expiresAt);
 
@@ -169,6 +171,66 @@ export function mintCanvasSession(userId: string, machineId: string): MintedSess
  *  proxy, never at the underlying Modal endpoint directly. */
 export function proxyUrlForSession(sessionId: string): string {
   return `/canvas-proxy/${sessionId}/`;
+}
+
+/**
+ * Mint a session AND create the Stripe pre-auth hold in one
+ * orchestrated call. Used by both /api/canvas/session POST and the
+ * server-side mint in /canvas/page.tsx so the Stripe state always
+ * matches the canvas_sessions row.
+ *
+ * If the hold fails (no card on file, payment method invalid, Stripe
+ * down), the mint is rolled back so the session row never exists
+ * without a corresponding PaymentIntent.
+ *
+ * Throws CanvasMintError with a user-facing `code` so the caller can
+ * decide how to surface it (`no_card`, `stripe_down`, `not_deployed`).
+ */
+export class CanvasMintError extends Error {
+  constructor(
+    public code: 'no_card' | 'stripe_down' | 'not_deployed' | 'unknown',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CanvasMintError';
+  }
+}
+
+import { ensureStripeCustomer } from '@/lib/stripe/customer';
+import { createCanvasHold } from '@/lib/stripe/canvas';
+
+export async function mintCanvasSessionWithBilling(
+  userId: string,
+  machineId: string,
+): Promise<MintedSession & { paymentIntentId: string; holdCents: number }> {
+  let minted: MintedSession;
+  try {
+    minted = mintCanvasSession(userId, machineId);
+  } catch (e) {
+    throw new CanvasMintError(
+      'not_deployed',
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
+  try {
+    const customerId = await ensureStripeCustomer(userId);
+    const hold = await createCanvasHold({
+      sessionId: minted.id,
+      userId,
+      customerId,
+      machineId,
+    });
+    return { ...minted, paymentIntentId: hold.paymentIntentId, holdCents: hold.holdCents };
+  } catch (e) {
+    // Roll back the session row — never leave a row without a hold.
+    revokeCanvasSession(minted.id, userId);
+    const message = e instanceof Error ? e.message : String(e);
+    if (/payment method/i.test(message) || /no payment/i.test(message)) {
+      throw new CanvasMintError('no_card', message);
+    }
+    throw new CanvasMintError('stripe_down', message);
+  }
 }
 
 export function getActiveCanvasSession(userId: string): CanvasSessionRow | null {

@@ -288,3 +288,79 @@ seedvr2 should be resolved.
 
 ---
 
+## WO-6 · Stripe pre-auth + capture-actual session lifecycle
+
+**Commit:** `<pending>`
+**Status:** code complete; migration 022 applied; `tsc --noEmit` green
+**Files (10 changed / 4 new / +462 / -23):**
+- NEW: `lib/db/migrations/022_canvas_billing.sql` — extends
+  `canvas_sessions` with `payment_intent_id`, `payment_status`,
+  `last_heartbeat`, `accumulated_seconds`, `finalized_at`,
+  `captured_cents`, `hold_cents`. New `canvas_session_charges` audit
+  table.
+- NEW: `lib/stripe/canvas.ts` — `createCanvasHold()` (manual-capture
+  PI, off_session=true, customer-id-based), `finalizeCanvasCharge()`
+  (capture-actual or cancel-hold), `heartbeatCanvasSession()`
+  (server-side increment, 120s delta cap).
+- NEW: `app/api/canvas/session/heartbeat/route.ts` — POST
+  `{ sessionId }` → updates last_heartbeat + accumulated_seconds.
+- NEW: `app/api/canvas/session/end/route.ts` — POST `{ sessionId }`
+  → calls `finalizeCanvasCharge()`. Idempotent.
+- NEW: `components/CanvasSessionHUD.tsx` — client overlay; 30s
+  heartbeat; local 1s counter; navigator.sendBeacon on unload;
+  End button.
+- `lib/canvas/session.ts` — new `mintCanvasSessionWithBilling()`
+  orchestrator that mints + holds in one atomic call (rollback on
+  Stripe failure). New `CanvasMintError` class with codes
+  `no_card | stripe_down | not_deployed | unknown`.
+- `app/api/canvas/session/route.ts` — POST uses orchestrator;
+  returns `proxy_url` + `payment_intent_id` + `hold_cents`. New
+  error codes mapped to HTTP statuses (402 / 503 / 500).
+- `app/canvas/page.tsx` — uses orchestrator; renders typed error
+  cards per failure code (no_card → "Add a card" CTA to
+  /settings#payment; not_deployed → ops error; unknown → generic).
+  Now also mounts `<CanvasSessionHUD>`.
+
+**Decisions made:**
+- **`off_session=true` on PaymentIntent.create.** The user is on
+  scruple-web, not on a Stripe payment page. We're charging an
+  already-on-file card from a server flow. This is the right
+  Stripe model — equivalent to Uber's "trip pre-auth then capture
+  on completion."
+- **Heartbeat delta caps at 120s.** If a browser sleeps for an
+  hour, the next heartbeat shouldn't suddenly add 3600s to the
+  accumulator. The reaper (deferred to follow-up) will detect
+  stale heartbeats and finalize on the server side.
+- **Idempotency key on PaymentIntent.create.** `canvas-session-<id>`
+  is unique-per-mint, so retries within the same mint don't create
+  a second hold.
+- **Rollback on Stripe failure.** If `createCanvasHold` throws (no
+  card / Stripe down), we `revokeCanvasSession()` the just-minted
+  row so no orphan canvas_sessions row exists pointing at a Modal
+  container that won't be paid for.
+- **HUD uses `navigator.sendBeacon` on unload** rather than
+  `fetch()` — beacon is queued by the browser and delivered even
+  if the tab closes immediately. Standard Stripe-checkout pattern.
+
+**Verify done:**
+- Migration 022 applied; new columns + table present
+- `npx tsc --noEmit` → exit 0
+- All three Stripe paths typecheck against `Stripe` SDK types
+
+**What's intentionally DEFERRED (canvas-v2-06a follow-up):**
+- **Reaper script** — `scripts/canvas-session-reaper.mjs` to scan
+  for sessions with stale heartbeat (> 90s) AND not finalized,
+  calling `finalizeCanvasCharge()`. Without this, browser crashes
+  don't trigger finalization until the 1h Stripe hold expires
+  naturally (which DOES capture nothing — Stripe auto-cancels).
+- **Modal scaledown webhook handler** — Modal's webhook isn't a
+  standard feature on @web_server containers; would require
+  polling Modal's API or instrumenting the container's exit hook.
+
+**What still needs to happen (out-of-WO-6):**
+- Settings → Payment surface restructure (WO-10) will add the
+  "Add card" UI that the no_card error path links to. Today the
+  link goes to `/settings#payment` which exists but isn't ideal.
+
+---
+
