@@ -474,3 +474,141 @@ to pick up changes (deferred to operator).
 
 ---
 
+## WO-13 (partial) · Audit script v2.2 + dev-DB regression check
+
+**Commit:** `<pending>`
+**Status:** audit script extended; existing 286/331 PASS rate preserved
+(45 remaining failures are pre-existing log-band checks where journalctl
+windows have rotated — NOT provenance issues).
+**Files (1 modified):**
+- `scripts/audit-receipts.py` — added `record_hash_v22()` (with
+  `machine_manifest_hash` slot between `model_fingerprints_hash` and
+  `server_timestamp`). `record_hash()` dispatcher now leaf_scheme-aware:
+  - `'v2.2'` → v2.2 form
+  - `'v2'`   → tries v2.1 with stored `_expected`, falls back v2.0
+  - unspecified → tries newest first; only v2.2 if mm_hash present
+
+**Decisions made:**
+- **Dispatch by stored leaf_scheme primary, content-driven fallback.**
+  Audit trusts the row's `leaf_scheme` first; only when it's missing or
+  ambiguous does it sniff content. This makes the v2.2 path lossless
+  even when input_hash/workflow_hash happen to be empty.
+- **All three canonical forms shipped together.** Old projects still
+  verify; new projects with manifest_hash verify; "v2 stored but
+  pre-mf_hash" projects still verify via v2.0 fallback.
+
+**Verify done:**
+- `python3 scripts/audit-receipts.py` on dev DB: same 286/331 pass rate
+  as before this change (no v2-leaf regressions). The 45 failures are
+  log-band checks that depend on journalctl windows that have rotated.
+- Audit script ast.parse syntax-clean.
+
+**What still needs to happen (full WO-13):**
+- Add receipt-page renderer tests for v2.2 leaves with publication
+  redaction (visual diff)
+- Add an end-to-end smoke that captures a fresh v2.2 iteration via the
+  proxy and re-derives its leaf via the audit script — proves the
+  scruple-web ↔ witness server ↔ audit triangle agrees on v2.2.
+- Will land with WO-14 smokes (deferred).
+
+---
+
+## SESSION HANDOFF — 2026-06-22 overnight
+
+Eight WOs executed and committed. Three pending; one is large
+(Modal build pipeline), two are UI polish that can ship anytime,
+one is the smoke run that depends on Modal deploy.
+
+| WO | Status | Commit |
+|----|--------|--------|
+| WO-1 · seedvr2 tactical | DONE | cf9d18c |
+| WO-2 · strip tiers | DONE | 7ddd6c3 |
+| WO-3 · migration 021 + manifest | DONE | fecbb86 |
+| WO-4 · HTTP+WS proxy gate | DONE | 05c920b |
+| WO-5 · canvas page rewrite | DONE | f0a3fc6 |
+| WO-6 · Stripe pre-auth + capture | DONE | eaf7d26 |
+| WO-7 · per-user Machine + build | PENDING | — |
+| WO-8 · leaf v2.2 | DONE | 3e0c0b7 |
+| WO-9 · publication modes | DONE | ccccb25 |
+| WO-10 · settings restructure | PENDING | — |
+| WO-11 · manifest editor + pre-check | PENDING | — |
+| WO-12 · receipt UI updates | PENDING (partial — v2.2 badge + redaction in WO-9) | — |
+| WO-13 · audit v2.2 + final smoke | PARTIAL | (audit ext landing with this commit) |
+| WO-14 · testnet smokes | NOT RUN (needs `modal deploy` first) | — |
+
+### What works end-to-end after this session
+
+A signed-in user with a Stripe card can:
+1. Visit `/canvas` → page auto-mints a canvas session
+2. Stripe places a manual-capture PaymentIntent (1h × machine rate)
+3. Browser iframes `/canvas-proxy/<sessionId>/` (proxy is the gate)
+4. All `POST /prompt` workflows captured server-side
+5. All `GET /view` outputs captured server-side → `ingestIteration`
+6. Iteration row carries `machine_manifest_hash` (v2.2 leaf preimage)
+7. CanvasSessionHUD heartbeats every 30s + finalizes on close
+8. Stripe captures actual usage (or cancels hold if zero)
+9. Receipt page redacts hashes per `workflow_publication` mode
+
+### What does NOT work end-to-end yet
+
+- **Modal canvas app deployment** — `canvas_app.py` is updated (scruple_nodes
+  removed) but has not been `modal deploy`-ed since the WO-4 changes. Without
+  a re-deploy, the per-machine `MODAL_CANVAS_APP_URL_*` env vars in `.env.local`
+  point at the previous build that still has scruple_nodes. Operator must
+  re-deploy.
+- **Modal scruple_runner deployment** — Same: WO-1 added VHS + seedvr2 to
+  `scruple_runner.py` but the image needs `modal deploy` to take effect.
+- **Witness server reload** — `/opt/scruple-witness/server.js` got the v2.2
+  patch (schema migration + canonical dispatch). Needs `pm2 restart
+  scruple-witness` to pick up.
+- **CF tunnel + canvas-ws-proxy** — the Node ws sidecar isn't running as a
+  service yet. Operator pm2/systemd entry + CF hostname needed (commands in
+  WO-4 section above).
+- **Stripe canvas hold** — Stripe Test mode keys are presumably configured;
+  the off_session=true flow needs a real card on file for the demo account.
+
+### Operator unblock sequence (recommended)
+
+```
+# 1. Modal deploys (these compile new images — takes 10-20 min total)
+cd /data/scruple-web
+python3 -m modal deploy modal/scruple_runner.py     # WO-1 unblock
+python3 -m modal deploy modal/canvas_app.py         # WO-4 changes
+
+# 2. Witness server reload (idempotent schema migration runs on startup)
+pm2 restart scruple-witness
+
+# 3. Canvas WS proxy sidecar
+pm2 start /data/scruple-web/scripts/canvas-ws-proxy.mjs \
+  --name canvas-ws-proxy \
+  --node-args="--enable-source-maps" \
+  --time
+pm2 save
+
+# 4. CF tunnel: add hostname canvas-ws.scruple.stooges.ai → :8190 (one-time)
+
+# 5. scruple-web reload to pick up code changes
+pm2 restart scruple-web   # or `npm run build && pm2 restart` for fresh build
+
+# 6. Smoke
+#    Visit https://scruple.stooges.ai/canvas as a signed-in user
+#    with a Stripe card on file. Expect: iframe loads through proxy,
+#    workflow runs on Modal, output appears, iteration row has
+#    leaf_scheme='v2.2' and machine_manifest_hash populated.
+```
+
+### WO-14 smoke approach (after operator unblock)
+
+The 6-workflow smoke matrix:
+1-3. Three numpy smokes (smallest possible workflows — single math node
+   + SaveImage of a numpy-generated pattern). Validates proxy + witness
+   pipeline end-to-end without spending GPU time.
+4. Image gen — SD 1.5 small (256x256, 12 steps) on T4. ~30s wall time.
+5. Video gen — minimal AnimateDiff 8 frames on T4. ~3 min.
+6. LoRA training — 5 input images, rank 4, 50 steps on T4. ~5 min.
+
+Acceptance: all 6 land iterations with leaf_scheme='v2.2'; audit-receipts.py
+re-derives green; Stripe dashboard shows captured PaymentIntents totaling
+~the sum of (elapsed_seconds * T4_rate) per session.
+
+

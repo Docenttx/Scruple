@@ -45,10 +45,27 @@ def build_merkle(leaves):
         current = nxt
     return current[0]
 
-# v2 canonical record (must match canonicalRecord() in witness server).
-# The leaf preimage gained model_fingerprints_hash at migration 017;
-# pre-017 iterations were sealed under v2.0 (without the field). The audit
-# tries v2.1 first and falls back to v2.0 so older leaves still reproduce.
+# v2 canonical records (must match canonicalRecord*() in witness server).
+# Three forms covering the migration history:
+#   v2.0 — pre-017, no model_fingerprints_hash
+#   v2.1 — adds model_fingerprints_hash between workflow_hash and server_timestamp
+#   v2.2 — adds machine_manifest_hash between model_fingerprints_hash and server_timestamp
+#          (Canvas v2 WO-8, 2026-06-22)
+# Audit tries v2.2 → v2.1 → v2.0 in that order so any leaf reproduces.
+
+def record_hash_v22(rec) -> str:
+    """v2.2 — Canvas v2 adds machine_manifest_hash slot."""
+    ordered = {
+        'run_sequence':     rec['run_sequence'],
+        'output_hash':      rec.get('output_hash') or '',
+        'input_hash':       rec.get('input_hash')  or '',
+        'workflow_hash':    rec.get('workflow_hash') or '',
+        'model_fingerprints_hash': rec.get('model_fingerprints_hash') or '',
+        'machine_manifest_hash':   rec.get('machine_manifest_hash') or '',
+        'server_timestamp': rec['server_timestamp'],
+        'prev_record_hash': rec.get('prev_record_hash') or '',
+    }
+    return sha256_hex(canonical(ordered).encode())
 
 def record_hash_v21(rec) -> str:
     """v2.1 — model_fingerprints_hash sits between workflow_hash and server_timestamp."""
@@ -76,9 +93,25 @@ def record_hash_v20(rec) -> str:
     return sha256_hex(canonical(ordered).encode())
 
 def record_hash(rec):
-    """Compatibility-trying entrypoint: returns (hash, protocol_version)."""
+    """Compatibility-trying entrypoint: returns (hash, protocol_version).
+    Dispatches by stored leaf_scheme when available, else tries newest first."""
+    scheme = rec.get('leaf_scheme')
+    expected = rec.get('_expected')
+    if scheme == 'v2.2':
+        return record_hash_v22(rec), 'v2.2'
+    if scheme == 'v2':
+        # Stored as 'v2' but content may be v2.1 (with mf_hash) or v2.0 (without).
+        h21 = record_hash_v21(rec)
+        if expected and h21 == expected:
+            return h21, 'v2.1'
+        return record_hash_v20(rec), 'v2.0'
+    # No stored scheme — fall back to "try newest first" heuristic.
+    if rec.get('machine_manifest_hash'):
+        h22 = record_hash_v22(rec)
+        if expected and h22 == expected:
+            return h22, 'v2.2'
     h21 = record_hash_v21(rec)
-    if h21 == rec.get('_expected'):
+    if expected and h21 == expected:
         return h21, 'v2.1'
     return record_hash_v20(rec), 'v2.0'
 
