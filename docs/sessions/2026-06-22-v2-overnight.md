@@ -245,3 +245,46 @@ seedvr2 should be resolved.
 
 ---
 
+## WO-5 · Canvas page rewrite — auto-mint + proxy iframe
+
+**Commit:** `<pending>`
+**Status:** code complete; `tsc --noEmit` green
+**Files (2 modified):**
+- `app/canvas/page.tsx` — single render branch. Server-side
+  `mintCanvasSession()` on first visit, `getActiveCanvasSession()`
+  on subsequent visits within the 1h window. Iframe `src` is
+  `proxyUrlForSession(sessionId)` → `/canvas-proxy/<id>/`, never a
+  Modal URL. Mint-failure path renders an error card (operator
+  config issue: Modal canvas app not deployed for chosen GPU).
+- `lib/canvas/session.ts` — `mintCanvasSession` no longer appends
+  `?t=<token>` to the modal_url. Token kept on row for back-compat
+  schema but unused by the proxy flow. New `proxyUrlForSession(id)`
+  helper.
+
+**Decisions made:**
+- **Server-side mint instead of client POST.** Stops the click-to-
+  start affordance. Aligns with the user directive: "this needs to
+  be 100% seemless" and "no manual user action of copying or pasting
+  or anything." If the mint can fail (machine app not deployed),
+  the error is rendered server-side rather than as a toast after a
+  failed POST.
+- **Modal URL never crosses the wire to browser.** The proxy URL
+  pattern `/canvas-proxy/<sessionId>/` is the only thing the iframe
+  sees. View-source on `/canvas` shows no Modal hostname.
+- **Mint-error path is explicit.** If Modal hasn't been deployed for
+  the user's chosen GPU class, surface a clear message + link to
+  Settings → Compute rather than a blank page or a JSON error.
+
+**Verify done:**
+- `npx tsc --noEmit` → exit 0
+- View-source check (conceptual): page renders `<iframe src="/canvas-proxy/cs_XXX/"`
+- No `?t=` token appears anywhere in the new session lifecycle
+
+**What still needs to happen (out-of-WO-5):**
+- WO-6 adds Stripe PaymentIntent creation + card-required gate INSIDE
+  the mint flow (currently mint succeeds for any signed-in user)
+- WO-6 also adds the heartbeat + finalize lifecycle
+- WO-6 adds the CanvasSessionHUD overlay showing elapsed/cost
+
+---
+

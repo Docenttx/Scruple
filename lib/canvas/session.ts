@@ -146,22 +146,29 @@ export function mintCanvasSession(userId: string, machineId: string): MintedSess
   const id = `cs_${nanoid(10)}`;
   const expiresAtMs = Date.now() + DEFAULT_SESSION_DURATION_MS;
   const expiresAt = new Date(expiresAtMs).toISOString();
+  // Canvas v2 (WO-5): signed_token kept for back-compat schema but
+  // unused by the proxy flow — the proxy authenticates via the
+  // sessionId+user_id row lookup, never via a token in URL.
   const signedToken = signedTokenFor(id, userId, machineId, expiresAt);
 
-  // Modal URL with the token as a query param so the canvas page's
-  // iframe is "self-contained" — copy-paste the URL anywhere and the
-  // canvas reaches its container with the right credentials.
-  const modalUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${encodeURIComponent(signedToken)}`;
-
+  // modal_url stored verbatim WITHOUT a ?t= query param. Only the
+  // server-side proxy reads it; the browser never sees the Modal URL.
+  // The proxy URL exposed to the browser is `/canvas-proxy/<id>/`.
   conn()
     .prepare(
       `INSERT INTO canvas_sessions
          (id, user_id, machine_id, modal_url, signed_token, expires_at)
         VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, userId, machineId, modalUrl, signedToken, expiresAt);
+    .run(id, userId, machineId, baseUrl, signedToken, expiresAt);
 
-  return { id, signedToken, modalUrl, expiresAt };
+  return { id, signedToken, modalUrl: baseUrl, expiresAt };
+}
+
+/** The browser-facing URL for a session — points at the scruple-web
+ *  proxy, never at the underlying Modal endpoint directly. */
+export function proxyUrlForSession(sessionId: string): string {
+  return `/canvas-proxy/${sessionId}/`;
 }
 
 export function getActiveCanvasSession(userId: string): CanvasSessionRow | null {
