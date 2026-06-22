@@ -227,6 +227,24 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     .prepare(`SELECT name FROM projects WHERE id = ?`)
     .get(p.projectId) as { name?: string } | undefined;
 
+  // v2.2 — auto-resolve machine_manifest_hash if the caller didn't pass
+  // one. Selects the user's most recent ready machine, falling back to
+  // the shared default. Canvas-proxy callers (lib/canvas/witness.ts)
+  // already pass it explicitly; /api/generate and other callers get it
+  // resolved here so every iteration carries the binding.
+  let machineManifestHash = p.machineManifestHash ?? null;
+  if (machineManifestHash === null) {
+    const mrow = conn()
+      .prepare(
+        `SELECT manifest_hash FROM machines
+          WHERE (user_id = ? OR user_id IS NULL)
+            AND archived_at IS NULL
+          ORDER BY user_id IS NULL ASC, created_at DESC LIMIT 1`,
+      )
+      .get(p.userId) as { manifest_hash: string } | undefined;
+    machineManifestHash = mrow?.manifest_hash ?? null;
+  }
+
   // Auto-witness every ingested iteration. Per [[D-002]] this IS the
   // provenance; lock-time Merkle/anchoring builds on the per-iteration
   // witnesses. For v2 the server returns leaf_hash = sha256(canonical
@@ -245,7 +263,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
       inputHash,
       workflowHash: workflowHash ?? undefined,
       modelFingerprintsHash: modelFingerprintsHash ?? undefined,
-      machineManifestHash: p.machineManifestHash ?? undefined,
+      machineManifestHash: machineManifestHash ?? undefined,
     });
   } catch (e) {
     console.error('[ingest] auto-witness failed (iteration will land with witnessed=0):', e);
@@ -305,7 +323,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         witnessResult?.server_timestamp ?? null,
         witnessResult?.signature ?? null,
         p.computeMachineId ?? null,
-        p.machineManifestHash ?? null,
+        machineManifestHash,
         getDefaultPublicationMode(p.userId),
       );
 
