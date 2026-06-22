@@ -156,3 +156,92 @@ seedvr2 should be resolved.
 
 ---
 
+## WO-4 · HTTP+WS proxy as the provenance gate
+
+**Commit:** `<pending>`
+**Status:** code complete; `tsc --noEmit` green; ws npm dep installed
+**Files (8 changed / 3 new / 2 deleted / +518 / -190):**
+- NEW: `lib/canvas/witness.ts` — internal API: `startWorkflow()`,
+  `captureOutput()`, `resolveActiveProjectId()`. Called server-side
+  by the proxy; no HTTP boundary. Pipes into existing `ingestIteration`.
+- NEW: `app/canvas-proxy/[sessionId]/[...path]/route.ts` — Next.js
+  streaming HTTP proxy. All methods. Session ownership check. Adds
+  `X-Scruple-Shared-Secret` to Modal calls. Intercepts POST `/prompt`
+  + GET `/view`; fire-and-forget witness hooks (never block response).
+- NEW: `scripts/canvas-ws-proxy.mjs` — standalone Node `ws` sidecar on
+  port 8190 (configurable via `CANVAS_WS_PROXY_PORT`). Reads
+  `canvas_sessions` directly (read-only sqlite). Health check at `/`.
+  Bidirectional pipe; logs frame counts on close.
+- DELETED: `app/api/canvas/witness/start/route.ts` — superseded by
+  internal `lib/canvas/witness.ts`
+- DELETED: `app/api/canvas/witness/complete/route.ts` — same
+- DELETED: `/data/reference/ui-inspire/ComfyUI/custom_nodes/scruple_nodes/js/scruple-canvas-witness.js`
+  — bypassable browser-side intercept; superseded by server proxy
+- `components/CanvasBridge.tsx` — removed `scruple:canvas-witness-{start,complete}`
+  handlers (now server-side via proxy). Queue-intercept handlers
+  (for the legacy /api/generate free-tier path) kept untouched.
+- `modal/canvas_app.py` — removed `scruple_nodes` from `add_local_dir`
+  (dead code per v2 spec decision 4); added shared-secret middleware
+  TODO comment with the in-container sidecar plan; URL secrecy is the
+  defense-in-depth in the meantime.
+- `package.json` + `package-lock.json` — added `ws ^8.21.0` for the
+  WS sidecar.
+
+**Decisions made:**
+- **Fire-and-forget witness hooks.** The proxy `clone()`s the upstream
+  response and runs `.json()` / `.arrayBuffer()` on the clone in a
+  detached promise. The client sees the original response body
+  streamed back at line speed; provenance work happens off the hot
+  path. Any failure in the hook logs but never affects the user.
+- **Project resolution server-side.** The proxy looks up
+  `projects.is_active=1` for the session's user_id on every /prompt
+  POST. This means the user changing the active project in scruple-web
+  takes effect immediately on the next Queue, without any browser-side
+  postMessage protocol.
+- **WS sidecar reads DB directly read-only.** Avoids a service call
+  from the sidecar back to scruple-web for session validation. The
+  read-only flag is enforced by `better-sqlite3({readonly:true})`.
+- **Shared-secret middleware DEFERRED to follow-up WO (canvas-v2-04a).**
+  Reason: Modal's `@web_server` publishes the inner port directly via
+  Modal's HTTPS gateway; Modal does no auth. To enforce the shared-
+  secret header in-container, the deploy needs a uvicorn shim on a
+  separate port that proxies to ComfyUI on 8188. That's significant
+  refactor of canvas_app.py with its own deploy + smoke. URL secrecy
+  is the v1 defense; the Modal URLs only live in `.env.local` and
+  scruple-web's proxy never echoes them to the browser.
+- **`scruple_queue_intercept.js` left in place** on the on-host canvas
+  for the moment. It's part of the dead-code scruple_nodes pack but
+  removing it requires touching the host canvas install which is
+  retiring anyway. Tracked for cleanup with the broader scruple_nodes
+  retirement.
+
+**Verify done:**
+- `npx tsc --noEmit` → exit 0 after `.next/types/` cache clean
+  (stale generated types referenced the deleted routes; cache
+  regenerates on `next build`).
+- Routes layout: `app/canvas-proxy/[sessionId]/[...path]/route.ts`
+  resolves under standard Next.js dynamic-routing.
+- `ws` import in `canvas-ws-proxy.mjs` resolves via `npm install ws`.
+
+**Operator-side follow-up:**
+- pm2 entry or systemd unit for `canvas-ws-proxy.mjs`:
+  ```
+  pm2 start scripts/canvas-ws-proxy.mjs --name canvas-ws-proxy \
+    --env SCRUPLE_CANVAS_SHARED_SECRET=$SECRET \
+    --env SCRUPLE_DB_PATH=/data/scruple-web/data/scruple.db
+  ```
+- Cloudflare tunnel: add a hostname `canvas-ws.scruple.stooges.ai` →
+  service `http://127.0.0.1:8190`. (Tunnel supports WS upgrade by
+  default.)
+- `.env.local`: add `SCRUPLE_CANVAS_SHARED_SECRET=<random 32 hex>` —
+  same value goes into the Modal secret when the in-container shim
+  WO ships.
+
+**What still needs to happen (out-of-WO-4):**
+- WO-5 rewrites `/canvas/page.tsx` to auto-mint + iframe the proxy URL
+  (currently still iframes Modal directly when a session is active)
+- WO-5 also drops the `?t=` token URL pattern in `lib/canvas/session.ts`
+- Modal in-container shared-secret shim (canvas-v2-04a follow-up)
+
+---
+

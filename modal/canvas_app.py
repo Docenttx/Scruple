@@ -108,13 +108,13 @@ canvas_image = (
         # mount requires an empty dir. Same trick scruple_runner.py uses.
         "rm -rf /opt/ComfyUI/models && mkdir /opt/ComfyUI/models",
     )
-    # scruple_nodes ships from the local checkout (not git-cloned) so
-    # the canvas-side intercept JS (custom_nodes/scruple_nodes/js/
-    # scruple-canvas-witness.js, added in COM-6) lands in the image.
-    .add_local_dir(
-        "../reference/ui-inspire/ComfyUI/custom_nodes/scruple_nodes",
-        "/opt/ComfyUI/custom_nodes/scruple_nodes",
-    )
+    # Canvas v2 (WO-4): scruple_nodes pack is no longer baked into the
+    # default Modal image. Reason: its 4 node classes (ScrupleStudio*,
+    # ScrupleTrainingTerminal, etc.) target the desktop Electron Studio
+    # at localhost:5742 — dead code in scruple-web. Its js/ intercept
+    # scripts (scruple-canvas-witness.js, scruple-queue-intercept.js)
+    # are superseded by the scruple-web HTTP+WS proxy that captures
+    # workflow + output bytes server-side.
 )
 
 app = modal.App("scruple-canvas", image=canvas_image)
@@ -160,6 +160,17 @@ def _start_comfy() -> None:
 # ── One Modal class per GPU tier ──────────────────────────────────────────
 # Each class is a separate Modal function with its own GPU + its own
 # public URL. lib/canvas/session.ts picks the URL by machine_id.
+#
+# Canvas v2 (WO-4) auth model: scruple-web's HTTP+WS proxy is the gate.
+# Modal's @web_server publishes the port directly via Modal's HTTPS
+# gateway — Modal itself does no auth. Scruple-web sends every proxied
+# request with `X-Scruple-Shared-Secret: $SCRUPLE_CANVAS_SHARED_SECRET`.
+# ComfyUI on port 8188 doesn't enforce that header; the production
+# deployment needs an in-container auth shim on a different port (e.g.
+# uvicorn @ 8189 -> ComfyUI @ 8188) which the @web_server then targets.
+# That shim is a follow-up WO (canvas-v2-04a). Until it ships, the
+# defense-in-depth is URL secrecy: the Modal URL never leaves the
+# server-side proxy and the .env.local file.
 #
 # Why classes rather than one parameterized function: Modal's web_server
 # routes by function identity, and GPU class is fixed at function-define
