@@ -9,6 +9,10 @@ import { conn } from '@/lib/db/sqlite';
 export type PaymentMode = 'fiat' | 'blockchain';
 export type ChainTier = 'basic' | 'pinned';
 
+/** Receipt publication mode — Canvas v2 (WO-9). Pure presentation;
+ *  leaf preimage always commits everything. */
+export type PublicationMode = 'full' | 'hash-only' | 'witness-only';
+
 export interface UserSettings {
   payment_mode?: PaymentMode;
   chain_tier?: ChainTier;          // basic = RVN only; pinned = +IPFS+Arweave
@@ -31,6 +35,9 @@ export interface UserSettings {
   compute?: {
     machine_id?: string;
   };
+  /** Default publication mode applied to new iterations.
+   *  Per-iteration override lives on iterations.workflow_publication. */
+  default_publication_mode?: PublicationMode;
   // Future: notifications, locale, etc.
 }
 
@@ -76,6 +83,12 @@ export function writeUserSettings(userId: string, patch: Partial<UserSettings>):
 export function getPaymentMode(userId: string): PaymentMode {
   const s = readUserSettings(userId);
   return s.payment_mode ?? 'fiat';
+}
+
+/** Resolve the user's default publication mode. Defaults to 'full'. */
+export function getDefaultPublicationMode(userId: string): PublicationMode {
+  const s = readUserSettings(userId);
+  return s.default_publication_mode ?? 'full';
 }
 
 export function getChainTier(userId: string): ChainTier {

@@ -83,12 +83,15 @@ export interface IterationRow {
   input_artifacts: string;                // JSON array (InputArtifactRecord[])
   // v2 full-record leaf (migration 016)
   workflow_hash: string | null;           // sha256(canonical(workflowApiJson))
-  leaf_scheme: 'v1' | 'v2';               // v1=leaf_hash==output_hash, v2=record_hash
+  leaf_scheme: 'v1' | 'v2' | 'v2.2';      // v1=leaf_hash==output_hash, v2=record_hash, v2.2=adds machine_manifest_hash
   // Model fingerprinting (migration 017)
   model_fingerprints: string | null;       // JSON manifest {path: {content_hash, header_hash, ...}}
   model_fingerprints_hash: string | null;  // sha256(canonical(manifest)) — folded into v2 leaf preimage
   // Compute Stage 1 (migration 019)
   compute_machine_id: string | null;       // catalog id from lib/compute/machines.ts; NULL on legacy rows (T4)
+  // Canvas v2 (migration 021 / WO-3 + WO-8 + WO-9)
+  machine_manifest_hash?: string | null;   // v2.2 — pinned-manifest hash committed to leaf preimage
+  workflow_publication?: 'full' | 'hash-only' | 'witness-only'; // WO-9 redaction control (default 'full')
 }
 
 // Project-row extension columns added by migration 018. Defined here

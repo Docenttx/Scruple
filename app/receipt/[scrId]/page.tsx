@@ -275,6 +275,15 @@ function IterationCard({ it }: { it: IterationRow }) {
   const scheme = it.leaf_scheme ?? 'v1';
   const backend = (it as { execution_backend?: string | null }).execution_backend ?? null;
   const computeMachineId = (it as { compute_machine_id?: string | null }).compute_machine_id ?? null;
+  // Canvas v2 (WO-9): publication mode controls which hashes are
+  // PUBLICLY shown. The leaf preimage always commits everything;
+  // this is presentation only.
+  const publication: 'full' | 'hash-only' | 'witness-only' =
+    (it as { workflow_publication?: 'full' | 'hash-only' | 'witness-only' }).workflow_publication ?? 'full';
+  const showWorkflowHash = publication === 'full';
+  const showInputHash = publication === 'full';
+  const showModelHash = publication === 'full' || publication === 'hash-only';
+  const showOutputHash = publication !== 'witness-only';
   return (
     <div className="rounded-md border border-scruple-border bg-scruple-surface p-3 text-[11px]">
       {/* header row: # · scheme · timestamp · backend · machine · output_kind */}
@@ -291,18 +300,29 @@ function IterationCard({ it }: { it: IterationRow }) {
         </span>
       </div>
 
-      {/* hash grid: leaf, output, input, workflow, model fingerprints */}
+      {/* hash grid — redacted per publication mode (Canvas v2 WO-9).
+          full        : all hashes shown
+          hash-only   : leaf + output + manifest; workflow + input redacted
+          witness-only: leaf + timestamp only ("we saw the artist sign this") */}
       <dl className="mt-2 grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
         <HashRow label="leaf_hash" value={it.leaf_hash} />
-        <HashRow label="output_hash" value={it.output_hash} muted />
-        <HashRow label="input_hash" value={it.input_hash} muted />
-        {scheme === 'v2' && it.workflow_hash && (
+        {showOutputHash && <HashRow label="output_hash" value={it.output_hash} muted />}
+        {showInputHash && <HashRow label="input_hash" value={it.input_hash} muted />}
+        {showWorkflowHash && (scheme === 'v2' || scheme === 'v2.2') && it.workflow_hash && (
           <HashRow label="workflow_hash" value={it.workflow_hash} muted />
         )}
-        {scheme === 'v2' && it.model_fingerprints_hash && (
+        {showModelHash && (scheme === 'v2' || scheme === 'v2.2') && it.model_fingerprints_hash && (
           <HashRow label="models_hash" value={it.model_fingerprints_hash} muted />
         )}
       </dl>
+      {publication !== 'full' && (
+        <p className="mt-1 text-[10px] text-scruple-muted">
+          Publication: <span className="font-mono">{publication}</span> —
+          {publication === 'hash-only'
+            ? ' workflow + input hashes withheld; output + manifest published.'
+            : ' artist witness only; recipe and output hash withheld.'}
+        </p>
+      )}
 
       {/* model files loaded in-container — pins the actual weights that
           produced this run; later re-hash of the file at the same path
@@ -419,17 +439,21 @@ function HashRow({ label, value, muted }: { label: string; value: string | null;
   );
 }
 
-function SchemeBadge({ scheme }: { scheme: 'v1' | 'v2' }) {
+function SchemeBadge({ scheme }: { scheme: 'v1' | 'v2' | 'v2.2' }) {
   const cls =
-    scheme === 'v2'
-      ? 'border-scruple-accent/40 bg-scruple-accent/10 text-scruple-accent'
-      : 'border-scruple-border bg-scruple-bg text-scruple-muted';
-  return (
-    <span className={`rounded-full border px-1.5 py-0.5 font-mono text-[9px] ${cls}`} title={
-      scheme === 'v2'
+    scheme === 'v2.2'
+      ? 'border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300'
+      : scheme === 'v2'
+        ? 'border-scruple-accent/40 bg-scruple-accent/10 text-scruple-accent'
+        : 'border-scruple-border bg-scruple-bg text-scruple-muted';
+  const title =
+    scheme === 'v2.2'
+      ? 'Leaf hashes the full record + the pinned-manifest hash (workflow toolchain bound to provenance)'
+      : scheme === 'v2'
         ? 'Leaf hashes the full record (inputs + workflow + order + time)'
-        : 'Legacy leaf — hashes only the output bytes'
-    }>
+        : 'Legacy leaf — hashes only the output bytes';
+  return (
+    <span className={`rounded-full border px-1.5 py-0.5 font-mono text-[9px] ${cls}`} title={title}>
       leaf:{scheme}
     </span>
   );

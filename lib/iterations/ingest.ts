@@ -17,6 +17,7 @@ import { storeArtifact } from '@/lib/scruple/artifacts';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProvider } from '@/lib/storage/dispatch';
 import { witness } from '@/lib/scruple/witness';
+import { getDefaultPublicationMode } from '@/lib/settings/user';
 import type {
   GenerationSpec,
   IterationRow,
@@ -271,8 +272,8 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            workflow_hash, leaf_scheme,
            model_fingerprints, model_fingerprints_hash,
            witnessed, witness_id, witness_timestamp, witness_signature,
-           compute_machine_id, machine_manifest_hash
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           compute_machine_id, machine_manifest_hash, workflow_publication
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -305,6 +306,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         witnessResult?.signature ?? null,
         p.computeMachineId ?? null,
         p.machineManifestHash ?? null,
+        getDefaultPublicationMode(p.userId),
       );
 
     conn()

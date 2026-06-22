@@ -429,3 +429,48 @@ to pick up changes (deferred to operator).
 
 ---
 
+## WO-9 · Three publication modes per iteration
+
+**Commit:** `<pending>`
+**Status:** complete; `tsc --noEmit` green
+**Files (5 modified / 1 new):**
+- `lib/settings/user.ts` — new `PublicationMode` type +
+  `default_publication_mode` field on UserSettings + `getDefaultPublicationMode()`
+- `lib/iterations/ingest.ts` — INSERT now writes `workflow_publication`
+  resolved from user settings (defaults to 'full')
+- NEW: `app/api/iterations/[id]/publication/route.ts` — POST upgrades
+  mode with strict ordering enforcement (witness-only < hash-only < full;
+  cannot downgrade)
+- `lib/types.ts` — `IterationRow.leaf_scheme` widened to include
+  'v2.2'; new `machine_manifest_hash` + `workflow_publication` fields
+- `app/receipt/[scrId]/page.tsx` — hash grid now redacts per
+  publication mode. Visual band at the bottom of the iteration shows
+  the active mode for non-full publications. SchemeBadge supports
+  'v2.2' with a fuchsia colorway.
+
+**Decisions made:**
+- **Pure presentation, leaf preimage UNCHANGED.** The witness server
+  still hashes the FULL record regardless of publication mode. Mode
+  only filters what the public receipt renderer shows. A verifier
+  with access to the unredacted hashes can still reproduce the leaf.
+- **Upgrade-only enforcement at the API.** Stripe-like irreversible
+  state transition. Witness-only → Hash-only → Full is allowed
+  (additive disclosure); Full cannot be re-redacted because earlier
+  publication has already exposed the data.
+- **Default is 'full'.** Existing users keep current behavior; no
+  surprise redactions. The default-mode user setting (added to
+  UserSettings) is opt-in.
+
+**Verify done:**
+- `npx tsc --noEmit` → exit 0
+- New iteration rows automatically tagged with the user's default
+  publication mode (column populated at INSERT)
+
+**What still needs to happen (out-of-WO-9):**
+- Workspace UI to set per-iteration publication mode (a small dropdown
+  on each iteration card). Today only the API exists. WO-12 receipt UI
+  WO will surface a similar control on the receipt itself.
+- Settings → Receipt Publication section (WO-10).
+
+---
+
