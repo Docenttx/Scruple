@@ -1,23 +1,17 @@
-// Embed-only layout: strips the global shell (ToastViewport, InterlockOverlay,
-// DebugConsole) and Scruple chrome since the Fusion palette has its own.
-// Tight viewport sized for ~400×800 palette dock.
+// Embed-only layout. In Next.js App Router, only the ROOT layout owns
+// <html>/<body>. Nested layouts are wrapper components — putting another
+// <html> inside is invalid HTML and produces a hydration mismatch on
+// the client (which is what blew up in Fusion's embedded Chromium).
+//
+// We don't try to strip the root layout's overlays here — DebugConsole
+// etc. are tiny floating buttons that don't interfere with the palette.
 
 import type { Metadata } from 'next';
-import '../../globals.css';
 
 export const metadata: Metadata = {
   title: 'Scruple for Fusion',
 };
 
 export default function EmbedLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body
-        className="bg-scruple-bg text-scruple-text antialiased"
-        style={{ overflow: 'auto', minHeight: '100vh', margin: 0 }}
-      >
-        {children}
-      </body>
-    </html>
-  );
+  return <>{children}</>;
 }

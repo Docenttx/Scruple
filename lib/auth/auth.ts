@@ -3,6 +3,40 @@ import Google from 'next-auth/providers/google';
 import { SqliteAdapter } from './db-adapter';
 import { runMigrations } from '@/lib/db/migrate';
 
+// Autodesk (APS) OAuth provider — manual NextAuth config since there's no
+// first-party preset. The endpoints are Autodesk Platform Services'
+// 3-legged OAuth: https://aps.autodesk.com/en/docs/oauth/v2/
+//
+// To enable, register a Web App at https://aps.autodesk.com/myapps:
+//   - Callback URL: https://scruple.stooges.ai/api/auth/callback/autodesk
+//   - Scopes: user-profile:read
+// Then set AUTODESK_CLIENT_ID + AUTODESK_CLIENT_SECRET in .env.local.
+//
+// The strategic story for Fusion 360 users: signing in with Autodesk
+// SSO lets the add-in inherit the user's already-authenticated Fusion
+// identity. Zero-friction, brand-native, ID-tied-to-Fusion-Team.
+const Autodesk = {
+  id: 'autodesk' as const,
+  name: 'Autodesk',
+  type: 'oauth' as const,
+  clientId: process.env.AUTODESK_CLIENT_ID,
+  clientSecret: process.env.AUTODESK_CLIENT_SECRET,
+  authorization: {
+    url: 'https://developer.api.autodesk.com/authentication/v2/authorize',
+    params: { scope: 'user-profile:read openid', response_type: 'code' },
+  },
+  token: 'https://developer.api.autodesk.com/authentication/v2/token',
+  userinfo: 'https://api.userprofile.autodesk.com/userinfo',
+  profile(profile: Record<string, unknown>) {
+    return {
+      id: String(profile.sub),
+      name: String(profile.name ?? profile.preferred_username ?? ''),
+      email: String(profile.email ?? ''),
+      image: typeof profile.picture === 'string' ? profile.picture : null,
+    };
+  },
+};
+
 // Apply migrations on first import (idempotent). Server-only path.
 if (typeof window === 'undefined') {
   try {
@@ -36,6 +70,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ? [Google({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET })]
+      : []),
+    ...(process.env.AUTODESK_CLIENT_ID && process.env.AUTODESK_CLIENT_SECRET
+      ? [Autodesk]
       : []),
   ],
   callbacks: {

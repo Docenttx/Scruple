@@ -1,0 +1,12 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "script",
+    "id": "c4e7a201-9b8d-4f3c-a1e7-2b59d8f0c4a5",
+    "author": "Scruple",
+    "description": {
+        "": "Diagnostic — check Scruple palette mount state + force-dock"
+    },
+    "version": "0.1.0",
+    "supportedOS": "windows|mac",
+    "editEnabled": true
+}

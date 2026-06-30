@@ -1,11 +1,26 @@
 import { signIn, auth } from '@/lib/auth/auth';
 import { redirect } from 'next/navigation';
 
-export default async function LoginPage() {
+interface LoginPageProps {
+  searchParams: { callbackUrl?: string };
+}
+
+// Allow only relative-path callback URLs to prevent open-redirect.
+function safeCallback(raw: string | undefined): string {
+  const fallback = '/';
+  if (!raw) return fallback;
+  if (!raw.startsWith('/') || raw.startsWith('//')) return fallback;
+  if (raw.includes('..')) return fallback;
+  return raw;
+}
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const callbackUrl = safeCallback(searchParams.callbackUrl);
   const session = await auth();
-  if (session?.user) redirect('/');
+  if (session?.user) redirect(callbackUrl);
 
   const hasGoogle = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  const hasAutodesk = !!(process.env.AUTODESK_CLIENT_ID && process.env.AUTODESK_CLIENT_SECRET);
 
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
@@ -13,12 +28,22 @@ export default async function LoginPage() {
         <h1 className="text-2xl font-bold tracking-widest2 text-scruple-accent-primary">SCRUPLE</h1>
         <p className="mt-1 text-xs text-scruple-muted">Studio Web</p>
 
-        <div className="mt-8 space-y-4">
+        <div className="mt-8 space-y-3">
+          {hasAutodesk && (
+            <form
+              action={async () => {
+                'use server';
+                await signIn('autodesk', { redirectTo: callbackUrl });
+              }}
+            >
+              <AutodeskSignInButton />
+            </form>
+          )}
           {hasGoogle ? (
             <form
               action={async () => {
                 'use server';
-                await signIn('google', { redirectTo: '/' });
+                await signIn('google', { redirectTo: callbackUrl });
               }}
             >
               <GoogleSignInButton />
@@ -38,9 +63,6 @@ export default async function LoginPage() {
 }
 
 // Official "Sign in with Google" button per Google brand guidelines.
-// https://developers.google.com/identity/branding-guidelines
-// Dark theme: #131314 bg, white text, #8e918f border, 40px min height,
-// Roboto/system font with letter-spacing 0.25px, 18px logo, 12px gap.
 function GoogleSignInButton() {
   return (
     <button
@@ -54,8 +76,28 @@ function GoogleSignInButton() {
   );
 }
 
-// Official Google G logo, 4-color SVG. Provided under Google's branding
-// guidelines for use in sign-in buttons. Do not recolor or restyle.
+// "Sign in with Autodesk" button. Styling intentionally similar to the
+// Google button for visual parity. Autodesk doesn't publish a strict
+// branding spec for third-party signin buttons; we use the Autodesk
+// black-on-white palette as a recognizable signal.
+function AutodeskSignInButton() {
+  return (
+    <button
+      type="submit"
+      className="flex h-10 w-full items-center justify-center gap-3 rounded border border-[#222] bg-white px-3 font-['Inter',_system-ui,_sans-serif] text-sm font-medium leading-none text-[#0d0d0d] transition-colors duration-200 hover:bg-[#f3f3f3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30 active:bg-[#e8e8e8]"
+      style={{ letterSpacing: '0.25px' }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="#0d0d0d"
+          d="M22 5L7 14h7l-3 5 10-9h-7l3-5z"
+        />
+      </svg>
+      <span>Sign in with Autodesk</span>
+    </button>
+  );
+}
+
 function GoogleGLogo() {
   return (
     <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">

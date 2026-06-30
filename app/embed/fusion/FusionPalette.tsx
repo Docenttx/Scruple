@@ -121,7 +121,7 @@ export default function FusionPalette() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const bridgeRef = useRef<FusionBridge | null>(null);
 
-  // Mount: discover token + bridge.
+  // Mount: discover token + bridge + register Python→JS handler.
   useEffect(() => {
     bridgeRef.current = getFusionBridge();
     const initial = readToken();
@@ -131,16 +131,53 @@ export default function FusionPalette() {
 
     if (bridgeRef.current) {
       bridgeRef.current.onMessage((action, payload) => {
-        if (action === 'auth_token' && payload && typeof payload === 'object') {
-          const tok = (payload as { token?: string }).token;
+        const p = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
+        if (action === 'auth_token') {
+          const tok = typeof p.token === 'string' ? p.token : null;
           if (tok) {
             try { localStorage.setItem('scruple.fusion.api_key', tok); } catch {}
             setToken(tok);
           }
+        } else if (action === 'witness_started') {
+          setBusy('witnessing');
+          setErrorMsg(null);
+        } else if (action === 'witness_done') {
+          setBusy(null);
+          setErrorMsg(null);
+          void refreshDetailRef.current?.();
+        } else if (action === 'witness_error') {
+          setBusy(null);
+          setErrorMsg(`Witness failed: ${p.message ?? 'unknown'}`);
+        } else if (action === 'lock_started') {
+          setBusy('locking');
+          setErrorMsg(null);
+        } else if (action === 'lock_done') {
+          setBusy(null);
+          setErrorMsg(null);
+          void refreshDetailRef.current?.();
+        } else if (action === 'lock_error') {
+          setBusy(null);
+          setErrorMsg(`Lock failed: ${p.message ?? 'unknown'}`);
         }
       });
     }
   }, []);
+
+  // Tell Python the API key whenever it changes.
+  useEffect(() => {
+    if (!token) return;
+    bridgeRef.current?.send('set_api_key', { key: token });
+  }, [token]);
+
+  // Tell Python which project the user has selected.
+  useEffect(() => {
+    if (!selectedId) return;
+    bridgeRef.current?.send('project_changed', { project_id: selectedId });
+  }, [selectedId]);
+
+  // refreshDetail is defined further down — capture a ref so the
+  // Python→JS handler above can call it without ordering hazards.
+  const refreshDetailRef = useRef<(() => Promise<void>) | null>(null);
 
   // ---- Project list refresh
   const refreshProjects = useCallback(async () => {
@@ -180,6 +217,7 @@ export default function FusionPalette() {
 
   useEffect(() => { void refreshProjects(); }, [refreshProjects]);
   useEffect(() => {
+    refreshDetailRef.current = refreshDetail;
     void refreshDetail();
     const t = setInterval(refreshDetail, POLL_MS);
     return () => clearInterval(t);
@@ -189,28 +227,24 @@ export default function FusionPalette() {
 
   const triggerWitness = useCallback(() => {
     if (!bridgeRef.current) {
-      setErrorMsg('Witness must be triggered from inside Fusion (no bridge detected).');
+      setErrorMsg('Witness must be triggered from inside Fusion.');
       return;
     }
-    setBusy('witnessing');
+    // Python sets busy via witness_started callback; we don't optimistically
+    // set busy here because the real signal comes back via the bridge.
     setErrorMsg(null);
     bridgeRef.current.send('witness_now', { project_id: selectedId });
-    setTimeout(() => {
-      setBusy(null);
-      void refreshDetail();
-    }, 2000);
-  }, [selectedId, refreshDetail]);
+  }, [selectedId]);
 
   const triggerLock = useCallback(() => {
     if (!bridgeRef.current) {
-      setErrorMsg('Lock must be triggered from inside Fusion (no bridge detected).');
+      setErrorMsg('Lock must be triggered from inside Fusion.');
       return;
     }
     if (!selectedId) {
       setErrorMsg('Select a project first.');
       return;
     }
-    setBusy('locking');
     setErrorMsg(null);
     bridgeRef.current.send('lock_chain', { project_id: selectedId, tier: 'pinned' });
   }, [selectedId]);
@@ -243,33 +277,47 @@ export default function FusionPalette() {
   if (!token) {
     return (
       <div style={style.pane}>
-        <h2 style={style.h2}>Scruple</h2>
-        <p style={style.muted}>Sign in to begin witnessing.</p>
+        <header style={style.header}>
+          <strong style={{ fontSize: 14 }}>Scruple for Fusion</strong>
+        </header>
+        <p style={{ ...style.muted, marginTop: 24 }}>
+          Sign in to start witnessing your Fusion designs.
+        </p>
         <button
-          style={style.primaryBtn}
+          style={{ ...style.primaryBtn, marginTop: 12 }}
           onClick={() => {
-            bridgeRef.current?.send('open_browser', { url: '/login?next=/settings/keys' });
+            // Auto-mint flow: server bounces through /login if no session,
+            // then mints an API key and redirects back here with ?token=<key>
+            // in the URL. We pick it up via readToken() on mount.
+            window.location.href = '/api/auth/keys/fusion-mint?next=/embed/fusion';
           }}
         >
-          Sign in (opens browser)
+          Sign in with Scruple
         </button>
-        <p style={{ ...style.muted, marginTop: 12 }}>
-          After signing in, paste your API key here:
+        <p style={{ ...style.muted, marginTop: 24, fontSize: 11 }}>
+          Choose your sign-in method on the next screen — Autodesk SSO
+          recommended for Fusion users.
         </p>
-        <input
-          type="password"
-          placeholder="sk_test_…"
-          style={style.input}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              const v = (e.target as HTMLInputElement).value.trim();
-              if (v.startsWith('sk_')) {
-                try { localStorage.setItem('scruple.fusion.api_key', v); } catch {}
-                setToken(v);
+
+        <details style={{ marginTop: 32 }}>
+          <summary style={{ ...style.muted, cursor: 'pointer', fontSize: 11 }}>
+            Developer: paste an API key directly
+          </summary>
+          <input
+            type="password"
+            placeholder="sk_test_…"
+            style={{ ...style.input, marginTop: 8 }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const v = (e.target as HTMLInputElement).value.trim();
+                if (v.startsWith('sk_')) {
+                  try { localStorage.setItem('scruple.fusion.api_key', v); } catch {}
+                  setToken(v);
+                }
               }
-            }
-          }}
-        />
+            }}
+          />
+        </details>
       </div>
     );
   }
@@ -315,7 +363,7 @@ export default function FusionPalette() {
                   href={`/receipt/${detail.project.scr_id}`}
                   onClick={(e) => {
                     e.preventDefault();
-                    bridgeRef.current?.send('open_browser', { url: `/receipt/${detail.project.scr_id}` });
+                    window.location.href = `/receipt/${detail.project.scr_id}`;
                   }}
                   style={style.link}
                 >
@@ -362,15 +410,28 @@ export default function FusionPalette() {
       {errorMsg && <p style={style.error}>{errorMsg}</p>}
 
       <footer style={style.footer}>
+        {/* Navigate the palette itself to the full Scruple Studio dashboard.
+            The user can drag the palette wider to see the dashboard at a
+            usable size. Restarting the add-in brings them back to this
+            palette view. */}
         <a
-          href="https://scruple.ai"
+          href="/"
           onClick={(e) => {
             e.preventDefault();
-            bridgeRef.current?.send('open_browser', { url: 'https://scruple.ai' });
+            window.location.href = '/';
           }}
           style={style.link}
         >
-          Open dashboard →
+          Open full dashboard in palette →
+        </a>
+        <br />
+        <a
+          href="https://scruple.stooges.ai"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ ...style.link, fontSize: 11, opacity: 0.7 }}
+        >
+          (or open in system browser)
         </a>
       </footer>
     </div>
