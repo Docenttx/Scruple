@@ -93,6 +93,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     session({ session, user }) {
       if (session.user && user) {
         (session.user as { id?: string }).id = user.id;
+        // Surface onboarding state to client so the UI can route new users
+        // through /onboarding before they can use anything else.
+        const u = user as unknown as { onboarded_at?: string | null; plan?: string | null };
+        (session.user as { onboarded?: boolean }).onboarded = !!u.onboarded_at;
+        (session.user as { plan?: string }).plan = u.plan ?? 'free';
       }
       return session;
     },
