@@ -126,8 +126,29 @@ export async function getMerkleNodes(projectId: number): Promise<MerkleNodeRow[]
 
 const NewProjectSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  type: z.enum(['image', 'video', 'training']),
+  type: z.enum(['image', 'video', 'training', 'cad']),
 });
+
+// Same as createProject but takes userId explicitly — used by API routes
+// that resolve the caller via Bearer-token auth (where there's no session
+// cookie for the inner auth() call to find).
+export async function createProjectAs(
+  uid: string,
+  input: { name: string; type: ProjectType },
+): Promise<ProjectRow> {
+  const parsed = NewProjectSchema.parse(input);
+  const now = new Date().toISOString();
+  const result = conn()
+    .prepare(
+      `INSERT INTO projects (user_id, name, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(uid, parsed.name, parsed.type, now, now);
+  const row = conn()
+    .prepare(`SELECT * FROM projects WHERE id = ?`)
+    .get(result.lastInsertRowid) as ProjectRow;
+  revalidatePath('/');
+  return row;
+}
 
 export async function createProject(input: { name: string; type: ProjectType }): Promise<ProjectRow> {
   const uid = await userId();

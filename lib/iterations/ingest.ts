@@ -25,7 +25,7 @@ import type {
 } from '@/lib/types';
 import type { StoragePointer } from '@/lib/storage/types';
 
-export type OutputKind = 'image' | 'video' | 'checkpoint';
+export type OutputKind = 'image' | 'video' | 'checkpoint' | 'cad';
 
 export type InputArtifactKind =
   | 'init_image'
@@ -108,6 +108,7 @@ export interface IngestResult {
 function extFor(kind: OutputKind | 'input', contentType: string): string {
   if (kind === 'video') return contentType.includes('webm') ? 'webm' : 'mp4';
   if (kind === 'checkpoint') return 'safetensors';
+  if (kind === 'cad') return 'f3d';
   if (contentType.includes('jpeg')) return 'jpg';
   if (contentType.includes('webp')) return 'webp';
   if (contentType.includes('mp4')) return 'mp4';

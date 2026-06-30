@@ -19,7 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { auth } from '@/lib/auth/auth';
+import { requireUser } from '@/lib/auth/apiKey';
 import { conn } from '@/lib/db/sqlite';
 import { executeRun, executeRunAsync } from '@/lib/runs/execute';
 import type { RunInputSpec } from '@/lib/runs/inputs';
@@ -41,14 +41,14 @@ const Body = z.object({
   projectId: z.number().int().positive(),
   workflowApiJson: z.record(z.unknown()),
   inputs: z.array(InputSpec).optional(),
-  outputKind: z.enum(['image', 'video', 'checkpoint']).optional(),
+  outputKind: z.enum(['image', 'video', 'checkpoint', 'cad']).optional(),
   prompt: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const me = await requireUser(req);
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = me.id;
 
   let body: z.infer<typeof Body>;
   try {

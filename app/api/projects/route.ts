@@ -1,33 +1,45 @@
 // GET  /api/projects                  → list this user's projects (lightweight)
 // POST /api/projects                  → create a project
 //
-// Used by the scrupel CLI + any UI that wants the project list as JSON
-// (the home page uses the server action directly).
+// Auth: NextAuth cookie OR Authorization: Bearer <api_key> (Fusion add-in).
+//
+// Used by the scrupel CLI, the Fusion add-in, and any UI that wants the
+// project list as JSON (the home page uses the server action directly).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { auth } from '@/lib/auth/auth';
-import {
-  getProjects,
-  createProject,
-  getActiveProject,
-} from '@/lib/projects/actions';
+import { requireUser } from '@/lib/auth/apiKey';
+import { conn } from '@/lib/db/sqlite';
+import { createProjectAs } from '@/lib/projects/actions';
+import type { ProjectRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const url = new URL(req.url);
-  const search = url.searchParams.get('q') ?? '';
-  const limit = Number(url.searchParams.get('limit') ?? '200');
+  const me = await requireUser(req);
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const [projects, active] = await Promise.all([
-    getProjects({ search, limit, offset: 0 }),
-    getActiveProject(),
-  ]);
+  const url = new URL(req.url);
+  const search = (url.searchParams.get('q') ?? '').trim();
+  const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit') ?? '200'), 500));
+
+  const projects = search
+    ? (conn()
+        .prepare(
+          `SELECT * FROM projects WHERE user_id = ? AND is_archived = 0 AND name LIKE ?
+           ORDER BY is_active DESC, updated_at DESC, created_at DESC LIMIT ?`,
+        )
+        .all(me.id, `%${search}%`, limit) as ProjectRow[])
+    : (conn()
+        .prepare(
+          `SELECT * FROM projects WHERE user_id = ? AND is_archived = 0
+           ORDER BY is_active DESC, updated_at DESC, created_at DESC LIMIT ?`,
+        )
+        .all(me.id, limit) as ProjectRow[]);
+
+  const active = conn()
+    .prepare(`SELECT * FROM projects WHERE user_id = ? AND is_active = 1 LIMIT 1`)
+    .get(me.id) as ProjectRow | undefined;
 
   return NextResponse.json({
     projects,
@@ -38,14 +50,15 @@ export async function GET(req: NextRequest) {
 
 const CreateBody = z.object({
   name: z.string().min(1).max(160),
-  type: z.enum(['image', 'video', 'training']).default('image'),
+  type: z.enum(['image', 'video', 'training', 'cad']).default('image'),
+  // Accept 'kind' as an alias for 'type' (the Python client uses 'kind').
+  kind: z.enum(['image', 'video', 'training', 'cad']).optional(),
 });
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const me = await requireUser(req);
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   let body: z.infer<typeof CreateBody>;
   try {
     body = CreateBody.parse(await req.json());
@@ -55,9 +68,12 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  const type = body.kind ?? body.type;
   try {
-    const project = await createProject(body);
-    return NextResponse.json({ ok: true, project });
+    const project = await createProjectAs(me.id, { name: body.name, type });
+    // The Python client expects { id, name, status, ... } at the top level
+    // when reading the response. Echo flat as well as wrapped for compat.
+    return NextResponse.json({ ok: true, project, ...project });
   } catch (e) {
     return NextResponse.json(
       { error: 'Create failed', detail: e instanceof Error ? e.message : String(e) },

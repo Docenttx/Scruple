@@ -22,7 +22,7 @@ export const LOCK_STATE_LABELS: Record<LockState, string> = {
 // into a single 'image' type that covers txt2img/img2img/upscale/etc
 // (workflow specifics live in canvas nodes). 'video' is registered now
 // but its UI is a placeholder until the video pipeline lands.
-export type ProjectType = 'image' | 'video' | 'training';
+export type ProjectType = 'image' | 'video' | 'training' | 'cad';
 
 export type ProviderName = 'fal' | 'comfydeploy' | 'manual';
 

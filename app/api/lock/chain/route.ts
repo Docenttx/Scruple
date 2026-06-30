@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { auth } from '@/lib/auth/auth';
+import { requireUser } from '@/lib/auth/apiKey';
 import { conn } from '@/lib/db/sqlite';
 import { witness, type ConfirmAndExecuteResult } from '@/lib/scruple/witness';
 import { buildMerkle } from '@/lib/scruple/merkle';
@@ -34,9 +34,9 @@ const Body = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const me = await requireUser(req);
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = me.id;
 
   let body: z.infer<typeof Body>;
   try {
