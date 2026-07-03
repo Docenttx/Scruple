@@ -534,8 +534,12 @@ export default function FusionPalette() {
                 </div>
               </div>
 
-              {/* Iteration grid — witness leaves */}
+              {/* Content: Fusion viewer + iteration grid */}
               <div className="flex-1 overflow-y-auto p-6">
+                <FusionViewer
+                  url={(activeProject as { fusion_web_url?: string | null }).fusion_web_url ?? null}
+                  designName={activeProject.name}
+                />
                 {iterations.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-center text-sm text-scruple-muted">
                     No leaves yet. Save in Fusion or add a feature to record the first one.
@@ -580,6 +584,41 @@ export default function FusionPalette() {
             </>
           )}
         </main>
+      </div>
+    </div>
+  );
+}
+
+function FusionViewer({ url, designName }: { url: string | null; designName: string }) {
+  if (!url) {
+    return (
+      <div className="mb-4 rounded border border-dashed border-scruple-border bg-scruple-surface/50 px-4 py-6 text-center">
+        <div className="text-xs text-scruple-muted">
+          No Fusion viewer link on this design yet — save once in Fusion so the
+          add-in can pick it up on the next sync.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-4 overflow-hidden rounded border border-scruple-border bg-black">
+      <iframe
+        src={url}
+        title={`Fusion viewer — ${designName}`}
+        className="block h-64 w-full border-0"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+      />
+      <div className="flex items-center justify-between border-t border-scruple-border bg-scruple-surface px-4 py-2 text-[11px] text-scruple-muted">
+        <span>Fusion cloud viewer</span>
+        <button
+          type="button"
+          onClick={() => openInSystemBrowser(url)}
+          className="text-sky-400 hover:underline"
+        >
+          Open in browser ↗
+        </button>
       </div>
     </div>
   );

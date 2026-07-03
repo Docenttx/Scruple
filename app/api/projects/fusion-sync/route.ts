@@ -32,6 +32,7 @@ const FileSchema = z.object({
   fusion_data_id: z.string().min(1).max(500),
   name: z.string().min(1).max(160),
   fusion_project_id: z.string().max(500).optional(),
+  fusion_web_url: z.string().url().max(1000).optional(),
 });
 
 const BodySchema = z.object({
@@ -80,12 +81,12 @@ export async function POST(req: NextRequest) {
   );
   const updateExisting = db.prepare(
     `UPDATE projects
-     SET name = ?, fusion_project_id = ?, updated_at = ?
+     SET name = ?, fusion_project_id = ?, fusion_web_url = ?, updated_at = ?
      WHERE id = ?`,
   );
   const insertNew = db.prepare(
-    `INSERT INTO projects (user_id, name, type, fusion_data_id, fusion_project_id, created_at, updated_at)
-     VALUES (?, ?, 'cad', ?, ?, ?, ?)`,
+    `INSERT INTO projects (user_id, name, type, fusion_data_id, fusion_project_id, fusion_web_url, created_at, updated_at)
+     VALUES (?, ?, 'cad', ?, ?, ?, ?, ?)`,
   );
   const setPreScrId = db.prepare(
     `UPDATE projects SET pre_scr_id = ? WHERE id = ? AND pre_scr_id IS NULL`,
@@ -105,7 +106,7 @@ export async function POST(req: NextRequest) {
         if (existing) {
           // Rename picked up from Fusion.
           const uniqueName = pickUniqueName(me.id, f.name, existing.id);
-          updateExisting.run(uniqueName, f.fusion_project_id ?? null, now, existing.id);
+          updateExisting.run(uniqueName, f.fusion_project_id ?? null, f.fusion_web_url ?? null, now, existing.id);
           updated += 1;
         } else {
           const uniqueName = pickUniqueName(me.id, f.name, null);
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
             uniqueName,
             f.fusion_data_id,
             f.fusion_project_id ?? null,
+            f.fusion_web_url ?? null,
             now,
             now,
           );

@@ -126,10 +126,17 @@ if _IN_FUSION:
                     df = files.item(i)
                     ext = (getattr(df, "fileExtension", "") or "").lower()
                     if ext == "f3d":
-                        out.append({
+                        entry = {
                             "fusion_data_id": df.id,
                             "name": df.name,
-                        })
+                        }
+                        try:
+                            web_url = getattr(df, "fusionWebURL", None)
+                            if web_url:
+                                entry["fusion_web_url"] = web_url
+                        except Exception:
+                            pass
+                        out.append(entry)
                 except Exception:
                     continue
         except Exception:
@@ -147,28 +154,189 @@ if _IN_FUSION:
             pass
 
     def _scan_fusion_account(app):
-        """Walk every DataProject the user has access to and collect every
-        .f3d file (recursively through folders). Returns a list of
-        {fusion_data_id, name, fusion_project_id} dicts, capped.
+        """Walk every DataProject in every DataHub the user has access to
+        and collect every .f3d file (recursively through folders). Returns
+        a list of {fusion_data_id, name, fusion_project_id} dicts, capped.
+
+        Uses dataHubs (all hubs — Personal + Team) rather than the
+        activeHub shortcut app.data.dataProjects, so Team hub projects
+        are always included regardless of which hub is currently active
+        in the Fusion UI.
         """
         collected = []
         try:
-            projects = app.data.dataProjects
-            for i in range(projects.count):
+            hubs = app.data.dataHubs
+            for h in range(hubs.count):
                 try:
-                    proj = projects.item(i)
-                    proj_id = getattr(proj, "id", None)
-                    root = proj.rootFolder
-                    before = len(collected)
-                    _walk_data_folder(root, collected)
-                    # Stamp fusion_project_id on the entries we just added.
-                    for k in range(before, len(collected)):
-                        collected[k]["fusion_project_id"] = proj_id
+                    hub = hubs.item(h)
+                    hub_projects = hub.dataProjects
+                    for i in range(hub_projects.count):
+                        try:
+                            proj = hub_projects.item(i)
+                            proj_id = getattr(proj, "id", None)
+                            root = proj.rootFolder
+                            before = len(collected)
+                            _walk_data_folder(root, collected)
+                            for k in range(before, len(collected)):
+                                collected[k]["fusion_project_id"] = proj_id
+                        except Exception:
+                            continue
                 except Exception:
                     continue
         except Exception:
             pass
         return collected
+
+    def _find_first_f3d(folder, max_depth=10):
+        """Recursively search a folder for the first .f3d DataFile."""
+        if max_depth <= 0:
+            return None
+        try:
+            files = folder.dataFiles
+            for i in range(files.count):
+                try:
+                    df = files.item(i)
+                    ext = (getattr(df, "fileExtension", "") or "").lower()
+                    if ext == "f3d":
+                        return df
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        try:
+            subs = folder.dataFolders
+            for i in range(subs.count):
+                try:
+                    found = _find_first_f3d(subs.item(i), max_depth - 1)
+                    if found is not None:
+                        return found
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+
+    def _diag_probe_thumbnail(app):
+        """DIAGNOSTIC — find the first .f3d DataFile we can (recursing
+        through subfolders) and dump what thumbnail-related APIs it exposes.
+        """
+        try:
+            hubs = app.data.dataHubs
+            df = None
+            for h in range(hubs.count):
+                if df is not None:
+                    break
+                try:
+                    hub = hubs.item(h)
+                    projs = hub.dataProjects
+                    for pi in range(projs.count):
+                        if df is not None:
+                            break
+                        try:
+                            proj = projs.item(pi)
+                            df = _find_first_f3d(proj.rootFolder)
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+            if df is None:
+                _diag_ping("thumbnail_probe_no_f3d_found")
+                return
+            attrs = [a for a in dir(df) if not a.startswith("_")]
+            thumb_attrs = [
+                a for a in attrs
+                if "thumb" in a.lower() or "preview" in a.lower() or "image" in a.lower()
+            ]
+            _diag_ping(
+                "thumbnail_probe",
+                file_name=df.name,
+                file_id_prefix=(df.id or "")[:40],
+                all_attrs=attrs[:80],
+                thumb_related=thumb_attrs,
+            )
+            for name in ("thumbnail", "hasThumbnail", "previewImage", "thumbnailImage"):
+                try:
+                    val = getattr(df, name, None)
+                    _diag_ping(
+                        "thumbnail_probe_attr",
+                        attr=name,
+                        type=type(val).__name__,
+                        str_repr=str(val)[:120],
+                    )
+                except Exception as e:
+                    _diag_ping(
+                        "thumbnail_probe_attr_error",
+                        attr=name, error=str(e),
+                    )
+        except Exception as e:
+            _diag_ping("thumbnail_probe_fatal", error=str(e))
+
+    def _diag_dump_fusion_data(app):
+        """DIAGNOSTIC — enumerate app.data.dataHubs + dataProjects and ping
+        the server with what Fusion actually reports. Runs Python-only, no
+        palette bridge needed. Answers 'can Python read the project list?'
+        definitively before we debug the sync path further.
+        """
+        try:
+            hubs = app.data.dataHubs
+            hub_count = hubs.count
+            _diag_ping("data_dump_start", hub_count=hub_count)
+            try:
+                active_hub = app.data.activeHub
+                active_hub_name = getattr(active_hub, "name", "?")
+                _diag_ping("active_hub", name=active_hub_name)
+            except Exception as e:
+                _diag_ping("active_hub_error", error=str(e))
+            for h in range(hub_count):
+                try:
+                    hub = hubs.item(h)
+                    hub_name = getattr(hub, "name", "?")
+                    hub_type = getattr(hub, "hubType", "?")
+                    try:
+                        projs = hub.dataProjects
+                        proj_count = projs.count
+                    except Exception as e:
+                        _diag_ping(
+                            "hub_projects_error",
+                            hub_index=h, hub_name=hub_name, error=str(e),
+                        )
+                        continue
+                    _diag_ping(
+                        "hub_info",
+                        hub_index=h,
+                        hub_name=hub_name,
+                        hub_type=str(hub_type),
+                        project_count=proj_count,
+                    )
+                    for i in range(min(proj_count, 25)):
+                        try:
+                            proj = projs.item(i)
+                            proj_name = getattr(proj, "name", "?")
+                            try:
+                                root = proj.rootFolder
+                                folder_files = root.dataFiles.count
+                                subfolders = root.dataFolders.count
+                            except Exception:
+                                folder_files = -1
+                                subfolders = -1
+                            _diag_ping(
+                                "project_info",
+                                hub_index=h,
+                                proj_index=i,
+                                name=proj_name,
+                                root_files=folder_files,
+                                root_folders=subfolders,
+                            )
+                        except Exception as e:
+                            _diag_ping(
+                                "project_iter_error",
+                                hub_index=h, proj_index=i, error=str(e),
+                            )
+                except Exception as e:
+                    _diag_ping("hub_iter_error", hub_index=h, error=str(e))
+            _diag_ping("data_dump_end")
+        except Exception as e:
+            _diag_ping("data_dump_fatal", error=str(e))
 
     def _scan_and_sync(app, palette):
         """One-shot: scan Fusion account, POST to /api/projects/fusion-sync.
@@ -181,6 +349,12 @@ if _IN_FUSION:
         try:
             files = _scan_fusion_account(app)
             _diag_ping("scan_complete", file_count=len(files))
+            # Probe thumbnail APIs on the first .f3d — data is hydrated by
+            # the time the scan finishes.
+            try:
+                _diag_probe_thumbnail(app)
+            except Exception as e:
+                _diag_ping("thumbnail_probe_dispatch_error", error=str(e))
             if not files:
                 _send_to_palette(palette, "fusion_sync_done", {"synced": 0})
                 return
@@ -558,11 +732,16 @@ if _IN_FUSION:
             # checkpoint / lock actions live INSIDE the palette, not on
             # the toolbar. This matches the "toolbar is a launcher, palette
             # is the product" mental model.
+            # Absolute path to our icon folder so Fusion picks up the 16/32
+            # PNGs regardless of its current working directory. Fusion
+            # expects the folder to contain 16x16.png and 32x32.png.
+            addin_dir = os.path.dirname(os.path.abspath(__file__))
+            icon_dir = os.path.join(addin_dir, "resources", "scruple_toolbar")
             show_def = ui.commandDefinitions.addButtonDefinition(
                 CMD_SHOW_PALETTE,
                 "Scruple",
                 "Open Scruple Studio for Autodesk Fusion",
-                "",  # TODO: 16/32 PNG icons in Scruple teal on dark
+                icon_dir,
             )
             show_handler = _ShowPaletteHandler(app, ui)
             show_def.commandCreated.add(show_handler)
@@ -995,6 +1174,35 @@ def run(context):
 
         # 6. Start the ambient auto-witness loop (5-min default).
         _auto_witness_thread = auto_witness.start(app, ui, _palette)
+
+        # 6a-diag. DIAGNOSTIC — dump the user's dataHubs + dataProjects to
+        # the server log, independent of the palette bridge. Answers "can
+        # Python read the project list at all?" definitively. Runs on the
+        # UI thread (Fusion API isn't guaranteed thread-safe); may briefly
+        # stall UI while cloud data is fetched, acceptable for the diag.
+        try:
+            _diag_dump_fusion_data(app)
+        except Exception as e:
+            _diag_ping("diag_dump_dispatch_error", error=str(e))
+        try:
+            _diag_probe_thumbnail(app)
+        except Exception as e:
+            _diag_ping("thumbnail_probe_dispatch_error", error=str(e))
+        # Bridge is intermittent — schedule a delayed re-probe on a
+        # background thread. Fusion data is usually hydrated by then and
+        # this fires even when the palette bridge is dead so we can still
+        # find the thumbnail API.
+        try:
+            import threading
+            def _delayed_probe():
+                try:
+                    _diag_ping("delayed_probe_starting")
+                    _diag_probe_thumbnail(app)
+                except Exception as e:
+                    _diag_ping("delayed_probe_error", error=str(e))
+            threading.Timer(15.0, _delayed_probe).start()
+        except Exception as e:
+            _diag_ping("delayed_probe_dispatch_error", error=str(e))
 
         # 6b. Hook commandTerminated → witness on every timeline growth.
         # This is the "witness every edit" behavior — every extrude,
