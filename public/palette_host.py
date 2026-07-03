@@ -21,7 +21,18 @@ PALETTE_ID = "scruple_main_palette"
 PALETTE_NAME = "Scruple Studio for Autodesk Fusion"
 DEFAULT_EMBED_URL = os.environ.get(
     "SCRUPLE_EMBED_URL",
-    "https://scruple.stooges.ai/api/auth/keys/fusion-mint?next=/embed/fusion",
+    # IMPORTANT: this MUST be the palette's final URL — no redirects. Fusion's
+    # Neutron webview binds the JS↔Python bridge (adsk.fusionSendData ↔
+    # palette.incomingFromHTML) to the palette's ORIGINAL htmlFileURL. After
+    # a navigation the JS-side shim gets re-injected into the new page (so
+    # window.adsk.fusionSendData appears to exist), but the C++ side stops
+    # listening. Messages sent post-navigation are silently dropped. Confirmed
+    # via Autodesk community threads on Neutron palette bridge regressions.
+    #
+    # The page at /embed/fusion detects lack of token in localStorage and
+    # fetches it via Accept: application/json from fusion-mint — a same-page
+    # XHR that does NOT navigate.
+    "https://scruple.stooges.ai/embed/fusion",
 )
 
 URL_SCHEME = "scruple-fusion"
@@ -39,13 +50,17 @@ def create_palette(app: Any, ui: Any, embed_url: Optional[str] = None) -> Any:
     one (False) so we at least get a palette mounted.
     """
     url = embed_url or DEFAULT_EMBED_URL
+
+    # ALWAYS delete a persisted palette from a previous Fusion session /
+    # add-in run before creating fresh. Reusing the persisted palette leaves
+    # our incomingFromHTML handler attached to a dead Neutron context — JS
+    # fires adsk.fusionSendData into the void.
     pal = ui.palettes.itemById(PALETTE_ID)
     if pal is not None:
         try:
-            pal.isVisible = True
+            pal.deleteMe()
         except Exception:
             pass
-        return pal
 
     first_err = None
     try:

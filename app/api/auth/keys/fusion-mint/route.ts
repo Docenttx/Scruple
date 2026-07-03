@@ -58,6 +58,8 @@ export async function GET(req: NextRequest) {
   const origin = publicOrigin(req);
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
+  const wantsJson = (req.headers.get('accept') || '').includes('application/json');
+
   if (!userId) {
     const next = safeNext(new URL(req.url).searchParams.get('next'));
     const loginUrl = new URL('/login', origin);
@@ -65,6 +67,14 @@ export async function GET(req: NextRequest) {
       'callbackUrl',
       `/api/auth/keys/fusion-mint?next=${encodeURIComponent(next)}`,
     );
+    // JSON mode — used by palette JS to check auth without navigating away
+    // (navigation kills the Fusion palette bridge in Neutron).
+    if (wantsJson) {
+      return NextResponse.json(
+        { signInRequired: true, loginUrl: loginUrl.toString() },
+        { status: 200 },
+      );
+    }
     return NextResponse.redirect(loginUrl);
   }
 
@@ -92,6 +102,11 @@ export async function GET(req: NextRequest) {
     label: `fusion-addin (${new Date().toISOString().slice(0, 10)})`,
     scopes: ['fusion'],
   });
+
+  // JSON mode: palette JS calls this from `/embed/fusion` without navigating.
+  if (wantsJson) {
+    return NextResponse.json({ token: issued.plaintext });
+  }
 
   const target = new URL(next, origin);
   target.searchParams.set('token', issued.plaintext);

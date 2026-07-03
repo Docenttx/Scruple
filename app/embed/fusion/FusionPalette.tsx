@@ -105,6 +105,28 @@ function readToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 
+// Fetch a fresh API key from fusion-mint via JSON API — no navigation, so
+// Fusion's palette bridge stays intact. Returns null if the user needs to
+// sign in first.
+async function fetchTokenViaJson(): Promise<
+  { token: string } | { signInRequired: true; loginUrl: string } | null
+> {
+  try {
+    const r = await fetch('/api/auth/keys/fusion-mint?next=/embed/fusion', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (typeof j.token === 'string') return { token: j.token };
+    if (j.signInRequired) return { signInRequired: true, loginUrl: j.loginUrl };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchWithAuth(url: string, token: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
@@ -166,10 +188,49 @@ export default function FusionPalette() {
   const bridgeRef = useRef<FusionBridge | null>(null);
   const refreshRef = useRef<{ projects: () => Promise<void>; detail: () => Promise<void> } | null>(null);
 
+  const [signInUrl, setSignInUrl] = useState<string | null>(null);
+
   // Mount: discover token + bridge, register Python→JS handler.
   useEffect(() => {
     bridgeRef.current = getFusionBridge();
-    setToken(readToken());
+
+    // First, use whatever's already stored locally.
+    const stored = readToken();
+    if (stored) {
+      setToken(stored);
+    } else {
+      // No stored token — fetch one via JSON API. This is a same-page XHR,
+      // not a navigation, so it doesn't break the Fusion palette bridge.
+      // (Loading fusion-mint as the palette URL WOULD navigate and kill the
+      // bridge — do NOT go back to that pattern.)
+      void (async () => {
+        const result = await fetchTokenViaJson();
+        if (result && 'token' in result) {
+          try { localStorage.setItem(TOKEN_KEY, result.token); } catch {}
+          setToken(result.token);
+        } else if (result && 'signInRequired' in result) {
+          setSignInUrl(result.loginUrl);
+        }
+      })();
+    }
+
+    // DIAGNOSTIC — record from browser side whether the JS→Python bridge
+    // was found on mount so we can compare against Python-side diag pings.
+    try {
+      const w = window as unknown as Record<string, unknown>;
+      fetch('/api/diag/fusion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: 'palette_mount_js',
+          has_bridge: bridgeRef.current !== null,
+          has_window_adsk: typeof w.adsk !== 'undefined',
+          adsk_keys: w.adsk ? Object.keys(w.adsk as object) : [],
+          has_fusionSendData: !!(w.adsk && (w.adsk as { fusionSendData?: unknown }).fusionSendData),
+          user_agent: navigator.userAgent.slice(0, 200),
+        }),
+      }).catch(() => {});
+    } catch {}
 
     if (bridgeRef.current) {
       bridgeRef.current.onMessage((action, payload) => {
@@ -204,10 +265,38 @@ export default function FusionPalette() {
     }
   }, []);
 
-  // Bridge the token to Python whenever it changes.
+  // Bridge the token to Python whenever it changes. We RETRY several times
+  // to bridge a race where the palette JS may load + send BEFORE Python's
+  // `incomingFromHTML` handler is registered. Python re-receiving the same
+  // key is idempotent (no-op after the first). Also send on every polling
+  // tick as belt-and-suspenders.
   useEffect(() => {
     if (!token) return;
-    bridgeRef.current?.send('set_api_key', { key: token });
+    const sendKey = (label: string) => {
+      try {
+        fetch('/api/diag/fusion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'js_sending_set_api_key',
+            attempt: label,
+            has_bridge: bridgeRef.current !== null,
+            token_prefix: token.slice(0, 12),
+          }),
+        }).catch(() => {});
+      } catch {}
+      bridgeRef.current?.send('set_api_key', { key: token });
+    };
+    // Fire immediately, then re-fire at 500ms / 1500ms / 3000ms / 6000ms
+    // so a slow Python-side handler registration still catches at least one.
+    sendKey('t0');
+    const timers = [
+      setTimeout(() => sendKey('t500'), 500),
+      setTimeout(() => sendKey('t1500'), 1500),
+      setTimeout(() => sendKey('t3000'), 3000),
+      setTimeout(() => sendKey('t6000'), 6000),
+    ];
+    return () => timers.forEach(clearTimeout);
   }, [token]);
 
   // Bridge selected project to Python.
@@ -288,7 +377,13 @@ export default function FusionPalette() {
           <button
             type="button"
             onClick={() => {
-              window.location.href = '/api/auth/keys/fusion-mint?next=/embed/fusion';
+              // NOTE: this navigation kills the Fusion palette bridge (JS→Python)
+              // for the current palette instance — Fusion binds the message channel
+              // to the palette's original htmlFileURL. After returning here signed
+              // in, the palette will need to be recreated for the bridge to work.
+              // Acceptable trade-off for first-time sign-in only; subsequent opens
+              // hit the JSON path with the stored cookie and never navigate.
+              window.location.href = signInUrl ?? '/api/auth/keys/fusion-mint?next=/embed/fusion';
             }}
             className="mt-4 flex h-10 w-full items-center justify-center gap-3 rounded border border-[#8e918f] bg-[#131314] px-3 font-['Roboto',_'Inter',_system-ui,_sans-serif] text-sm font-medium text-white hover:bg-[#1f2123]"
             style={{ letterSpacing: '0.25px' }}
@@ -374,15 +469,6 @@ export default function FusionPalette() {
               );
             })}
           </ul>
-          <div className="border-t border-scruple-border px-4 py-3">
-            <a
-              href="/settings/billing"
-              onClick={(e) => { e.preventDefault(); openInSystemBrowser('/settings/billing'); }}
-              className="block text-[11px] text-sky-400 hover:underline"
-            >
-              Payment & plan ↗
-            </a>
-          </div>
         </aside>
 
         {/* Workspace: active project detail */}

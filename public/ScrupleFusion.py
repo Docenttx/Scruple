@@ -723,6 +723,7 @@ if _IN_FUSION:
         def notify(self, args):
             try:
                 action = args.action
+                _diag_ping("palette_msg_received", action=action)
                 data = {}
                 if args.data:
                     try:
@@ -968,11 +969,14 @@ def run(context):
 
         # 4. Wire palette → Python messages.
         if _palette is not None:
+            _diag_ping("registering_msg_handler")
             try:
                 msg_handler = _PaletteMsgHandler(app, ui, palette_ref)
                 _palette.incomingFromHTML.add(msg_handler)
                 _handlers.append(msg_handler)
-            except Exception:
+                _diag_ping("msg_handler_registered")
+            except Exception as e:
+                _diag_ping("msg_handler_registration_failed", error=str(e))
                 try:
                     ui.messageBox(
                         "Scruple: palette message bridge failed to register.\n"
@@ -981,6 +985,8 @@ def run(context):
                     )
                 except Exception:
                     pass
+        else:
+            _diag_ping("no_palette_for_msg_handler")
 
         # 5. UI commands + toolbar panel with Scruple / Witness / Lock buttons
         # in the Design workspace toolbar.
