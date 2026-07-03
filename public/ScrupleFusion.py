@@ -62,6 +62,38 @@ class _SharedState:
 _state = _SharedState()
 
 
+def _diag_ping(event: str, **fields):
+    """DIAGNOSTIC ONLY. Fire-and-forget POST to /api/diag/fusion so the
+    server log records which Python handlers fired, regardless of api_key
+    state. Removed once end-to-end is proven.
+    """
+    try:
+        import threading
+        import urllib.request
+
+        payload = {"event": event, "has_api_key": bool(_state.api_key)}
+        payload.update(fields)
+
+        def _do():
+            try:
+                req = urllib.request.Request(
+                    f"{SCRUPLE_WEB_ORIGIN}/api/diag/fusion",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "scruple-fusion-addin/0.1.0",
+                    },
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=3).read()
+            except Exception:
+                pass
+
+        threading.Thread(target=_do, daemon=True).start()
+    except Exception:
+        pass
+
+
 if _IN_FUSION:
     def _send_to_palette(palette, action, payload):
         """JS-side window.fusionJavaScriptHandler(action, data_string) gets
@@ -78,6 +110,104 @@ if _IN_FUSION:
         return scruple_client.ScrupleClient(
             base_url=SCRUPLE_WEB_ORIGIN, api_key=state.api_key
         )
+
+    def _walk_data_folder(folder, out, max_files=5000):
+        """Recursively collect every .f3d DataFile under `folder` into `out`.
+        `out` is a list mutated in place. Bounded by max_files.
+        """
+        if len(out) >= max_files:
+            return
+        try:
+            files = folder.dataFiles
+            for i in range(files.count):
+                if len(out) >= max_files:
+                    return
+                try:
+                    df = files.item(i)
+                    ext = (getattr(df, "fileExtension", "") or "").lower()
+                    if ext == "f3d":
+                        out.append({
+                            "fusion_data_id": df.id,
+                            "name": df.name,
+                        })
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        try:
+            subs = folder.dataFolders
+            for i in range(subs.count):
+                if len(out) >= max_files:
+                    return
+                try:
+                    _walk_data_folder(subs.item(i), out, max_files=max_files)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def _scan_fusion_account(app):
+        """Walk every DataProject the user has access to and collect every
+        .f3d file (recursively through folders). Returns a list of
+        {fusion_data_id, name, fusion_project_id} dicts, capped.
+        """
+        collected = []
+        try:
+            projects = app.data.dataProjects
+            for i in range(projects.count):
+                try:
+                    proj = projects.item(i)
+                    proj_id = getattr(proj, "id", None)
+                    root = proj.rootFolder
+                    before = len(collected)
+                    _walk_data_folder(root, collected)
+                    # Stamp fusion_project_id on the entries we just added.
+                    for k in range(before, len(collected)):
+                        collected[k]["fusion_project_id"] = proj_id
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return collected
+
+    def _scan_and_sync(app, palette):
+        """One-shot: scan Fusion account, POST to /api/projects/fusion-sync.
+        Fires diag pings around each phase so the server log shows what
+        happened even if the sync silently succeeds with 0 files."""
+        client = _client_for(_state)
+        if client is None:
+            _diag_ping("scan_skipped_no_key")
+            return
+        try:
+            files = _scan_fusion_account(app)
+            _diag_ping("scan_complete", file_count=len(files))
+            if not files:
+                _send_to_palette(palette, "fusion_sync_done", {"synced": 0})
+                return
+            import urllib.request
+            body = json.dumps({"files": files}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{SCRUPLE_WEB_ORIGIN}/api/projects/fusion-sync",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_state.api_key}",
+                    "User-Agent": "scruple-fusion-addin/0.1.0",
+                },
+                method="POST",
+            )
+            resp = urllib.request.urlopen(req, timeout=30)
+            payload = json.loads(resp.read().decode("utf-8"))
+            _diag_ping(
+                "sync_complete",
+                created=payload.get("created", 0),
+                updated=payload.get("updated", 0),
+                skipped=payload.get("skipped", 0),
+            )
+            _send_to_palette(palette, "fusion_sync_done", payload)
+        except Exception as e:
+            _diag_ping("sync_error", error=str(e))
+            _send_to_palette(palette, "fusion_sync_error", {"message": str(e)})
 
     def _do_witness(app, ui, palette):
         """Run an export + witness on the active design. Called on UI thread."""
@@ -183,11 +313,12 @@ if _IN_FUSION:
             self._ui = ui
 
         def notify(self, args):
+            _diag_ping("documentSaved")
             try:
                 _auto_bind_project_on_save(self._app, self._ui)
                 self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
-            except Exception:
-                pass
+            except Exception as e:
+                _diag_ping("documentSaved_error", error=str(e))
 
     class _WitnessTickHandler(adsk.core.CustomEventHandler):
         """Consumes the auto-witness custom event on the UI thread. The
@@ -601,12 +732,28 @@ if _IN_FUSION:
 
                 if action == "set_api_key":
                     key = (data.get("key") or "").strip()
+                    _diag_ping(
+                        "set_api_key_received",
+                        key_len=len(key),
+                        starts_with_sk=key.startswith("sk_"),
+                    )
                     if key.startswith("sk_"):
                         _state.api_key = key
-                        # No prompt on set_api_key. The Fusion save flow
-                        # (documentSaved event) is the ONLY project-creation
-                        # trigger — user just works normally, saves when
-                        # ready, and Scruple auto-creates using the file name.
+                        # Auto-scan the user's Fusion account and mirror
+                        # every .f3d into Scruple. Idempotent on server —
+                        # safe to fire on every reconnect. The palette
+                        # picks up new projects on its next poll.
+                        try:
+                            _scan_and_sync(self._app, self._palette_ref[0])
+                        except Exception as e:
+                            _diag_ping("scan_dispatch_error", error=str(e))
+
+                elif action == "scan_now":
+                    # Manual "refresh from Fusion account" trigger from palette.
+                    try:
+                        _scan_and_sync(self._app, self._palette_ref[0])
+                    except Exception as e:
+                        _diag_ping("scan_dispatch_error", error=str(e))
 
                 elif action == "get_design_state":
                     state = _get_design_state(self._app)
@@ -774,6 +921,7 @@ if _IN_FUSION:
 
 def run(context):
     """Add-in startup hook called by Fusion."""
+    _diag_ping("run_start", in_fusion=_IN_FUSION)
     if not _IN_FUSION:
         return
     ui = None
@@ -789,6 +937,7 @@ def run(context):
         # 1. Mount the palette.
         _palette = palette_host.create_palette(app, ui)
         palette_ref[0] = _palette
+        _diag_ping("palette_mounted", palette_present=(_palette is not None))
 
         # 2a. documentSaved → auto-bind Scruple project on first save (using
         #     the Fusion filename as the project name), then fire witness.
