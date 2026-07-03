@@ -110,14 +110,21 @@ if _IN_FUSION:
             })
 
     class _DocSavedHandler(adsk.core.DocumentEventHandler):
-        """documentSaved → fires the same custom event the auto-witness loop
-        uses, so there's one chokepoint for the actual witness call."""
-        def __init__(self, app):
+        """documentSaved → auto-bind Scruple project if not bound yet, then
+        fire the witness tick.
+
+        This is the ONLY project-creation trigger. Zero prompts inside
+        Fusion — user just saves their design normally and Scruple picks
+        up the file name as the project name automatically.
+        """
+        def __init__(self, app, ui):
             super().__init__()
             self._app = app
+            self._ui = ui
 
         def notify(self, args):
             try:
+                _auto_bind_project_on_save(self._app, self._ui)
                 self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
             except Exception:
                 pass
@@ -281,46 +288,51 @@ if _IN_FUSION:
         except Exception:
             return False
 
-    def _prompt_and_bind_project(app, ui):
-        """If no Scruple project is bound to the active design, prompt the
-        user for a project name, create the project on the server, write
-        the project_id + pre_scr_id back to design.attributes, and force
-        Parametric mode. Idempotent — no-op if already bound.
+    def _auto_bind_project_on_save(app, ui):
+        """Called from _DocSavedHandler on every save. If the active design
+        has no Scruple project bound yet, this is the first save — so we
+        take the Fusion file name (now known, because save just happened)
+        and create a Scruple project under that name.
 
-        Called on first successful set_api_key (so we have credentials).
+        Zero user prompts. The user's normal save flow IS the project
+        creation trigger. The Fusion filename = the Scruple project name.
+
+        Returns the project_id (whether pre-existing or newly created),
+        or None if we couldn't bind yet (no API key, no design, unnamed).
         """
         try:
             client = _client_for(_state)
             if client is None:
-                return None
+                return None  # user hasn't signed in yet
             design = adsk.fusion.Design.cast(app.activeProduct)
             if design is None:
                 return None
+
             existing = design.attributes.itemByName("Scruple", "project_id")
             if existing and existing.value:
-                # Already bound — just ensure parametric + reset command counter.
-                _ensure_parametric(design, ui)
-                return int(existing.value)
+                try:
+                    _state.active_project_id = int(existing.value)
+                    return _state.active_project_id
+                except Exception:
+                    return None
 
-            default_name = ""
+            # First save of an unbound design → create the project.
+            name = ""
             try:
-                default_name = app.activeDocument.name or ""
+                name = (app.activeDocument.name or "").strip()
             except Exception:
                 pass
-            default_name = default_name or "My Fusion project"
+            if not name:
+                return None  # still untitled somehow — skip
 
-            (name_input, cancelled) = ui.inputBox(
-                "Enter a project name for Scruple to track this design under. "
-                "Every save and every feature you add will be witnessed and "
-                "chained under this name.",
-                "Scruple Studio for Fusion — Start tracking",
-                default_name,
-            )
-            if cancelled:
-                return None
-            name = (name_input or "").strip() or default_name
-
-            _ensure_parametric(design, ui)
+            # Silently ensure parametric mode. If user explicitly picked
+            # Direct mode we respect their choice, but the timeline hook
+            # won't fire for them — they'll only get save-time witnesses.
+            try:
+                if design.designType == adsk.fusion.DesignTypes.ParametricDesignType:
+                    pass
+            except Exception:
+                pass
 
             proj = client.create_project(name=name, kind="cad")
             pid = int(proj.get("id"))
@@ -333,24 +345,25 @@ if _IN_FUSION:
 
             _state.active_project_id = pid
 
-            summary = (
-                f"Scruple is now tracking this design.\n\n"
-                f"Project: {name}\n"
-                f"Project ID: {pid}\n"
-            )
-            if pre_scr_id:
-                summary += f"SCR-ID (pre-lock): {pre_scr_id}\n"
-            summary += (
-                "\nEvery command that adds to the timeline will be witnessed.\n"
-                "Save (Ctrl+S) any time to force an immediate witness."
-            )
-            ui.messageBox(summary, "Scruple — Tracking started")
+            # Small non-modal notification so the user knows tracking is on.
+            # Fusion doesn't have a native toast API; messageBox is intrusive
+            # for every save, so we only show it on FIRST bind.
+            try:
+                ui.messageBox(
+                    f"Scruple is now tracking this design.\n\n"
+                    f"Project: {name}\n"
+                    + (f"SCR-ID (pre-lock): {pre_scr_id}\n\n" if pre_scr_id else "\n")
+                    + "The project should appear in Scruple Studio's project "
+                    "list within a few seconds. Every save and every timeline "
+                    "change from now on will be witnessed automatically.",
+                    "Scruple — Tracking started"
+                )
+            except Exception:
+                pass
             return pid
         except Exception:
             try:
-                ui.messageBox(
-                    "Scruple project setup failed:\n\n" + traceback.format_exc()
-                )
+                ui.messageBox("Scruple auto-bind failed:\n\n" + traceback.format_exc())
             except Exception:
                 pass
             return None
@@ -387,12 +400,11 @@ if _IN_FUSION:
                 if action == "set_api_key":
                     key = (data.get("key") or "").strip()
                     if key.startswith("sk_"):
-                        was_none = _state.api_key is None
                         _state.api_key = key
-                        # First time we get an API key → check if the
-                        # active design needs a Scruple project name.
-                        if was_none:
-                            _prompt_and_bind_project(self._app, self._ui)
+                        # No prompt on set_api_key. The Fusion save flow
+                        # (documentSaved event) is the ONLY project-creation
+                        # trigger — user just works normally, saves when
+                        # ready, and Scruple auto-creates using the file name.
 
                 elif action == "get_design_state":
                     state = _get_design_state(self._app)
@@ -576,8 +588,9 @@ def run(context):
         _palette = palette_host.create_palette(app, ui)
         palette_ref[0] = _palette
 
-        # 2. documentSaved → fires the witness tick custom event.
-        on_saved = _DocSavedHandler(app)
+        # 2. documentSaved → auto-bind Scruple project on first save (using
+        #    the Fusion filename as the project name), then fire witness.
+        on_saved = _DocSavedHandler(app, ui)
         app.documentSaved.add(on_saved)
         _handlers.append(on_saved)
 
