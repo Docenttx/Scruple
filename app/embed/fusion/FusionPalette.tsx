@@ -296,6 +296,21 @@ export default function FusionPalette() {
       setTimeout(() => sendKey('t3000'), 3000),
       setTimeout(() => sendKey('t6000'), 6000),
     ];
+
+    // Backup path: POST the token to /api/fusion/handoff — Python's
+    // background poller reads it even when the palette bridge is dead.
+    // Requires a `session` query param baked into the palette URL by Python.
+    try {
+      const sid = new URLSearchParams(window.location.search).get('session');
+      if (sid) {
+        fetch('/api/fusion/handoff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: sid, key: token }),
+        }).catch(() => {});
+      }
+    } catch {}
+
     return () => timers.forEach(clearTimeout);
   }, [token]);
 

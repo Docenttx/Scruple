@@ -48,6 +48,12 @@ CMD_LOCK_ANCHOR = "scruple_lock_anchor"
 
 SCRUPLE_WEB_ORIGIN = os.environ.get("SCRUPLE_WEB_ORIGIN", "https://scruple.stooges.ai")
 
+# Random session id shared with the palette via URL query param, used by
+# the /api/fusion/handoff endpoint as a bridge-free way to move the API
+# key from the palette JS to Python when Fusion's palette bridge is dead.
+import secrets  # noqa: E402
+FUSION_HANDOFF_SESSION = secrets.token_hex(24)
+
 
 class _SharedState:
     """Mutable state shared between handlers. Holds the API key (set by the
@@ -1114,10 +1120,53 @@ def run(context):
         # reference to the palette even though we may swap it later.
         palette_ref = [None]
 
-        # 1. Mount the palette.
-        _palette = palette_host.create_palette(app, ui)
+        # 1. Mount the palette. Session id is baked into the URL so the
+        # palette JS can POST its api key back via /api/fusion/handoff —
+        # a bridge-free path we use when Fusion's palette bridge is dead.
+        handoff_url = (
+            f"{SCRUPLE_WEB_ORIGIN}/embed/fusion?session={FUSION_HANDOFF_SESSION}"
+        )
+        _palette = palette_host.create_palette(app, ui, embed_url=handoff_url)
         palette_ref[0] = _palette
-        _diag_ping("palette_mounted", palette_present=(_palette is not None))
+        _diag_ping(
+            "palette_mounted",
+            palette_present=(_palette is not None),
+            session_prefix=FUSION_HANDOFF_SESSION[:8],
+        )
+
+        # 1b. Background poller — checks /api/fusion/handoff for the api key.
+        # When the palette JS POSTs the key, this picks it up and kicks off
+        # the scan even if the JS→Python bridge never fires set_api_key.
+        try:
+            import threading, time, urllib.request
+            def _handoff_poll():
+                deadline = time.time() + 120  # give up after 2 min
+                while time.time() < deadline:
+                    if _state.api_key:
+                        return  # bridge already delivered
+                    try:
+                        req = urllib.request.Request(
+                            f"{SCRUPLE_WEB_ORIGIN}/api/fusion/handoff?session={FUSION_HANDOFF_SESSION}",
+                            headers={"User-Agent": "scruple-fusion-addin/0.1.0"},
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            payload = json.loads(resp.read().decode("utf-8"))
+                        key = (payload.get("key") or "").strip() if isinstance(payload, dict) else ""
+                        if key.startswith("sk_"):
+                            _state.api_key = key
+                            _diag_ping("handoff_key_received", key_len=len(key))
+                            try:
+                                _scan_and_sync(app, palette_ref[0])
+                            except Exception as e:
+                                _diag_ping("handoff_scan_error", error=str(e))
+                            return
+                    except Exception:
+                        pass
+                    time.sleep(2)
+                _diag_ping("handoff_poll_timeout")
+            threading.Thread(target=_handoff_poll, daemon=True).start()
+        except Exception as e:
+            _diag_ping("handoff_poll_dispatch_error", error=str(e))
 
         # 2a. documentSaved → auto-bind Scruple project on first save (using
         #     the Fusion filename as the project name), then fire witness.
