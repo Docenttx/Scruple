@@ -117,6 +117,68 @@ if _IN_FUSION:
             base_url=SCRUPLE_WEB_ORIGIN, api_key=state.api_key
         )
 
+    def _fetch_thumbnail_b64(df, timeout_sec=4.0):
+        """Try to resolve DataFile.thumbnail (a DataObjectFuture) to a
+        PNG and return a data URL. None on any failure/timeout — thumbnail
+        is best-effort, never blocks the sync.
+        """
+        try:
+            import base64
+            import os
+            import tempfile
+            import time
+            future = getattr(df, "thumbnail", None)
+            if future is None:
+                return None
+            # Poll for readiness. Different Fusion versions expose different
+            # readiness flags — try the common ones. The DataObjectFuture
+            # docs are inconsistent, hence the defensive attribute probe.
+            deadline = time.time() + timeout_sec
+            while time.time() < deadline:
+                for attr in ("isReady", "isValid"):
+                    try:
+                        if getattr(future, attr, False):
+                            break
+                    except Exception:
+                        continue
+                else:
+                    time.sleep(0.15)
+                    continue
+                break
+            image = None
+            for attr in ("value",):
+                try:
+                    v = getattr(future, attr, None)
+                    if v is not None:
+                        image = v
+                        break
+                except Exception:
+                    continue
+            if image is None:
+                return None
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as t:
+                tmp = t.name
+            try:
+                saved = False
+                try:
+                    saved = bool(image.saveAsFile(tmp))
+                except Exception:
+                    return None
+                if not saved:
+                    return None
+                with open(tmp, "rb") as fh:
+                    data = fh.read()
+                if not data:
+                    return None
+                return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+            finally:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
+        except Exception:
+            return None
+
     def _walk_data_folder(folder, out, max_files=5000):
         """Recursively collect every .f3d DataFile under `folder` into `out`.
         `out` is a list mutated in place. Bounded by max_files.
@@ -142,6 +204,9 @@ if _IN_FUSION:
                                 entry["fusion_web_url"] = web_url
                         except Exception:
                             pass
+                        thumb = _fetch_thumbnail_b64(df)
+                        if thumb:
+                            entry["thumbnail_b64"] = thumb
                         out.append(entry)
                 except Exception:
                     continue
@@ -221,6 +286,85 @@ if _IN_FUSION:
         except Exception:
             pass
         return None
+
+    def _diag_probe_thumbnail_future(app):
+        """DIAGNOSTIC — resolve a DataObjectFuture for one .f3d thumbnail
+        and dump what its actual API surface looks like. We know
+        DataFile.thumbnail returns a DataObjectFuture — need to see the
+        method/property names for polling + extracting the image.
+        """
+        try:
+            hubs = app.data.dataHubs
+            df = None
+            for h in range(hubs.count):
+                if df is not None:
+                    break
+                try:
+                    hub = hubs.item(h)
+                    projs = hub.dataProjects
+                    for pi in range(projs.count):
+                        if df is not None:
+                            break
+                        try:
+                            proj = projs.item(pi)
+                            df = _find_first_f3d(proj.rootFolder)
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+            if df is None:
+                _diag_ping("thumb_future_no_f3d")
+                return
+            future = df.thumbnail
+            attrs = [a for a in dir(future) if not a.startswith("_")]
+            _diag_ping("thumb_future_attrs", file_name=df.name, attrs=attrs)
+            # Poll a few candidate readiness signals.
+            for name in ("isValid", "isReady", "isFinished", "isDone", "isComplete", "hasCompleted", "value", "getData"):
+                try:
+                    v = getattr(future, name, "<missing>")
+                    _diag_ping(
+                        "thumb_future_attr",
+                        attr=name,
+                        type=type(v).__name__,
+                        str_repr=str(v)[:200],
+                    )
+                except Exception as e:
+                    _diag_ping("thumb_future_attr_err", attr=name, error=str(e))
+            # Wait for readiness — try isReady/isValid patterns.
+            import time
+            waited = 0
+            for _ in range(30):  # up to 15s
+                try:
+                    if getattr(future, "isReady", False):
+                        break
+                    if getattr(future, "isValid", False):
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+                waited += 500
+            _diag_ping("thumb_future_waited_ms", ms=waited)
+            # Try to extract a value.
+            for name in ("value", "getValue", "data", "getData"):
+                try:
+                    method_or_prop = getattr(future, name, None)
+                    if method_or_prop is None:
+                        continue
+                    if callable(method_or_prop):
+                        val = method_or_prop()
+                    else:
+                        val = method_or_prop
+                    _diag_ping(
+                        "thumb_future_value",
+                        via=name,
+                        type=type(val).__name__,
+                        str_repr=str(val)[:200],
+                        attrs=[a for a in dir(val) if not a.startswith("_")][:60] if val is not None else [],
+                    )
+                except Exception as e:
+                    _diag_ping("thumb_future_value_err", via=name, error=str(e))
+        except Exception as e:
+            _diag_ping("thumb_future_probe_fatal", error=str(e))
 
     def _diag_probe_thumbnail(app):
         """DIAGNOSTIC — find the first .f3d DataFile we can (recursing
@@ -354,13 +498,22 @@ if _IN_FUSION:
             return
         try:
             files = _scan_fusion_account(app)
-            _diag_ping("scan_complete", file_count=len(files))
+            with_thumb = sum(1 for f in files if f.get("thumbnail_b64"))
+            _diag_ping(
+                "scan_complete",
+                file_count=len(files),
+                with_thumbnail=with_thumb,
+            )
             # Probe thumbnail APIs on the first .f3d — data is hydrated by
             # the time the scan finishes.
             try:
                 _diag_probe_thumbnail(app)
             except Exception as e:
                 _diag_ping("thumbnail_probe_dispatch_error", error=str(e))
+            try:
+                _diag_probe_thumbnail_future(app)
+            except Exception as e:
+                _diag_ping("thumb_future_dispatch_error", error=str(e))
             if not files:
                 _send_to_palette(palette, "fusion_sync_done", {"synced": 0})
                 return
@@ -743,6 +896,15 @@ if _IN_FUSION:
             # expects the folder to contain 16x16.png and 32x32.png.
             addin_dir = os.path.dirname(os.path.abspath(__file__))
             icon_dir = os.path.join(addin_dir, "resources", "scruple_toolbar")
+            # Fusion caches CommandDefinitions across restarts — if the id
+            # already exists Fusion returns the cached def (with the OLD
+            # icon). Force a fresh definition so new PNGs actually load.
+            try:
+                existing_def = ui.commandDefinitions.itemById(CMD_SHOW_PALETTE)
+                if existing_def is not None:
+                    existing_def.deleteMe()
+            except Exception:
+                pass
             show_def = ui.commandDefinitions.addButtonDefinition(
                 CMD_SHOW_PALETTE,
                 "Scruple",

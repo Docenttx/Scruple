@@ -42,6 +42,8 @@ interface Project {
   merkle_root: string | null;
   created_at: string;
   updated_at: string;
+  thumbnail_b64: string | null;
+  fusion_web_url: string | null;
 }
 
 interface Iteration {
@@ -469,17 +471,31 @@ export default function FusionPalette() {
                   <button
                     type="button"
                     onClick={() => setSelectedId(p.id)}
-                    className={`flex w-full flex-col items-start gap-1 border-l-2 px-4 py-2 text-left transition-colors ${
+                    className={`flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors ${
                       active
                         ? 'border-scruple-accent-primary bg-scruple-bg'
                         : 'border-transparent hover:bg-scruple-bg/50'
                     }`}
                   >
-                    <div className="w-full truncate text-sm font-medium">{p.name}</div>
-                    <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
-                      <span>{p.iteration_count} leaves</span>
-                      <span>·</span>
-                      <span>{relativeTime(p.updated_at)}</span>
+                    {p.thumbnail_b64 ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.thumbnail_b64}
+                        alt=""
+                        className="h-9 w-9 flex-shrink-0 rounded border border-scruple-border bg-black object-contain"
+                      />
+                    ) : (
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-dashed border-scruple-border bg-scruple-bg/50 text-[8px] text-scruple-muted">
+                        —
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="w-full truncate text-sm font-medium">{p.name}</div>
+                      <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
+                        <span>{p.iteration_count} leaves</span>
+                        <span>·</span>
+                        <span>{relativeTime(p.updated_at)}</span>
+                      </div>
                     </div>
                   </button>
                 </li>
@@ -514,10 +530,9 @@ export default function FusionPalette() {
                   iterations={iterations as unknown as IterationRow[]}
                   trainingRuns={[]}
                   cadPreview={
-                    <FusionViewer
-                      url={(activeProject as { fusion_web_url?: string | null }).fusion_web_url ?? null}
+                    <FusionThumbnail
+                      thumb={(activeProject as { thumbnail_b64?: string | null }).thumbnail_b64 ?? null}
                       designName={activeProject.name}
-                      onOpenInBrowser={openInSystemBrowser}
                     />
                   }
                 />
@@ -535,6 +550,34 @@ export default function FusionPalette() {
   );
 }
 
+function FusionThumbnail({ thumb, designName }: { thumb: string | null; designName: string }) {
+  if (!thumb) {
+    return (
+      <div className="mb-4 flex h-[260px] w-full items-center justify-center rounded border border-dashed border-scruple-border bg-scruple-surface/50 text-center">
+        <div className="max-w-sm px-4">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
+            Fusion Preview
+          </div>
+          <div className="mt-2 text-xs text-scruple-text/70">
+            Preview will appear here once the next sync completes.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-4 overflow-hidden rounded border border-scruple-border bg-black">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={thumb}
+        alt={`Fusion thumbnail — ${designName}`}
+        className="block h-[260px] w-full object-contain"
+      />
+    </div>
+  );
+}
+
+// TODO: Legacy iframe path — kept for reference during MVP; unused now.
 function FusionViewer({
   url,
   designName,
