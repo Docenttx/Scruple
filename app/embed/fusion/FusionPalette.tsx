@@ -388,7 +388,8 @@ export default function FusionPalette() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-scruple-bg p-6">
         <div className="w-full max-w-sm rounded-lg border border-scruple-border bg-scruple-surface p-8">
-          <h1 className="text-lg font-bold tracking-widest text-scruple-accent-primary">SCRUPLE</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/scruple_wordmark_crimson.png" alt="Scruple" className="h-6 w-auto" />
           <p className="mt-1 text-xs text-scruple-muted">Studio for Autodesk Fusion</p>
           <p className="mt-6 text-sm text-scruple-muted">
             Sign in to start tracking your Fusion designs.
@@ -429,7 +430,8 @@ export default function FusionPalette() {
       {/* Top bar */}
       <header className="flex items-center justify-between border-b border-scruple-border bg-scruple-surface px-4">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-bold tracking-widest text-scruple-accent-primary">SCRUPLE</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/scruple_wordmark_crimson.png" alt="Scruple" className="h-4 w-auto" />
           <span className="text-[10px] text-scruple-muted">Studio for Autodesk Fusion</span>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
