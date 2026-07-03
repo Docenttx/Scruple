@@ -303,9 +303,28 @@ export default function FusionPalette() {
 
     // Backup path: POST the token to /api/fusion/handoff — Python's
     // background poller reads it even when the palette bridge is dead.
-    // Requires a `session` query param baked into the palette URL by Python.
+    // Session comes from the URL query on first load, then cached in
+    // localStorage so it survives Fusion-driven palette reloads that
+    // sometimes drop the URL query string.
     try {
-      const sid = new URLSearchParams(window.location.search).get('session');
+      const SID_KEY = 'scruple.fusion.session';
+      let sid = new URLSearchParams(window.location.search).get('session');
+      if (sid) {
+        try { localStorage.setItem(SID_KEY, sid); } catch {}
+      } else {
+        try { sid = localStorage.getItem(SID_KEY); } catch {}
+      }
+      // Also emit a diag so we can see the palette-side handoff attempt.
+      fetch('/api/diag/fusion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: 'js_handoff_attempt',
+          has_sid: !!sid,
+          sid_prefix: sid ? sid.slice(0, 8) : null,
+          has_token: !!token,
+        }),
+      }).catch(() => {});
       if (sid) {
         fetch('/api/fusion/handoff', {
           method: 'POST',
