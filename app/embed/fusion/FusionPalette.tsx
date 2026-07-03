@@ -1,21 +1,24 @@
 'use client';
 
-// FusionPalette — the compact Scruple project card that lives inside
-// Fusion 360 as a docked palette.
+// Scruple Studio for Autodesk Fusion — the vertical fork of the ComfyUI
+// Studio, styled to match but scoped to CAD projects and integrated with
+// the Fusion Python bridge.
 //
-// Product model:
-//   - Every open Fusion design is tracked as its own Scruple project.
-//   - The palette shows THIS DESIGN's project state at a glance:
-//     name, status pill, iteration count, last witnessed timestamp,
-//     last few leaf hashes.
-//   - Three actions: Witness now, Checkpoint, Lock & Anchor.
-//   - Account setup, plan selection, payment method, receipt browsing,
-//     cross-project management all happen on scruple.stooges.ai in the
-//     user's real browser (via a Settings link at the bottom that opens
-//     in the system browser). The palette itself never needs to become
-//     the full dashboard.
+// Design principles (from the user session that established this fork):
+//   1. Every Fusion design ↔ its own Scruple project. Project name = Fusion
+//      file name. Auto-created on first save, via the Python side.
+//   2. Palette is Studio. Sidebar (project list, CAD-only) + workspace.
+//      No ComfyUI canvas. No "New Project" button (projects are created
+//      by saving in Fusion). No user-visible "API key" field.
+//   3. Auth is silent. Palette bounces through /api/auth/keys/fusion-mint
+//      on first load to mint a key for the OAuth-authed user, stashes it,
+//      hands it to Python via the bridge. User just sees "Sign in with
+//      Google" once, ever.
+//   4. Per-user isolation is enforced server-side (user_id scoping on
+//      every query). Client-side, each Fusion install has its own Qt
+//      WebEngine storage. No cross-user leak possible.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type ProjectStatus =
   | 'unlocked'
@@ -31,8 +34,12 @@ interface Project {
   type: string;
   status: ProjectStatus;
   iteration_count: number;
+  witnessed_count: number;
   scr_id: string | null;
+  pre_scr_id: string | null;
   merkle_root: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Iteration {
@@ -40,9 +47,8 @@ interface Iteration {
   project_id: number;
   run_sequence: number;
   leaf_hash: string;
-  output_kind: string;
-  witnessed: number;
   timestamp: string;
+  witnessed: number;
 }
 
 interface ProjectDetail {
@@ -55,7 +61,7 @@ type ConnectionState = 'connecting' | 'healthy' | 'retrying' | 'disconnected' | 
 
 const POLL_MS = 15_000;
 
-// ----------------------------------------------------------- Fusion bridge
+// -------------------------------------------------------------- bridge
 
 interface FusionBridge {
   send: (action: string, payload: unknown) => void;
@@ -78,35 +84,35 @@ function getFusionBridge(): FusionBridge | null {
   };
 }
 
-// ----------------------------------------------------------- auth
+// --------------------------------------------------------------- auth
+
+const TOKEN_KEY = 'scruple.fusion.api_key';
 
 function readToken(): string | null {
   if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
   const fromQuery = params.get('token');
   if (fromQuery) {
-    try { localStorage.setItem('scruple.fusion.api_key', fromQuery); } catch {}
+    try { localStorage.setItem(TOKEN_KEY, fromQuery); } catch {}
+    // Clean the token out of the URL so it doesn't stick around visibly.
+    try {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('token');
+      window.history.replaceState({}, '', cleanUrl.toString());
+    } catch {}
     return fromQuery;
   }
-  try { return localStorage.getItem('scruple.fusion.api_key'); } catch { return null; }
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 
-function readPresetProjectId(): number | null {
-  if (typeof window === 'undefined') return null;
-  const fromQuery = new URLSearchParams(window.location.search).get('project_id');
-  if (fromQuery) {
-    const n = Number(fromQuery);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  return null;
-}
-
-async function fetchWithAuth(url: string, token: string | null, init?: RequestInit): Promise<Response> {
+async function fetchWithAuth(url: string, token: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
-  if (token) headers.set('Authorization', `Bearer ${token}`);
+  headers.set('Authorization', `Bearer ${token}`);
   headers.set('Accept', 'application/json');
-  return fetch(url, { ...init, headers, credentials: token ? 'omit' : 'include' });
+  return fetch(url, { ...init, headers, credentials: 'omit' });
 }
+
+// --------------------------------------------------------------- helpers
 
 function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -117,41 +123,36 @@ function relativeTime(iso: string | null | undefined): string {
   if (s < 5) return 'just now';
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} hr ago`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  return `${d} day${d === 1 ? '' : 's'} ago`;
-}
-
-function shortHash(h: string): string {
-  if (!h) return '';
-  return h.length > 12 ? `${h.slice(0, 10)}…` : h;
+  return `${d}d ago`;
 }
 
 function statusLabel(s: ProjectStatus): string {
   return {
     unlocked: 'Tracking',
-    checkpointed: 'Checkpointed',
-    local_locked: 'Locally locked',
-    chain_locked: 'Chain locked',
-    persistent_locked: 'Persistent lock',
-    permanent_locked: 'Permanent lock',
+    checkpointed: 'Checkpoint',
+    local_locked: 'Locked',
+    chain_locked: 'Anchored',
+    persistent_locked: 'Persistent',
+    permanent_locked: 'Permanent',
   }[s] || s;
 }
 
 function statusColor(s: ProjectStatus): string {
   return {
-    unlocked: '#22c55e',
-    checkpointed: '#eab308',
-    local_locked: '#f59e0b',
-    chain_locked: '#7dd3fc',
-    persistent_locked: '#a78bfa',
-    permanent_locked: '#f472b6',
-  }[s] || '#888';
+    unlocked: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+    checkpointed: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+    local_locked: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+    chain_locked: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+    persistent_locked: 'bg-violet-500/20 text-violet-300 border-violet-500/40',
+    permanent_locked: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+  }[s] || 'bg-neutral-500/20 text-neutral-300 border-neutral-500/40';
 }
 
-// ----------------------------------------------------------- component
+// --------------------------------------------------------------- component
 
 export default function FusionPalette() {
   const [token, setToken] = useState<string | null>(null);
@@ -161,91 +162,71 @@ export default function FusionPalette() {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [busy, setBusy] = useState<'witnessing' | 'checkpointing' | 'locking' | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [designName, setDesignName] = useState<string | null>(null);
   const bridgeRef = useRef<FusionBridge | null>(null);
-  const refreshDetailRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshRef = useRef<{ projects: () => Promise<void>; detail: () => Promise<void> } | null>(null);
 
   // Mount: discover token + bridge, register Python→JS handler.
   useEffect(() => {
     bridgeRef.current = getFusionBridge();
     setToken(readToken());
-    const preset = readPresetProjectId();
-    if (preset) setSelectedId(preset);
 
     if (bridgeRef.current) {
       bridgeRef.current.onMessage((action, payload) => {
         const p = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
-        if (action === 'auth_token') {
-          const tok = typeof p.token === 'string' ? p.token : null;
-          if (tok) {
-            try { localStorage.setItem('scruple.fusion.api_key', tok); } catch {}
-            setToken(tok);
-          }
-        } else if (action === 'design_state') {
-          // Python tells us: current Fusion document's name + bound project_id
+        if (action === 'design_state') {
           if (typeof p.name === 'string') setDesignName(p.name);
           if (typeof p.project_id === 'number') setSelectedId(p.project_id);
-          if (typeof p.last_saved_at === 'string') setLastSavedAt(p.last_saved_at);
-        } else if (action === 'witness_started') {
-          setBusy('witnessing');
-          setErrorMsg(null);
-        } else if (action === 'witness_done') {
-          setBusy(null);
-          setErrorMsg(null);
-          void refreshDetailRef.current?.();
-        } else if (action === 'witness_error') {
-          setBusy(null);
-          setErrorMsg(`Witness failed: ${p.message ?? 'unknown'}`);
-        } else if (action === 'checkpoint_started') {
-          setBusy('checkpointing');
-          setErrorMsg(null);
-        } else if (action === 'checkpoint_done') {
-          setBusy(null);
-          setErrorMsg(null);
-          void refreshDetailRef.current?.();
-        } else if (action === 'checkpoint_error') {
-          setBusy(null);
-          setErrorMsg(`Checkpoint failed: ${p.message ?? 'unknown'}`);
-        } else if (action === 'lock_started') {
-          setBusy('locking');
-          setErrorMsg(null);
-        } else if (action === 'lock_done') {
-          setBusy(null);
-          setErrorMsg(null);
-          void refreshDetailRef.current?.();
-        } else if (action === 'lock_error') {
-          setBusy(null);
-          setErrorMsg(`Lock failed: ${p.message ?? 'unknown'}`);
+        } else if (action === 'witness_started') { setBusy('witnessing'); setErrorMsg(null); }
+        else if (action === 'witness_done') {
+          setBusy(null); setErrorMsg(null);
+          void refreshRef.current?.projects();
+          void refreshRef.current?.detail();
         }
+        else if (action === 'witness_error') { setBusy(null); setErrorMsg(`Witness failed: ${p.message ?? 'unknown'}`); }
+        else if (action === 'checkpoint_started') { setBusy('checkpointing'); setErrorMsg(null); }
+        else if (action === 'checkpoint_done') {
+          setBusy(null); setErrorMsg(null);
+          void refreshRef.current?.projects();
+          void refreshRef.current?.detail();
+        }
+        else if (action === 'checkpoint_error') { setBusy(null); setErrorMsg(`Checkpoint failed: ${p.message ?? 'unknown'}`); }
+        else if (action === 'lock_started') { setBusy('locking'); setErrorMsg(null); }
+        else if (action === 'lock_done') {
+          setBusy(null); setErrorMsg(null);
+          void refreshRef.current?.projects();
+          void refreshRef.current?.detail();
+        }
+        else if (action === 'lock_error') { setBusy(null); setErrorMsg(`Lock failed: ${p.message ?? 'unknown'}`); }
       });
-      // Ask Python for the current design state (name + project binding).
+      // Poke Python for current design state.
       bridgeRef.current.send('get_design_state', {});
     }
   }, []);
 
-  // Tell Python the API key whenever it changes.
+  // Bridge the token to Python whenever it changes.
   useEffect(() => {
     if (!token) return;
     bridgeRef.current?.send('set_api_key', { key: token });
   }, [token]);
 
-  // Tell Python which project is selected.
+  // Bridge selected project to Python.
   useEffect(() => {
     if (!selectedId) return;
     bridgeRef.current?.send('project_changed', { project_id: selectedId });
   }, [selectedId]);
 
-  // ---- Project list refresh
+  // ---- Data
   const refreshProjects = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await fetchWithAuth('/api/projects?limit=50', token);
+      const r = await fetchWithAuth('/api/projects?limit=100', token);
       if (r.status === 401) { setConnection('unauthorized'); return; }
       if (!r.ok) { setConnection('retrying'); return; }
       const j = await r.json();
-      setProjects(j.projects ?? []);
-      if (selectedId == null && j.activeId) setSelectedId(j.activeId);
+      const cad = (j.projects ?? []).filter((p: Project) => p.type === 'cad');
+      setProjects(cad);
+      if (selectedId == null && cad.length > 0) setSelectedId(cad[0].id);
       setConnection('healthy');
     } catch { setConnection('disconnected'); }
   }, [token, selectedId]);
@@ -256,22 +237,20 @@ export default function FusionPalette() {
       const r = await fetchWithAuth(`/api/projects/${selectedId}`, token);
       if (r.status === 401) { setConnection('unauthorized'); return; }
       if (!r.ok) { setConnection('retrying'); return; }
-      const j = await r.json();
-      setDetail(j);
+      setDetail(await r.json());
       setConnection('healthy');
     } catch { setConnection('disconnected'); }
   }, [token, selectedId]);
 
   useEffect(() => { void refreshProjects(); }, [refreshProjects]);
   useEffect(() => {
-    refreshDetailRef.current = refreshDetail;
+    refreshRef.current = { projects: refreshProjects, detail: refreshDetail };
     void refreshDetail();
-    const t = setInterval(refreshDetail, POLL_MS);
+    const t = setInterval(() => { void refreshProjects(); void refreshDetail(); }, POLL_MS);
     return () => clearInterval(t);
-  }, [refreshDetail]);
+  }, [refreshProjects, refreshDetail]);
 
   // ---- Actions
-
   const triggerWitness = useCallback(() => {
     if (!bridgeRef.current) { setErrorMsg('Fusion bridge not detected.'); return; }
     setErrorMsg(null);
@@ -280,434 +259,290 @@ export default function FusionPalette() {
 
   const triggerCheckpoint = useCallback(() => {
     if (!bridgeRef.current) { setErrorMsg('Fusion bridge not detected.'); return; }
-    if (!selectedId) { setErrorMsg('No project bound.'); return; }
+    if (!selectedId) { setErrorMsg('No project selected.'); return; }
     setErrorMsg(null);
     bridgeRef.current.send('checkpoint', { project_id: selectedId });
   }, [selectedId]);
 
   const triggerLock = useCallback(() => {
     if (!bridgeRef.current) { setErrorMsg('Fusion bridge not detected.'); return; }
-    if (!selectedId) { setErrorMsg('No project bound.'); return; }
+    if (!selectedId) { setErrorMsg('No project selected.'); return; }
     setErrorMsg(null);
     bridgeRef.current.send('lock_chain', { project_id: selectedId, tier: 'pinned' });
   }, [selectedId]);
 
   const openInSystemBrowser = useCallback((path: string) => {
-    // Payment / plan / receipts / account management all go through the
-    // user's real browser — Stripe Elements + Google/Autodesk OAuth need
-    // a proper browser (embedded webviews are blocked or degraded).
     bridgeRef.current?.send('open_browser', { url: path });
   }, []);
 
-  const startTracking = useCallback(async () => {
-    if (!token) return;
-    const name = designName || `Fusion design ${new Date().toISOString().slice(0, 10)}`;
-    try {
-      const r = await fetchWithAuth('/api/projects', token, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, kind: 'cad' }),
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
-      const newId = j.project?.id ?? j.id;
-      if (newId) {
-        setSelectedId(newId);
-        bridgeRef.current?.send('bind_project', { project_id: newId });
-        await refreshProjects();
-      }
-    } catch (e) {
-      setErrorMsg(`Could not start tracking: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }, [token, designName, refreshProjects]);
-
-  // -------------------------------------------------------- render
-
-  // NOT SIGNED IN — show simple signin CTA
+  // ---- Render: not signed in
   if (!token) {
     return (
-      <div style={style.pane}>
-        <header style={style.header}>
-          <strong style={{ fontSize: 14 }}>Scruple</strong>
-        </header>
-        <p style={{ ...style.muted, marginTop: 20 }}>
-          Sign in to track your Fusion designs.
-        </p>
-        <button
-          style={{ ...style.primaryBtn, marginTop: 12 }}
-          onClick={() => {
-            window.location.href = '/api/auth/keys/fusion-mint?next=/embed/fusion';
-          }}
-        >
-          Sign in with Scruple
-        </button>
-        <p style={{ ...style.muted, marginTop: 20, fontSize: 11 }}>
-          Signing in creates a Scruple account. Payment methods and plan
-          setup happen at scruple.ai in your browser.
-        </p>
-        <details style={{ marginTop: 24 }}>
-          <summary style={{ ...style.muted, cursor: 'pointer', fontSize: 11 }}>
-            Developer: paste API key
-          </summary>
-          <input
-            type="password"
-            placeholder="sk_test_…"
-            style={{ ...style.input, marginTop: 8 }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                const v = (e.target as HTMLInputElement).value.trim();
-                if (v.startsWith('sk_')) {
-                  try { localStorage.setItem('scruple.fusion.api_key', v); } catch {}
-                  setToken(v);
-                }
-              }
+      <div className="flex min-h-screen items-center justify-center bg-scruple-bg p-6">
+        <div className="w-full max-w-sm rounded-lg border border-scruple-border bg-scruple-surface p-8">
+          <h1 className="text-lg font-bold tracking-widest text-scruple-accent-primary">SCRUPLE</h1>
+          <p className="mt-1 text-xs text-scruple-muted">Studio for Autodesk Fusion</p>
+          <p className="mt-6 text-sm text-scruple-muted">
+            Sign in to start tracking your Fusion designs.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = '/api/auth/keys/fusion-mint?next=/embed/fusion';
             }}
-          />
-        </details>
-      </div>
-    );
-  }
-
-  // NO PROJECT BOUND — show "start tracking" CTA
-  if (!selectedId) {
-    return (
-      <div style={style.pane}>
-        <PaletteHeader connection={connection} />
-        <section style={{ marginTop: 20 }}>
-          <div style={{ ...style.muted, fontSize: 11 }}>Current design</div>
-          <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>
-            {designName || '(no active design)'}
-          </div>
-        </section>
-        <p style={{ ...style.muted, marginTop: 20 }}>
-          This design isn't being tracked yet.
-        </p>
-        <button
-          style={{ ...style.primaryBtn, marginTop: 8 }}
-          disabled={!designName}
-          onClick={startTracking}
-        >
-          Start tracking this design
-        </button>
-        <div style={{ marginTop: 24 }}>
-          <div style={{ ...style.muted, fontSize: 11 }}>
-            Or select an existing project:
-          </div>
-          <select
-            style={{ ...style.select, marginTop: 6 }}
-            value=""
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (Number.isFinite(n) && n > 0) {
-                setSelectedId(n);
-                bridgeRef.current?.send('bind_project', { project_id: n });
-              }
-            }}
+            className="mt-4 flex h-10 w-full items-center justify-center gap-3 rounded border border-[#8e918f] bg-[#131314] px-3 font-['Roboto',_'Inter',_system-ui,_sans-serif] text-sm font-medium text-white hover:bg-[#1f2123]"
+            style={{ letterSpacing: '0.25px' }}
           >
-            <option value="">— pick project —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+            Sign in with Google
+          </button>
+          <p className="mt-6 text-[10px] text-scruple-muted">
+            One-time sign-in. Scruple stays live in Fusion after that.
+          </p>
         </div>
-        <Footer openInSystemBrowser={openInSystemBrowser} />
       </div>
     );
   }
 
-  // BOUND — the main project card view
-  const project = detail?.project;
+  // ---- Render: signed in — Studio-style shell
+  const activeProject = detail?.project;
   const iterations = detail?.iterations ?? [];
-  const lastWitnessed = iterations.length > 0 ? iterations[iterations.length - 1] : null;
-  const lastLeafTimestamp = lastWitnessed?.timestamp ?? null;
-  const status: ProjectStatus = project?.status ?? 'unlocked';
-  const isLocked = status !== 'unlocked' && status !== 'checkpointed';
+  const isLocked = activeProject &&
+    activeProject.status !== 'unlocked' &&
+    activeProject.status !== 'checkpointed';
 
   return (
-    <div style={style.pane}>
-      <PaletteHeader connection={connection} />
+    <div className="grid h-screen grid-rows-[40px_1fr] bg-scruple-bg text-scruple-text">
+      {/* Top bar */}
+      <header className="flex items-center justify-between border-b border-scruple-border bg-scruple-surface px-4">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-bold tracking-widest text-scruple-accent-primary">SCRUPLE</span>
+          <span className="text-[10px] text-scruple-muted">Studio for Autodesk Fusion</span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
+          <ConnectionDot state={connection} />
+          {designName && (
+            <>
+              <span className="text-scruple-muted">·</span>
+              <span>Fusion doc: <span className="text-scruple-text">{designName}</span></span>
+            </>
+          )}
+        </div>
+      </header>
 
-      {/* Project card */}
-      <section style={style.card}>
-        <div style={style.projectName}>
-          {project?.name ?? designName ?? 'Loading…'}
-        </div>
-        <div style={{ ...style.pill, background: statusColor(status), color: '#0b0b0c' }}>
-          {statusLabel(status)}
-        </div>
-      </section>
-
-      {/* Stats row */}
-      <section style={style.statsRow}>
-        <div style={style.statCell}>
-          <div style={style.statValue}>{detail?.iterationCount ?? 0}</div>
-          <div style={style.statLabel}>Leaves</div>
-        </div>
-        <div style={style.statCell}>
-          <div style={style.statValue}>{relativeTime(lastLeafTimestamp)}</div>
-          <div style={style.statLabel}>Last witnessed</div>
-        </div>
-        <div style={style.statCell}>
-          <div style={style.statValue}>{relativeTime(lastSavedAt)}</div>
-          <div style={style.statLabel}>Last save</div>
-        </div>
-      </section>
-
-      {/* Recent leaves */}
-      {iterations.length > 0 && (
-        <section style={{ marginTop: 16 }}>
-          <div style={style.sectionLabel}>Recent leaves</div>
-          <ul style={style.leafList}>
-            {iterations.slice(-4).reverse().map((it) => (
-              <li key={it.id} style={style.leafItem}>
-                <span style={style.seq}>#{it.run_sequence}</span>
-                <code style={style.hash}>{shortHash(it.leaf_hash)}</code>
-                <span style={style.leafTime}>{relativeTime(it.timestamp)}</span>
+      {/* Two-pane body: sidebar + workspace */}
+      <div className="grid grid-cols-[240px_1fr] overflow-hidden">
+        {/* Sidebar: CAD projects */}
+        <aside className="flex flex-col overflow-hidden border-r border-scruple-border bg-scruple-surface">
+          <div className="border-b border-scruple-border px-4 py-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
+              Fusion projects
+            </div>
+            <div className="mt-1 text-xs text-scruple-muted">
+              {projects.length} tracked
+            </div>
+          </div>
+          <ul className="flex-1 overflow-y-auto">
+            {projects.length === 0 && (
+              <li className="px-4 py-6 text-xs text-scruple-muted">
+                No Fusion projects yet.
+                <div className="mt-2 text-[11px] leading-relaxed">
+                  Save a design in Fusion (Ctrl+S). It'll appear here automatically.
+                </div>
               </li>
-            ))}
+            )}
+            {projects.map((p) => {
+              const active = p.id === selectedId;
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(p.id)}
+                    className={`flex w-full flex-col items-start gap-1 border-l-2 px-4 py-2 text-left transition-colors ${
+                      active
+                        ? 'border-scruple-accent-primary bg-scruple-bg'
+                        : 'border-transparent hover:bg-scruple-bg/50'
+                    }`}
+                  >
+                    <div className="w-full truncate text-sm font-medium">{p.name}</div>
+                    <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
+                      <span>{p.iteration_count} leaves</span>
+                      <span>·</span>
+                      <span>{relativeTime(p.updated_at)}</span>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
-        </section>
-      )}
+          <div className="border-t border-scruple-border px-4 py-3">
+            <a
+              href="/settings/billing"
+              onClick={(e) => { e.preventDefault(); openInSystemBrowser('/settings/billing'); }}
+              className="block text-[11px] text-sky-400 hover:underline"
+            >
+              Payment & plan ↗
+            </a>
+          </div>
+        </aside>
 
-      {/* SCR-ID if chain locked */}
-      {project?.scr_id && (
-        <section style={{ marginTop: 12 }}>
-          <div style={style.sectionLabel}>SCR-ID</div>
-          <a
-            href={`/receipt/${project.scr_id}`}
-            onClick={(e) => {
-              e.preventDefault();
-              openInSystemBrowser(`/receipt/${project.scr_id}`);
-            }}
-            style={{ ...style.link, fontFamily: 'ui-monospace, Menlo, monospace' }}
-          >
-            {project.scr_id} ↗
-          </a>
-        </section>
-      )}
+        {/* Workspace: active project detail */}
+        <main className="flex flex-col overflow-hidden">
+          {!activeProject ? (
+            <div className="flex h-full items-center justify-center p-8">
+              <div className="max-w-md text-center">
+                <h2 className="text-lg font-light">
+                  {projects.length === 0 ? 'No projects yet' : 'No project selected'}
+                </h2>
+                <p className="mt-2 text-sm text-scruple-muted">
+                  {projects.length === 0
+                    ? 'Save a design in Fusion — Scruple will pick it up automatically.'
+                    : 'Pick a project from the sidebar.'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Project header */}
+              <div className="flex items-center justify-between border-b border-scruple-border bg-scruple-surface px-6 py-3">
+                <div>
+                  <h1 className="text-base font-medium">{activeProject.name}</h1>
+                  <div className="mt-1 flex items-center gap-3 text-[11px] text-scruple-muted">
+                    <span className={`inline-block rounded border px-2 py-[1px] font-mono ${statusColor(activeProject.status)}`}>
+                      {statusLabel(activeProject.status)}
+                    </span>
+                    {activeProject.pre_scr_id && (
+                      <span>
+                        SCR-ID: <span className="font-mono text-scruple-text">{activeProject.pre_scr_id}</span>
+                      </span>
+                    )}
+                    {activeProject.scr_id && activeProject.scr_id !== activeProject.pre_scr_id && (
+                      <a
+                        href={`/receipt/${activeProject.scr_id}`}
+                        onClick={(e) => { e.preventDefault(); openInSystemBrowser(`/receipt/${activeProject.scr_id}`); }}
+                        className="font-mono text-sky-400 hover:underline"
+                      >
+                        Locked: {activeProject.scr_id} ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ActionBtn
+                    label={busy === 'witnessing' ? 'Witnessing…' : 'Witness'}
+                    onClick={triggerWitness}
+                    disabled={busy !== null || !!isLocked}
+                    variant="secondary"
+                  />
+                  <ActionBtn
+                    label={busy === 'checkpointing' ? 'Checkpointing…' : 'Checkpoint'}
+                    onClick={triggerCheckpoint}
+                    disabled={busy !== null || !!isLocked}
+                    variant="secondary"
+                  />
+                  <ActionBtn
+                    label={busy === 'locking' ? 'Locking…' : 'Lock & Anchor'}
+                    onClick={triggerLock}
+                    disabled={busy !== null || !!isLocked || (activeProject.iteration_count === 0)}
+                    variant="primary"
+                  />
+                </div>
+              </div>
 
-      {/* Action buttons */}
-      <section style={style.actions}>
-        <button
-          style={busy === 'witnessing' ? style.disabledBtn : style.primaryBtn}
-          disabled={busy !== null || isLocked}
-          onClick={triggerWitness}
-          title="Export the design + record a witness leaf now"
-        >
-          {busy === 'witnessing' ? 'Witnessing…' : 'Witness now'}
-        </button>
-        <button
-          style={busy === 'checkpointing' ? style.disabledBtn : style.secondaryBtn}
-          disabled={busy !== null || isLocked}
-          onClick={triggerCheckpoint}
-          title="Mid-chain checkpoint — snapshots the chain state locally"
-        >
-          {busy === 'checkpointing' ? 'Checkpointing…' : 'Checkpoint'}
-        </button>
-        <button
-          style={busy === 'locking' ? style.disabledBtn : style.secondaryBtn}
-          disabled={busy !== null || isLocked || (detail?.iterationCount ?? 0) === 0}
-          onClick={triggerLock}
-          title="Lock the chain to public ledgers — permanent"
-        >
-          {busy === 'locking' ? 'Locking…' : 'Lock & Anchor'}
-        </button>
-      </section>
+              {/* Iteration grid — witness leaves */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {iterations.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-center text-sm text-scruple-muted">
+                    No leaves yet. Save in Fusion or add a feature to record the first one.
+                  </div>
+                ) : (
+                  <div>
+                    <div className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
+                      Witnessed leaves ({iterations.length})
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {iterations.slice().reverse().map((it) => (
+                        <div
+                          key={it.id}
+                          className="flex items-center justify-between rounded border border-scruple-border bg-scruple-surface px-4 py-2 text-xs"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="w-10 text-right font-mono text-scruple-muted">#{it.run_sequence}</span>
+                            <code className="font-mono text-scruple-text">{it.leaf_hash.slice(0, 24)}…</code>
+                            {it.witnessed ? (
+                              <span className="rounded bg-emerald-500/20 px-1.5 py-[1px] text-[9px] text-emerald-300">
+                                signed
+                              </span>
+                            ) : (
+                              <span className="rounded bg-amber-500/20 px-1.5 py-[1px] text-[9px] text-amber-300">
+                                unsigned
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-scruple-muted">{relativeTime(it.timestamp)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-      {errorMsg && <div style={style.error}>{errorMsg}</div>}
-
-      <Footer openInSystemBrowser={openInSystemBrowser} />
+                {errorMsg && (
+                  <div className="mt-4 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">
+                    {errorMsg}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
 
-function PaletteHeader({ connection }: { connection: ConnectionState }) {
-  const label: Record<ConnectionState, string> = {
+function ConnectionDot({ state }: { state: ConnectionState }) {
+  const cls = {
+    connecting: 'bg-neutral-500',
+    healthy: 'bg-emerald-500',
+    retrying: 'bg-amber-500',
+    disconnected: 'bg-red-500',
+    unauthorized: 'bg-violet-500',
+  }[state];
+  const label = {
     connecting: 'Connecting',
     healthy: 'Connected',
     retrying: 'Retrying',
     disconnected: 'Offline',
     unauthorized: 'Sign in',
-  };
-  const color: Record<ConnectionState, string> = {
-    connecting: '#888',
-    healthy: '#22c55e',
-    retrying: '#eab308',
-    disconnected: '#ef4444',
-    unauthorized: '#a855f7',
-  };
+  }[state];
   return (
-    <header style={style.header}>
-      <strong style={{ fontSize: 13, letterSpacing: 0.3 }}>SCRUPLE</strong>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85 }}>
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: color[connection] }} />
-        {label[connection]}
-      </span>
-    </header>
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-1.5 w-1.5 rounded-full ${cls}`} />
+      {label}
+    </span>
   );
 }
 
-function Footer({ openInSystemBrowser }: { openInSystemBrowser: (path: string) => void }) {
+function ActionBtn({
+  label, onClick, disabled, variant,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: 'primary' | 'secondary';
+}) {
+  const base = 'rounded px-3 py-1.5 text-xs font-medium transition-colors';
+  const enabled = variant === 'primary'
+    ? 'bg-scruple-accent-primary text-black hover:opacity-90'
+    : 'border border-scruple-border text-scruple-text hover:border-scruple-accent';
+  const disabledCls = 'cursor-not-allowed border border-scruple-border bg-scruple-surface text-scruple-muted';
   return (
-    <footer style={style.footer}>
-      <a
-        href="/settings/billing"
-        onClick={(e) => { e.preventDefault(); openInSystemBrowser('/settings/billing'); }}
-        style={style.link}
-      >
-        Payment & plan ↗
-      </a>
-      <a
-        href="/projects"
-        onClick={(e) => { e.preventDefault(); openInSystemBrowser('/projects'); }}
-        style={style.link}
-      >
-        All projects ↗
-      </a>
-    </footer>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`${base} ${disabled ? disabledCls : enabled}`}
+    >
+      {label}
+    </button>
   );
 }
-
-// ------------------------------------------------------------------ styles
-
-const style = {
-  pane: {
-    fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-    padding: 14,
-    background: '#0b0b0c',
-    color: '#e6e6e6',
-    minHeight: '100vh',
-    fontSize: 13,
-  } as React.CSSProperties,
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: 10,
-    borderBottom: '1px solid #232325',
-  } as React.CSSProperties,
-  card: {
-    marginTop: 14,
-    padding: 12,
-    background: '#141416',
-    border: '1px solid #232325',
-    borderRadius: 6,
-  } as React.CSSProperties,
-  projectName: {
-    fontSize: 15,
-    fontWeight: 600,
-    marginBottom: 6,
-    lineHeight: 1.3,
-    wordBreak: 'break-word' as const,
-  } as React.CSSProperties,
-  pill: {
-    display: 'inline-block',
-    fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase' as const,
-    padding: '2px 8px',
-    borderRadius: 999,
-  } as React.CSSProperties,
-  statsRow: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr',
-    gap: 6,
-    marginTop: 12,
-  } as React.CSSProperties,
-  statCell: {
-    background: '#141416',
-    border: '1px solid #232325',
-    borderRadius: 6,
-    padding: '8px 6px',
-    textAlign: 'center' as const,
-  } as React.CSSProperties,
-  statValue: { fontSize: 13, fontWeight: 700 } as React.CSSProperties,
-  statLabel: { fontSize: 10, color: '#7a7a7c', marginTop: 2 } as React.CSSProperties,
-  sectionLabel: {
-    fontSize: 10,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-    color: '#7a7a7c',
-    marginBottom: 6,
-  } as React.CSSProperties,
-  leafList: { listStyle: 'none', padding: 0, margin: 0 } as React.CSSProperties,
-  leafItem: {
-    display: 'grid',
-    gridTemplateColumns: 'auto 1fr auto',
-    gap: 8,
-    padding: '4px 0',
-    fontSize: 11,
-    borderBottom: '1px dashed #1f1f22',
-    alignItems: 'center',
-  } as React.CSSProperties,
-  seq: { color: '#7a7a7c', fontVariantNumeric: 'tabular-nums' as const } as React.CSSProperties,
-  hash: { fontFamily: 'ui-monospace, Menlo, monospace', color: '#c4c4c8', fontSize: 11 } as React.CSSProperties,
-  leafTime: { color: '#7a7a7c', fontSize: 10 } as React.CSSProperties,
-  actions: { display: 'grid', gap: 6, marginTop: 16 } as React.CSSProperties,
-  primaryBtn: {
-    padding: '10px 12px',
-    background: '#00e5aa',
-    color: '#0b0b0c',
-    border: 'none',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontWeight: 700,
-    fontSize: 13,
-  } as React.CSSProperties,
-  secondaryBtn: {
-    padding: '10px 12px',
-    background: 'transparent',
-    color: '#e6e6e6',
-    border: '1px solid #3a3a3d',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontWeight: 600,
-    fontSize: 13,
-  } as React.CSSProperties,
-  disabledBtn: {
-    padding: '10px 12px',
-    background: '#2a2a2d',
-    color: '#5a5a5d',
-    border: 'none',
-    borderRadius: 4,
-    cursor: 'not-allowed',
-    fontWeight: 600,
-    fontSize: 13,
-  } as React.CSSProperties,
-  select: {
-    width: '100%',
-    padding: '6px 8px',
-    background: '#1a1a1d',
-    color: '#e6e6e6',
-    border: '1px solid #2a2a2d',
-    borderRadius: 4,
-  } as React.CSSProperties,
-  input: {
-    width: '100%',
-    padding: '6px 8px',
-    background: '#1a1a1d',
-    color: '#e6e6e6',
-    border: '1px solid #2a2a2d',
-    borderRadius: 4,
-    boxSizing: 'border-box' as const,
-  } as React.CSSProperties,
-  muted: { color: '#9a9a9c', fontSize: 12 } as React.CSSProperties,
-  error: {
-    marginTop: 10,
-    background: '#3b1010',
-    color: '#fca5a5',
-    padding: 8,
-    borderRadius: 4,
-    fontSize: 11,
-  } as React.CSSProperties,
-  footer: {
-    marginTop: 24,
-    paddingTop: 12,
-    borderTop: '1px solid #232325',
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: 11,
-  } as React.CSSProperties,
-  link: { color: '#7dd3fc', textDecoration: 'none' } as React.CSSProperties,
-};

@@ -117,6 +117,58 @@ if _IN_FUSION:
                 "trace": traceback.format_exc(),
             })
 
+    class _DocActivatedHandler(adsk.core.DocumentEventHandler):
+        """documentActivated fires when a document becomes the active one
+        in Fusion (opened from Fusion Team, switched to a different tab,
+        etc). If the design is already saved AND has no Scruple binding
+        yet, we auto-bind and take an initial witness of the current state.
+
+        This is how existing designs get picked up — no user action needed,
+        no batch scan required. Every existing design the user opens gets
+        tracked as they encounter it. Honest receipt: the first leaf is
+        a snapshot of "state at first observation," not a build history.
+        """
+        def __init__(self, app, ui):
+            super().__init__()
+            self._app = app
+            self._ui = ui
+
+        def notify(self, args):
+            try:
+                # Give the palette a beat to load + hand us the API key
+                # in case Fusion just started up. If we don't have a
+                # client yet, skip — user will get the design bound
+                # on the next save or activation.
+                if _client_for(_state) is None:
+                    return
+                design = adsk.fusion.Design.cast(self._app.activeProduct)
+                if design is None:
+                    return
+                # Only auto-bind saved designs; brand-new unsaved ones wait
+                # for their first save (Fusion's normal name-your-file dialog).
+                try:
+                    doc = args.document if hasattr(args, 'document') else self._app.activeDocument
+                    if not getattr(doc, 'isSaved', True):
+                        return
+                except Exception:
+                    pass
+                # Already bound? nothing to do.
+                existing = design.attributes.itemByName("Scruple", "project_id")
+                if existing and existing.value:
+                    try:
+                        _state.active_project_id = int(existing.value)
+                    except Exception:
+                        pass
+                    return
+                # Unbound saved design — bind + take an initial witness.
+                _auto_bind_project_on_save(self._app, self._ui)
+                try:
+                    self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
     class _DocSavedHandler(adsk.core.DocumentEventHandler):
         """documentSaved → auto-bind Scruple project if not bound yet, then
         fire the witness tick.
@@ -371,41 +423,20 @@ if _IN_FUSION:
 
             panel = workspace.toolbarPanels.add(TOOLBAR_PANEL_ID, TOOLBAR_PANEL_NAME)
 
-            # Show Scruple palette
+            # Single Scruple button — opens the palette. All witness /
+            # checkpoint / lock actions live INSIDE the palette, not on
+            # the toolbar. This matches the "toolbar is a launcher, palette
+            # is the product" mental model.
             show_def = ui.commandDefinitions.addButtonDefinition(
                 CMD_SHOW_PALETTE,
                 "Scruple",
-                "Open the Scruple Studio palette",
-                "",
+                "Open Scruple Studio for Autodesk Fusion",
+                "",  # TODO: 16/32 PNG icons in Scruple teal on dark
             )
             show_handler = _ShowPaletteHandler(app, ui)
             show_def.commandCreated.add(show_handler)
             _handlers.append(show_handler)
             panel.controls.addCommand(show_def)
-
-            # Witness now
-            wit_def = ui.commandDefinitions.addButtonDefinition(
-                CMD_WITNESS_NOW,
-                "Witness now",
-                "Export the current design and record a witness leaf",
-                "",
-            )
-            wit_handler = _WitnessNowToolbarHandler(app)
-            wit_def.commandCreated.add(wit_handler)
-            _handlers.append(wit_handler)
-            panel.controls.addCommand(wit_def)
-
-            # Lock & Anchor
-            lock_def = ui.commandDefinitions.addButtonDefinition(
-                CMD_LOCK_ANCHOR,
-                "Lock && Anchor",
-                "Lock the chain to public ledgers (RVN + IPFS + Arweave)",
-                "",
-            )
-            lock_handler = _LockAnchorToolbarHandler(app, ui, palette_ref)
-            lock_def.commandCreated.add(lock_handler)
-            _handlers.append(lock_handler)
-            panel.controls.addCommand(lock_def)
 
         except Exception:
             try:
@@ -759,11 +790,18 @@ def run(context):
         _palette = palette_host.create_palette(app, ui)
         palette_ref[0] = _palette
 
-        # 2. documentSaved → auto-bind Scruple project on first save (using
-        #    the Fusion filename as the project name), then fire witness.
+        # 2a. documentSaved → auto-bind Scruple project on first save (using
+        #     the Fusion filename as the project name), then fire witness.
         on_saved = _DocSavedHandler(app, ui)
         app.documentSaved.add(on_saved)
         _handlers.append(on_saved)
+
+        # 2b. documentActivated → auto-bind any previously-saved design
+        #     that has no Scruple binding yet. Picks up the user's
+        #     existing designs organically as they open them.
+        on_activated = _DocActivatedHandler(app, ui)
+        app.documentActivated.add(on_activated)
+        _handlers.append(on_activated)
 
         # 3. Register the custom event + UI-thread handler that actually
         # runs the witness flow when the daemon thread fires the tick.

@@ -19,7 +19,10 @@ from typing import Any, Callable, Optional
 
 PALETTE_ID = "scruple_main_palette"
 PALETTE_NAME = "Scruple Studio for Autodesk Fusion"
-DEFAULT_EMBED_URL = os.environ.get("SCRUPLE_EMBED_URL", "https://scruple.stooges.ai/")
+DEFAULT_EMBED_URL = os.environ.get(
+    "SCRUPLE_EMBED_URL",
+    "https://scruple.stooges.ai/api/auth/keys/fusion-mint?next=/embed/fusion",
+)
 
 URL_SCHEME = "scruple-fusion"
 LOCAL_CALLBACK_PORT_ENV = "SCRUPLE_FUSION_CALLBACK_PORT"
