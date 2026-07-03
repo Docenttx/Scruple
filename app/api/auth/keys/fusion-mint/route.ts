@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/auth';
 import { issueApiKey } from '@/lib/auth/apiKey';
-import { conn } from '@/lib/db/sqlite';
+// import { conn } from '@/lib/db/sqlite'; // re-enable with onboarding gate
 
 export const dynamic = 'force-dynamic';
 
@@ -71,19 +71,22 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const next = safeNext(url.searchParams.get('next'));
 
-  // First-run check: if the user hasn't completed onboarding, route them
-  // through /onboarding first.
-  const row = conn()
-    .prepare('SELECT onboarded_at FROM users WHERE id = ?')
-    .get(userId) as { onboarded_at: string | null } | undefined;
-  if (!row?.onboarded_at) {
-    const onboardingUrl = new URL('/onboarding', origin);
-    onboardingUrl.searchParams.set(
-      'next',
-      `/api/auth/keys/fusion-mint?next=${encodeURIComponent(next)}`,
-    );
-    return NextResponse.redirect(onboardingUrl);
-  }
+  // Onboarding / "pick a plan" gate is PARKED (2026-07-03). fusion-mint
+  // used to bounce un-onboarded users through /onboarding, but pricing/tier
+  // deployment isn't decided yet — see memory
+  // project_scruple_fusion_fork_2026_07_03. Any authenticated user gets a
+  // key. Re-enable this block once plan gating is designed.
+  // const row = conn()
+  //   .prepare('SELECT onboarded_at FROM users WHERE id = ?')
+  //   .get(userId) as { onboarded_at: string | null } | undefined;
+  // if (!row?.onboarded_at) {
+  //   const onboardingUrl = new URL('/onboarding', origin);
+  //   onboardingUrl.searchParams.set(
+  //     'next',
+  //     `/api/auth/keys/fusion-mint?next=${encodeURIComponent(next)}`,
+  //   );
+  //   return NextResponse.redirect(onboardingUrl);
+  // }
 
   const issued = issueApiKey(userId, {
     label: `fusion-addin (${new Date().toISOString().slice(0, 10)})`,
