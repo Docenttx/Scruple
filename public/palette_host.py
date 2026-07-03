@@ -18,7 +18,7 @@ import threading
 from typing import Any, Callable, Optional
 
 PALETTE_ID = "scruple_main_palette"
-PALETTE_NAME = "Scruple"
+PALETTE_NAME = "Scruple Studio for Autodesk Fusion"
 DEFAULT_EMBED_URL = os.environ.get("SCRUPLE_EMBED_URL", "https://scruple.stooges.ai/")
 
 URL_SCHEME = "scruple-fusion"

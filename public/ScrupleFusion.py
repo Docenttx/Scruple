@@ -138,6 +138,51 @@ if _IN_FUSION:
             except Exception:
                 pass
 
+    class _CommandTerminatedHandler(adsk.core.ApplicationCommandEventHandler):
+        """Fires after every Fusion command completes. If the timeline
+        grew since the last observation, a feature was added and we
+        witness the design state. This is the core per-edit witnessing.
+
+        Filters out commands that don't touch the timeline (Zoom, Orbit,
+        selection, etc.) by comparing timeline.count. Only witnesses when
+        the count increased.
+
+        Parametric mode is required — Direct mode has no timeline.
+        """
+        def __init__(self, app):
+            super().__init__()
+            self._app = app
+            self._last_count = 0
+
+        def notify(self, args):
+            try:
+                design = adsk.fusion.Design.cast(self._app.activeProduct)
+                if design is None:
+                    return
+                if design.designType != adsk.fusion.DesignTypes.ParametricDesignType:
+                    return
+                try:
+                    count = design.timeline.count
+                except Exception:
+                    return
+                if count > self._last_count:
+                    self._last_count = count
+                    try:
+                        self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
+                    except Exception:
+                        pass
+                elif count < self._last_count:
+                    # Timeline shrank (delete / suppress). Record it as a
+                    # negative event by witnessing the current state anyway.
+                    # The chain reveals the deletion honestly.
+                    self._last_count = count
+                    try:
+                        self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
     def _do_checkpoint(app, ui, palette):
         """Mid-tier lock — checkpoint the chain. Uses same dev test-pay
         path as _do_lock. Real Stripe Checkout handoff lands after Probe 5.5.
@@ -213,6 +258,103 @@ if _IN_FUSION:
         except Exception:
             pass
 
+    def _ensure_parametric(design, ui) -> bool:
+        """If the design is in Direct modeling mode, prompt to switch to
+        Parametric so the timeline is populated. Returns True if parametric
+        by the time we return, False if user declined.
+        """
+        try:
+            if design.designType == adsk.fusion.DesignTypes.ParametricDesignType:
+                return True
+            btn = adsk.core.MessageBoxButtonTypes.YesNoButtonType
+            result = ui.messageBox(
+                "Scruple needs Design History (Parametric mode) to witness "
+                "every edit as a distinct event.\n\n"
+                "Switch this design to Parametric mode now?",
+                "Scruple — Enable Design History",
+                btn,
+            )
+            if result == adsk.core.DialogResults.DialogYes:
+                design.designType = adsk.fusion.DesignTypes.ParametricDesignType
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _prompt_and_bind_project(app, ui):
+        """If no Scruple project is bound to the active design, prompt the
+        user for a project name, create the project on the server, write
+        the project_id + pre_scr_id back to design.attributes, and force
+        Parametric mode. Idempotent — no-op if already bound.
+
+        Called on first successful set_api_key (so we have credentials).
+        """
+        try:
+            client = _client_for(_state)
+            if client is None:
+                return None
+            design = adsk.fusion.Design.cast(app.activeProduct)
+            if design is None:
+                return None
+            existing = design.attributes.itemByName("Scruple", "project_id")
+            if existing and existing.value:
+                # Already bound — just ensure parametric + reset command counter.
+                _ensure_parametric(design, ui)
+                return int(existing.value)
+
+            default_name = ""
+            try:
+                default_name = app.activeDocument.name or ""
+            except Exception:
+                pass
+            default_name = default_name or "My Fusion project"
+
+            (name_input, cancelled) = ui.inputBox(
+                "Enter a project name for Scruple to track this design under. "
+                "Every save and every feature you add will be witnessed and "
+                "chained under this name.",
+                "Scruple Studio for Fusion — Start tracking",
+                default_name,
+            )
+            if cancelled:
+                return None
+            name = (name_input or "").strip() or default_name
+
+            _ensure_parametric(design, ui)
+
+            proj = client.create_project(name=name, kind="cad")
+            pid = int(proj.get("id"))
+            pre_scr_id = proj.get("pre_scr_id") or proj.get("preScrId") or ""
+
+            design.attributes.add("Scruple", "project_id", str(pid))
+            design.attributes.add("Scruple", "project_name", name)
+            if pre_scr_id:
+                design.attributes.add("Scruple", "pre_scr_id", pre_scr_id)
+
+            _state.active_project_id = pid
+
+            summary = (
+                f"Scruple is now tracking this design.\n\n"
+                f"Project: {name}\n"
+                f"Project ID: {pid}\n"
+            )
+            if pre_scr_id:
+                summary += f"SCR-ID (pre-lock): {pre_scr_id}\n"
+            summary += (
+                "\nEvery command that adds to the timeline will be witnessed.\n"
+                "Save (Ctrl+S) any time to force an immediate witness."
+            )
+            ui.messageBox(summary, "Scruple — Tracking started")
+            return pid
+        except Exception:
+            try:
+                ui.messageBox(
+                    "Scruple project setup failed:\n\n" + traceback.format_exc()
+                )
+            except Exception:
+                pass
+            return None
+
     class _PaletteMsgHandler(adsk.core.HTMLEventHandler):
         """JS → Python message dispatcher.
 
@@ -245,7 +387,12 @@ if _IN_FUSION:
                 if action == "set_api_key":
                     key = (data.get("key") or "").strip()
                     if key.startswith("sk_"):
+                        was_none = _state.api_key is None
                         _state.api_key = key
+                        # First time we get an API key → check if the
+                        # active design needs a Scruple project name.
+                        if was_none:
+                            _prompt_and_bind_project(self._app, self._ui)
 
                 elif action == "get_design_state":
                     state = _get_design_state(self._app)
@@ -469,6 +616,18 @@ def run(context):
 
         # 6. Start the ambient auto-witness loop (5-min default).
         _auto_witness_thread = auto_witness.start(app, ui, _palette)
+
+        # 6b. Hook commandTerminated → witness on every timeline growth.
+        # This is the "witness every edit" behavior — every extrude,
+        # fillet, sketch, etc. that adds a node to the timeline fires
+        # an immediate witness. Non-timeline commands (zoom, orbit,
+        # selection) don't trigger because timeline.count doesn't change.
+        try:
+            cmd_handler = _CommandTerminatedHandler(app)
+            app.commandTerminated.add(cmd_handler)
+            _handlers.append(cmd_handler)
+        except Exception:
+            pass
 
         # 7. Register custom URL scheme handler (for payment callbacks).
         _url_scheme_server = palette_host.register_url_scheme_handler(app, ui, _palette)

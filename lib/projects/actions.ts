@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { conn } from '@/lib/db/sqlite';
 import { auth } from '@/lib/auth/auth';
+import { deriveScrId, sha256Hex } from '@/lib/scruple/hash';
 import type { ProjectRow, ProjectType, IterationRow, MerkleNodeRow, TrainingRunRow } from '@/lib/types';
 
 async function userId(): Promise<string> {
@@ -143,9 +144,22 @@ export async function createProjectAs(
       `INSERT INTO projects (user_id, name, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
     )
     .run(uid, parsed.name, parsed.type, now, now);
+  const projectId = Number(result.lastInsertRowid);
+
+  // Derive a pre_scr_id at creation time so the project has a stable
+  // SCR-ID identifier from the moment it's named — even before any
+  // witness or lock. Canonical SCR-ID (from merkle root at chain-lock)
+  // supersedes this, but pre_scr_id lets us display an identifier
+  // immediately in the Fusion palette, on the project list, etc.
+  const preScrIdSeed = `${uid}:${projectId}:${parsed.name}:${now}`;
+  const preScrId = deriveScrId(sha256Hex(preScrIdSeed));
+  conn()
+    .prepare(`UPDATE projects SET pre_scr_id = ? WHERE id = ?`)
+    .run(preScrId, projectId);
+
   const row = conn()
     .prepare(`SELECT * FROM projects WHERE id = ?`)
-    .get(result.lastInsertRowid) as ProjectRow;
+    .get(projectId) as ProjectRow;
   revalidatePath('/');
   return row;
 }

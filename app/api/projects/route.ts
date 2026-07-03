@@ -71,9 +71,16 @@ export async function POST(req: NextRequest) {
   const type = body.kind ?? body.type;
   try {
     const project = await createProjectAs(me.id, { name: body.name, type });
-    // The Python client expects { id, name, status, ... } at the top level
-    // when reading the response. Echo flat as well as wrapped for compat.
-    return NextResponse.json({ ok: true, project, ...project });
+    // The Python client expects { id, name, status, pre_scr_id, ... } at
+    // the top level when reading the response. Echo flat as well as
+    // wrapped for compat. Also alias pre_scr_id → preScrId (camelCase)
+    // so the JS UI can read it either way.
+    return NextResponse.json({
+      ok: true,
+      project,
+      ...project,
+      preScrId: project.pre_scr_id,
+    });
   } catch (e) {
     return NextResponse.json(
       { error: 'Create failed', detail: e instanceof Error ? e.message : String(e) },
