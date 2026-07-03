@@ -22,17 +22,23 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const search = (url.searchParams.get('q') ?? '').trim();
   const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit') ?? '200'), 500));
+  // archived: 'live' (default, is_archived=0) | 'only' (=1) | 'all' (no filter)
+  const archivedParam = (url.searchParams.get('archived') ?? 'live').toLowerCase();
+  const archiveWhere =
+    archivedParam === 'only' ? ' AND is_archived = 1'
+    : archivedParam === 'all' ? ''
+    : ' AND is_archived = 0';
 
   const projects = search
     ? (conn()
         .prepare(
-          `SELECT * FROM projects WHERE user_id = ? AND is_archived = 0 AND name LIKE ?
+          `SELECT * FROM projects WHERE user_id = ?${archiveWhere} AND name LIKE ?
            ORDER BY is_active DESC, updated_at DESC, created_at DESC LIMIT ?`,
         )
         .all(me.id, `%${search}%`, limit) as ProjectRow[])
     : (conn()
         .prepare(
-          `SELECT * FROM projects WHERE user_id = ? AND is_archived = 0
+          `SELECT * FROM projects WHERE user_id = ?${archiveWhere}
            ORDER BY is_active DESC, updated_at DESC, created_at DESC LIMIT ?`,
         )
         .all(me.id, limit) as ProjectRow[]);

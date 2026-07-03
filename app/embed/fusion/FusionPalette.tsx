@@ -184,6 +184,8 @@ export default function FusionPalette() {
   const [token, setToken] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionState>('connecting');
   const [projects, setProjects] = useState<Project[]>([]);
+  const [archivedProjects, setArchivedProjects] = useState<Project[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [busy, setBusy] = useState<'witnessing' | 'checkpointing' | 'locking' | null>(null);
@@ -347,16 +349,34 @@ export default function FusionPalette() {
   const refreshProjects = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await fetchWithAuth('/api/projects?limit=100', token);
-      if (r.status === 401) { setConnection('unauthorized'); return; }
-      if (!r.ok) { setConnection('retrying'); return; }
-      const j = await r.json();
-      const cad = (j.projects ?? []).filter((p: Project) => p.type === 'cad');
-      setProjects(cad);
-      if (selectedId == null && cad.length > 0) setSelectedId(cad[0].id);
+      const [live, archived] = await Promise.all([
+        fetchWithAuth('/api/projects?limit=500&archived=live', token),
+        fetchWithAuth('/api/projects?limit=500&archived=only', token),
+      ]);
+      if (live.status === 401 || archived.status === 401) { setConnection('unauthorized'); return; }
+      if (!live.ok || !archived.ok) { setConnection('retrying'); return; }
+      const jLive = await live.json();
+      const jArch = await archived.json();
+      const liveCad = (jLive.projects ?? []).filter((p: Project) => p.type === 'cad');
+      const archCad = (jArch.projects ?? []).filter((p: Project) => p.type === 'cad');
+      setProjects(liveCad);
+      setArchivedProjects(archCad);
+      if (selectedId == null && liveCad.length > 0) setSelectedId(liveCad[0].id);
       setConnection('healthy');
     } catch { setConnection('disconnected'); }
   }, [token, selectedId]);
+
+  const toggleArchive = useCallback(async (projectId: number, archive: boolean) => {
+    if (!token) return;
+    try {
+      await fetchWithAuth(`/api/projects/${projectId}/archive`, token, {
+        method: archive ? 'POST' : 'DELETE',
+      });
+      // If we just archived the selected one, drop the selection.
+      if (archive && selectedId === projectId) setSelectedId(null);
+      await refreshProjects();
+    } catch {}
+  }, [token, selectedId, refreshProjects]);
 
   const refreshDetail = useCallback(async () => {
     if (!token || !selectedId) return;
@@ -485,43 +505,38 @@ export default function FusionPalette() {
                 </div>
               </li>
             )}
-            {projects.map((p) => {
-              const active = p.id === selectedId;
-              return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(p.id)}
-                    className={`flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors ${
-                      active
-                        ? 'border-scruple-accent-primary bg-scruple-bg'
-                        : 'border-transparent hover:bg-scruple-bg/50'
-                    }`}
-                  >
-                    {p.thumbnail_b64 ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.thumbnail_b64}
-                        alt=""
-                        className="h-9 w-9 flex-shrink-0 rounded border border-scruple-border bg-black object-contain"
-                      />
-                    ) : (
-                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-dashed border-scruple-border bg-scruple-bg/50 text-[8px] text-scruple-muted">
-                        —
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="w-full truncate text-sm font-medium">{p.name}</div>
-                      <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
-                        <span>{p.iteration_count} leaves</span>
-                        <span>·</span>
-                        <span>{relativeTime(p.updated_at)}</span>
-                      </div>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+            {projects.map((p) => (
+              <SidebarRow
+                key={p.id}
+                p={p}
+                active={p.id === selectedId}
+                archived={false}
+                onSelect={() => setSelectedId(p.id)}
+                onToggleArchive={() => toggleArchive(p.id, true)}
+              />
+            ))}
+            {archivedProjects.length > 0 && (
+              <li className="mt-2 border-t border-scruple-border">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived((v) => !v)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-scruple-muted hover:bg-scruple-bg/50"
+                >
+                  <span>{showArchived ? '▼' : '▶'}</span>
+                  <span>Archived ({archivedProjects.length})</span>
+                </button>
+              </li>
+            )}
+            {showArchived && archivedProjects.map((p) => (
+              <SidebarRow
+                key={`arch-${p.id}`}
+                p={p}
+                active={false}
+                archived
+                onSelect={() => setSelectedId(p.id)}
+                onToggleArchive={() => toggleArchive(p.id, false)}
+              />
+            ))}
           </ul>
         </aside>
 
@@ -568,6 +583,63 @@ export default function FusionPalette() {
         </main>
       </div>
     </div>
+  );
+}
+
+function SidebarRow({
+  p,
+  active,
+  archived,
+  onSelect,
+  onToggleArchive,
+}: {
+  p: Project;
+  active: boolean;
+  archived: boolean;
+  onSelect: () => void;
+  onToggleArchive: () => void;
+}) {
+  return (
+    <li className="group relative">
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors ${
+          active
+            ? 'border-scruple-accent-primary bg-scruple-bg'
+            : 'border-transparent hover:bg-scruple-bg/50'
+        } ${archived ? 'opacity-60' : ''}`}
+      >
+        {p.thumbnail_b64 ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={p.thumbnail_b64}
+            alt=""
+            className="h-9 w-9 flex-shrink-0 rounded border border-scruple-border bg-black object-contain"
+          />
+        ) : (
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-dashed border-scruple-border bg-scruple-bg/50 text-[8px] text-scruple-muted">
+            —
+          </div>
+        )}
+        <div className="min-w-0 flex-1 pr-6">
+          <div className="w-full truncate text-sm font-medium">{p.name}</div>
+          <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
+            <span>{p.iteration_count} leaves</span>
+            <span>·</span>
+            <span>{relativeTime(p.updated_at)}</span>
+          </div>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onToggleArchive(); }}
+        title={archived ? 'Restore to live' : 'Archive'}
+        className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-scruple-border bg-scruple-surface px-1.5 py-0.5 text-[10px] text-scruple-muted hover:border-scruple-accent hover:text-scruple-text group-hover:block"
+      >
+        {archived ? '↺' : '⊘'}
+      </button>
+    </li>
   );
 }
 
