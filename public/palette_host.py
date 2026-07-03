@@ -53,8 +53,8 @@ def create_palette(app: Any, ui: Any, embed_url: Optional[str] = None) -> Any:
             True,          # isVisible
             True,          # showCloseButton
             True,          # isResizable
-            400,           # width
-            800,           # height
+            380,           # width
+            640,           # height
             True,          # useNewWebBrowser (modern Chromium)
         )
     except Exception as e:
@@ -66,7 +66,7 @@ def create_palette(app: Any, ui: Any, embed_url: Optional[str] = None) -> Any:
         try:
             pal = ui.palettes.add(
                 PALETTE_ID, PALETTE_NAME, url,
-                True, True, True, 400, 800, False,
+                True, True, True, 380, 640, False,
             )
         except Exception as e2:
             try:

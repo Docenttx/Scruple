@@ -1,15 +1,21 @@
 'use client';
 
-// Client component — the palette UI.
+// FusionPalette — the compact Scruple project card that lives inside
+// Fusion 360 as a docked palette.
 //
-// Narrow layout (~400px wide). Sections:
-//   - Header: connection status pill + project picker
-//   - Iteration counter + last-leaf summary
-//   - Recent iterations list (top 5, descending)
-//   - Action row: "Witness now" + "Lock & Anchor"
-//   - Footer: open full dashboard in system browser
+// Product model:
+//   - Every open Fusion design is tracked as its own Scruple project.
+//   - The palette shows THIS DESIGN's project state at a glance:
+//     name, status pill, iteration count, last witnessed timestamp,
+//     last few leaf hashes.
+//   - Three actions: Witness now, Checkpoint, Lock & Anchor.
+//   - Account setup, plan selection, payment method, receipt browsing,
+//     cross-project management all happen on scruple.stooges.ai in the
+//     user's real browser (via a Settings link at the bottom that opens
+//     in the system browser). The palette itself never needs to become
+//     the full dashboard.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type ProjectStatus =
   | 'unlocked'
@@ -47,7 +53,7 @@ interface ProjectDetail {
 
 type ConnectionState = 'connecting' | 'healthy' | 'retrying' | 'disconnected' | 'unauthorized';
 
-const POLL_MS = 30_000;
+const POLL_MS = 15_000;
 
 // ----------------------------------------------------------- Fusion bridge
 
@@ -58,11 +64,8 @@ interface FusionBridge {
 
 function getFusionBridge(): FusionBridge | null {
   if (typeof window === 'undefined') return null;
-  // Real Fusion sets window.adsk on the embedded WebEngine.
   const adsk = (window as unknown as { adsk?: { fusionSendData?: (a: string, j: string) => void } }).adsk;
   if (!adsk?.fusionSendData) return null;
-  // Palette → JS messages arrive via window.fusionJavaScriptHandler hook;
-  // Fusion will call window.fusionJavaScriptHandler(action, dataString).
   return {
     send: (action, payload) => adsk.fusionSendData!(action, JSON.stringify(payload)),
     onMessage: (handler) => {
@@ -85,11 +88,7 @@ function readToken(): string | null {
     try { localStorage.setItem('scruple.fusion.api_key', fromQuery); } catch {}
     return fromQuery;
   }
-  try {
-    return localStorage.getItem('scruple.fusion.api_key');
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem('scruple.fusion.api_key'); } catch { return null; }
 }
 
 function readPresetProjectId(): number | null {
@@ -109,6 +108,49 @@ async function fetchWithAuth(url: string, token: string | null, init?: RequestIn
   return fetch(url, { ...init, headers, credentials: token ? 'omit' : 'include' });
 }
 
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const now = Date.now();
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '—';
+  const s = Math.max(0, Math.floor((now - t) / 1000));
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+function shortHash(h: string): string {
+  if (!h) return '';
+  return h.length > 12 ? `${h.slice(0, 10)}…` : h;
+}
+
+function statusLabel(s: ProjectStatus): string {
+  return {
+    unlocked: 'Tracking',
+    checkpointed: 'Checkpointed',
+    local_locked: 'Locally locked',
+    chain_locked: 'Chain locked',
+    persistent_locked: 'Persistent lock',
+    permanent_locked: 'Permanent lock',
+  }[s] || s;
+}
+
+function statusColor(s: ProjectStatus): string {
+  return {
+    unlocked: '#22c55e',
+    checkpointed: '#eab308',
+    local_locked: '#f59e0b',
+    chain_locked: '#7dd3fc',
+    persistent_locked: '#a78bfa',
+    permanent_locked: '#f472b6',
+  }[s] || '#888';
+}
+
 // ----------------------------------------------------------- component
 
 export default function FusionPalette() {
@@ -117,15 +159,17 @@ export default function FusionPalette() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
-  const [busy, setBusy] = useState<'witnessing' | 'locking' | null>(null);
+  const [busy, setBusy] = useState<'witnessing' | 'checkpointing' | 'locking' | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [designName, setDesignName] = useState<string | null>(null);
   const bridgeRef = useRef<FusionBridge | null>(null);
+  const refreshDetailRef = useRef<(() => Promise<void>) | null>(null);
 
-  // Mount: discover token + bridge + register Python→JS handler.
+  // Mount: discover token + bridge, register Python→JS handler.
   useEffect(() => {
     bridgeRef.current = getFusionBridge();
-    const initial = readToken();
-    setToken(initial);
+    setToken(readToken());
     const preset = readPresetProjectId();
     if (preset) setSelectedId(preset);
 
@@ -138,6 +182,11 @@ export default function FusionPalette() {
             try { localStorage.setItem('scruple.fusion.api_key', tok); } catch {}
             setToken(tok);
           }
+        } else if (action === 'design_state') {
+          // Python tells us: current Fusion document's name + bound project_id
+          if (typeof p.name === 'string') setDesignName(p.name);
+          if (typeof p.project_id === 'number') setSelectedId(p.project_id);
+          if (typeof p.last_saved_at === 'string') setLastSavedAt(p.last_saved_at);
         } else if (action === 'witness_started') {
           setBusy('witnessing');
           setErrorMsg(null);
@@ -148,6 +197,16 @@ export default function FusionPalette() {
         } else if (action === 'witness_error') {
           setBusy(null);
           setErrorMsg(`Witness failed: ${p.message ?? 'unknown'}`);
+        } else if (action === 'checkpoint_started') {
+          setBusy('checkpointing');
+          setErrorMsg(null);
+        } else if (action === 'checkpoint_done') {
+          setBusy(null);
+          setErrorMsg(null);
+          void refreshDetailRef.current?.();
+        } else if (action === 'checkpoint_error') {
+          setBusy(null);
+          setErrorMsg(`Checkpoint failed: ${p.message ?? 'unknown'}`);
         } else if (action === 'lock_started') {
           setBusy('locking');
           setErrorMsg(null);
@@ -160,6 +219,8 @@ export default function FusionPalette() {
           setErrorMsg(`Lock failed: ${p.message ?? 'unknown'}`);
         }
       });
+      // Ask Python for the current design state (name + project binding).
+      bridgeRef.current.send('get_design_state', {});
     }
   }, []);
 
@@ -169,36 +230,24 @@ export default function FusionPalette() {
     bridgeRef.current?.send('set_api_key', { key: token });
   }, [token]);
 
-  // Tell Python which project the user has selected.
+  // Tell Python which project is selected.
   useEffect(() => {
     if (!selectedId) return;
     bridgeRef.current?.send('project_changed', { project_id: selectedId });
   }, [selectedId]);
-
-  // refreshDetail is defined further down — capture a ref so the
-  // Python→JS handler above can call it without ordering hazards.
-  const refreshDetailRef = useRef<(() => Promise<void>) | null>(null);
 
   // ---- Project list refresh
   const refreshProjects = useCallback(async () => {
     if (!token) return;
     try {
       const r = await fetchWithAuth('/api/projects?limit=50', token);
-      if (r.status === 401) {
-        setConnection('unauthorized');
-        return;
-      }
-      if (!r.ok) {
-        setConnection('retrying');
-        return;
-      }
+      if (r.status === 401) { setConnection('unauthorized'); return; }
+      if (!r.ok) { setConnection('retrying'); return; }
       const j = await r.json();
       setProjects(j.projects ?? []);
       if (selectedId == null && j.activeId) setSelectedId(j.activeId);
       setConnection('healthy');
-    } catch (e) {
-      setConnection('disconnected');
-    }
+    } catch { setConnection('disconnected'); }
   }, [token, selectedId]);
 
   const refreshDetail = useCallback(async () => {
@@ -210,9 +259,7 @@ export default function FusionPalette() {
       const j = await r.json();
       setDetail(j);
       setConnection('healthy');
-    } catch {
-      setConnection('disconnected');
-    }
+    } catch { setConnection('disconnected'); }
   }, [token, selectedId]);
 
   useEffect(() => { void refreshProjects(); }, [refreshProjects]);
@@ -226,82 +273,81 @@ export default function FusionPalette() {
   // ---- Actions
 
   const triggerWitness = useCallback(() => {
-    if (!bridgeRef.current) {
-      setErrorMsg('Witness must be triggered from inside Fusion.');
-      return;
-    }
-    // Python sets busy via witness_started callback; we don't optimistically
-    // set busy here because the real signal comes back via the bridge.
+    if (!bridgeRef.current) { setErrorMsg('Fusion bridge not detected.'); return; }
     setErrorMsg(null);
     bridgeRef.current.send('witness_now', { project_id: selectedId });
   }, [selectedId]);
 
+  const triggerCheckpoint = useCallback(() => {
+    if (!bridgeRef.current) { setErrorMsg('Fusion bridge not detected.'); return; }
+    if (!selectedId) { setErrorMsg('No project bound.'); return; }
+    setErrorMsg(null);
+    bridgeRef.current.send('checkpoint', { project_id: selectedId });
+  }, [selectedId]);
+
   const triggerLock = useCallback(() => {
-    if (!bridgeRef.current) {
-      setErrorMsg('Lock must be triggered from inside Fusion.');
-      return;
-    }
-    if (!selectedId) {
-      setErrorMsg('Select a project first.');
-      return;
-    }
+    if (!bridgeRef.current) { setErrorMsg('Fusion bridge not detected.'); return; }
+    if (!selectedId) { setErrorMsg('No project bound.'); return; }
     setErrorMsg(null);
     bridgeRef.current.send('lock_chain', { project_id: selectedId, tier: 'pinned' });
   }, [selectedId]);
 
-  // ---- Render helpers
+  const openInSystemBrowser = useCallback((path: string) => {
+    // Payment / plan / receipts / account management all go through the
+    // user's real browser — Stripe Elements + Google/Autodesk OAuth need
+    // a proper browser (embedded webviews are blocked or degraded).
+    bridgeRef.current?.send('open_browser', { url: path });
+  }, []);
 
-  const statusPill = useMemo(() => {
-    const color: Record<ConnectionState, string> = {
-      connecting: '#888',
-      healthy: '#22c55e',
-      retrying: '#eab308',
-      disconnected: '#ef4444',
-      unauthorized: '#a855f7',
-    };
-    const label: Record<ConnectionState, string> = {
-      connecting: 'Connecting…',
-      healthy: 'Connected',
-      retrying: 'Retrying',
-      disconnected: 'Offline',
-      unauthorized: 'Sign in',
-    };
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color[connection] }} />
-        {label[connection]}
-      </span>
-    );
-  }, [connection]);
+  const startTracking = useCallback(async () => {
+    if (!token) return;
+    const name = designName || `Fusion design ${new Date().toISOString().slice(0, 10)}`;
+    try {
+      const r = await fetchWithAuth('/api/projects', token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, kind: 'cad' }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const newId = j.project?.id ?? j.id;
+      if (newId) {
+        setSelectedId(newId);
+        bridgeRef.current?.send('bind_project', { project_id: newId });
+        await refreshProjects();
+      }
+    } catch (e) {
+      setErrorMsg(`Could not start tracking: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [token, designName, refreshProjects]);
 
+  // -------------------------------------------------------- render
+
+  // NOT SIGNED IN — show simple signin CTA
   if (!token) {
     return (
       <div style={style.pane}>
         <header style={style.header}>
-          <strong style={{ fontSize: 14 }}>Scruple for Fusion</strong>
+          <strong style={{ fontSize: 14 }}>Scruple</strong>
         </header>
-        <p style={{ ...style.muted, marginTop: 24 }}>
-          Sign in to start witnessing your Fusion designs.
+        <p style={{ ...style.muted, marginTop: 20 }}>
+          Sign in to track your Fusion designs.
         </p>
         <button
           style={{ ...style.primaryBtn, marginTop: 12 }}
           onClick={() => {
-            // Auto-mint flow: server bounces through /login if no session,
-            // then mints an API key and redirects back here with ?token=<key>
-            // in the URL. We pick it up via readToken() on mount.
             window.location.href = '/api/auth/keys/fusion-mint?next=/embed/fusion';
           }}
         >
           Sign in with Scruple
         </button>
-        <p style={{ ...style.muted, marginTop: 24, fontSize: 11 }}>
-          Choose your sign-in method on the next screen — Autodesk SSO
-          recommended for Fusion users.
+        <p style={{ ...style.muted, marginTop: 20, fontSize: 11 }}>
+          Signing in creates a Scruple account. Payment methods and plan
+          setup happen at scruple.ai in your browser.
         </p>
-
-        <details style={{ marginTop: 32 }}>
+        <details style={{ marginTop: 24 }}>
           <summary style={{ ...style.muted, cursor: 'pointer', fontSize: 11 }}>
-            Developer: paste an API key directly
+            Developer: paste API key
           </summary>
           <input
             type="password"
@@ -322,154 +368,312 @@ export default function FusionPalette() {
     );
   }
 
+  // NO PROJECT BOUND — show "start tracking" CTA
+  if (!selectedId) {
+    return (
+      <div style={style.pane}>
+        <PaletteHeader connection={connection} />
+        <section style={{ marginTop: 20 }}>
+          <div style={{ ...style.muted, fontSize: 11 }}>Current design</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>
+            {designName || '(no active design)'}
+          </div>
+        </section>
+        <p style={{ ...style.muted, marginTop: 20 }}>
+          This design isn't being tracked yet.
+        </p>
+        <button
+          style={{ ...style.primaryBtn, marginTop: 8 }}
+          disabled={!designName}
+          onClick={startTracking}
+        >
+          Start tracking this design
+        </button>
+        <div style={{ marginTop: 24 }}>
+          <div style={{ ...style.muted, fontSize: 11 }}>
+            Or select an existing project:
+          </div>
+          <select
+            style={{ ...style.select, marginTop: 6 }}
+            value=""
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n) && n > 0) {
+                setSelectedId(n);
+                bridgeRef.current?.send('bind_project', { project_id: n });
+              }
+            }}
+          >
+            <option value="">— pick project —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <Footer openInSystemBrowser={openInSystemBrowser} />
+      </div>
+    );
+  }
+
+  // BOUND — the main project card view
+  const project = detail?.project;
+  const iterations = detail?.iterations ?? [];
+  const lastWitnessed = iterations.length > 0 ? iterations[iterations.length - 1] : null;
+  const lastLeafTimestamp = lastWitnessed?.timestamp ?? null;
+  const status: ProjectStatus = project?.status ?? 'unlocked';
+  const isLocked = status !== 'unlocked' && status !== 'checkpointed';
+
   return (
     <div style={style.pane}>
-      <header style={style.header}>
-        <strong style={{ fontSize: 14 }}>Scruple for Fusion</strong>
-        {statusPill}
-      </header>
+      <PaletteHeader connection={connection} />
 
-      <section style={style.section}>
-        <label style={style.label}>Project</label>
-        <select
-          style={style.select}
-          value={selectedId ?? ''}
-          onChange={(e) => setSelectedId(Number(e.target.value) || null)}
-        >
-          <option value="">— select —</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} {p.status !== 'unlocked' ? `• ${p.status}` : ''}
-            </option>
-          ))}
-        </select>
+      {/* Project card */}
+      <section style={style.card}>
+        <div style={style.projectName}>
+          {project?.name ?? designName ?? 'Loading…'}
+        </div>
+        <div style={{ ...style.pill, background: statusColor(status), color: '#0b0b0c' }}>
+          {statusLabel(status)}
+        </div>
       </section>
 
-      {detail && (
-        <>
-          <section style={style.section}>
-            <div style={style.statRow}>
-              <span style={style.muted}>Iterations</span>
-              <strong>{detail.iterationCount}</strong>
-            </div>
-            <div style={style.statRow}>
-              <span style={style.muted}>Status</span>
-              <strong>{detail.project.status}</strong>
-            </div>
-            {detail.project.scr_id && (
-              <div style={style.statRow}>
-                <span style={style.muted}>SCR-ID</span>
-                <a
-                  href={`/receipt/${detail.project.scr_id}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.location.href = `/receipt/${detail.project.scr_id}`;
-                  }}
-                  style={style.link}
-                >
-                  {detail.project.scr_id.slice(0, 16)}…
-                </a>
-              </div>
-            )}
-          </section>
+      {/* Stats row */}
+      <section style={style.statsRow}>
+        <div style={style.statCell}>
+          <div style={style.statValue}>{detail?.iterationCount ?? 0}</div>
+          <div style={style.statLabel}>Leaves</div>
+        </div>
+        <div style={style.statCell}>
+          <div style={style.statValue}>{relativeTime(lastLeafTimestamp)}</div>
+          <div style={style.statLabel}>Last witnessed</div>
+        </div>
+        <div style={style.statCell}>
+          <div style={style.statValue}>{relativeTime(lastSavedAt)}</div>
+          <div style={style.statLabel}>Last save</div>
+        </div>
+      </section>
 
-          <section style={style.section}>
-            <label style={style.label}>Recent leaves</label>
-            <ul style={style.leafList}>
-              {detail.iterations.slice(-5).reverse().map((it) => (
-                <li key={it.id} style={style.leafItem}>
-                  <span style={style.seq}>#{it.run_sequence}</span>
-                  <code style={style.hash}>{it.leaf_hash.slice(0, 16)}…</code>
-                </li>
-              ))}
-              {detail.iterations.length === 0 && (
-                <li style={style.muted}>No leaves yet. Save your design to create the first one.</li>
-              )}
-            </ul>
-          </section>
-
-          <section style={style.actions}>
-            <button
-              style={busy === 'witnessing' ? style.disabledBtn : style.primaryBtn}
-              disabled={busy !== null || !selectedId}
-              onClick={triggerWitness}
-            >
-              {busy === 'witnessing' ? 'Witnessing…' : 'Witness now'}
-            </button>
-            <button
-              style={busy === 'locking' ? style.disabledBtn : style.secondaryBtn}
-              disabled={busy !== null || !selectedId || (detail.project.status !== 'unlocked' && detail.project.status !== 'checkpointed')}
-              onClick={triggerLock}
-            >
-              {busy === 'locking' ? 'Locking…' : 'Lock & Anchor'}
-            </button>
-          </section>
-        </>
+      {/* Recent leaves */}
+      {iterations.length > 0 && (
+        <section style={{ marginTop: 16 }}>
+          <div style={style.sectionLabel}>Recent leaves</div>
+          <ul style={style.leafList}>
+            {iterations.slice(-4).reverse().map((it) => (
+              <li key={it.id} style={style.leafItem}>
+                <span style={style.seq}>#{it.run_sequence}</span>
+                <code style={style.hash}>{shortHash(it.leaf_hash)}</code>
+                <span style={style.leafTime}>{relativeTime(it.timestamp)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
-      {errorMsg && <p style={style.error}>{errorMsg}</p>}
+      {/* SCR-ID if chain locked */}
+      {project?.scr_id && (
+        <section style={{ marginTop: 12 }}>
+          <div style={style.sectionLabel}>SCR-ID</div>
+          <a
+            href={`/receipt/${project.scr_id}`}
+            onClick={(e) => {
+              e.preventDefault();
+              openInSystemBrowser(`/receipt/${project.scr_id}`);
+            }}
+            style={{ ...style.link, fontFamily: 'ui-monospace, Menlo, monospace' }}
+          >
+            {project.scr_id} ↗
+          </a>
+        </section>
+      )}
 
-      <footer style={style.footer}>
-        {/* Navigate the palette itself to the full Scruple Studio dashboard.
-            The user can drag the palette wider to see the dashboard at a
-            usable size. Restarting the add-in brings them back to this
-            palette view. */}
-        <a
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            window.location.href = '/';
-          }}
-          style={style.link}
+      {/* Action buttons */}
+      <section style={style.actions}>
+        <button
+          style={busy === 'witnessing' ? style.disabledBtn : style.primaryBtn}
+          disabled={busy !== null || isLocked}
+          onClick={triggerWitness}
+          title="Export the design + record a witness leaf now"
         >
-          Open full dashboard in palette →
-        </a>
-        <br />
-        <a
-          href="https://scruple.stooges.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ ...style.link, fontSize: 11, opacity: 0.7 }}
+          {busy === 'witnessing' ? 'Witnessing…' : 'Witness now'}
+        </button>
+        <button
+          style={busy === 'checkpointing' ? style.disabledBtn : style.secondaryBtn}
+          disabled={busy !== null || isLocked}
+          onClick={triggerCheckpoint}
+          title="Mid-chain checkpoint — snapshots the chain state locally"
         >
-          (or open in system browser)
-        </a>
-      </footer>
+          {busy === 'checkpointing' ? 'Checkpointing…' : 'Checkpoint'}
+        </button>
+        <button
+          style={busy === 'locking' ? style.disabledBtn : style.secondaryBtn}
+          disabled={busy !== null || isLocked || (detail?.iterationCount ?? 0) === 0}
+          onClick={triggerLock}
+          title="Lock the chain to public ledgers — permanent"
+        >
+          {busy === 'locking' ? 'Locking…' : 'Lock & Anchor'}
+        </button>
+      </section>
+
+      {errorMsg && <div style={style.error}>{errorMsg}</div>}
+
+      <Footer openInSystemBrowser={openInSystemBrowser} />
     </div>
   );
 }
 
-// ----------------------------------------------------------- inline styles
-// Inline so the palette doesn't depend on Tailwind classes loading. Once
-// we're confident the palette's WebEngine respects our Tailwind build,
-// these can migrate to className.
+function PaletteHeader({ connection }: { connection: ConnectionState }) {
+  const label: Record<ConnectionState, string> = {
+    connecting: 'Connecting',
+    healthy: 'Connected',
+    retrying: 'Retrying',
+    disconnected: 'Offline',
+    unauthorized: 'Sign in',
+  };
+  const color: Record<ConnectionState, string> = {
+    connecting: '#888',
+    healthy: '#22c55e',
+    retrying: '#eab308',
+    disconnected: '#ef4444',
+    unauthorized: '#a855f7',
+  };
+  return (
+    <header style={style.header}>
+      <strong style={{ fontSize: 13, letterSpacing: 0.3 }}>SCRUPLE</strong>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85 }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: color[connection] }} />
+        {label[connection]}
+      </span>
+    </header>
+  );
+}
+
+function Footer({ openInSystemBrowser }: { openInSystemBrowser: (path: string) => void }) {
+  return (
+    <footer style={style.footer}>
+      <a
+        href="/settings/billing"
+        onClick={(e) => { e.preventDefault(); openInSystemBrowser('/settings/billing'); }}
+        style={style.link}
+      >
+        Payment & plan ↗
+      </a>
+      <a
+        href="/projects"
+        onClick={(e) => { e.preventDefault(); openInSystemBrowser('/projects'); }}
+        style={style.link}
+      >
+        All projects ↗
+      </a>
+    </footer>
+  );
+}
+
+// ------------------------------------------------------------------ styles
 
 const style = {
   pane: {
-    fontFamily:
-      "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-    padding: 12,
-    maxWidth: 420,
+    fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+    padding: 14,
     background: '#0b0b0c',
     color: '#e6e6e6',
     minHeight: '100vh',
+    fontSize: 13,
   } as React.CSSProperties,
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: 8,
+    paddingBottom: 10,
     borderBottom: '1px solid #232325',
-    marginBottom: 12,
   } as React.CSSProperties,
-  h2: { fontSize: 18, margin: '0 0 8px' } as React.CSSProperties,
-  section: { marginBottom: 12 } as React.CSSProperties,
-  label: {
-    fontSize: 11,
+  card: {
+    marginTop: 14,
+    padding: 12,
+    background: '#141416',
+    border: '1px solid #232325',
+    borderRadius: 6,
+  } as React.CSSProperties,
+  projectName: {
+    fontSize: 15,
+    fontWeight: 600,
+    marginBottom: 6,
+    lineHeight: 1.3,
+    wordBreak: 'break-word' as const,
+  } as React.CSSProperties,
+  pill: {
+    display: 'inline-block',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase' as const,
+    padding: '2px 8px',
+    borderRadius: 999,
+  } as React.CSSProperties,
+  statsRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr 1fr',
+    gap: 6,
+    marginTop: 12,
+  } as React.CSSProperties,
+  statCell: {
+    background: '#141416',
+    border: '1px solid #232325',
+    borderRadius: 6,
+    padding: '8px 6px',
+    textAlign: 'center' as const,
+  } as React.CSSProperties,
+  statValue: { fontSize: 13, fontWeight: 700 } as React.CSSProperties,
+  statLabel: { fontSize: 10, color: '#7a7a7c', marginTop: 2 } as React.CSSProperties,
+  sectionLabel: {
+    fontSize: 10,
     textTransform: 'uppercase' as const,
     letterSpacing: 0.5,
-    color: '#9a9a9c',
-    display: 'block',
-    marginBottom: 4,
+    color: '#7a7a7c',
+    marginBottom: 6,
+  } as React.CSSProperties,
+  leafList: { listStyle: 'none', padding: 0, margin: 0 } as React.CSSProperties,
+  leafItem: {
+    display: 'grid',
+    gridTemplateColumns: 'auto 1fr auto',
+    gap: 8,
+    padding: '4px 0',
+    fontSize: 11,
+    borderBottom: '1px dashed #1f1f22',
+    alignItems: 'center',
+  } as React.CSSProperties,
+  seq: { color: '#7a7a7c', fontVariantNumeric: 'tabular-nums' as const } as React.CSSProperties,
+  hash: { fontFamily: 'ui-monospace, Menlo, monospace', color: '#c4c4c8', fontSize: 11 } as React.CSSProperties,
+  leafTime: { color: '#7a7a7c', fontSize: 10 } as React.CSSProperties,
+  actions: { display: 'grid', gap: 6, marginTop: 16 } as React.CSSProperties,
+  primaryBtn: {
+    padding: '10px 12px',
+    background: '#00e5aa',
+    color: '#0b0b0c',
+    border: 'none',
+    borderRadius: 4,
+    cursor: 'pointer',
+    fontWeight: 700,
+    fontSize: 13,
+  } as React.CSSProperties,
+  secondaryBtn: {
+    padding: '10px 12px',
+    background: 'transparent',
+    color: '#e6e6e6',
+    border: '1px solid #3a3a3d',
+    borderRadius: 4,
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: 13,
+  } as React.CSSProperties,
+  disabledBtn: {
+    padding: '10px 12px',
+    background: '#2a2a2d',
+    color: '#5a5a5d',
+    border: 'none',
+    borderRadius: 4,
+    cursor: 'not-allowed',
+    fontWeight: 600,
+    fontSize: 13,
   } as React.CSSProperties,
   select: {
     width: '100%',
@@ -488,72 +692,22 @@ const style = {
     borderRadius: 4,
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
-  statRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    padding: '4px 0',
-    fontSize: 13,
-  } as React.CSSProperties,
   muted: { color: '#9a9a9c', fontSize: 12 } as React.CSSProperties,
-  leafList: { listStyle: 'none', padding: 0, margin: 0 } as React.CSSProperties,
-  leafItem: {
-    display: 'flex',
-    gap: 8,
-    padding: '3px 0',
-    fontSize: 12,
-    borderBottom: '1px dashed #1f1f22',
-  } as React.CSSProperties,
-  seq: { color: '#9a9a9c', minWidth: 32 } as React.CSSProperties,
-  hash: { fontFamily: 'ui-monospace, Menlo, monospace', color: '#e6e6e6' } as React.CSSProperties,
-  actions: {
-    display: 'flex',
-    gap: 8,
-    marginTop: 16,
-  } as React.CSSProperties,
-  primaryBtn: {
-    flex: 1,
-    padding: '8px 12px',
-    background: '#1f6feb',
-    color: 'white',
-    border: 'none',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontWeight: 600,
-  } as React.CSSProperties,
-  secondaryBtn: {
-    flex: 1,
-    padding: '8px 12px',
-    background: 'transparent',
-    color: '#e6e6e6',
-    border: '1px solid #2a2a2d',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontWeight: 600,
-  } as React.CSSProperties,
-  disabledBtn: {
-    flex: 1,
-    padding: '8px 12px',
-    background: '#2a2a2d',
-    color: '#5a5a5d',
-    border: 'none',
-    borderRadius: 4,
-    cursor: 'not-allowed',
-    fontWeight: 600,
-  } as React.CSSProperties,
   error: {
+    marginTop: 10,
     background: '#3b1010',
     color: '#fca5a5',
     padding: 8,
     borderRadius: 4,
-    fontSize: 12,
-    margin: '8px 0 0',
+    fontSize: 11,
   } as React.CSSProperties,
   footer: {
     marginTop: 24,
     paddingTop: 12,
     borderTop: '1px solid #232325',
-    textAlign: 'center' as const,
-    fontSize: 12,
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: 11,
   } as React.CSSProperties,
   link: { color: '#7dd3fc', textDecoration: 'none' } as React.CSSProperties,
 };

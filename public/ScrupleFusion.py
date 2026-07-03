@@ -138,15 +138,93 @@ if _IN_FUSION:
             except Exception:
                 pass
 
+    def _do_checkpoint(app, ui, palette):
+        """Mid-tier lock — checkpoint the chain. Uses same dev test-pay
+        path as _do_lock. Real Stripe Checkout handoff lands after Probe 5.5.
+        """
+        try:
+            client = _client_for(_state)
+            if client is None:
+                _send_to_palette(palette, "checkpoint_error", {"message": "No API key"})
+                return
+            project_id = _state.active_project_id
+            if not project_id:
+                _send_to_palette(palette, "checkpoint_error", {"message": "No project selected"})
+                return
+            _send_to_palette(palette, "checkpoint_started", {"project_id": project_id})
+
+            # Mint PI + confirm via dev test-pay → then hit /api/lock/checkpoint
+            try:
+                pi_resp = _post_json(
+                    SCRUPLE_WEB_ORIGIN + "/api/stripe/payment-intent",
+                    {"action": "checkpoint", "projectId": project_id},
+                    api_key=_state.api_key,
+                )
+                pi_id = pi_resp.get("paymentIntentId") or pi_resp.get("id")
+                if not pi_id:
+                    raise RuntimeError("no paymentIntentId")
+                resp = _post_json(
+                    SCRUPLE_WEB_ORIGIN + "/api/lock/checkpoint",
+                    {"projectId": project_id, "paymentIntentId": pi_id},
+                    api_key=_state.api_key,
+                )
+            except Exception as e:
+                _send_to_palette(palette, "checkpoint_error", {
+                    "message": f"Checkpoint failed: {e}",
+                })
+                return
+
+            _send_to_palette(palette, "checkpoint_done", {
+                "project_id": project_id,
+                "pre_scr_id": resp.get("preScrId"),
+                "merkle_root": resp.get("merkleRoot"),
+            })
+        except Exception:
+            _send_to_palette(palette, "checkpoint_error", {
+                "message": "Checkpoint crashed",
+                "trace": traceback.format_exc(),
+            })
+
+    def _get_design_state(app):
+        """Read the active Fusion document's name + Scruple project binding
+        (from design.attributes if present)."""
+        state = {"name": None, "project_id": None, "last_saved_at": None}
+        try:
+            doc = app.activeDocument
+            state["name"] = getattr(doc, "name", None) or None
+            design = adsk.fusion.Design.cast(app.activeProduct)
+            if design is not None:
+                attr = design.attributes.itemByName("Scruple", "project_id")
+                if attr and attr.value:
+                    try:
+                        state["project_id"] = int(attr.value)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return state
+
+    def _bind_project(app, project_id: int):
+        """Write project_id to the active design's Scruple attribute group."""
+        try:
+            design = adsk.fusion.Design.cast(app.activeProduct)
+            if design is not None:
+                design.attributes.add("Scruple", "project_id", str(project_id))
+        except Exception:
+            pass
+
     class _PaletteMsgHandler(adsk.core.HTMLEventHandler):
         """JS → Python message dispatcher.
 
         Actions:
-            set_api_key      — palette tells us the user's bearer token
-            project_changed  — palette tells us which project is selected
-            witness_now      — manual witness trigger
-            lock_chain       — start the lock + payment flow
-            open_browser     — open URL in system browser
+            set_api_key       — palette tells us the user's bearer token
+            get_design_state  — send design_state event with name + binding
+            project_changed   — palette tells us which project is selected
+            bind_project      — write project_id to design.attributes
+            witness_now       — manual witness trigger
+            checkpoint        — mid-tier lock via dev test-pay
+            lock_chain        — full chain lock + 3-anchor commit
+            open_browser      — open URL in system browser
         """
         def __init__(self, app, ui, palette_ref):
             super().__init__()
@@ -169,6 +247,20 @@ if _IN_FUSION:
                     if key.startswith("sk_"):
                         _state.api_key = key
 
+                elif action == "get_design_state":
+                    state = _get_design_state(self._app)
+                    _send_to_palette(self._palette_ref[0], "design_state", state)
+
+                elif action == "bind_project":
+                    pid = data.get("project_id")
+                    if pid:
+                        try:
+                            pid_int = int(pid)
+                            _bind_project(self._app, pid_int)
+                            _state.active_project_id = pid_int
+                        except Exception:
+                            pass
+
                 elif action == "project_changed":
                     pid = data.get("project_id")
                     try:
@@ -184,6 +276,15 @@ if _IN_FUSION:
                         except Exception:
                             pass
                     _do_witness(self._app, self._ui, self._palette_ref[0])
+
+                elif action == "checkpoint":
+                    pid = data.get("project_id")
+                    if pid:
+                        try:
+                            _state.active_project_id = int(pid)
+                        except Exception:
+                            pass
+                    _do_checkpoint(self._app, self._ui, self._palette_ref[0])
 
                 elif action == "lock_chain":
                     pid = data.get("project_id")
