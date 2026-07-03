@@ -31,10 +31,15 @@ export default function WorkspaceView({
   project,
   iterations,
   trainingRuns,
+  cadPreview,
 }: {
   project: ProjectRow;
   iterations: IterationRow[];
   trainingRuns: TrainingRunRow[];
+  /** Optional pre-content slot rendered inside the workspace body — the
+   *  Fusion palette uses this to embed the Fusion cloud viewer iframe
+   *  above the iteration grid. */
+  cadPreview?: React.ReactNode;
 }) {
   const isActive = project.is_active === 1;
   const hasIterations = iterations.length > 0;
@@ -42,6 +47,7 @@ export default function WorkspaceView({
   const hasContent =
     project.type === 'training' ? hasTrainingRuns :
     project.type === 'image' ? hasIterations :
+    project.type === 'cad' ? hasIterations :
     false;
   const currentRunId = trainingRuns.length > 0 ? trainingRuns[trainingRuns.length - 1].id : null;
 
@@ -133,6 +139,48 @@ export default function WorkspaceView({
             Video pipeline not yet implemented. This project type is reserved — capture support lands in a future release.
           </div>
         </section>
+      ) : project.type === 'cad' ? (
+        <>
+          {cadPreview && <section className="mb-8">{cadPreview}</section>}
+          <section className="mb-8">
+            <h2 className="mb-4 text-lg font-semibold text-scruple-text-primary">Witnessed Edits</h2>
+            {hasIterations ? (
+              <div className="space-y-2">
+                {[...iterations].reverse().map((it) => (
+                  <div
+                    key={it.id}
+                    className="flex items-center justify-between rounded-lg bg-scruple-bg-tertiary px-4 py-2 text-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-10 text-right font-mono text-xs text-scruple-text-deep-muted">
+                        #{it.run_sequence}
+                      </span>
+                      <code className="font-mono text-xs text-scruple-text-primary">
+                        {it.leaf_hash.slice(0, 24)}…
+                      </code>
+                      {it.witnessed ? (
+                        <span className="rounded bg-emerald-500/20 px-1.5 py-[1px] text-[10px] text-emerald-300">
+                          signed
+                        </span>
+                      ) : (
+                        <span className="rounded bg-amber-500/20 px-1.5 py-[1px] text-[10px] text-amber-300">
+                          unsigned
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-scruple-text-deep-muted">
+                      {new Date(it.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg bg-scruple-bg-tertiary p-12 text-center text-sm text-scruple-text-secondary">
+                No witnessed edits yet. Add a feature or save the design in Fusion to record the first leaf.
+              </div>
+            )}
+          </section>
+        </>
       ) : (
         <section className="mb-8">
           <h2 className="mb-4 text-lg font-semibold text-scruple-text-primary">Iterations</h2>
@@ -193,6 +241,7 @@ function statLabelForType(type: ProjectRow['type']): string {
     case 'training': return 'Training Runs';
     case 'video':    return 'Clips';
     case 'image':    return 'Iterations';
+    case 'cad':      return 'Witnessed Edits';
   }
 }
 
@@ -206,5 +255,6 @@ function hintForType(type: ProjectRow['type']): string {
     case 'training': return 'Complete at least one training run to enable locking.';
     case 'video':    return 'Video capture is not yet implemented — locking will be enabled once at least one clip is captured.';
     case 'image':    return 'Generate at least one iteration to enable locking.';
+    case 'cad':      return 'Witness at least one edit to enable locking.';
   }
 }

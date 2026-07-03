@@ -19,6 +19,8 @@
 //      WebEngine storage. No cross-user leak possible.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import WorkspaceView from '@/components/WorkspaceView';
+import type { ProjectRow, IterationRow } from '@/lib/types';
 
 type ProjectStatus =
   | 'unlocked'
@@ -503,95 +505,24 @@ export default function FusionPalette() {
             </div>
           ) : (
             <>
-              {/* Project header */}
-              <div className="flex items-center justify-between border-b border-scruple-border bg-scruple-surface px-6 py-3">
-                <div>
-                  <h1 className="text-base font-medium">{activeProject.name}</h1>
-                  <div className="mt-1 flex items-center gap-3 text-[11px] text-scruple-muted">
-                    <span className={`inline-block rounded border px-2 py-[1px] font-mono ${statusColor(activeProject.status)}`}>
-                      {statusLabel(activeProject.status)}
-                    </span>
-                    {activeProject.pre_scr_id && (
-                      <span>
-                        SCR-ID: <span className="font-mono text-scruple-text">{activeProject.pre_scr_id}</span>
-                      </span>
-                    )}
-                    {activeProject.scr_id && activeProject.scr_id !== activeProject.pre_scr_id && (
-                      <a
-                        href={`/receipt/${activeProject.scr_id}`}
-                        onClick={(e) => { e.preventDefault(); openInSystemBrowser(`/receipt/${activeProject.scr_id}`); }}
-                        className="font-mono text-sky-400 hover:underline"
-                      >
-                        Locked: {activeProject.scr_id} ↗
-                      </a>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <ActionBtn
-                    label={busy === 'witnessing' ? 'Witnessing…' : 'Witness'}
-                    onClick={triggerWitness}
-                    disabled={busy !== null || !!isLocked}
-                    variant="secondary"
-                  />
-                  <ActionBtn
-                    label={busy === 'checkpointing' ? 'Checkpointing…' : 'Checkpoint'}
-                    onClick={triggerCheckpoint}
-                    disabled={busy !== null || !!isLocked}
-                    variant="secondary"
-                  />
-                  <ActionBtn
-                    label={busy === 'locking' ? 'Locking…' : 'Lock & Anchor'}
-                    onClick={triggerLock}
-                    disabled={busy !== null || !!isLocked || (activeProject.iteration_count === 0)}
-                    variant="primary"
-                  />
-                </div>
-              </div>
-
-              {/* Content: Fusion viewer + iteration grid */}
-              <div className="flex-1 overflow-y-auto p-6">
-                <FusionViewer
-                  url={(activeProject as { fusion_web_url?: string | null }).fusion_web_url ?? null}
-                  designName={activeProject.name}
+              {/* Workspace — identical layout to the ComfyUI Studio /projects/[id]
+                  page. Header, stats, Merkle card, iteration list, lock buttons.
+                  Fusion cloud viewer iframe rides on top via cadPreview. */}
+              <div className="flex-1 overflow-y-auto">
+                <WorkspaceView
+                  project={activeProject as unknown as ProjectRow}
+                  iterations={iterations as unknown as IterationRow[]}
+                  trainingRuns={[]}
+                  cadPreview={
+                    <FusionViewer
+                      url={(activeProject as { fusion_web_url?: string | null }).fusion_web_url ?? null}
+                      designName={activeProject.name}
+                      onOpenInBrowser={openInSystemBrowser}
+                    />
+                  }
                 />
-                {iterations.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-center text-sm text-scruple-muted">
-                    No leaves yet. Save in Fusion or add a feature to record the first one.
-                  </div>
-                ) : (
-                  <div>
-                    <div className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
-                      Witnessed leaves ({iterations.length})
-                    </div>
-                    <div className="grid grid-cols-1 gap-2">
-                      {iterations.slice().reverse().map((it) => (
-                        <div
-                          key={it.id}
-                          className="flex items-center justify-between rounded border border-scruple-border bg-scruple-surface px-4 py-2 text-xs"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="w-10 text-right font-mono text-scruple-muted">#{it.run_sequence}</span>
-                            <code className="font-mono text-scruple-text">{it.leaf_hash.slice(0, 24)}…</code>
-                            {it.witnessed ? (
-                              <span className="rounded bg-emerald-500/20 px-1.5 py-[1px] text-[9px] text-emerald-300">
-                                signed
-                              </span>
-                            ) : (
-                              <span className="rounded bg-amber-500/20 px-1.5 py-[1px] text-[9px] text-amber-300">
-                                unsigned
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-scruple-muted">{relativeTime(it.timestamp)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {errorMsg && (
-                  <div className="mt-4 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">
+                  <div className="mx-6 mb-4 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">
                     {errorMsg}
                   </div>
                 )}
@@ -604,7 +535,15 @@ export default function FusionPalette() {
   );
 }
 
-function FusionViewer({ url, designName }: { url: string | null; designName: string }) {
+function FusionViewer({
+  url,
+  designName,
+  onOpenInBrowser,
+}: {
+  url: string | null;
+  designName: string;
+  onOpenInBrowser: (url: string) => void;
+}) {
   if (!url) {
     return (
       <div className="mb-4 rounded border border-dashed border-scruple-border bg-scruple-surface/50 px-4 py-6 text-center">
@@ -629,7 +568,7 @@ function FusionViewer({ url, designName }: { url: string | null; designName: str
         <span>Fusion cloud viewer</span>
         <button
           type="button"
-          onClick={() => openInSystemBrowser(url)}
+          onClick={() => onOpenInBrowser(url)}
           className="text-sky-400 hover:underline"
         >
           Open in browser ↗
