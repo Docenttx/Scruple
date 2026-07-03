@@ -19,7 +19,7 @@ from typing import Any, Callable, Optional
 
 PALETTE_ID = "scruple_main_palette"
 PALETTE_NAME = "Scruple"
-DEFAULT_EMBED_URL = os.environ.get("SCRUPLE_EMBED_URL", "https://scruple.stooges.ai/embed/fusion")
+DEFAULT_EMBED_URL = os.environ.get("SCRUPLE_EMBED_URL", "https://scruple.stooges.ai/")
 
 URL_SCHEME = "scruple-fusion"
 LOCAL_CALLBACK_PORT_ENV = "SCRUPLE_FUSION_CALLBACK_PORT"
@@ -53,8 +53,8 @@ def create_palette(app: Any, ui: Any, embed_url: Optional[str] = None) -> Any:
             True,          # isVisible
             True,          # showCloseButton
             True,          # isResizable
-            380,           # width
-            640,           # height
+            1100,          # width
+            760,           # height
             True,          # useNewWebBrowser (modern Chromium)
         )
     except Exception as e:
