@@ -38,6 +38,14 @@ _auto_witness_thread = None
 _palette = None
 _url_scheme_server = None
 
+# Toolbar panel — created in run(), cleaned in stop().
+TOOLBAR_PANEL_ID = "scruple_panel"
+TOOLBAR_PANEL_NAME = "Scruple"
+TARGET_WORKSPACE = "FusionSolidEnvironment"
+CMD_SHOW_PALETTE = "scruple_show_palette"
+CMD_WITNESS_NOW = "scruple_witness_now"
+CMD_LOCK_ANCHOR = "scruple_lock_anchor"
+
 SCRUPLE_WEB_ORIGIN = os.environ.get("SCRUPLE_WEB_ORIGIN", "https://scruple.stooges.ai")
 
 
@@ -262,6 +270,169 @@ if _IN_FUSION:
             design = adsk.fusion.Design.cast(app.activeProduct)
             if design is not None:
                 design.attributes.add("Scruple", "project_id", str(project_id))
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------------
+    # Toolbar buttons — a "Scruple" panel in the Design workspace toolbar
+    #
+    # Fusion command buttons are wired as follows:
+    #   1. ui.commandDefinitions.addButtonDefinition(id, name, tooltip, resFolder)
+    #   2. commandDef.commandCreated.add(handler)  — handler subclasses
+    #      CommandCreatedEventHandler; its notify() fires on button click.
+    #   3. panel.controls.addCommand(commandDef)
+    #
+    # For actions that don't need a dialog, we do the work directly in
+    # the commandCreated handler — no need to plumb an execute handler.
+    # -------------------------------------------------------------------
+
+    class _ShowPaletteHandler(adsk.core.CommandCreatedEventHandler):
+        """Toolbar button → open the Scruple palette (re-mount if missing)."""
+        def __init__(self, app, ui):
+            super().__init__()
+            self._app = app
+            self._ui = ui
+
+        def notify(self, args):
+            try:
+                pal = self._ui.palettes.itemById(palette_host.PALETTE_ID)
+                if pal is not None:
+                    pal.isVisible = True
+                else:
+                    global _palette
+                    _palette = palette_host.create_palette(self._app, self._ui)
+            except Exception:
+                try:
+                    self._ui.messageBox(
+                        "Show Scruple failed:\n" + traceback.format_exc()
+                    )
+                except Exception:
+                    pass
+
+    class _WitnessNowToolbarHandler(adsk.core.CommandCreatedEventHandler):
+        """Toolbar button → fire an immediate witness of the current design.
+        Same code path as the palette's Witness button and documentSaved."""
+        def __init__(self, app):
+            super().__init__()
+            self._app = app
+
+        def notify(self, args):
+            try:
+                self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
+            except Exception:
+                pass
+
+    class _LockAnchorToolbarHandler(adsk.core.CommandCreatedEventHandler):
+        """Toolbar button → show the palette and start the chain-lock flow."""
+        def __init__(self, app, ui, palette_ref):
+            super().__init__()
+            self._app = app
+            self._ui = ui
+            self._palette_ref = palette_ref
+
+        def notify(self, args):
+            try:
+                pal = self._ui.palettes.itemById(palette_host.PALETTE_ID)
+                if pal is not None:
+                    pal.isVisible = True
+                _do_lock(self._app, self._ui, self._palette_ref[0], "pinned")
+            except Exception:
+                try:
+                    self._ui.messageBox(
+                        "Lock via toolbar failed:\n" + traceback.format_exc()
+                    )
+                except Exception:
+                    pass
+
+    def _install_toolbar(app, ui, palette_ref):
+        """Register the Scruple panel + 3 buttons in the Design workspace.
+        Idempotent — tears down any leftover panel / command defs from a
+        previous Stop+Run cycle before creating fresh ones.
+        """
+        try:
+            workspace = ui.workspaces.itemById(TARGET_WORKSPACE)
+            if workspace is None:
+                return
+
+            # Tear down leftovers from a previous run.
+            existing_panel = workspace.toolbarPanels.itemById(TOOLBAR_PANEL_ID)
+            if existing_panel is not None:
+                try:
+                    existing_panel.deleteMe()
+                except Exception:
+                    pass
+            for cid in (CMD_SHOW_PALETTE, CMD_WITNESS_NOW, CMD_LOCK_ANCHOR):
+                cd = ui.commandDefinitions.itemById(cid)
+                if cd is not None:
+                    try:
+                        cd.deleteMe()
+                    except Exception:
+                        pass
+
+            panel = workspace.toolbarPanels.add(TOOLBAR_PANEL_ID, TOOLBAR_PANEL_NAME)
+
+            # Show Scruple palette
+            show_def = ui.commandDefinitions.addButtonDefinition(
+                CMD_SHOW_PALETTE,
+                "Scruple",
+                "Open the Scruple Studio palette",
+                "",
+            )
+            show_handler = _ShowPaletteHandler(app, ui)
+            show_def.commandCreated.add(show_handler)
+            _handlers.append(show_handler)
+            panel.controls.addCommand(show_def)
+
+            # Witness now
+            wit_def = ui.commandDefinitions.addButtonDefinition(
+                CMD_WITNESS_NOW,
+                "Witness now",
+                "Export the current design and record a witness leaf",
+                "",
+            )
+            wit_handler = _WitnessNowToolbarHandler(app)
+            wit_def.commandCreated.add(wit_handler)
+            _handlers.append(wit_handler)
+            panel.controls.addCommand(wit_def)
+
+            # Lock & Anchor
+            lock_def = ui.commandDefinitions.addButtonDefinition(
+                CMD_LOCK_ANCHOR,
+                "Lock && Anchor",
+                "Lock the chain to public ledgers (RVN + IPFS + Arweave)",
+                "",
+            )
+            lock_handler = _LockAnchorToolbarHandler(app, ui, palette_ref)
+            lock_def.commandCreated.add(lock_handler)
+            _handlers.append(lock_handler)
+            panel.controls.addCommand(lock_def)
+
+        except Exception:
+            try:
+                ui.messageBox(
+                    "Scruple toolbar install failed:\n" + traceback.format_exc()
+                )
+            except Exception:
+                pass
+
+    def _uninstall_toolbar(ui):
+        """Remove the Scruple panel + command defs on add-in stop."""
+        try:
+            workspace = ui.workspaces.itemById(TARGET_WORKSPACE)
+            if workspace is not None:
+                panel = workspace.toolbarPanels.itemById(TOOLBAR_PANEL_ID)
+                if panel is not None:
+                    try:
+                        panel.deleteMe()
+                    except Exception:
+                        pass
+            for cid in (CMD_SHOW_PALETTE, CMD_WITNESS_NOW, CMD_LOCK_ANCHOR):
+                cd = ui.commandDefinitions.itemById(cid)
+                if cd is not None:
+                    try:
+                        cd.deleteMe()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -624,8 +795,10 @@ def run(context):
                 except Exception:
                     pass
 
-        # 5. UI commands (toolbar panel + buttons) — stub until probe 5.6.
+        # 5. UI commands + toolbar panel with Scruple / Witness / Lock buttons
+        # in the Design workspace toolbar.
         palette_host.install_ui_commands(app, ui, _handlers)
+        _install_toolbar(app, ui, palette_ref)
 
         # 6. Start the ambient auto-witness loop (5-min default).
         _auto_witness_thread = auto_witness.start(app, ui, _palette)
@@ -678,5 +851,10 @@ def stop(context):
             _palette = None
         _handlers.clear()
         palette_host.uninstall_ui_commands()
+        try:
+            app = adsk.core.Application.get()
+            _uninstall_toolbar(app.userInterface)
+        except Exception:
+            pass
     except Exception:
         pass
