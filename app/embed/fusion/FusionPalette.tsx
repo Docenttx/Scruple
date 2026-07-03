@@ -546,10 +546,17 @@ function FusionViewer({
 }) {
   if (!url) {
     return (
-      <div className="mb-4 rounded border border-dashed border-scruple-border bg-scruple-surface/50 px-4 py-6 text-center">
-        <div className="text-xs text-scruple-muted">
-          No Fusion viewer link on this design yet — save once in Fusion so the
-          add-in can pick it up on the next sync.
+      <div className="mb-4 flex h-[260px] w-full items-center justify-center rounded border border-dashed border-scruple-border bg-scruple-surface/50 text-center">
+        <div className="max-w-sm px-4">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
+            Fusion Cloud Viewer
+          </div>
+          <div className="mt-2 text-xs text-scruple-text/70">
+            Preview will appear here once the design finishes syncing.
+          </div>
+          <div className="mt-1 text-[11px] text-scruple-muted">
+            Save once in Fusion so the add-in can pick it up on the next sync.
+          </div>
         </div>
       </div>
     );
