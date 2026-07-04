@@ -108,9 +108,22 @@ class ScrupleClient:
 
     # ------------------------------------------------------------------ projects
 
-    def create_project(self, name: str, kind: str = "cad") -> Dict[str, Any]:
-        """POST /api/projects → { id, name, status, ... }"""
-        _, body = self._request("POST", "/api/projects", body={"name": name, "kind": kind})
+    def create_project(
+        self,
+        name: str,
+        kind: str = "cad",
+        fusion_data_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """POST /api/projects → { id, name, status, ... }
+
+        If fusion_data_id is passed, server dedupes by URN — returns the
+        pre-existing row from the account scan (which has the thumbnail
+        + full Fusion Team Hub linkage) instead of creating a duplicate.
+        """
+        payload: Dict[str, Any] = {"name": name, "kind": kind}
+        if fusion_data_id:
+            payload["fusion_data_id"] = fusion_data_id
+        _, body = self._request("POST", "/api/projects", body=payload)
         return body or {}
 
     def get_project(self, project_id: int) -> Dict[str, Any]:

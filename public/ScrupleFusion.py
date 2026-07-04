@@ -1439,12 +1439,30 @@ if _IN_FUSION:
                     return None
 
             # First save of an unbound design → create the project.
+            # Prefer dataFile.name (base name, no version suffix) over
+            # activeDocument.name (which includes " v10" etc). Grab the
+            # lineage URN so the server can dedupe against the row the
+            # account scan already created (which has the thumbnail).
             name = ""
+            fusion_data_id = None
             try:
-                name = (app.activeDocument.name or "").strip()
+                doc = app.activeDocument
+                data_file = getattr(doc, "dataFile", None)
+                if data_file is not None:
+                    try:
+                        fusion_data_id = getattr(data_file, "id", None)
+                    except Exception:
+                        pass
+                    try:
+                        name = (getattr(data_file, "name", "") or "").strip()
+                    except Exception:
+                        pass
+                if not name:
+                    # Fallback: activeDocument.name (may include " vNN" suffix)
+                    name = (getattr(doc, "name", "") or "").strip()
             except Exception:
                 pass
-            _diag_ping("auto_bind_name", name=name[:64])
+            _diag_ping("auto_bind_name", name=name[:64], has_urn=bool(fusion_data_id))
             if not name:
                 return None  # still untitled somehow — skip
 
@@ -1457,9 +1475,13 @@ if _IN_FUSION:
             except Exception:
                 pass
 
-            _diag_ping("auto_bind_calling_create_project", name=name[:64])
-            proj = client.create_project(name=name, kind="cad")
-            _diag_ping("auto_bind_create_project_returned", proj_keys=list(proj.keys()) if isinstance(proj, dict) else None)
+            _diag_ping("auto_bind_calling_create_project", name=name[:64], has_urn=bool(fusion_data_id))
+            proj = client.create_project(name=name, kind="cad", fusion_data_id=fusion_data_id)
+            _diag_ping(
+                "auto_bind_create_project_returned",
+                proj_keys=list(proj.keys()) if isinstance(proj, dict) else None,
+                deduped=bool(proj.get("deduped")) if isinstance(proj, dict) else None,
+            )
             pid = int(proj.get("id"))
             pre_scr_id = proj.get("pre_scr_id") or proj.get("preScrId") or ""
 

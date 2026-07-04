@@ -59,6 +59,10 @@ const CreateBody = z.object({
   type: z.enum(['image', 'video', 'training', 'cad']).default('image'),
   // Accept 'kind' as an alias for 'type' (the Python client uses 'kind').
   kind: z.enum(['image', 'video', 'training', 'cad']).optional(),
+  // Fusion add-in passes the design's lineage URN so we can dedupe
+  // against the account-scan row (which already has the thumbnail)
+  // instead of creating a bare-metal duplicate on first save.
+  fusion_data_id: z.string().min(1).max(500).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -75,8 +79,33 @@ export async function POST(req: NextRequest) {
     );
   }
   const type = body.kind ?? body.type;
+
+  // Dedupe by fusion_data_id first — return the existing row (with its
+  // thumbnail + fusion_data_id) instead of creating a new one.
+  if (body.fusion_data_id) {
+    const existing = conn()
+      .prepare(`SELECT * FROM projects WHERE user_id = ? AND fusion_data_id = ? LIMIT 1`)
+      .get(me.id, body.fusion_data_id) as ProjectRow | undefined;
+    if (existing) {
+      return NextResponse.json({
+        ok: true,
+        project: existing,
+        ...existing,
+        preScrId: existing.pre_scr_id,
+        deduped: true,
+      });
+    }
+  }
+
   try {
     const project = await createProjectAs(me.id, { name: body.name, type });
+    // Persist the URN on the newly-created row so future auto-binds
+    // for this Fusion doc match by URN and don't duplicate.
+    if (body.fusion_data_id) {
+      conn()
+        .prepare(`UPDATE projects SET fusion_data_id = ? WHERE id = ? AND user_id = ?`)
+        .run(body.fusion_data_id, project.id, me.id);
+    }
     // The Python client expects { id, name, status, pre_scr_id, ... } at
     // the top level when reading the response. Echo flat as well as
     // wrapped for compat. Also alias pre_scr_id → preScrId (camelCase)
