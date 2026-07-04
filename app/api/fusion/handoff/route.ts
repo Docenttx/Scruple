@@ -58,8 +58,10 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'missing session' }, { status: 400 });
   const slot = store.get(session);
   if (!slot) return NextResponse.json({ key: null }, { status: 200 });
-  // One-shot read.
-  store.delete(session);
+  // Non-consuming read: slot persists until TTL. This lets the Python-side
+  // _ensure_api_key() recover the key on-demand after a stale-closure
+  // scenario (add-in Stop/Start leaves an old handler pointing at an old
+  // _state singleton). TTL is the security backstop.
   console.log('[FUS-DIAG]', JSON.stringify({ event: 'handoff_delivered', session_prefix: session.slice(0, 8), key_prefix: slot.key.slice(0, 12) }));
   return NextResponse.json({ key: slot.key });
 }
