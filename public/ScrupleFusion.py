@@ -984,40 +984,57 @@ if _IN_FUSION:
             self._ui = ui
 
         def notify(self, args):
+            _diag_ping("documentActivated_enter")
             try:
-                # Give the palette a beat to load + hand us the API key
-                # in case Fusion just started up. If we don't have a
-                # client yet, skip — user will get the design bound
-                # on the next save or activation.
-                if _client_for(_state) is None:
+                _ensure_api_key(source="documentActivated")
+                client = _client_for(_state)
+                if client is None:
+                    _diag_ping("documentActivated_no_client")
                     return
+
                 design = adsk.fusion.Design.cast(self._app.activeProduct)
                 if design is None:
+                    _diag_ping("documentActivated_no_design")
                     return
-                # Only auto-bind saved designs; brand-new unsaved ones wait
-                # for their first save (Fusion's normal name-your-file dialog).
+
+                # Unsaved brand-new doc → clear the server's active project
+                # so the palette workspace stops showing a stale tracking pill.
                 try:
                     doc = args.document if hasattr(args, 'document') else self._app.activeDocument
-                    if not getattr(doc, 'isSaved', True):
-                        return
+                    is_saved = bool(getattr(doc, 'isSaved', False))
                 except Exception:
-                    pass
-                # Already bound? nothing to do.
+                    is_saved = False
+
+                if not is_saved:
+                    _state.active_project_id = None
+                    try:
+                        client.clear_active_project()
+                        _diag_ping("clear_active_ok", reason="unsaved_doc")
+                    except Exception as e:
+                        _diag_ping("clear_active_err", error=str(e))
+                    return
+
+                # Saved doc — either already bound (just flip is_active) or
+                # unbound (auto-bind will call set_active_project itself).
                 existing = design.attributes.itemByName("Scruple", "project_id")
                 if existing and existing.value:
                     try:
-                        _state.active_project_id = int(existing.value)
-                    except Exception:
-                        pass
+                        pid = int(existing.value)
+                        _state.active_project_id = pid
+                        client.set_active_project(pid)
+                        _diag_ping("set_active_ok", project_id=pid, source="documentActivated")
+                    except Exception as e:
+                        _diag_ping("set_active_err", error=str(e))
                     return
+
                 # Unbound saved design — bind + take an initial witness.
                 _auto_bind_project_on_save(self._app, self._ui)
                 try:
                     self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
                 except Exception:
                     pass
-            except Exception:
-                pass
+            except Exception as e:
+                _diag_ping("documentActivated_error", error=str(e))
 
     class _DocSavedHandler(adsk.core.DocumentEventHandler):
         """documentSaved → auto-bind Scruple project if not bound yet, then

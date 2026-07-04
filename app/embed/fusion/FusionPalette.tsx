@@ -361,7 +361,18 @@ export default function FusionPalette() {
       const archCad = (jArch.projects ?? []).filter((p: Project) => p.type === 'cad');
       setProjects(liveCad);
       setArchivedProjects(archCad);
-      if (selectedId == null && liveCad.length > 0) setSelectedId(liveCad[0].id);
+      // Auto-focus whatever project the server considers active-tracked.
+      // For the Fusion palette, activeId reflects what's open in Fusion
+      // right now (set by the add-in's documentActivated / auto-bind).
+      // Nothing active on the server → nothing selected in the palette.
+      const serverActive: number | null = jLive.activeId ?? null;
+      if (serverActive !== null) {
+        // If server changed active project, always follow.
+        if (serverActive !== selectedId) setSelectedId(serverActive);
+      } else if (selectedId != null) {
+        // Server cleared active — palette drops selection too.
+        setSelectedId(null);
+      }
       setConnection('healthy');
     } catch { setConnection('disconnected'); }
   }, [token, selectedId]);
