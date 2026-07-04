@@ -52,7 +52,34 @@ SCRUPLE_WEB_ORIGIN = os.environ.get("SCRUPLE_WEB_ORIGIN", "https://scruple.stoog
 # the /api/fusion/handoff endpoint as a bridge-free way to move the API
 # key from the palette JS to Python when Fusion's palette bridge is dead.
 import secrets  # noqa: E402
-FUSION_HANDOFF_SESSION = secrets.token_hex(24)
+def _load_or_mint_handoff_session() -> str:
+    """Persistent per-Windows-user handoff session. Stored next to the
+    key cache so it survives module reloads AND palette webview caches.
+    Both palette (via URL param) and Python (this constant) read the
+    same value so the session-keyed /handoff endpoint works even after
+    Fusion Stop/Start rotates the module namespace."""
+    import os
+    p = os.path.join(
+        os.environ.get("APPDATA") or os.path.expanduser("~"),
+        "ScrupleFusion.session",
+    )
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            s = f.read().strip()
+        if len(s) >= 32:
+            return s
+    except Exception:
+        pass
+    s = secrets.token_hex(24)
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(s)
+    except Exception:
+        pass
+    return s
+
+
+FUSION_HANDOFF_SESSION = _load_or_mint_handoff_session()
 
 
 class _SharedState:
@@ -68,6 +95,121 @@ class _SharedState:
 _state = _SharedState()
 
 
+def _key_cache_path() -> str:
+    """Per-Windows-user disk cache. Survives add-in Stop/Start module
+    reloads that reset FUSION_HANDOFF_SESSION and _state."""
+    import os
+    return os.path.join(
+        os.environ.get("APPDATA") or os.path.expanduser("~"),
+        "ScrupleFusion.key",
+    )
+
+
+def _save_key_to_disk(key: str) -> None:
+    try:
+        p = _key_cache_path()
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(key.strip())
+    except Exception:
+        pass
+
+
+def _load_key_from_disk() -> str:
+    try:
+        with open(_key_cache_path(), "r", encoding="utf-8") as f:
+            k = f.read().strip()
+        return k if k.startswith("sk_") else ""
+    except Exception:
+        return ""
+
+
+def _ensure_api_key(*, source: str = "unknown") -> bool:
+    """Recovery order:
+      1. _state.api_key (fresh module + poller ran)
+      2. disk cache (survives module reload after add-in restart)
+      3. /handoff (only works if palette + this Python share a session)
+
+    Any successful recovery also refreshes the disk cache so subsequent
+    module loads pick it up immediately.
+    """
+    if _state.api_key:
+        return True
+
+    # 2. disk cache
+    disk_key = _load_key_from_disk()
+    if disk_key:
+        _state.api_key = disk_key
+        _diag_ping("ensure_api_key_recovered", source=source, via="disk", key_len=len(disk_key))
+        return True
+
+    # 3. handoff endpoint fallback
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"{SCRUPLE_WEB_ORIGIN}/api/fusion/handoff?session={FUSION_HANDOFF_SESSION}",
+            headers={"User-Agent": "scruple-fusion-addin/0.1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        key = (payload.get("key") or "").strip() if isinstance(payload, dict) else ""
+        if key.startswith("sk_"):
+            _state.api_key = key
+            _save_key_to_disk(key)
+            _diag_ping("ensure_api_key_recovered", source=source, via="handoff", key_len=len(key))
+            return True
+    except Exception as e:
+        _diag_ping("ensure_api_key_error", source=source, error=str(e))
+    return False
+
+
+def _debug_flags() -> dict:
+    """Runtime-editable behavior. Read from
+    %APPDATA%\\ScrupleFusion.debug.json every call — so the user can
+    edit + save the file and see behavior change without pulling code.
+
+    Recognized flags (all default False / unset):
+      verbose:            log every hook fire + state read
+      log_all_commands:   log every commandTerminated regardless of
+                          timeline growth
+      force_witness:      documentSaved fires witness even if project
+                          isn't bound
+      witness_dry_run:    _do_witness captures payload but skips POST
+      disable_poller:     don't spawn the /handoff poll thread
+    """
+    import os
+    try:
+        p = os.path.join(
+            os.environ.get("APPDATA") or os.path.expanduser("~"),
+            "ScrupleFusion.debug.json",
+        )
+        with open(p, "r", encoding="utf-8") as f:
+            return json.loads(f.read()) or {}
+    except Exception:
+        return {}
+
+
+def _module_context() -> dict:
+    """Snapshot of Python-side state that helps identify stale-closure
+    scenarios. Cheap; safe to include in every diag ping."""
+    import os
+    p_key = os.path.join(
+        os.environ.get("APPDATA") or os.path.expanduser("~"),
+        "ScrupleFusion.key",
+    )
+    p_sess = os.path.join(
+        os.environ.get("APPDATA") or os.path.expanduser("~"),
+        "ScrupleFusion.session",
+    )
+    return {
+        "pid": os.getpid(),
+        "state_id": id(_state),
+        "sess": FUSION_HANDOFF_SESSION[:8],
+        "disk_key": os.path.exists(p_key),
+        "disk_sess": os.path.exists(p_sess),
+        "active_project_id": _state.active_project_id,
+    }
+
+
 def _diag_ping(event: str, **fields):
     """DIAGNOSTIC ONLY. Fire-and-forget POST to /api/diag/fusion so the
     server log records which Python handlers fired, regardless of api_key
@@ -78,6 +220,12 @@ def _diag_ping(event: str, **fields):
         import urllib.request
 
         payload = {"event": event, "has_api_key": bool(_state.api_key)}
+        # Always attach module context so we can distinguish stale-closure
+        # events from fresh-module events at a glance.
+        try:
+            payload.update(_module_context())
+        except Exception:
+            pass
         payload.update(fields)
 
         def _do():
@@ -118,9 +266,20 @@ if _IN_FUSION:
         )
 
     def _fetch_thumbnail_b64(df, timeout_sec=4.0):
-        """Try to resolve DataFile.thumbnail (a DataObjectFuture) to a
-        PNG and return a data URL. None on any failure/timeout — thumbnail
-        is best-effort, never blocks the sync.
+        """Resolve DataFile.thumbnail (a DataObjectFuture) to a PNG data URL.
+
+        Canonical Fusion API (verified via research 2026-07-03):
+          future = df.thumbnail                        # DataObjectFuture
+          # state values: 0=Processing, 1=Finished, 2=Failed
+          while future.state == 0:  # ProcessingFutureState
+              adsk.doEvents(); time.sleep(0.25)
+          if future.state != 1:  # FinishedFutureState
+              return None
+          do = future.dataObject                       # DataObject (base)
+          do.saveToFile(path)                          # saveTOFile, not saveAsFile
+          # or: base64_str = do.getAsBase64String()    # wider-deployment fallback
+
+        Best-effort: any failure returns None, never raises.
         """
         try:
             import base64
@@ -130,38 +289,44 @@ if _IN_FUSION:
             future = getattr(df, "thumbnail", None)
             if future is None:
                 return None
-            # Poll for readiness. Different Fusion versions expose different
-            # readiness flags — try the common ones. The DataObjectFuture
-            # docs are inconsistent, hence the defensive attribute probe.
+            # Poll state — 0 = Processing, 1 = Finished, 2 = Failed.
             deadline = time.time() + timeout_sec
             while time.time() < deadline:
-                for attr in ("isReady", "isValid"):
-                    try:
-                        if getattr(future, attr, False):
-                            break
-                    except Exception:
-                        continue
-                else:
-                    time.sleep(0.15)
-                    continue
-                break
-            image = None
-            for attr in ("value",):
                 try:
-                    v = getattr(future, attr, None)
-                    if v is not None:
-                        image = v
+                    s = getattr(future, "state", None)
+                    if s is None or s != 0:
                         break
                 except Exception:
-                    continue
-            if image is None:
+                    break
+                try:
+                    adsk.doEvents()
+                except Exception:
+                    pass
+                time.sleep(0.15)
+            try:
+                final_state = getattr(future, "state", None)
+            except Exception:
+                final_state = None
+            if final_state != 1:
                 return None
+            do = getattr(future, "dataObject", None)
+            if do is None:
+                return None
+            # Prefer getAsBase64String — no filesystem I/O, wider deployment.
+            try:
+                b64 = do.getAsBase64String()
+                if b64:
+                    return "data:image/png;base64," + b64
+            except Exception:
+                pass
+            # Fallback: saveToFile (Sept 2024+ Fusion).
+            image = do
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as t:
                 tmp = t.name
             try:
                 saved = False
                 try:
-                    saved = bool(image.saveAsFile(tmp))
+                    saved = bool(image.saveToFile(tmp))
                 except Exception:
                     return None
                 if not saved:
@@ -204,7 +369,207 @@ if _IN_FUSION:
                                 entry["fusion_web_url"] = web_url
                         except Exception:
                             pass
-                        thumb = _fetch_thumbnail_b64(df)
+                        # First-file INLINE diagnostic — no function boundary
+                        # so we see every step in the log even if something
+                        # throws.
+                        is_first = (len(out) == 0)
+                        if is_first:
+                            _diag_ping("thumbA_start", file_name=df.name)
+                        # First-file only: probe DataFile itself for any
+                        # thumbnail-related direct methods, and try them.
+                        # Ships their return status so we finally see what
+                        # Fusion actually exposes for saving thumbs.
+                        if is_first:
+                            try:
+                                df_methods = [a for a in dir(df) if "thumb" in a.lower() or "download" in a.lower() or "save" in a.lower()]
+                                _diag_ping("thumbA_df_methods", methods=df_methods)
+                            except Exception as e:
+                                _diag_ping("thumbA_df_methods_err", error=str(e))
+                            # Try DataFile.saveThumbnailToFile — sometimes the
+                            # dataObject future is a red herring and there's
+                            # a direct sync path.
+                            try:
+                                import tempfile as _tf, base64 as _b64, os as _os2
+                                with _tf.NamedTemporaryFile(suffix=".png", delete=False) as _tmpf:
+                                    _tp = _tmpf.name
+                                _saved = False
+                                for _method in ("saveThumbnailToFile", "downloadThumbnail", "saveAsPNG"):
+                                    _fn = getattr(df, _method, None)
+                                    if callable(_fn):
+                                        try:
+                                            _saved = bool(_fn(_tp))
+                                            _diag_ping("thumbA_df_direct", method=_method, saved=_saved)
+                                            if _saved:
+                                                break
+                                        except Exception as _e:
+                                            _diag_ping("thumbA_df_direct_err", method=_method, error=str(_e))
+                                if _saved:
+                                    with open(_tp, "rb") as _fh2:
+                                        _data = _fh2.read()
+                                    if _data:
+                                        thumb_direct = "data:image/png;base64," + _b64.b64encode(_data).decode("ascii")
+                                        _diag_ping("thumbA_df_direct_bytes", bytes=len(_data))
+                                        entry["thumbnail_b64"] = thumb_direct
+                                try:
+                                    _os2.unlink(_tp)
+                                except Exception:
+                                    pass
+                            except Exception as _e:
+                                _diag_ping("thumbA_df_direct_outer_err", error=str(_e))
+                        thumb = None
+                        try:
+                            future = df.thumbnail
+                            if is_first:
+                                _diag_ping("thumbA_got_future", is_none=(future is None))
+                            if future is not None:
+                                # Probe dataObject as method AND property.
+                                if is_first:
+                                    try:
+                                        v_prop = getattr(future, "dataObject", None)
+                                        _diag_ping("thumbA_prop_dataObject",
+                                                   type=type(v_prop).__name__,
+                                                   is_none=(v_prop is None),
+                                                   str_repr=str(v_prop)[:100])
+                                    except Exception as e:
+                                        _diag_ping("thumbA_prop_err", error=str(e))
+                                    try:
+                                        v_state = getattr(future, "state", None)
+                                        _diag_ping("thumbA_state",
+                                                   type=type(v_state).__name__,
+                                                   str_repr=str(v_state)[:100])
+                                    except Exception as e:
+                                        _diag_ping("thumbA_state_err", error=str(e))
+                                # Poll dataObject.
+                                import time as _t
+                                image = None
+                                for _i in range(20):
+                                    try:
+                                        v = getattr(future, "dataObject", None)
+                                        if v is not None:
+                                            image = v
+                                            if is_first:
+                                                _diag_ping("thumbA_got_image", iteration=_i, type=type(v).__name__)
+                                            break
+                                    except Exception:
+                                        pass
+                                    _t.sleep(0.2)
+                                if image is not None:
+                                    # ACTUAL SAVE PATH — try getAsBase64String
+                                    # first; if empty, fall back to saveToFile.
+                                    b64_empty = False
+                                    try:
+                                        b64 = image.getAsBase64String()
+                                        if is_first:
+                                            _diag_ping(
+                                                "thumbA_b64_result",
+                                                length=(len(b64) if b64 else 0),
+                                                is_empty=(not b64),
+                                            )
+                                        if b64:
+                                            thumb = "data:image/png;base64," + b64
+                                        else:
+                                            b64_empty = True
+                                    except Exception as e:
+                                        b64_empty = True
+                                        if is_first:
+                                            _diag_ping("thumbA_b64_err", error=str(e))
+                                    # If b64 was empty, try saveToFile.
+                                    if b64_empty and thumb is None:
+                                        try:
+                                            import tempfile as _tf3, base64 as _b643, os as _os3
+                                            with _tf3.NamedTemporaryFile(suffix=".png", delete=False) as _tf4:
+                                                _tp3 = _tf4.name
+                                            _saved3 = False
+                                            try:
+                                                _saved3 = bool(image.saveToFile(_tp3))
+                                            except Exception as _se:
+                                                if is_first:
+                                                    _diag_ping("thumbA_saveToFile_err", error=str(_se))
+                                            if is_first:
+                                                _diag_ping("thumbA_saveToFile_result", saved=_saved3)
+                                            if _saved3:
+                                                with open(_tp3, "rb") as _fh3:
+                                                    _data3 = _fh3.read()
+                                                if _data3:
+                                                    thumb = "data:image/png;base64," + _b643.b64encode(_data3).decode("ascii")
+                                                    if is_first:
+                                                        _diag_ping("thumbA_saveToFile_bytes", bytes=len(_data3))
+                                            try:
+                                                _os3.unlink(_tp3)
+                                            except Exception:
+                                                pass
+                                        except Exception as _e3:
+                                            if is_first:
+                                                _diag_ping("thumbA_saveToFile_outer_err", error=str(_e3))
+                                    # image is a DataObject wrapper; probe its
+                                    # attrs the first time so we see what's on it.
+                                    if is_first:
+                                        try:
+                                            _diag_ping(
+                                                "thumbA_dataobject_attrs",
+                                                attrs=[a for a in dir(image) if not a.startswith("_")][:80],
+                                            )
+                                        except Exception:
+                                            pass
+                                    # Try to extract an actual Image. Common
+                                    # Fusion patterns:
+                                    #   - adsk.core.Image.cast(dataobject)
+                                    #   - dataobject.image
+                                    #   - dataobject.data
+                                    #   - dataobject.value
+                                    real_image = None
+                                    try:
+                                        real_image = adsk.core.Image.cast(image)
+                                    except Exception:
+                                        pass
+                                    if real_image is None:
+                                        for attr in ("image", "data", "value", "getImage", "png"):
+                                            try:
+                                                v = getattr(image, attr, None)
+                                                if callable(v):
+                                                    v = v()
+                                                if v is not None:
+                                                    if is_first:
+                                                        _diag_ping(
+                                                            "thumbA_via_attr",
+                                                            attr=attr,
+                                                            type=type(v).__name__,
+                                                        )
+                                                    real_image = v
+                                                    break
+                                            except Exception:
+                                                continue
+                                    if is_first:
+                                        _diag_ping(
+                                            "thumbA_real_image",
+                                            is_none=(real_image is None),
+                                            type=(type(real_image).__name__ if real_image is not None else "None"),
+                                            has_saveAsFile=hasattr(real_image, "saveAsFile") if real_image is not None else False,
+                                        )
+                                    if real_image is not None and hasattr(real_image, "saveToFile"):
+                                        try:
+                                            import tempfile, base64, os as _os
+                                            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as _t2:
+                                                tmp = _t2.name
+                                            saved = bool(real_image.saveToFile(tmp))
+                                            if is_first:
+                                                _diag_ping("thumbA_saved", saved=saved, path=tmp)
+                                            if saved:
+                                                with open(tmp, "rb") as _fh:
+                                                    data = _fh.read()
+                                                _os.unlink(tmp)
+                                                if data:
+                                                    thumb = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+                                                    if is_first:
+                                                        _diag_ping("thumbA_encoded", bytes=len(data))
+                                        except Exception as e:
+                                            if is_first:
+                                                _diag_ping("thumbA_save_err", error=str(e))
+                                elif is_first:
+                                    _diag_ping("thumbA_no_image_after_poll")
+                        except Exception as e:
+                            if is_first:
+                                _diag_ping("thumbA_outer_err", error=str(e))
                         if thumb:
                             entry["thumbnail_b64"] = thumb
                         out.append(entry)
@@ -544,8 +909,21 @@ if _IN_FUSION:
 
     def _do_witness(app, ui, palette):
         """Run an export + witness on the active design. Called on UI thread."""
+        _diag_ping("_do_witness_enter")
         try:
+            recovered = _ensure_api_key(source="_do_witness")
             client = _client_for(_state)
+            _diag_ping(
+                "_do_witness_precheck",
+                have_client=(client is not None),
+                have_project=bool(_state.active_project_id),
+                recovered=recovered,
+            )
+            flags = _debug_flags()
+            if flags.get("witness_dry_run"):
+                _diag_ping("_do_witness_dry_run_skip")
+                _send_to_palette(palette, "witness_done", {"dry_run": True})
+                return
             if client is None:
                 _send_to_palette(palette, "witness_error", {
                     "message": "No API key — sign in first",
@@ -646,9 +1024,22 @@ if _IN_FUSION:
             self._ui = ui
 
         def notify(self, args):
-            _diag_ping("documentSaved")
+            recovered = _ensure_api_key(source="documentSaved")
+            flags = _debug_flags()
+            _diag_ping(
+                "documentSaved",
+                recovered=recovered,
+                force_witness=bool(flags.get("force_witness")),
+            )
             try:
-                _auto_bind_project_on_save(self._app, self._ui)
+                bound = _auto_bind_project_on_save(self._app, self._ui)
+                _diag_ping("auto_bind_result", project_id=bound)
+                # Always fire witness tick — the tick handler decides whether
+                # to actually export (needs a bound project). Under
+                # force_witness, we also seed active_project_id from the
+                # binding attempt so the tick can proceed.
+                if bound and not _state.active_project_id:
+                    _state.active_project_id = bound
                 self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
             except Exception as e:
                 _diag_ping("documentSaved_error", error=str(e))
@@ -686,6 +1077,19 @@ if _IN_FUSION:
             self._last_count = 0
 
         def notify(self, args):
+            # Verbose command logging — captures EVERY commandTerminated
+            # regardless of whether it changed the timeline. Under a debug
+            # flag so a normal run isn't noisy.
+            try:
+                flags = _debug_flags()
+                if flags.get("log_all_commands") or flags.get("verbose"):
+                    try:
+                        cmd_id = getattr(getattr(args, "commandDefinition", None), "id", "?")
+                    except Exception:
+                        cmd_id = "?"
+                    _diag_ping("cmd_terminated", cmd_id=cmd_id)
+            except Exception:
+                pass
             try:
                 design = adsk.fusion.Design.cast(self._app.activeProduct)
                 if design is None:
@@ -697,15 +1101,14 @@ if _IN_FUSION:
                 except Exception:
                     return
                 if count > self._last_count:
+                    _diag_ping("timeline_grew", old=self._last_count, new=count)
                     self._last_count = count
                     try:
                         self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
                     except Exception:
                         pass
                 elif count < self._last_count:
-                    # Timeline shrank (delete / suppress). Record it as a
-                    # negative event by witnessing the current state anyway.
-                    # The chain reveals the deletion honestly.
+                    _diag_ping("timeline_shrank", old=self._last_count, new=count)
                     self._last_count = count
                     try:
                         self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
@@ -981,6 +1384,7 @@ if _IN_FUSION:
         or None if we couldn't bind yet (no API key, no design, unnamed).
         """
         try:
+            _ensure_api_key(source="_auto_bind_project_on_save")
             client = _client_for(_state)
             if client is None:
                 return None  # user hasn't signed in yet
@@ -1087,6 +1491,7 @@ if _IN_FUSION:
                     )
                     if key.startswith("sk_"):
                         _state.api_key = key
+                        _save_key_to_disk(key)
                         # Auto-scan the user's Fusion account and mirror
                         # every .f3d into Scruple. Idempotent on server —
                         # safe to fire on every reconnect. The palette
@@ -1299,13 +1704,23 @@ def run(context):
         # 1b. Background poller — checks /api/fusion/handoff for the api key.
         # When the palette JS POSTs the key, this picks it up and kicks off
         # the scan even if the JS→Python bridge never fires set_api_key.
+        #
+        # Runs FOREVER (daemon thread; dies with the add-in). When the key
+        # is set, it heartbeats every 30s doing nothing so a palette remount
+        # that re-posts a fresh key can be picked up too. When the key is
+        # NOT set, it polls /handoff every 2s.
         try:
             import threading, time, urllib.request
             def _handoff_poll():
-                deadline = time.time() + 120  # give up after 2 min
-                while time.time() < deadline:
+                first_receive = True
+                while True:
                     if _state.api_key:
-                        return  # bridge already delivered
+                        # Have a key. Sleep longer; heartbeat only so we can
+                        # pick up a re-delivered key if _state.api_key gets
+                        # cleared (rare) or the palette remounts with a new
+                        # key (common after add-in restart mid-session).
+                        time.sleep(30)
+                        continue
                     try:
                         req = urllib.request.Request(
                             f"{SCRUPLE_WEB_ORIGIN}/api/fusion/handoff?session={FUSION_HANDOFF_SESSION}",
@@ -1316,16 +1731,17 @@ def run(context):
                         key = (payload.get("key") or "").strip() if isinstance(payload, dict) else ""
                         if key.startswith("sk_"):
                             _state.api_key = key
-                            _diag_ping("handoff_key_received", key_len=len(key))
+                            _save_key_to_disk(key)
+                            _diag_ping("handoff_key_received", key_len=len(key), first=first_receive)
+                            first_receive = False
                             try:
                                 _scan_and_sync(app, palette_ref[0])
                             except Exception as e:
                                 _diag_ping("handoff_scan_error", error=str(e))
-                            return
+                            continue  # loop back, will sleep 30s in the heartbeat branch
                     except Exception:
                         pass
                     time.sleep(2)
-                _diag_ping("handoff_poll_timeout")
             threading.Thread(target=_handoff_poll, daemon=True).start()
         except Exception as e:
             _diag_ping("handoff_poll_dispatch_error", error=str(e))
