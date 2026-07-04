@@ -62,14 +62,17 @@ export default function WorkspaceView({
           </h1>
           <div className="flex items-center gap-2">
             <StatusBadgeSolid status={project.status} />
-            {isActive && (
-              <span
-                className="inline-block rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider"
-                style={{ backgroundColor: '#e53935', color: '#ffffff' }}
-              >
-                ● Tracking
-              </span>
-            )}
+            <span
+              className="inline-block rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider"
+              style={
+                isActive
+                  ? { backgroundColor: '#4caf50', color: '#ffffff' }
+                  : { backgroundColor: '#3a3a3a', color: '#888888' }
+              }
+              title={isActive ? 'This project is being actively tracked' : 'Not currently tracking — no Fusion doc bound to this project is open'}
+            >
+              {isActive ? '● Tracking' : '○ Not tracking'}
+            </span>
             <span className="ml-2 text-xs text-scruple-text-secondary">
               Created {new Date(project.created_at).toLocaleDateString()} · Type {project.type}
             </span>
