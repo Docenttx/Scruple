@@ -1392,19 +1392,31 @@ if _IN_FUSION:
         Returns the project_id (whether pre-existing or newly created),
         or None if we couldn't bind yet (no API key, no design, unnamed).
         """
+        _diag_ping("auto_bind_enter")
         try:
             _ensure_api_key(source="_auto_bind_project_on_save")
             client = _client_for(_state)
+            _diag_ping("auto_bind_have_client", ok=(client is not None))
             if client is None:
                 return None  # user hasn't signed in yet
             design = adsk.fusion.Design.cast(app.activeProduct)
+            _diag_ping("auto_bind_have_design", ok=(design is not None))
             if design is None:
                 return None
 
             existing = design.attributes.itemByName("Scruple", "project_id")
+            _diag_ping("auto_bind_existing_attr", has=bool(existing and existing.value))
             if existing and existing.value:
                 try:
                     _state.active_project_id = int(existing.value)
+                    _diag_ping("auto_bind_using_existing", project_id=_state.active_project_id)
+                    # Flip is_active on server so the workspace shows the
+                    # green "UNLOCKED" badge + crimson "● Tracking" pill.
+                    try:
+                        client.set_active_project(_state.active_project_id)
+                        _diag_ping("set_active_ok", project_id=_state.active_project_id)
+                    except Exception as e:
+                        _diag_ping("set_active_err", error=str(e))
                     return _state.active_project_id
                 except Exception:
                     return None
@@ -1415,6 +1427,7 @@ if _IN_FUSION:
                 name = (app.activeDocument.name or "").strip()
             except Exception:
                 pass
+            _diag_ping("auto_bind_name", name=name[:64])
             if not name:
                 return None  # still untitled somehow — skip
 
@@ -1427,7 +1440,9 @@ if _IN_FUSION:
             except Exception:
                 pass
 
+            _diag_ping("auto_bind_calling_create_project", name=name[:64])
             proj = client.create_project(name=name, kind="cad")
+            _diag_ping("auto_bind_create_project_returned", proj_keys=list(proj.keys()) if isinstance(proj, dict) else None)
             pid = int(proj.get("id"))
             pre_scr_id = proj.get("pre_scr_id") or proj.get("preScrId") or ""
 
@@ -1438,21 +1453,14 @@ if _IN_FUSION:
 
             _state.active_project_id = pid
 
-            # Small non-modal notification so the user knows tracking is on.
-            # Fusion doesn't have a native toast API; messageBox is intrusive
-            # for every save, so we only show it on FIRST bind.
+            # Flip is_active on server so the workspace shows the
+            # green "UNLOCKED" badge + crimson "● Tracking" pill in the
+            # palette header. That IS the tracking notice — no popup.
             try:
-                ui.messageBox(
-                    f"Scruple is now tracking this design.\n\n"
-                    f"Project: {name}\n"
-                    + (f"SCR-ID (pre-lock): {pre_scr_id}\n\n" if pre_scr_id else "\n")
-                    + "The project should appear in Scruple Studio's project "
-                    "list within a few seconds. Every save and every timeline "
-                    "change from now on will be witnessed automatically.",
-                    "Scruple — Tracking started"
-                )
-            except Exception:
-                pass
+                client.set_active_project(pid)
+                _diag_ping("set_active_ok", project_id=pid, source="create")
+            except Exception as e:
+                _diag_ping("set_active_err", error=str(e))
             return pid
         except Exception:
             try:
