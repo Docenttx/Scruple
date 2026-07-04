@@ -142,23 +142,32 @@ def _ensure_api_key(*, source: str = "unknown") -> bool:
         _diag_ping("ensure_api_key_recovered", source=source, via="disk", key_len=len(disk_key))
         return True
 
-    # 3. handoff endpoint fallback
-    try:
-        import urllib.request
-        req = urllib.request.Request(
-            f"{SCRUPLE_WEB_ORIGIN}/api/fusion/handoff?session={FUSION_HANDOFF_SESSION}",
-            headers={"User-Agent": "scruple-fusion-addin/0.1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        key = (payload.get("key") or "").strip() if isinstance(payload, dict) else ""
-        if key.startswith("sk_"):
-            _state.api_key = key
-            _save_key_to_disk(key)
-            _diag_ping("ensure_api_key_recovered", source=source, via="handoff", key_len=len(key))
-            return True
-    except Exception as e:
-        _diag_ping("ensure_api_key_error", source=source, error=str(e))
+    # 3. handoff endpoint fallback — try our session first, then "latest"
+    # which returns the newest slot regardless of session. The palette may
+    # be POSTing to a different session due to Neutron's palette URL cache.
+    import urllib.request
+    for sess_probe in (FUSION_HANDOFF_SESSION, "latest"):
+        try:
+            req = urllib.request.Request(
+                f"{SCRUPLE_WEB_ORIGIN}/api/fusion/handoff?session={sess_probe}",
+                headers={"User-Agent": "scruple-fusion-addin/0.1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            key = (payload.get("key") or "").strip() if isinstance(payload, dict) else ""
+            if key.startswith("sk_"):
+                _state.api_key = key
+                _save_key_to_disk(key)
+                _diag_ping(
+                    "ensure_api_key_recovered",
+                    source=source,
+                    via="handoff",
+                    sess_probe=sess_probe[:8],
+                    key_len=len(key),
+                )
+                return True
+        except Exception as e:
+            _diag_ping("ensure_api_key_error", source=source, sess_probe=sess_probe[:8], error=str(e))
     return False
 
 

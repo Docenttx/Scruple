@@ -55,13 +55,25 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   sweep();
   const session = new URL(req.url).searchParams.get('session');
-  if (!session) return NextResponse.json({ error: 'missing session' }, { status: 400 });
+
+  // "latest" mode — no session parameter or session=latest returns the
+  // newest slot in the store. This is the fallback path when Python and
+  // palette have mismatched session IDs (Neutron caches the old palette
+  // URL, palette POSTs to session_old, Python queries session_new). Dev
+  // machine is single-user so the newest slot is unambiguously the right
+  // one. TTL still applies.
+  if (!session || session === 'latest') {
+    let newest: { key: string; expiresAt: number } | undefined;
+    for (const slot of store.values()) {
+      if (!newest || slot.expiresAt > newest.expiresAt) newest = slot;
+    }
+    if (!newest) return NextResponse.json({ key: null }, { status: 200 });
+    console.log('[FUS-DIAG]', JSON.stringify({ event: 'handoff_delivered', mode: 'latest', key_prefix: newest.key.slice(0, 12) }));
+    return NextResponse.json({ key: newest.key });
+  }
+
   const slot = store.get(session);
   if (!slot) return NextResponse.json({ key: null }, { status: 200 });
-  // Non-consuming read: slot persists until TTL. This lets the Python-side
-  // _ensure_api_key() recover the key on-demand after a stale-closure
-  // scenario (add-in Stop/Start leaves an old handler pointing at an old
-  // _state singleton). TTL is the security backstop.
   console.log('[FUS-DIAG]', JSON.stringify({ event: 'handoff_delivered', session_prefix: session.slice(0, 8), key_prefix: slot.key.slice(0, 12) }));
   return NextResponse.json({ key: slot.key });
 }
