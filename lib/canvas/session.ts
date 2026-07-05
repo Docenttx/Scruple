@@ -170,7 +170,10 @@ export function mintCanvasSession(userId: string, machineId: string): MintedSess
 /** The browser-facing URL for a session — points at the scruple-web
  *  proxy, never at the underlying Modal endpoint directly. */
 export function proxyUrlForSession(sessionId: string): string {
-  return `/canvas-proxy/${sessionId}/`;
+  // No trailing slash — Next.js normalizes /foo/ → /foo by default, which
+  // would 308-redirect into a route with no path segment (only matched
+  // when the catch-all is optional `[[...path]]`, which we now use).
+  return `/canvas-proxy/${sessionId}`;
 }
 
 /**
