@@ -186,7 +186,7 @@ def _start_comfy() -> None:
 
 CANVAS_KWARGS = dict(
     scaledown_window=300,
-    concurrency_limit=1,
+    max_containers=1,
     timeout=60 * 60,
     volumes={"/opt/ComfyUI/models": models_volume},
 )
