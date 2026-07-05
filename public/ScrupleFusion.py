@@ -934,12 +934,14 @@ if _IN_FUSION:
                 _send_to_palette(palette, "witness_done", {"dry_run": True})
                 return
             if client is None:
+                _diag_ping("_do_witness_no_client_bail")
                 _send_to_palette(palette, "witness_error", {
                     "message": "No API key — sign in first",
                 })
                 return
             project_id = _state.active_project_id
             if not project_id:
+                _diag_ping("_do_witness_no_project_bail")
                 _send_to_palette(palette, "witness_error", {
                     "message": "No project selected — pick one in the palette",
                 })
@@ -947,14 +949,22 @@ if _IN_FUSION:
 
             design = adsk.fusion.Design.cast(app.activeProduct)
             if design is None:
+                _diag_ping("_do_witness_no_design_bail")
                 _send_to_palette(palette, "witness_error", {
                     "message": "No active design in Fusion",
                 })
                 return
 
+            _diag_ping("_do_witness_calling_export", project_id=project_id)
             _send_to_palette(palette, "witness_started", {"project_id": project_id})
             resp = witness.export_and_witness(
                 design, client, project_id, trigger="palette"
+            )
+            _diag_ping(
+                "_do_witness_export_returned",
+                run_sequence=resp.get("runSequence") if isinstance(resp, dict) else None,
+                leaf_hash=(resp.get("leafHash") or "")[:16] if isinstance(resp, dict) else None,
+                keys=list(resp.keys()) if isinstance(resp, dict) else None,
             )
             _send_to_palette(palette, "witness_done", {
                 "project_id": project_id,
@@ -962,6 +972,7 @@ if _IN_FUSION:
                 "leaf_hash": resp.get("leafHash"),
             })
         except Exception as e:
+            _diag_ping("_do_witness_error", error=str(e)[:200], trace_tail=traceback.format_exc().splitlines()[-4:])
             _send_to_palette(palette, "witness_error", {
                 "message": f"Witness failed: {e}",
                 "trace": traceback.format_exc(),
@@ -1023,11 +1034,38 @@ if _IN_FUSION:
                         _state.active_project_id = pid
                         client.set_active_project(pid)
                         _diag_ping("set_active_ok", project_id=pid, source="documentActivated")
+                        return
                     except Exception as e:
-                        _diag_ping("set_active_err", error=str(e))
-                    return
+                        # 404 = stale attribute (project was deleted server
+                        # side). Wipe the local attribute + fall through to
+                        # the URN-based auto-bind path.
+                        _diag_ping(
+                            "set_active_err",
+                            project_id=int(existing.value) if existing.value.isdigit() else None,
+                            error=str(e),
+                            wiping_attr=True,
+                        )
+                        try:
+                            existing.deleteMe()
+                        except Exception:
+                            pass
+                        try:
+                            name_attr = design.attributes.itemByName("Scruple", "project_name")
+                            if name_attr:
+                                name_attr.deleteMe()
+                        except Exception:
+                            pass
+                        try:
+                            pre_attr = design.attributes.itemByName("Scruple", "pre_scr_id")
+                            if pre_attr:
+                                pre_attr.deleteMe()
+                        except Exception:
+                            pass
+                        _state.active_project_id = None
+                        # fall through to auto-bind
 
-                # Unbound saved design — bind + take an initial witness.
+                # Unbound saved design (or one whose stale binding was just
+                # wiped) — auto-bind will dedupe by URN, then witness.
                 _auto_bind_project_on_save(self._app, self._ui)
                 try:
                     self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
@@ -1060,12 +1098,16 @@ if _IN_FUSION:
             try:
                 bound = _auto_bind_project_on_save(self._app, self._ui)
                 _diag_ping("auto_bind_result", project_id=bound)
-                # Always fire witness tick — the tick handler decides whether
-                # to actually export (needs a bound project). Under
-                # force_witness, we also seed active_project_id from the
-                # binding attempt so the tick can proceed.
                 if bound and not _state.active_project_id:
                     _state.active_project_id = bound
+                # Propagate Fusion renames into the palette silently.
+                if bound:
+                    try:
+                        _sync_fusion_name_to_server(self._app, bound)
+                    except Exception as e:
+                        _diag_ping("rename_sync_error", error=str(e))
+                # Always fire witness tick — the tick handler decides
+                # whether to actually export (needs a bound project).
                 self._app.fireCustomEvent(auto_witness.CUSTOM_EVENT_TICK)
             except Exception as e:
                 _diag_ping("documentSaved_error", error=str(e))
@@ -1397,6 +1439,59 @@ if _IN_FUSION:
         except Exception:
             return False
 
+    def _sync_fusion_name_to_server(app, project_id: int) -> None:
+        """If Fusion's current dataFile.name differs from the name stored
+        as a design attribute, rename the Scruple project server-side and
+        update the local attribute. Silent; no user prompt.
+
+        The design attribute Scruple/project_name is written at auto-bind
+        time and refreshed here on every subsequent save that renames."""
+        client = _client_for(_state)
+        if client is None:
+            return
+        design = adsk.fusion.Design.cast(app.activeProduct)
+        if design is None:
+            return
+        # Fusion's authoritative name (base, no version suffix)
+        current = ""
+        try:
+            df = getattr(app.activeDocument, "dataFile", None)
+            if df is not None:
+                current = (getattr(df, "name", "") or "").strip()
+            if not current:
+                current = (getattr(app.activeDocument, "name", "") or "").strip()
+        except Exception:
+            return
+        if not current:
+            return
+        # Locally cached name from the design attribute (fast; no server hit)
+        cached = ""
+        try:
+            attr = design.attributes.itemByName("Scruple", "project_name")
+            if attr and attr.value:
+                cached = attr.value.strip()
+        except Exception:
+            pass
+        if cached == current:
+            return  # same name — nothing to do
+
+        try:
+            result = client.rename_project(project_id, current)
+            _diag_ping(
+                "rename_synced",
+                project_id=project_id,
+                new_name=current[:64],
+                previous=(cached or "?")[:64],
+                changed=bool(result.get("changed")),
+            )
+            # Update the local attribute so future saves short-circuit.
+            try:
+                design.attributes.add("Scruple", "project_name", current)
+            except Exception:
+                pass
+        except Exception as e:
+            _diag_ping("rename_call_error", project_id=project_id, error=str(e))
+
     def _auto_bind_project_on_save(app, ui):
         """Called from _DocSavedHandler on every save. If the active design
         has no Scruple project bound yet, this is the first save — so we
@@ -1425,18 +1520,32 @@ if _IN_FUSION:
             _diag_ping("auto_bind_existing_attr", has=bool(existing and existing.value))
             if existing and existing.value:
                 try:
-                    _state.active_project_id = int(existing.value)
-                    _diag_ping("auto_bind_using_existing", project_id=_state.active_project_id)
-                    # Flip is_active on server so the workspace shows the
-                    # green "UNLOCKED" badge + crimson "● Tracking" pill.
-                    try:
-                        client.set_active_project(_state.active_project_id)
-                        _diag_ping("set_active_ok", project_id=_state.active_project_id)
-                    except Exception as e:
-                        _diag_ping("set_active_err", error=str(e))
-                    return _state.active_project_id
+                    pid = int(existing.value)
                 except Exception:
-                    return None
+                    pid = None
+                if pid is not None:
+                    try:
+                        client.set_active_project(pid)
+                        _state.active_project_id = pid
+                        _diag_ping("auto_bind_using_existing", project_id=pid)
+                        return pid
+                    except Exception as e:
+                        # Stale attribute — server doesn't have this project
+                        # anymore. Wipe local attrs so URN dedupe below runs.
+                        _diag_ping("auto_bind_stale_attr_wipe", project_id=pid, error=str(e))
+                        try:
+                            existing.deleteMe()
+                        except Exception:
+                            pass
+                        for k in ("project_name", "pre_scr_id"):
+                            try:
+                                a = design.attributes.itemByName("Scruple", k)
+                                if a:
+                                    a.deleteMe()
+                            except Exception:
+                                pass
+                        _state.active_project_id = None
+                        # fall through to URN dedupe / create
 
             # First save of an unbound design → create the project.
             # Prefer dataFile.name (base name, no version suffix) over

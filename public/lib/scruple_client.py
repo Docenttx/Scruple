@@ -130,6 +130,18 @@ class ScrupleClient:
         _, body = self._request("GET", f"/api/projects/{project_id}")
         return body or {}
 
+    def rename_project(self, project_id: int, name: str) -> Dict[str, Any]:
+        """POST /api/projects/[id]/rename → update just the name column.
+        SCR-ID, iterations, thumbnails, everything else unchanged.
+        Called opportunistically when the Fusion display name diverges
+        from the stored Scruple name."""
+        _, body = self._request(
+            "POST",
+            f"/api/projects/{project_id}/rename",
+            body={"name": name},
+        )
+        return body or {}
+
     def set_active_project(self, project_id: int) -> Dict[str, Any]:
         """POST /api/projects/[id]/set-active → mark project as the user's
         active-tracked project. Idempotent."""
