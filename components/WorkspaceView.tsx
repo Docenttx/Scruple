@@ -80,39 +80,32 @@ export default function WorkspaceView({
         </div>
       </div>
 
-      {/* .workspace-stats — flex row of stat-box */}
+      {/* .workspace-stats — flex row of stat-box.
+          For CAD projects: "Edits" (iteration count), "Merkle Root"
+          (truncated hash), and "SCR-ID" or "Pre-SCR" (whichever is
+          populated). Non-CAD projects keep the older Witnessed +
+          SCR-ID layout because their pipeline uses those labels. */}
       <div className="mb-6 flex flex-wrap gap-4">
-        <StatBox label={statLabelForType(project.type)} value={countForType(project, trainingRuns)} />
-        <StatBox label="Witnessed" value={project.witnessed_count} />
-        {project.scr_id && <StatBox label="SCR-ID" value={project.scr_id} highlight />}
-      </div>
-
-      {/* .workspace-merkle — separate card */}
-      <div className="mb-6 rounded-lg bg-scruple-bg-tertiary p-4">
-        <div className="flex items-center gap-3 py-2">
-          <span className="min-w-[120px] text-xs text-scruple-text-secondary">Merkle Root</span>
-          <code className="break-all rounded bg-scruple-bg-primary px-2 py-1 font-mono text-xs text-scruple-accent-primary">
-            {project.merkle_root || '— not yet computed —'}
-          </code>
-        </div>
-        {project.scr_id && (
-          <div className="flex items-center gap-3 border-t border-scruple-border-color/50 py-2">
-            <span className="min-w-[120px] text-xs text-scruple-text-secondary">SCR-ID</span>
-            <code
-              className="rounded bg-scruple-bg-primary px-2 py-1 font-mono text-xs"
-              style={{ color: '#4caf50' }}
-            >
-              {project.scr_id}
-            </code>
-          </div>
-        )}
-        {project.pre_scr_id && !project.scr_id && (
-          <div className="flex items-center gap-3 border-t border-scruple-border-color/50 py-2">
-            <span className="min-w-[120px] text-xs text-scruple-text-secondary">Pre-SCR</span>
-            <code className="rounded bg-scruple-bg-primary px-2 py-1 font-mono text-xs text-scruple-text-deep-muted">
-              {project.pre_scr_id}
-            </code>
-          </div>
+        {project.type === 'cad' ? (
+          <>
+            <StatBox label="Edits" value={countForType(project, trainingRuns)} />
+            <StatBox
+              label="Merkle Root"
+              value={project.merkle_root ? `${project.merkle_root.slice(0, 12)}…` : '—'}
+              monospace
+            />
+            {project.scr_id ? (
+              <StatBox label="SCR-ID" value={project.scr_id} highlight monospace />
+            ) : project.pre_scr_id ? (
+              <StatBox label="Pre-SCR" value={project.pre_scr_id} monospace />
+            ) : null}
+          </>
+        ) : (
+          <>
+            <StatBox label={statLabelForType(project.type)} value={countForType(project, trainingRuns)} />
+            <StatBox label="Witnessed" value={project.witnessed_count} />
+            {project.scr_id && <StatBox label="SCR-ID" value={project.scr_id} highlight />}
+          </>
         )}
       </div>
 
@@ -222,17 +215,26 @@ function StatBox({
   label,
   value,
   highlight,
+  monospace,
 }: {
   label: string;
   value: string | number;
   highlight?: boolean;
+  monospace?: boolean;
 }) {
+  // Long monospace values (hashes / SCR-IDs) get a smaller type size so
+  // they fit at a glance. Numeric stats keep the big 28px display.
+  const isLongMono = monospace && typeof value === 'string' && value.length > 8;
   return (
     <div className="min-w-[100px] flex-1 rounded-lg bg-scruple-bg-tertiary px-6 py-4 text-center">
       <div
         className={
-          'text-[28px] font-bold leading-tight ' +
-          (highlight ? 'font-mono text-scruple-accent-primary' : 'text-scruple-text-primary')
+          (isLongMono ? 'text-[15px] font-semibold leading-tight ' : 'text-[28px] font-bold leading-tight ') +
+          (highlight
+            ? 'font-mono text-scruple-accent-primary'
+            : monospace
+              ? 'font-mono text-scruple-text-primary'
+              : 'text-scruple-text-primary')
         }
       >
         {value}
