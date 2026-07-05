@@ -195,13 +195,18 @@ export default function WorkspaceView({
         </section>
       )}
 
-      {/* .workspace-lock-section — wrapped in tertiary-bg card */}
-      {!isActive && (
+      {/* .workspace-lock-section — wrapped in tertiary-bg card.
+          ComfyUI Studio hides this while tracking (isActive) since active
+          generation and locking are mutually exclusive. Fusion CAD is the
+          opposite — the user IS actively editing and wants to Checkpoint /
+          Lock / Sign at will. Always render for CAD; hide-when-active for
+          other types. */}
+      {(project.type === 'cad' || !isActive) && (
         <section className="rounded-lg bg-scruple-bg-tertiary p-6">
-          <h2 className="mb-2 text-lg font-semibold text-scruple-text-primary">Lock Project</h2>
+          <h2 className="mb-2 text-lg font-semibold text-scruple-text-primary">Lock &amp; Sign</h2>
           <p className="mb-4 text-sm text-scruple-text-secondary">
             {hasContent
-              ? 'Finalize to permanently seal your creative history, or Checkpoint to preserve progress and keep working.'
+              ? 'Checkpoint to preserve progress and keep working. Finalize to seal locally. Chain Lock to anchor on-chain. Sign with C2PA to emit an industry-standard signed asset.'
               : hintForType(project.type)}
           </p>
           <LockButtons project={project} hasContent={hasContent} />

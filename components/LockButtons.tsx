@@ -35,7 +35,7 @@ type PendingPayment = {
 };
 
 type ButtonSpec = {
-  kind: LockKind;
+  kind: LockKind | 'c2pa';
   title: string;
   desc: string;
   icon: string;
@@ -63,6 +63,13 @@ const BUTTONS: ButtonSpec[] = [
     desc: 'Anchor on-chain (RVN + Arweave)',
     icon: '⛓',
     hoverBorder: 'hover:enabled:border-[#2196f3]',
+  },
+  {
+    kind: 'c2pa',
+    title: 'Sign with C2PA',
+    desc: 'Industry-standard signed asset',
+    icon: '✍',
+    hoverBorder: 'hover:enabled:border-[#e53935]',
   },
 ];
 
@@ -136,13 +143,22 @@ export default function LockButtons({
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {BUTTONS.map(spec => (
           <LockButton
             key={spec.kind}
             spec={spec}
             disabled={disabled}
-            onClick={() => setConfirmKind(spec.kind)}
+            onClick={() => {
+              if (spec.kind === 'c2pa') {
+                // Stub picker for now — surface a coming-soon note.
+                // Full tier picker + POST /api/scruple/c2pa/sign wires in a
+                // follow-up commit; button is functional as a demo signal.
+                alert('C2PA signing pipeline: pick tier (bare / witnessed / local / chain) — full picker lands in the next iteration.');
+                return;
+              }
+              setConfirmKind(spec.kind as LockKind);
+            }}
           />
         ))}
       </div>
