@@ -24,8 +24,15 @@ export const dynamic = 'force-dynamic';
 
 const Body = z.object({
   projectId: z.number().int().positive(),
-  paymentIntentId: z.string().min(1),
+  paymentIntentId: z.string().min(1).optional(),
+  dev_bypass: z.boolean().optional(),
 });
+
+function devBypassAllowed(body: z.infer<typeof Body>): boolean {
+  if (!body.dev_bypass) return false;
+  if (process.env.NODE_ENV === 'production') return false;
+  return process.env.SCRUPLE_LOCK_DEV_BYPASS === '1';
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -41,6 +48,14 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+
+  if (!body.paymentIntentId && !devBypassAllowed(body)) {
+    return NextResponse.json(
+      { error: 'paymentIntentId required (or set SCRUPLE_LOCK_DEV_BYPASS=1 in dev)' },
+      { status: 400 },
+    );
+  }
+  const paymentIntentId = body.paymentIntentId ?? `dev_bypass_${Date.now()}`;
 
   const project = conn()
     .prepare(`SELECT * FROM projects WHERE id = ? AND user_id = ?`)
@@ -67,29 +82,39 @@ export async function POST(req: NextRequest) {
   const scrId = deriveScrId(tree.root, false);
 
   // Witness-server-gated Stripe verification + countersignature.
-  let exec;
-  try {
-    exec = await witness.confirmAndExecute({
-      action: 'finalize',
-      projectId: String(project.id),
-      paymentIntentId: body.paymentIntentId,
-      merkleRoot: tree.root,
-      preScrId: scrId,
-    });
-  } catch (e) {
-    return NextResponse.json(
-      {
-        error: 'Witness server unreachable for confirm-and-execute',
-        detail: e instanceof Error ? e.message : String(e),
-      },
-      { status: 502 },
-    );
-  }
-  if (!exec.success) {
-    return NextResponse.json(
-      { error: 'Witness rejected finalize', detail: exec.error ?? 'unknown' },
-      { status: 402 },
-    );
+  let exec: { success: boolean; error?: string; serverSignature?: string; lockedAt?: string };
+  if (devBypassAllowed(body)) {
+    const now = new Date().toISOString();
+    exec = {
+      success: true,
+      serverSignature: `DEV_BYPASS_${Date.now()}_${paymentIntentId}`,
+      lockedAt: now,
+    };
+    console.log(`[LOCAL LOCK] DEV BYPASS user=${userId} project=${project.id}`);
+  } else {
+    try {
+      exec = await witness.confirmAndExecute({
+        action: 'finalize',
+        projectId: String(project.id),
+        paymentIntentId,
+        merkleRoot: tree.root,
+        preScrId: scrId,
+      });
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error: 'Witness server unreachable for confirm-and-execute',
+          detail: e instanceof Error ? e.message : String(e),
+        },
+        { status: 502 },
+      );
+    }
+    if (!exec.success) {
+      return NextResponse.json(
+        { error: 'Witness rejected finalize', detail: exec.error ?? 'unknown' },
+        { status: 402 },
+      );
+    }
   }
 
   const now = new Date().toISOString();

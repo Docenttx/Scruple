@@ -93,15 +93,46 @@ export default function LockButtons({
   const [result, setResult] = useState<LockResult | null>(null);
   const disabled = !hasContent || pending || interlocked;
 
+  // Dev bypass — set NEXT_PUBLIC_SCRUPLE_LOCK_DEV_BYPASS=1 in dev to
+  // skip Stripe entirely. Server-side gate ALSO checks the matching
+  // SCRUPLE_LOCK_DEV_BYPASS env var, so setting only the client flag
+  // doesn't unlock anything.
+  const devBypass = process.env.NEXT_PUBLIC_SCRUPLE_LOCK_DEV_BYPASS === '1';
+
   function onConfirm(kind: LockKind, opts: { tier?: ChainTier; password?: string }) {
     setConfirmKind(null);
     // Resolution order: explicit tier from modal → user setting → 'basic'.
     const tier = kind === 'chain' ? (opts.tier ?? chainTier) : undefined;
+    if (devBypass) {
+      fireDevBypass(kind, tier);
+      return;
+    }
     if (walletMode === 'fiat') {
       setPayment({ kind, tier });
       return;
     }
     fireBlockchain(kind, tier);
+  }
+
+  function fireDevBypass(kind: LockKind, tier?: ChainTier) {
+    start(async () => {
+      setInterlock(true, `Locking project (${kind}, dev bypass)`);
+      try {
+        const res = await fetch(`/api/lock/${kind}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: project.id, tier, dev_bypass: true }),
+        });
+        const data = (await res.json()) as Partial<LockResult> & { error?: string };
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+        setResult({ ...(data as LockResult), kind });
+        router.refresh();
+      } catch (e) {
+        useToast.getState().push({ tone: 'error', title: 'Lock failed', body: String((e as Error).message ?? e) });
+      } finally {
+        setInterlock(false);
+      }
+    });
   }
 
   function fireBlockchain(kind: LockKind, tier?: ChainTier) {

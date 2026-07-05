@@ -35,8 +35,19 @@ export const dynamic = 'force-dynamic';
 
 const Body = z.object({
   projectId: z.number().int().positive(),
-  paymentIntentId: z.string().min(1),
+  paymentIntentId: z.string().min(1).optional(),
+  // Dev-only escape hatch. Server rejects unless
+  // SCRUPLE_LOCK_DEV_BYPASS=1 AND NODE_ENV != 'production'. When
+  // accepted, a synthetic paymentIntentId is passed to the witness
+  // server. Never enabled in prod builds.
+  dev_bypass: z.boolean().optional(),
 });
+
+function devBypassAllowed(body: z.infer<typeof Body>): boolean {
+  if (!body.dev_bypass) return false;
+  if (process.env.NODE_ENV === 'production') return false;
+  return process.env.SCRUPLE_LOCK_DEV_BYPASS === '1';
+}
 
 export async function POST(req: NextRequest) {
   const me = await requireUser(req);
@@ -52,6 +63,16 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+
+  // Payment gate: production requires paymentIntentId. Dev bypass requires
+  // the server env flag to be explicitly on.
+  if (!body.paymentIntentId && !devBypassAllowed(body)) {
+    return NextResponse.json(
+      { error: 'paymentIntentId required (or set SCRUPLE_LOCK_DEV_BYPASS=1 in dev)' },
+      { status: 400 },
+    );
+  }
+  const paymentIntentId = body.paymentIntentId ?? `dev_bypass_${Date.now()}`;
 
   const project = conn()
     .prepare(`SELECT * FROM projects WHERE id = ? AND user_id = ?`)
@@ -74,30 +95,42 @@ export async function POST(req: NextRequest) {
 
   const preScr = deriveScrId(tree.root, false);
 
-  // Witness-server-gated Stripe verification + countersignature.
-  let exec;
-  try {
-    exec = await witness.confirmAndExecute({
-      action: 'checkpoint',
-      projectId: String(project.id),
-      paymentIntentId: body.paymentIntentId,
-      merkleRoot: tree.root,
-      preScrId: preScr,
-    });
-  } catch (e) {
-    return NextResponse.json(
-      {
-        error: 'Witness server unreachable for confirm-and-execute',
-        detail: e instanceof Error ? e.message : String(e),
-      },
-      { status: 502 },
-    );
-  }
-  if (!exec.success) {
-    return NextResponse.json(
-      { error: 'Witness rejected checkpoint', detail: exec.error ?? 'unknown' },
-      { status: 402 },
-    );
+  // Witness-server-gated Stripe verification + countersignature. Dev
+  // bypass skips the witness confirm call and synthesizes a signature
+  // stamped with `DEV_BYPASS_` so audit tooling can detect it plainly.
+  let exec: { success: boolean; error?: string; serverSignature?: string; lockedAt?: string };
+  if (devBypassAllowed(body)) {
+    const now = new Date().toISOString();
+    exec = {
+      success: true,
+      serverSignature: `DEV_BYPASS_${Date.now()}_${paymentIntentId}`,
+      lockedAt: now,
+    };
+    console.log(`[CHECKPOINT] DEV BYPASS user=${userId} project=${project.id}`);
+  } else {
+    try {
+      exec = await witness.confirmAndExecute({
+        action: 'checkpoint',
+        projectId: String(project.id),
+        paymentIntentId,
+        merkleRoot: tree.root,
+        preScrId: preScr,
+      });
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error: 'Witness server unreachable for confirm-and-execute',
+          detail: e instanceof Error ? e.message : String(e),
+        },
+        { status: 502 },
+      );
+    }
+    if (!exec.success) {
+      return NextResponse.json(
+        { error: 'Witness rejected checkpoint', detail: exec.error ?? 'unknown' },
+        { status: 402 },
+      );
+    }
   }
 
   // Local persistence — only after witness server has signed off.
