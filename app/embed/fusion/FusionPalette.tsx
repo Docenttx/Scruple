@@ -499,56 +499,108 @@ export default function FusionPalette() {
       <div className="grid grid-cols-[240px_1fr] overflow-hidden">
         {/* Sidebar: CAD projects */}
         <aside className="flex flex-col overflow-hidden border-r border-scruple-border bg-scruple-surface">
-          <div className="border-b border-scruple-border px-4 py-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
-              Fusion projects
+          {/* Projects pane — capped viewport at ~10 rows, scrolls beyond that.
+              Row height ≈ 56px so max-h 560px shows ten cleanly. */}
+          <div className="flex flex-col border-b border-scruple-border">
+            <div className="border-b border-scruple-border px-4 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
+                Fusion projects
+              </div>
+              <div className="mt-0.5 text-[11px] text-scruple-muted">
+                {projects.length} tracked
+              </div>
             </div>
-            <div className="mt-1 text-xs text-scruple-muted">
-              {projects.length} tracked
-            </div>
+            <ul className="max-h-[560px] overflow-y-auto">
+              {projects.length === 0 && (
+                <li className="px-4 py-6 text-xs text-scruple-muted">
+                  No Fusion projects yet.
+                  <div className="mt-2 text-[11px] leading-relaxed">
+                    Save a design in Fusion (Ctrl+S). It'll appear here automatically.
+                  </div>
+                </li>
+              )}
+              {projects.map((p) => (
+                <SidebarRow
+                  key={p.id}
+                  p={p}
+                  active={p.id === selectedId}
+                  archived={false}
+                  onSelect={() => setSelectedId(p.id)}
+                  onToggleArchive={() => toggleArchive(p.id, true)}
+                />
+              ))}
+              {archivedProjects.length > 0 && (
+                <li className="mt-1 border-t border-scruple-border">
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived((v) => !v)}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-scruple-muted hover:bg-scruple-bg/50"
+                  >
+                    <span>{showArchived ? '▼' : '▶'}</span>
+                    <span>Archived ({archivedProjects.length})</span>
+                  </button>
+                </li>
+              )}
+              {showArchived && archivedProjects.map((p) => (
+                <SidebarRow
+                  key={`arch-${p.id}`}
+                  p={p}
+                  active={false}
+                  archived
+                  onSelect={() => setSelectedId(p.id)}
+                  onToggleArchive={() => toggleArchive(p.id, false)}
+                />
+              ))}
+            </ul>
           </div>
-          <ul className="flex-1 overflow-y-auto">
-            {projects.length === 0 && (
-              <li className="px-4 py-6 text-xs text-scruple-muted">
-                No Fusion projects yet.
-                <div className="mt-2 text-[11px] leading-relaxed">
-                  Save a design in Fusion (Ctrl+S). It'll appear here automatically.
-                </div>
-              </li>
-            )}
-            {projects.map((p) => (
-              <SidebarRow
-                key={p.id}
-                p={p}
-                active={p.id === selectedId}
-                archived={false}
-                onSelect={() => setSelectedId(p.id)}
-                onToggleArchive={() => toggleArchive(p.id, true)}
-              />
-            ))}
-            {archivedProjects.length > 0 && (
-              <li className="mt-2 border-t border-scruple-border">
-                <button
-                  type="button"
-                  onClick={() => setShowArchived((v) => !v)}
-                  className="flex w-full items-center gap-2 px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-scruple-muted hover:bg-scruple-bg/50"
-                >
-                  <span>{showArchived ? '▼' : '▶'}</span>
-                  <span>Archived ({archivedProjects.length})</span>
-                </button>
-              </li>
-            )}
-            {showArchived && archivedProjects.map((p) => (
-              <SidebarRow
-                key={`arch-${p.id}`}
-                p={p}
-                active={false}
-                archived
-                onSelect={() => setSelectedId(p.id)}
-                onToggleArchive={() => toggleArchive(p.id, false)}
-              />
-            ))}
-          </ul>
+
+          {/* Witnessed Edits pane — for the currently-selected project.
+              Scrolls independently, capped viewport. Renders empty state
+              when nothing selected or no leaves yet. */}
+          <div className="flex flex-1 min-h-0 flex-col">
+            <div className="border-b border-scruple-border px-4 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-scruple-muted">
+                Witnessed edits
+              </div>
+              <div className="mt-0.5 text-[11px] text-scruple-muted">
+                {activeProject ? `${iterations.length} leaves` : 'select a project'}
+              </div>
+            </div>
+            <ul className="flex-1 overflow-y-auto">
+              {!activeProject && (
+                <li className="px-4 py-3 text-[11px] text-scruple-muted">
+                  Pick a project to view its edit history.
+                </li>
+              )}
+              {activeProject && iterations.length === 0 && (
+                <li className="px-4 py-3 text-[11px] text-scruple-muted">
+                  No leaves yet. Save the design in Fusion to record one.
+                </li>
+              )}
+              {activeProject && [...iterations].reverse().map((it) => (
+                <li key={it.id} className="border-b border-scruple-border/40 px-3 py-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-6 text-right font-mono text-[10px] text-scruple-muted">
+                      #{it.run_sequence}
+                    </span>
+                    <code className="flex-1 truncate font-mono text-[10px] text-scruple-text">
+                      {it.leaf_hash.slice(0, 16)}…
+                    </code>
+                    {it.witnessed ? (
+                      <span className="rounded bg-emerald-500/20 px-1 py-[1px] text-[9px] text-emerald-300">✓</span>
+                    ) : (
+                      <span className="rounded bg-amber-500/20 px-1 py-[1px] text-[9px] text-amber-300">·</span>
+                    )}
+                  </div>
+                  <div className="ml-8 text-[9px] text-scruple-muted">
+                    {new Date(it.timestamp).toLocaleString(undefined, {
+                      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                    })}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </aside>
 
         {/* Workspace: active project detail */}
@@ -582,6 +634,7 @@ export default function FusionPalette() {
                       designName={activeProject.name}
                     />
                   }
+                  hideEditsList
                 />
                 {errorMsg && (
                   <div className="mx-6 mb-4 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">

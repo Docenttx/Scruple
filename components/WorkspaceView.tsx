@@ -32,6 +32,7 @@ export default function WorkspaceView({
   iterations,
   trainingRuns,
   cadPreview,
+  hideEditsList,
 }: {
   project: ProjectRow;
   iterations: IterationRow[];
@@ -40,6 +41,10 @@ export default function WorkspaceView({
    *  Fusion palette uses this to embed the Fusion cloud viewer iframe
    *  above the iteration grid. */
   cadPreview?: React.ReactNode;
+  /** Suppress the "Witnessed Edits" list section (CAD projects only). The
+   *  Fusion palette moves this list into the sidebar to keep the
+   *  workspace pane compact. */
+  hideEditsList?: boolean;
 }) {
   const isActive = project.is_active === 1;
   const hasIterations = iterations.length > 0;
@@ -138,6 +143,7 @@ export default function WorkspaceView({
       ) : project.type === 'cad' ? (
         <>
           {cadPreview && <section className="mb-8">{cadPreview}</section>}
+          {!hideEditsList && (
           <section className="mb-8">
             <h2 className="mb-4 text-lg font-semibold text-scruple-text-primary">Witnessed Edits</h2>
             {hasIterations ? (
@@ -176,6 +182,7 @@ export default function WorkspaceView({
               </div>
             )}
           </section>
+          )}
         </>
       ) : (
         <section className="mb-8">
