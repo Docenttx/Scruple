@@ -230,7 +230,21 @@ export async function mintCanvasSessionWithBilling(
     );
   }
 
-  // Dev bypass — allowlisted emails skip Stripe entirely (dev env only).
+  // Free-tier machines (hourlyRateCents = 0) skip Stripe entirely.
+  // Tier gating happens in Settings — the user's active machine
+  // reflects their plan. If they land here on a paid machine but
+  // don't have a card, Stripe returns no_card and Settings surfaces
+  // the fix.
+  const machineForBilling = getMachineById(machineId);
+  if (machineForBilling && machineForBilling.hourlyRateCents === 0) {
+    return {
+      ...minted,
+      paymentIntentId: `free_tier_${Date.now()}`,
+      holdCents: 0,
+    };
+  }
+
+  // Dev bypass — allowlisted emails skip Stripe for paid machines too.
   if (isBillingBypassed(userEmail)) {
     console.log(`[canvas] billing bypass for ${userEmail} (SCRUPLE_CANVAS_BILLING_BYPASS_EMAILS)`);
     return {

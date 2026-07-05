@@ -11,7 +11,6 @@ import { getActiveProject } from '@/lib/projects/actions';
 import AppShell from '@/components/AppShell';
 import CanvasBridge from '@/components/CanvasBridge';
 import CanvasSessionHUD from '@/components/CanvasSessionHUD';
-import CanvasStartGate from '@/components/CanvasStartGate';
 import {
   getActiveCanvasSession,
   mintCanvasSessionWithBilling,
@@ -70,22 +69,33 @@ export default async function CanvasPage() {
   if (canvasSession) {
     const proxyUrl = proxyUrlForSession(canvasSession.id);
     const m = getMachineById(canvasSession.machine_id) ?? machine;
+    const isPaidMachine = m.hourlyRateCents > 0;
     return (
       <AppShell activeProjectId={active?.id} viewingProjectName={active?.name}>
-        {/* Compute stays cold until user clicks Start — no Modal proxy
-            call fires from the iframe until then, so no GPU spin-up
-            and the HUD ticker doesn't count. */}
-        <CanvasStartGate
-          sessionId={canvasSession.id}
-          machineName={m.name}
-          hourlyRateCents={m.hourlyRateCents}
-          proxyUrl={proxyUrl}
-          iframeId={IFRAME_ID}
-          Bridge={CanvasBridge}
-          HUD={CanvasSessionHUD}
-          activeProjectId={active?.id}
-          activeProjectName={active?.name}
-        />
+        <div className="relative h-full">
+          <iframe
+            id={IFRAME_ID}
+            src={proxyUrl}
+            title={`ComfyUI canvas — ${m.name}`}
+            className="h-full w-full border-0 bg-scruple-bg"
+            allow="clipboard-read; clipboard-write; fullscreen"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+          />
+          <CanvasBridge
+            iframeId={IFRAME_ID}
+            activeProjectId={active?.id}
+            activeProjectName={active?.name}
+          />
+          {/* HUD ticker only for paid machines. Free-tier T4 has no
+              billing, so no ticker either. Tier gating lives in Settings. */}
+          {isPaidMachine && (
+            <CanvasSessionHUD
+              sessionId={canvasSession.id}
+              machineName={m.name}
+              hourlyRateCents={m.hourlyRateCents}
+            />
+          )}
+        </div>
       </AppShell>
     );
   }
