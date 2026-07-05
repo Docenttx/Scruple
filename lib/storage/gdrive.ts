@@ -69,6 +69,10 @@ async function refreshAccessToken(userId: string, row: TokenRow): Promise<string
   return data.access_token;
 }
 
+export async function readActiveAccessToken(userId: string): Promise<string> {
+  return getAccessToken(userId);
+}
+
 async function getAccessToken(userId: string): Promise<string> {
   const row = fetchTokenRow(userId);
   if (!row) throw new StorageError('gdrive', 'not_connected', 'Drive not connected');

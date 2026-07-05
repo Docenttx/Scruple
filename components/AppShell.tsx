@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { signOut, auth } from '@/lib/auth/auth';
 import Sidebar from './Sidebar';
 import ViewToggle from './ViewToggle';
+import GDriveHeartbeat from './GDriveHeartbeat';
 
 export default async function AppShell({
   children,
@@ -70,6 +71,11 @@ export default async function AppShell({
       <aside className="row-span-1 border-r border-scruple-border bg-scruple-surface">
         <Sidebar activeId={activeProjectId} search={search} page={page} />
       </aside>
+
+      {/* Silent Drive-token heartbeat — refreshes if <24h to expiry;
+          surfaces a reconnect toast if the row is missing or the
+          refresh_token is revoked. */}
+      {user && <GDriveHeartbeat />}
 
       {/* Main content — view-toggle header row + body */}
       <main className="flex flex-col overflow-hidden">

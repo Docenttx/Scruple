@@ -69,24 +69,86 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: 'database' },
   providers: [
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-      ? [Google({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET })]
+      ? [
+          Google({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            authorization: {
+              params: {
+                // Bundle Drive.file scope into every sign-in so tokens
+                // are always fresh after any interactive login. Users
+                // never see a separate "Connect Drive" screen.
+                scope: [
+                  'openid',
+                  'email',
+                  'profile',
+                  'https://www.googleapis.com/auth/drive.file',
+                ].join(' '),
+                // Force refresh_token issuance every time so we always
+                // have an unexpiring credential on the server.
+                access_type: 'offline',
+                prompt: 'consent',
+              },
+            },
+          }),
+        ]
       : []),
     ...(process.env.AUTODESK_CLIENT_ID && process.env.AUTODESK_CLIENT_SECRET
       ? [Autodesk]
       : []),
   ],
   callbacks: {
-    async signIn({ user }) {
-      if (ALLOWED_EMAILS.length === 0) {
-        if (typeof window === 'undefined') {
-          console.warn('[auth] SCRUPLE_ALLOWED_EMAILS not set — accepting any signin');
+    async signIn({ user, account }) {
+      if (ALLOWED_EMAILS.length > 0) {
+        const email = (user?.email ?? '').toLowerCase();
+        if (!email || !ALLOWED_EMAILS.includes(email)) {
+          console.warn(`[auth] rejected signin for "${email || '(no email)'}" — not on allowed list`);
+          return false;
         }
-        return true;
+      } else if (typeof window === 'undefined') {
+        console.warn('[auth] SCRUPLE_ALLOWED_EMAILS not set — accepting any signin');
       }
-      const email = (user?.email ?? '').toLowerCase();
-      if (!email || !ALLOWED_EMAILS.includes(email)) {
-        console.warn(`[auth] rejected signin for "${email || '(no email)'}" — not on allowed list`);
-        return false;
+
+      // Bundled Drive-token capture. If the Google sign-in produced an
+      // access token WITH drive.file scope, persist it into the same
+      // gdrive_tokens + storage_providers rows the /connect flow writes.
+      // Downstream capture never has to think about "is Drive connected?"
+      // — a fresh sign-in IS the connect.
+      try {
+        if (
+          account?.provider === 'google' &&
+          account.access_token &&
+          typeof account.scope === 'string' &&
+          account.scope.includes('drive.file') &&
+          user?.id
+        ) {
+          const mod = await import('@/lib/storage/gdrive');
+          const tokens = {
+            access_token: account.access_token,
+            // NextAuth exposes refresh_token as the raw provider token
+            // when access_type=offline + prompt=consent are set.
+            refresh_token:
+              (account.refresh_token as string | undefined) ?? '',
+            expires_in:
+              typeof account.expires_in === 'number'
+                ? account.expires_in
+                : typeof account.expires_at === 'number'
+                  ? account.expires_at - Math.floor(Date.now() / 1000)
+                  : 3600,
+            scope: account.scope,
+          };
+          if (!tokens.refresh_token) {
+            console.warn('[auth] Google sign-in gave no refresh_token — server-side refresh unavailable until user reconsents.');
+          }
+          const profile = {
+            email: user.email ?? '',
+            name: user.name ?? '',
+          };
+          mod.persistGDriveTokens(user.id, tokens, profile);
+          console.log(`[auth] gdrive_tokens upserted for ${user.email}`);
+        }
+      } catch (e) {
+        console.warn('[auth] gdrive_tokens upsert failed:', (e as Error).message);
       }
       return true;
     },
