@@ -199,9 +199,23 @@ export class CanvasMintError extends Error {
 import { ensureStripeCustomer } from '@/lib/stripe/customer';
 import { createCanvasHold } from '@/lib/stripe/canvas';
 
+/** Comma-separated emails from SCRUPLE_CANVAS_BILLING_BYPASS_EMAILS.
+ *  When the signed-in user's email matches, the Stripe hold is skipped
+ *  and a synthetic paymentIntentId is stamped instead. Never active in
+ *  production builds (guarded by NODE_ENV != 'production'). */
+function isBillingBypassed(userEmail: string | null | undefined): boolean {
+  if (!userEmail) return false;
+  if (process.env.NODE_ENV === 'production') return false;
+  const raw = process.env.SCRUPLE_CANVAS_BILLING_BYPASS_EMAILS ?? '';
+  if (!raw.trim()) return false;
+  const allow = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return allow.includes(userEmail.toLowerCase());
+}
+
 export async function mintCanvasSessionWithBilling(
   userId: string,
   machineId: string,
+  userEmail?: string | null,
 ): Promise<MintedSession & { paymentIntentId: string; holdCents: number }> {
   let minted: MintedSession;
   try {
@@ -211,6 +225,16 @@ export async function mintCanvasSessionWithBilling(
       'not_deployed',
       e instanceof Error ? e.message : String(e),
     );
+  }
+
+  // Dev bypass — allowlisted emails skip Stripe entirely (dev env only).
+  if (isBillingBypassed(userEmail)) {
+    console.log(`[canvas] billing bypass for ${userEmail} (SCRUPLE_CANVAS_BILLING_BYPASS_EMAILS)`);
+    return {
+      ...minted,
+      paymentIntentId: `dev_bypass_canvas_${Date.now()}`,
+      holdCents: 0,
+    };
   }
 
   try {

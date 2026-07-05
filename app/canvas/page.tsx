@@ -42,7 +42,7 @@ export default async function CanvasPage() {
   let mintFailure: MintFailure | null = null;
   if (!canvasSession) {
     try {
-      const minted = await mintCanvasSessionWithBilling(userId, machine.id);
+      const minted = await mintCanvasSessionWithBilling(userId, machine.id, session?.user?.email);
       canvasSession = {
         id: minted.id,
         user_id: userId,

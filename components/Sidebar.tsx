@@ -42,11 +42,15 @@ export default async function Sidebar({
           border. Logo cyan + bold + 2px tracking. */}
       <div className="flex items-end justify-between border-b border-scruple-border-color px-4 py-3">
         <Link href="/" className="flex flex-col">
-          <span className="text-[20px] font-bold leading-none tracking-widest2 text-scruple-accent-primary">
-            SCRUPLE
-          </span>
-          <span className="mt-1 text-[11px] text-scruple-text-deep-muted">
-            Studio Web
+          {/* Official crimson wordmark PNG (replaces the plain-text 'SCRUPLE'). */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/scruple_wordmark_crimson.png"
+            alt="Scruple"
+            className="h-6 w-auto"
+          />
+          <span className="mt-1 text-[13px] font-semibold uppercase tracking-widest text-cyan-400">
+            Web Studio
           </span>
         </Link>
       </div>
