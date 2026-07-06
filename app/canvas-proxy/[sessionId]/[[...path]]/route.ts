@@ -239,7 +239,7 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
     // Local dev fallback: ws://localhost:8190.
     const wsOrigin = process.env.NEXT_PUBLIC_CANVAS_WS_ORIGIN
       ?? (process.env.NODE_ENV === 'production'
-        ? 'wss://canvas-ws.scruple.stooges.ai'
+        ? 'wss://scruple-canvas-ws.stooges.ai'
         : 'ws://localhost:8190');
     // <base> handles relative URLs in HTML attributes; the shim
     // handles ComfyUI's JS which uses absolute-from-root paths like
