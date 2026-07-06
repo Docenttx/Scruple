@@ -289,13 +289,19 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
       try {
         var u = new URL(url);
         var wsPath = u.pathname;
-        // Strip any /canvas-proxy/<sid> that may have leaked into the path
+        // Strip any /canvas-proxy or /canvas-proxy/<sid> that may have
+        // leaked into the path (ComfyUI JS derives WS URLs from
+        // location.pathname minus the last segment). Whatever is left
+        // becomes the ComfyUI-relative path; empty → '/'.
         if (wsPath.slice(0, PREFIX.length) === PREFIX) {
           wsPath = wsPath.slice(PREFIX.length) || '/';
         } else if (wsPath.slice(0, STEM.length + 1) === STEM + '/') {
-          wsPath = wsPath.slice(STEM.length + 1);
-          wsPath = wsPath.slice(wsPath.indexOf('/'));
+          // /canvas-proxy/foo → /foo (keep leading slash)
+          wsPath = wsPath.slice(STEM.length);
+        } else if (wsPath === STEM) {
+          wsPath = '/';
         }
+        if (wsPath[0] !== '/') wsPath = '/' + wsPath;
         url = WS_ORIGIN + '/' + SESSION_ID + wsPath + u.search;
       } catch (e) {}
     }
