@@ -86,6 +86,19 @@ wss.on('connection', (clientWs, req) => {
   let upFrames = 0;
   const startedAt = Date.now();
 
+  // Keep the tunnel alive past Cloudflare/Modal idle-close (~100-125s).
+  // Send a low-level PING every 30s on both legs; ws lib responds to
+  // upstream pings automatically, but the tunnel needs traffic in
+  // BOTH directions.
+  const keepaliveInterval = setInterval(() => {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      try { clientWs.ping(); } catch {}
+    }
+    if (upstream.readyState === WebSocket.OPEN) {
+      try { upstream.ping(); } catch {}
+    }
+  }, 30 * 1000);
+
   upstream.on('open', () => {
     clientWs.send(JSON.stringify({ type: 'scruple-ws-ready' }));
   });
@@ -117,6 +130,7 @@ wss.on('connection', (clientWs, req) => {
     }
   });
   clientWs.on('close', (code, reason) => {
+    clearInterval(keepaliveInterval);
     const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
       `[canvas-ws-proxy] close session=${sessionId} ${elapsed}s up=${upFrames} down=${downFrames}`,
