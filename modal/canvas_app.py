@@ -92,6 +92,14 @@ canvas_image = (
         "/opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite",
         "pip install -r /opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt || true",
 
+        # ComfyUI Manager — user-facing custom-node installer + graph
+        # tools. Pinned to a known-good tag so image builds are
+        # reproducible.
+        "git clone --depth=1 --branch 3.7.5 "
+        "https://github.com/ltdrdata/ComfyUI-Manager "
+        "/opt/ComfyUI/custom_nodes/ComfyUI-Manager",
+        "pip install -r /opt/ComfyUI/custom_nodes/ComfyUI-Manager/requirements.txt || true",
+
         # SeedVR2 video upscaler — upstream is fine because Modal
         # containers always have real CUDA, so the scruple-canvas-fork's
         # CPU-fallback patch (see external/scruple-nodes/) is a no-op
