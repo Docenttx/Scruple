@@ -97,7 +97,13 @@ wss.on('connection', (clientWs, req) => {
   });
   upstream.on('close', (code, reason) => {
     if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.close(code, reason);
+      const forwardable =
+        typeof code === 'number' && code >= 1000 && code < 5000 && code !== 1004 && code !== 1005 && code !== 1006 && code !== 1015;
+      if (forwardable) {
+        try { clientWs.close(code, reason); } catch { clientWs.close(); }
+      } else {
+        clientWs.close();
+      }
     }
   });
   upstream.on('error', (e) => {
@@ -116,7 +122,17 @@ wss.on('connection', (clientWs, req) => {
       `[canvas-ws-proxy] close session=${sessionId} ${elapsed}s up=${upFrames} down=${downFrames}`,
     );
     if (upstream.readyState === WebSocket.OPEN) {
-      upstream.close(code, reason);
+      // Only forward the code if it's in the valid user range; reserved
+      // codes like 1005 (no status) / 1006 (abnormal) throw
+      // "First argument must be a valid error code number" when passed
+      // to ws.close(). Fall back to a plain close.
+      const forwardable =
+        typeof code === 'number' && code >= 1000 && code < 5000 && code !== 1004 && code !== 1005 && code !== 1006 && code !== 1015;
+      if (forwardable) {
+        try { upstream.close(code, reason); } catch { upstream.close(); }
+      } else {
+        upstream.close();
+      }
     }
   });
   clientWs.on('error', (e) => {
