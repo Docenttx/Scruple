@@ -233,6 +233,14 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
   if (isRootGet && contentType.includes('text/html')) {
     const html = await upstreamRes.text();
     const prefix = `/canvas-proxy/${sessionId}`;
+    // WebSocket bridge is a separate sidecar (canvas-ws-proxy.mjs on :8190),
+    // exposed via its own Cloudflare hostname because Next.js route handlers
+    // can't upgrade to WS. Browser opens wss://<host>/<sid>/<comfyui-path>.
+    // Local dev fallback: ws://localhost:8190.
+    const wsOrigin = process.env.NEXT_PUBLIC_CANVAS_WS_ORIGIN
+      ?? (process.env.NODE_ENV === 'production'
+        ? 'wss://canvas-ws.scruple.stooges.ai'
+        : 'ws://localhost:8190');
     // <base> handles relative URLs in HTML attributes; the shim
     // handles ComfyUI's JS which uses absolute-from-root paths like
     // /api/users, /api/system_stats, /api/prompt, /view, /ws. Base
@@ -270,15 +278,25 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
     arguments[1] = rewrite(url);
     return _open.apply(this, arguments);
   };
+  // WebSocket bridge: browser connects to a dedicated WS host (the
+  // canvas-ws-proxy sidecar) with the session id encoded in the path.
+  // The sidecar resolves the session, forwards to the correct Modal URL.
+  var WS_ORIGIN = ${JSON.stringify(wsOrigin)};
+  var SESSION_ID = ${JSON.stringify(sessionId)};
   var _WS = window.WebSocket;
   window.WebSocket = function (url, protocols) {
     if (typeof url === 'string' && /^wss?:\\/\\//i.test(url)) {
       try {
         var u = new URL(url);
-        if (u.pathname[0] === '/' && u.pathname.slice(0, PREFIX.length) !== PREFIX) {
-          u.pathname = PREFIX + u.pathname;
-          url = u.toString();
+        var wsPath = u.pathname;
+        // Strip any /canvas-proxy/<sid> that may have leaked into the path
+        if (wsPath.slice(0, PREFIX.length) === PREFIX) {
+          wsPath = wsPath.slice(PREFIX.length) || '/';
+        } else if (wsPath.slice(0, STEM.length + 1) === STEM + '/') {
+          wsPath = wsPath.slice(STEM.length + 1);
+          wsPath = wsPath.slice(wsPath.indexOf('/'));
         }
+        url = WS_ORIGIN + '/' + SESSION_ID + wsPath + u.search;
       } catch (e) {}
     }
     return protocols ? new _WS(url, protocols) : new _WS(url);
