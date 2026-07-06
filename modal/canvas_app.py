@@ -203,6 +203,7 @@ CANVAS_KWARGS = dict(
 
 
 @app.cls(gpu="T4", **CANVAS_KWARGS)
+@modal.concurrent(max_inputs=100)
 class ComfyUIT4:
     @modal.enter()
     def _boot(self):
@@ -210,11 +211,14 @@ class ComfyUIT4:
 
     @modal.web_server(port=8188, startup_timeout=300)
     def serve(self):
-        # Modal proxies all HTTP+WS to port 8188.
+        # Modal proxies all HTTP+WS to port 8188. @modal.concurrent lets
+        # HTTP requests share a container slot with a long-lived WS so
+        # /api/prompt POSTs don't queue behind the WebSocket.
         pass
 
 
 @app.cls(gpu="A10G", **CANVAS_KWARGS)
+@modal.concurrent(max_inputs=100)
 class ComfyUIA10G:
     @modal.enter()
     def _boot(self):
@@ -226,6 +230,7 @@ class ComfyUIA10G:
 
 
 @app.cls(gpu="A100-40GB", **CANVAS_KWARGS)
+@modal.concurrent(max_inputs=100)
 class ComfyUIA100:
     @modal.enter()
     def _boot(self):
@@ -239,6 +244,7 @@ class ComfyUIA100:
 # H100-CC: confidential computing mode for L3 trust-tier attestation.
 # Note: H100 requires Modal's confidential computing plan.
 @app.cls(gpu="H100", **CANVAS_KWARGS)
+@modal.concurrent(max_inputs=100)
 class ComfyUIH100CC:
     @modal.enter()
     def _boot(self):
