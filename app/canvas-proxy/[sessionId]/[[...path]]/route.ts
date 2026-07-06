@@ -223,6 +223,27 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
   // ── Stream response back to the browser ──────────────────────────
   const respHeaders = new Headers(upstreamRes.headers);
   respHeaders.delete('access-control-allow-origin');
+
+  // Root HTML gets a <base href="/canvas-proxy/<sid>/"> injection so
+  // that ComfyUI's relative URLs (href="user.css", src="assets/*.js")
+  // resolve back through the proxy with the session-id path segment
+  // intact. Without this, the browser strips 'cs_xxx' when resolving
+  // relative URLs and every asset 404s → blank iframe.
+  const contentType = upstreamRes.headers.get('content-type') ?? '';
+  if (isRootGet && contentType.includes('text/html')) {
+    const html = await upstreamRes.text();
+    const base = `<base href="/canvas-proxy/${sessionId}/">`;
+    const rewritten = html.includes('<head>')
+      ? html.replace('<head>', `<head>${base}`)
+      : `${base}${html}`;
+    respHeaders.delete('content-length');
+    return new Response(rewritten, {
+      status: upstreamRes.status,
+      statusText: upstreamRes.statusText,
+      headers: respHeaders,
+    });
+  }
+
   return new Response(upstreamRes.body, {
     status: upstreamRes.status,
     statusText: upstreamRes.statusText,
