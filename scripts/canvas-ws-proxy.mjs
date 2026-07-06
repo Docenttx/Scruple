@@ -45,8 +45,9 @@ const httpServer = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', (clientWs, req) => {
-  // URL: /<sessionId>/<rest>  e.g. /cs_abc123/ws
-  const url = new URL(req.url ?? '/', 'http://localhost');
+  // URL: /<sessionId>/<rest>  e.g. /cs_abc123/ws?clientId=X
+  const rawReqUrl = req.url ?? '/';
+  const url = new URL(rawReqUrl, 'http://localhost');
   const segments = url.pathname.split('/').filter(Boolean);
   if (segments.length < 1) {
     clientWs.close(1008, 'missing sessionId');
@@ -62,18 +63,21 @@ wss.on('connection', (clientWs, req) => {
     return;
   }
 
-  // Build upstream WS URL — strip legacy ?t= token, swap https → wss
+  // Build upstream WS URL — strip legacy ?t= token, swap https → wss,
+  // preserve clientId (and any other) query params. ComfyUI keys its
+  // socket map by clientId; without it, execution_start/executing/
+  // executed/execution_success events silently drop (they route with
+  // broadcast=False; only queue_updated broadcasts). See ComfyUI
+  // server.py sockets dict + execution.py send() behavior.
   const upstreamHttp = new URL(sessRow.modal_url);
   upstreamHttp.search = '';
-  const wsUrl =
-    (upstreamHttp.protocol === 'https:' ? 'wss:' : 'ws:') +
-    '//' +
-    upstreamHttp.host +
-    rest +
-    url.search;
+  const wsUrlObj = new URL(rest, `${upstreamHttp.protocol === 'https:' ? 'wss:' : 'ws:'}//${upstreamHttp.host}`);
+  url.searchParams.forEach((v, k) => wsUrlObj.searchParams.set(k, v));
+  const wsUrl = wsUrlObj.toString();
 
+  const clientId = url.searchParams.get('clientId');
   console.log(
-    `[canvas-ws-proxy] open session=${sessionId} user=${sessRow.user_id} → ${wsUrl}`,
+    `[canvas-ws-proxy] open session=${sessionId} user=${sessRow.user_id} clientId=${clientId ?? '(none)'} rawIn=${rawReqUrl} → ${wsUrl}`,
   );
 
   const upstream = new WebSocket(wsUrl, {
