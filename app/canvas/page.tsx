@@ -11,6 +11,7 @@ import { getActiveProject } from '@/lib/projects/actions';
 import AppShell from '@/components/AppShell';
 import CanvasBridge from '@/components/CanvasBridge';
 import CanvasSessionHUD from '@/components/CanvasSessionHUD';
+import CanvasIframeWithLoader from '@/components/CanvasIframeWithLoader';
 import {
   getActiveCanvasSession,
   mintCanvasSessionWithBilling,
@@ -72,14 +73,12 @@ export default async function CanvasPage() {
     const isPaidMachine = m.hourlyRateCents > 0;
     return (
       <AppShell activeProjectId={active?.id} viewingProjectName={active?.name}>
-        <div className="relative h-full">
-          <iframe
-            id={IFRAME_ID}
+        <>
+          <CanvasIframeWithLoader
+            iframeId={IFRAME_ID}
             src={proxyUrl}
             title={`ComfyUI canvas — ${m.name}`}
-            className="h-full w-full border-0 bg-scruple-bg"
-            allow="clipboard-read; clipboard-write; fullscreen"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+            machineName={m.name}
           />
           <CanvasBridge
             iframeId={IFRAME_ID}
@@ -95,7 +94,7 @@ export default async function CanvasPage() {
               hourlyRateCents={m.hourlyRateCents}
             />
           )}
-        </div>
+        </>
       </AppShell>
     );
   }

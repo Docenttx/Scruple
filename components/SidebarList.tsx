@@ -54,7 +54,7 @@ export default function SidebarList({
   search: string;
 }) {
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex-1 overflow-hidden">
       {projects.length === 0 ? (
         <p className="p-4 text-xs text-scruple-muted">
           {search
@@ -62,11 +62,11 @@ export default function SidebarList({
             : 'No projects yet. Click + New to create one.'}
         </p>
       ) : (
-        // Desktop catalog §3 Project List Rows:
-        // .project-item — tertiary bg, 1px border, 8px radius.
-        //   .project-main — clickable area (name + meta + status dot).
-        //   .project-footer — Archive + Start/Stop Tracking buttons.
-        <ul className="flex flex-col gap-2 px-2 py-2">
+        // Fusion palette pattern: fixed 6-row visible height + inline
+        // scroll for the rest. Keeps the whole sidebar chrome (brand,
+        // banner, status, search) fixed above the list.
+        // ~62px per row × 6 = ~372px.
+        <ul className="flex max-h-[380px] flex-col gap-2 overflow-y-auto px-2 py-2">
           {projects.map((p) => {
             const isSelected = activeId === p.id;
             const isTracking = p.is_active === 1;
