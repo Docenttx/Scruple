@@ -244,12 +244,20 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
 <script>
 (function () {
   var PREFIX = ${JSON.stringify(prefix)};
+  var STEM = '/canvas-proxy';
   function rewrite(u) {
     if (typeof u !== 'string') return u;
-    if (u.length && u[0] === '/' && u.slice(0, PREFIX.length) !== PREFIX) {
-      return PREFIX + u;
+    if (!u || u[0] !== '/') return u; // relative/scheme'd urls pass through
+    if (u.slice(0, PREFIX.length + 1) === PREFIX + '/') return u; // already prefixed
+    if (u === PREFIX) return u;
+    // ComfyUI derives some URLs from location.pathname minus its last
+    // segment — that gives '/canvas-proxy' (without the session id).
+    // Splice the session id back in.
+    if (u.slice(0, STEM.length + 1) === STEM + '/') {
+      return PREFIX + u.slice(STEM.length);
     }
-    return u;
+    // Any other absolute-from-root path → wrap under the prefix.
+    return PREFIX + u;
   }
   var _fetch = window.fetch;
   window.fetch = function (input, init) {
