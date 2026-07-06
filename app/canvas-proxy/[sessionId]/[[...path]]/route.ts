@@ -109,8 +109,14 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
   }
 
   // ── Capture POST /prompt body before forwarding ──────────────────
-  const isPromptPost = req.method === 'POST' && subPath === 'prompt';
-  const isViewGet = req.method === 'GET' && subPath === 'view';
+  // Modern ComfyUI (0.18+) prefixes /api/ on both endpoints; older
+  // versions used /prompt and /view. Match both.
+  const isPromptPost =
+    req.method === 'POST' &&
+    (subPath === 'prompt' || subPath === 'api/prompt');
+  const isViewGet =
+    req.method === 'GET' &&
+    (subPath === 'view' || subPath === 'api/view');
   let promptBodyText: string | undefined;
   let bodyToForward: BodyInit | undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
