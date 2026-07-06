@@ -122,16 +122,46 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
     }
   }
 
+  // ── Cold-start guard for the root GET ───────────────────────────
+  // Cloudflare gives up on the origin at 100s. Modal cold-start on a
+  // fresh container can take 150s. To avoid a hard 524, on the very
+  // first request for the root path we short-timeout the upstream fetch
+  // and, if it hasn't responded in 8s, return a lightweight HTML shell
+  // that meta-refreshes every 6s. The refresh is a fresh Cloudflare
+  // request each time; container warms in the background; the moment
+  // Modal responds inside the 8s window, we stream it back and the
+  // shell is never seen again.
+  const isRootGet = req.method === 'GET' && subPath === '';
+
   // ── Forward to Modal ─────────────────────────────────────────────
   let upstreamRes: Response;
   try {
-    upstreamRes = await fetch(upstreamUrl, {
-      method: req.method,
-      headers: outHeaders,
-      body: bodyToForward,
-      // @ts-expect-error — Node-only opt for streaming bodies
-      duplex: 'half',
-    });
+    if (isRootGet) {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 8000);
+      try {
+        upstreamRes = await fetch(upstreamUrl, {
+          method: req.method,
+          headers: outHeaders,
+          signal: ac.signal,
+        });
+      } catch (e) {
+        clearTimeout(t);
+        if ((e as { name?: string }).name === 'AbortError') {
+          return coldStartShellResponse(row.machine_id);
+        }
+        throw e;
+      }
+      clearTimeout(t);
+    } else {
+      upstreamRes = await fetch(upstreamUrl, {
+        method: req.method,
+        headers: outHeaders,
+        body: bodyToForward,
+        // @ts-expect-error — Node-only opt for streaming bodies
+        duplex: 'half',
+      });
+    }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[canvas-proxy] upstream fetch failed ${upstreamUrl}: ${message}`);
@@ -197,6 +227,48 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
     status: upstreamRes.status,
     statusText: upstreamRes.statusText,
     headers: respHeaders,
+  });
+}
+
+/** Static HTML shown while Modal cold-starts the ComfyUI container.
+ *  Self-refreshes every 6 seconds. Each request bumps Modal further
+ *  through its cold-start; eventually one lands within the 8s window
+ *  and the browser gets the real ComfyUI page. */
+function coldStartShellResponse(machineId: string): Response {
+  const html = `<!doctype html>
+<html><head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="6">
+  <title>Warming up ComfyUI…</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; background:#0b0b0b; color:#eaeaea;
+           font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+           display:flex; align-items:center; justify-content:center;
+           height:100vh; flex-direction:column; text-align:center; padding:1rem; }
+    .spinner { width:48px; height:48px; border:3px solid #333;
+               border-top-color:#c94a4a; border-radius:50%;
+               animation: spin 1s linear infinite; margin-bottom:1.5rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { color:#c94a4a; font-size:1.05rem; font-weight:600; margin:0 0 .6rem; }
+    p  { color:#aaa; font-size:.8rem; max-width:36rem; line-height:1.5; margin:.2rem 0; }
+    .meta { color:#666; font-size:.7rem; text-transform:uppercase;
+            letter-spacing:.08em; margin-top:1.2rem; }
+  </style>
+</head><body>
+  <div class="spinner"></div>
+  <h1>Warming up ComfyUI on ${machineId}</h1>
+  <p>The first container boot after idle can take 60-180 seconds. This
+     page auto-refreshes every 6 seconds until the canvas is ready.</p>
+  <p class="meta">If you see this for more than 5 minutes, refresh manually or
+     switch to a different machine in Settings → Compute.</p>
+</body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+    },
   });
 }
 
