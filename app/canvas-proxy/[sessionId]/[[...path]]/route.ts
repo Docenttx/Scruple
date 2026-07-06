@@ -232,10 +232,59 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
   const contentType = upstreamRes.headers.get('content-type') ?? '';
   if (isRootGet && contentType.includes('text/html')) {
     const html = await upstreamRes.text();
-    const base = `<base href="/canvas-proxy/${sessionId}/">`;
+    const prefix = `/canvas-proxy/${sessionId}`;
+    // <base> handles relative URLs in HTML attributes; the shim
+    // handles ComfyUI's JS which uses absolute-from-root paths like
+    // /api/users, /api/system_stats, /api/prompt, /view, /ws. Base
+    // has no effect on those — the browser resolves them against
+    // origin — so we patch fetch/XHR/WebSocket to prepend our
+    // session-id prefix any time the URL starts with '/'.
+    const injection = `
+<base href="${prefix}/">
+<script>
+(function () {
+  var PREFIX = ${JSON.stringify(prefix)};
+  function rewrite(u) {
+    if (typeof u !== 'string') return u;
+    if (u.length && u[0] === '/' && u.slice(0, PREFIX.length) !== PREFIX) {
+      return PREFIX + u;
+    }
+    return u;
+  }
+  var _fetch = window.fetch;
+  window.fetch = function (input, init) {
+    if (typeof input === 'string') return _fetch.call(this, rewrite(input), init);
+    if (input && input.url) return _fetch.call(this, new Request(rewrite(input.url), input), init);
+    return _fetch.call(this, input, init);
+  };
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    arguments[1] = rewrite(url);
+    return _open.apply(this, arguments);
+  };
+  var _WS = window.WebSocket;
+  window.WebSocket = function (url, protocols) {
+    if (typeof url === 'string' && /^wss?:\\/\\//i.test(url)) {
+      try {
+        var u = new URL(url);
+        if (u.pathname[0] === '/' && u.pathname.slice(0, PREFIX.length) !== PREFIX) {
+          u.pathname = PREFIX + u.pathname;
+          url = u.toString();
+        }
+      } catch (e) {}
+    }
+    return protocols ? new _WS(url, protocols) : new _WS(url);
+  };
+  window.WebSocket.prototype = _WS.prototype;
+  window.WebSocket.CONNECTING = _WS.CONNECTING;
+  window.WebSocket.OPEN = _WS.OPEN;
+  window.WebSocket.CLOSING = _WS.CLOSING;
+  window.WebSocket.CLOSED = _WS.CLOSED;
+})();
+</script>`;
     const rewritten = html.includes('<head>')
-      ? html.replace('<head>', `<head>${base}`)
-      : `${base}${html}`;
+      ? html.replace('<head>', `<head>${injection}`)
+      : `${injection}${html}`;
     respHeaders.delete('content-length');
     return new Response(rewritten, {
       status: upstreamRes.status,
