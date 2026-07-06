@@ -141,15 +141,20 @@ def _start_comfy() -> None:
     if _comfy_running():
         return
     log_fd = open("/tmp/comfyui.log", "ab", buffering=0)
+    # Bind to 0.0.0.0, NOT 127.0.0.1 — Modal's port-probe runs from a
+    # side-car namespace that can't reach loopback. The canvas server-
+    # side proxy is the only gate, so exposure inside the container is
+    # not a security concern.
     subprocess.Popen(
-        ["python", "main.py", "--listen", "127.0.0.1", "--port", "8188",
+        ["python", "main.py", "--listen", "0.0.0.0", "--port", "8188",
          "--disable-auto-launch", "--enable-cors-header"],
         cwd="/opt/ComfyUI",
         stdout=log_fd,
         stderr=log_fd,
     )
-    # Wait up to 90s for the HTTP listener to come up.
-    deadline = time.monotonic() + 90
+    # Wait up to 240s for the HTTP listener to come up (matches the
+    # web_server startup_timeout headroom).
+    deadline = time.monotonic() + 240
     while time.monotonic() < deadline:
         if _comfy_running():
             return
@@ -198,7 +203,7 @@ class ComfyUIT4:
     def _boot(self):
         _start_comfy()
 
-    @modal.web_server(port=8188, startup_timeout=120)
+    @modal.web_server(port=8188, startup_timeout=300)
     def serve(self):
         # Modal proxies all HTTP+WS to port 8188.
         pass
@@ -210,7 +215,7 @@ class ComfyUIA10G:
     def _boot(self):
         _start_comfy()
 
-    @modal.web_server(port=8188, startup_timeout=120)
+    @modal.web_server(port=8188, startup_timeout=300)
     def serve(self):
         pass
 
@@ -221,7 +226,7 @@ class ComfyUIA100:
     def _boot(self):
         _start_comfy()
 
-    @modal.web_server(port=8188, startup_timeout=120)
+    @modal.web_server(port=8188, startup_timeout=300)
     def serve(self):
         pass
 
@@ -234,6 +239,6 @@ class ComfyUIH100CC:
     def _boot(self):
         _start_comfy()
 
-    @modal.web_server(port=8188, startup_timeout=120)
+    @modal.web_server(port=8188, startup_timeout=300)
     def serve(self):
         pass
