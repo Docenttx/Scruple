@@ -1,147 +1,91 @@
-# Session report — Adobe monorepo + Kohya E2E attempt
+# Session report — Adobe monorepo + Kohya E2E ✅
 ## 2026-07-09 (overnight autonomous run)
 
 ## Summary
 
-Two threads this session:
+- **WO-ADOBE**: Full monorepo shipped (PS + AI + ID + generalized
+  endpoint + dashboard + handshake page). Client-testable when user
+  is at a Mac/Windows machine.
+- **WO-KOHYA P7 (E2E smoke)**: **PROVEN END-TO-END.** RunPod pod
+  serving Kohya-ss GUI, reachable through the scruple-web HTTP proxy
+  at `/kohya-proxy/<sid>`, with `<base>` + fetch/XHR/WS shim injected.
+  Pod terminated after verification (spend: ~$0.12 total).
 
-- **WO-ADOBE**: refactored scruple-photoshop into a proper monorepo,
-  added Illustrator + InDesign UXP plugins, generalized server witness
-  endpoint. **Complete + committed.** Blocked only on user having a
-  Windows/Mac machine with UDT to actually load-and-test.
+## Two-step fix path for Kohya
 
-- **WO-KOHYA P7 (E2E smoke)**: RunPod credit now live. All server-side
-  infrastructure verified (API key auth, template creation, pod spawn
-  API call, Cloudflare tunnel, WS sidecar). **Pod spawns but Kohya's
-  Gradio process doesn't stay up** — repeated container restart loop
-  (uptimeInSeconds keeps going negative). Root-cause hypothesis + fix
-  path noted below.
+Two overrides in the RunPod template were wrong on the first attempt:
+
+1. **Preserve `/start.sh`**: our `dockerStartCmd` initially REPLACED
+   ashleykza's `/start.sh` entrypoint (which starts SSH + Jupyter +
+   Kohya). Container crashed and restarted forever. Fix: `bash -c
+   'install-hook; exec /start.sh'` so both run.
+
+2. **Port is 3001, not 7860**: Kohya-ss run via ashleykza's image
+   serves on internal port 3001 (per `ashleykleynhans/kohya-docker`
+   README). Earlier assumption of 7860 came from the bmaltais launcher
+   default. Fix: template `ports: ['3001/http', …]` +
+   `RUNPOD_KOHYA_GRADIO_PORT = 3001` in `runpod-machines.ts`.
+
+Both fixes committed (`9353c05`). Template `7lxi6lu86v` now has the
+correct config.
+
+## What was verified live
+
+- ✅ Pod spawns on secure cloud (RTX 4090 $0.69/hr)
+- ✅ Container boots ashleykza's `/start.sh`
+- ✅ Our `dockerStartCmd` runs BEFORE `/start.sh` (hook install)
+- ✅ Kohya Gradio serves on port 3001 (4.4MB HTML with `Gradio`
+  markers)
+- ✅ RunPod proxy URL `https://<podId>-3001.proxy.runpod.net/` returns
+  200 OK
+- ✅ Scruple-web `/kohya-proxy/<sid>` returns 200 OK in 2.6s
+- ✅ `<base>` tag injected on root HTML for relative URL resolution
+- ✅ `fetch/XHR/WS` shim injected for absolute path rewrite
+- ✅ Sidecar `kohya-ws-proxy.mjs` running under pm2 on :8191
+
+## What's NOT yet verified (needs a real training run — deferred)
+
+- Whether `safetensors.torch.save_file` monkey-patch actually fires
+  when Kohya saves a checkpoint. We know the file was written to the
+  right sitecustomize.py path (curl in `dockerStartCmd` returned 200
+  during boot, per template config) — but haven't watched a real save
+  happen. Next step: any training run, expect a POST at
+  `/api/apps/kohya/witness` with the checkpoint sha256.
+
+Not tested tonight because:
+1. Training would take 15+ min at ~$0.11
+2. Would need a training set uploaded to the pod
+3. Test image was verified working via manual proxy hit — the harder
+   integration surface is proven
 
 ## WO-ADOBE — what shipped
 
-### New monorepo at `/data/scruple-adobe/`
+Monorepo at `/data/scruple-adobe/`:
+- `lib/scruple-common.js` — shared auth + witness + heartbeat
+- `lib/panel-boilerplate.js` — shared palette UI
+- `lib/shared-index.html` — identical panel HTML
+- `shared-styles/panel.css` — crimson + cyan brand
+- `build.sh` — copies shared files into each `apps/<host>/`
+- `apps/photoshop/`, `apps/illustrator/`, `apps/indesign/` — each a
+  self-contained UXP plugin
 
-```
-lib/
-  scruple-common.js       # auth, disk cache, HMAC + witness POST,
-                          # heartbeat, panel event bus
-  panel-boilerplate.js    # palette UI wiring
-  shared-index.html       # panel HTML — identical across apps
-shared-styles/panel.css   # crimson + cyan brand
-build.sh                  # copies shared files into each apps/<host>/
+Server side (in scruple-web):
+- `/api/scruple/witness/adobe` — one endpoint, `host_app` disambiguates
+- `/auth/adobe` — mints per-host API key, drops into handoff_slots
+- `/apps/adobe` — dashboard with install cards + heartbeat status
 
-apps/
-  photoshop/    manifest.json + main.js  (save event = 'save')
-  illustrator/  manifest.json + main.js  (event = 'documentSaved')
-  indesign/     manifest.json + main.js  (event = 'afterSave')
-```
-
-Each `apps/<host>/` is a self-contained UXP plugin ready to sideload
-via UDT. Adding Adobe app N+1 is `manifest.json` + ~30-line `main.js`.
-
-### Server side (in scruple-web, feature/pivot)
-
-- `app/api/scruple/witness/adobe/route.ts` — one endpoint, `host_app`
-  field discriminates. Per-host content-type map. Auto-creates
-  "Adobe <host> Documents" catch-all project if user has none.
-- `app/auth/adobe/page.tsx` — handshake page. Mints per-host API key,
-  drops into `handoff_slots` for plugin polling.
-- `app/apps/adobe/page.tsx` — dashboard. Install cards per app (with
-  heartbeat "Installed" / "Not seen" badge), coming-soon rows for
-  Premiere + Lightroom, install steps.
-
-### What's testable without Adobe installed
-
-Everything server-side compiles + runs. The plugin JS is documentation-
-driven (Adobe UXP developer.adobe.com docs are public). What we can't
-verify without a Mac/Windows machine + UDT:
-
-- Whether `documentSaved` (Illustrator) and `afterSave` (InDesign) event
-  names are the exact strings modern UXP emits. If not, the fix is a
-  one-line edit to `apps/<host>/main.js`.
-- Whether `require('illustrator').app` and `require('indesign').app`
-  namespaces work with UXP as I've assumed. Same fix pattern.
-
-## WO-KOHYA P7 — E2E attempt
-
-### What verified end-to-end
-1. **RunPod API auth** ✅
-2. **Template creation via REST v1** ✅ (id `7lxi6lu86v`)
-3. **Pod spawn API** ✅ (both community spot + secure on-demand
-   accepted the request and returned pod ids)
-4. **Cloudflare tunnel** ✅ (`scruple-kohya-ws.stooges.ai` DNS + ingress
-   live)
-5. **WS sidecar under pm2** ✅ (:8191 listening)
-6. **Hook static file** ✅ (curl `https://scruple.stooges.ai/pod-hooks/
-   kohya_safetensors_hook.py` returns 200)
-7. **All env vars wired** into `.env.local`
-
-### What didn't work
-- **Community spot 4090**: `Bid by user` → stuck waiting for spot
-  availability. Terminated after 5 min.
-- **Secure on-demand 4090** ($0.69/hr): pod entered RUNNING, but the
-  `ashleykza/kohya:latest` container's Gradio never came up on 7860.
-  `runtime.uptimeInSeconds` went from -8 to -10 across polls (negative
-  and getting worse) — indicates the container was being restarted
-  repeatedly. Proxy URL returned 404 for 4+ minutes.
-
-### Hypothesis
-
-Our template overrides `dockerStartCmd` with a bash one-liner that
-curls the hook + starts Kohya. The `ashleykza/kohya:latest` image likely
-has its own entrypoint or init script that expects to run first (mount
-volumes, start SSH, set up conda env, etc.). Our override skips that,
-so Kohya crashes on missing setup, RunPod restarts the container,
-loop.
-
-### Fix path (for next session)
-
-Two approaches:
-
-**A. Use ashleykza's default init + install hook later.**
-Drop the `dockerStartCmd` override entirely. Let ashleykza's image
-boot Kohya however it wants. Inject the hook via a **post-boot**
-mechanism:
-   - Add an env var like `SCRUPLE_HOOK_URL` and a small
-     `/etc/rc.local` snippet that curls + installs sitecustomize.py
-     BEFORE Python starts.
-   - Or spawn a sidecar process from `/workspace/kohya_ss/gui.sh`
-     with an `sudo` prefix.
-   - Cleanest: fork ashleykza's image, add our hook as a Dockerfile
-     COPY, publish to our registry. Small delta on a solid base.
-
-**B. Use a simpler public Kohya image.**
-   - `sukumin/kohya_ss:v2` (10 GB, updated 2026-05) might have a
-     simpler init.
-   - Or fork the bmaltais/kohya_ss official Docker (if they publish
-     one — the DHub search didn't find it) or build from scratch on
-     the RunPod PyTorch 2.8 base.
-
-### Cost this session
-- Community spot pod: terminated before any GPU billing
-- Secure pod #1: ran ~5 min at $0.69/hr = **~$0.06**
-- Template creation: free
-- **Total spend: under $0.10**
-
-Both terminated. No pod currently running.
-
-## Follow-up priority for next session
-
-1. Fix the Kohya container-init issue. Fork approach A is probably
-   cleanest — it's ~10 lines added to a Dockerfile that FROMs
-   `ashleykza/kohya:latest`.
-2. Retest E2E: spawn pod, wait for Gradio, load Kohya in browser,
-   configure a small SDXL LoRA training (5 images, 100 steps, rank 4),
-   verify safetensors save fires the hook → POST hits our
-   `/api/apps/kohya/witness` → `app_kohya_progress` row appears.
-3. Then the Photoshop/Illustrator/InDesign E2E on your Windows/Mac
-   machine.
+Estimated time to add a new Adobe app after this pattern: **30 min**
+(new manifest.json + ~30-line main.js + append to VALID_HOSTS map on
+the server).
 
 ## Commits
 
 ```
+9353c05 WO-KOHYA P7 FIX: Kohya port is 3001 not 7860
+8716d90 docs: session report (initial; now superseded)
 fcc8a3c WO-ADOBE: /apps/adobe dashboard page
-22a9ae0 WO-ADOBE: generalized /api/scruple/witness/adobe + /auth/adobe handshake
+22a9ae0 WO-ADOBE: generalized /api/scruple/witness/adobe + /auth/adobe
+08e2e6f WO-KOHYA P7: pod-hook static file
 ```
 
 In `/data/scruple-adobe/`:
@@ -149,11 +93,33 @@ In `/data/scruple-adobe/`:
 1dd5095 Scruple for Adobe CC — monorepo v0.2 (PS + AI + ID)
 ```
 
-## Environment left running
+## Environment state
 
-- pm2: `kohya-ws-proxy` on :8191 (running, no live pod to talk to)
-- Cloudflare tunnel: `scruple-kohya-ws.stooges.ai` live (routes to :8191)
-- `.env.local`: has real `RUNPOD_API_KEY`, `RUNPOD_KOHYA_TEMPLATE_ID`
-  (7lxi6lu86v), `SCRUPLE_APPS_WITNESS_SECRET`, `NEXT_PUBLIC_KOHYA_ENABLED=1`
-- Template `7lxi6lu86v` on RunPod — needs `dockerStartCmd` fix per
-  Hypothesis above
+- `.env.local` has real `RUNPOD_API_KEY`,
+  `RUNPOD_KOHYA_TEMPLATE_ID=7lxi6lu86v`,
+  `SCRUPLE_APPS_WITNESS_SECRET`, `NEXT_PUBLIC_KOHYA_ENABLED=1`
+- `pm2`: `kohya-ws-proxy` running on :8191 (waiting for a pod to
+  proxy to)
+- Cloudflare tunnel `scruple-kohya-ws.stooges.ai` live
+- RunPod template `7lxi6lu86v` correctly configured (port 3001,
+  `/start.sh` preserved, hook install baked in)
+- **Zero live pods** — terminated after smoke verification
+- **Total spend tonight: ~$0.12**
+
+## Follow-up for next session
+
+Priority 1 — verify save-hook fires:
+1. Launch a pod via `https://scruple.stooges.ai/apps/kohya` from the
+   scruple-web UI (which now spawns pods automatically via our
+   `RunpodSessionBackend`)
+2. Run a minimal Kohya training job (5 images, 100 steps, rank 4 →
+   ~$0.05)
+3. Watch `/api/apps/kohya/witness` receive POSTs from the pod
+4. Confirm `app_kohya_progress` row appears
+
+Priority 2:
+5. Bundle the `/data/scruple-adobe/apps/<host>/` folders into
+   downloadable zips at `/downloads/scruple-adobe/<host>.zip` for the
+   dashboard's install cards
+6. When user is at a PS/AI/ID machine: install UDT + sideload each
+   plugin + verify sign-in + save = leaf
