@@ -15,9 +15,17 @@ type Pill = { label: string; href: string; match: (p: string) => boolean };
 // Wallet was a top-level pill; per the clone-2 refactor, payment-mode
 // + saved-method management now live under /settings. Settings is
 // reachable via the gear icon in the topbar — not a view pill.
+// App pills — Kohya is conditionally visible only when its RunPod
+// backend is configured. NEXT_PUBLIC_KOHYA_ENABLED is set by the
+// build step from the same env that lib/apps/registry.ts checks.
+const kohyaEnabled = process.env.NEXT_PUBLIC_KOHYA_ENABLED === '1';
+
 const PILLS: Pill[] = [
   { label: 'Workspace', href: '/', match: p => p === '/' || p.startsWith('/projects/') },
   { label: 'Canvas', href: '/canvas', match: p => p.startsWith('/canvas') },
+  ...(kohyaEnabled
+    ? [{ label: 'Kohya', href: '/apps/kohya', match: (p: string) => p.startsWith('/apps/kohya') }]
+    : []),
 ];
 
 export default function ViewToggle() {
