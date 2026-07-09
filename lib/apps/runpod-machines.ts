@@ -10,7 +10,7 @@
 //   2) Confirm gpuTypeId matches RunPod's catalog (see
 //      https://docs.runpod.io/references/gpu-types).
 
-export const RUNPOD_KOHYA_GRADIO_PORT = 7860;
+export const RUNPOD_KOHYA_GRADIO_PORT = 3001;
 
 export interface RunpodMachine {
   id: string;
