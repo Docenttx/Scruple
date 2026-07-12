@@ -1,0 +1,180 @@
+{
+  "_notes": [
+    "Vectors for canonicalLeafV23 (TS) and canonical_leaf_v23 (Python). Both",
+    "MUST produce identical leaf_hash values for each vector. Any change",
+    "here requires a corresponding version bump per the CANONICAL_LEAF_V23",
+    "CONTRACT documented in the modules.",
+    "",
+    "expected_preimage is the canonical JSON string; expected_leaf_hash is",
+    "sha256(expected_preimage) as lowercase 64-hex."
+  ],
+  "vectors": [
+    {
+      "name": "01-minimum-required-fields",
+      "input": {
+        "tenant_id": "TEN_scruple",
+        "stream_id": "STR_c2pasign",
+        "tenant_seq": 1,
+        "event_time": "2026-07-12T00:00:00.000Z",
+        "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_scruple\",\"principal_id\":\"\",\"stream_id\":\"STR_c2pasign\",\"tenant_seq\":1,\"event_time\":\"2026-07-12T00:00:00.000Z\",\"payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"dims\":{}}",
+      "expected_leaf_hash": "f850ed05edd781dbbac0e070f51e4bb659b5d06667b93a7bd6d5a190b07b5548"
+    },
+    {
+      "name": "02-with-principal-and-empty-dims",
+      "input": {
+        "tenant_id": "TEN_scruple",
+        "principal_id": "PRN_9F8E7D6C",
+        "stream_id": "STR_c2pasign",
+        "tenant_seq": 42,
+        "event_time": "2026-07-12T14:03:22.114Z",
+        "payload_hash": "sha256:ab12cd34ef56ab78cd90ef12ab34cd56ef78ab90cd12ef34ab56cd78ef90ab12",
+        "dims": {}
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_scruple\",\"principal_id\":\"PRN_9F8E7D6C\",\"stream_id\":\"STR_c2pasign\",\"tenant_seq\":42,\"event_time\":\"2026-07-12T14:03:22.114Z\",\"payload_hash\":\"sha256:ab12cd34ef56ab78cd90ef12ab34cd56ef78ab90cd12ef34ab56cd78ef90ab12\",\"dims\":{}}",
+      "expected_leaf_hash": "1204bf3b883fd4ee114f4453cd82a530b51000e3fd41fa21fb5fbaab7b639771"
+    },
+    {
+      "name": "03-with-dims-keys-in-natural-order",
+      "input": {
+        "tenant_id": "TEN_customer_x",
+        "principal_id": "PRN_00000001",
+        "stream_id": "STR_txt2img",
+        "tenant_seq": 918273,
+        "event_time": "2026-07-12T14:03:22.114Z",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dims": {
+          "input_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "output_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_customer_x\",\"principal_id\":\"PRN_00000001\",\"stream_id\":\"STR_txt2img\",\"tenant_seq\":918273,\"event_time\":\"2026-07-12T14:03:22.114Z\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"dims\":{\"input_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"output_hash\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}}",
+      "expected_leaf_hash": "e5dd09bbe82a627719a5c62dccf8dfaf89faccb35f5fbc966be507e4f432e1bc"
+    },
+    {
+      "name": "04-with-dims-keys-out-of-order-must-sort",
+      "input": {
+        "tenant_id": "TEN_customer_x",
+        "principal_id": "PRN_00000001",
+        "stream_id": "STR_txt2img",
+        "tenant_seq": 918273,
+        "event_time": "2026-07-12T14:03:22.114Z",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dims": {
+          "output_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "input_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "_note": "Same hash as vector 03 despite input key order.",
+      "expected_preimage": "{\"tenant_id\":\"TEN_customer_x\",\"principal_id\":\"PRN_00000001\",\"stream_id\":\"STR_txt2img\",\"tenant_seq\":918273,\"event_time\":\"2026-07-12T14:03:22.114Z\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"dims\":{\"input_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"output_hash\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}}",
+      "expected_leaf_hash": "e5dd09bbe82a627719a5c62dccf8dfaf89faccb35f5fbc966be507e4f432e1bc"
+    },
+    {
+      "name": "05-all-five-hash-dimensions",
+      "input": {
+        "tenant_id": "TEN_customer_y",
+        "principal_id": "PRN_ABCDEF01",
+        "stream_id": "STR_workflow",
+        "tenant_seq": 1000000,
+        "event_time": "2026-07-12T23:59:59.999Z",
+        "payload_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "dims": {
+          "input_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "machine_manifest_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "model_fingerprint_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "output_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+          "workflow_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_customer_y\",\"principal_id\":\"PRN_ABCDEF01\",\"stream_id\":\"STR_workflow\",\"tenant_seq\":1000000,\"event_time\":\"2026-07-12T23:59:59.999Z\",\"payload_hash\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"dims\":{\"input_hash\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"machine_manifest_hash\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"model_fingerprint_hash\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"output_hash\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"workflow_hash\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\"}}",
+      "expected_leaf_hash": "c36c48dfeae0982fa56bf1fc742db26c96c70161a5169f88c247ac99c6a58f30"
+    },
+    {
+      "name": "06-large-tenant-seq",
+      "input": {
+        "tenant_id": "TEN_high_volume",
+        "principal_id": "PRN_00000002",
+        "stream_id": "STR_events",
+        "tenant_seq": 9007199254740992,
+        "event_time": "2027-01-01T00:00:00.000Z",
+        "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+      },
+      "_note": "Max safe integer + 1. If parity breaks here, revisit tenant_seq encoding.",
+      "expected_preimage": "{\"tenant_id\":\"TEN_high_volume\",\"principal_id\":\"PRN_00000002\",\"stream_id\":\"STR_events\",\"tenant_seq\":9007199254740992,\"event_time\":\"2027-01-01T00:00:00.000Z\",\"payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000001\",\"dims\":{}}",
+      "expected_leaf_hash": "003fb37913333573601c791a3308e39149cc0bb694248ebcc1671ce7fe17f783"
+    },
+    {
+      "name": "07-unicode-payload-hash-value",
+      "input": {
+        "tenant_id": "TEN_intl",
+        "principal_id": "PRN_00000003",
+        "stream_id": "STR_intl",
+        "tenant_seq": 7,
+        "event_time": "2026-07-12T12:00:00.000Z",
+        "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "dims": {
+          "note": "hello 日本語 🌍"
+        }
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_intl\",\"principal_id\":\"PRN_00000003\",\"stream_id\":\"STR_intl\",\"tenant_seq\":7,\"event_time\":\"2026-07-12T12:00:00.000Z\",\"payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000007\",\"dims\":{\"note\":\"hello 日本語 🌍\"}}",
+      "expected_leaf_hash": "fd3ec4d2257a7ca2203298d734faa0d3271bb4d9e3f40eed2236138281438b2a"
+    },
+    {
+      "name": "08-empty-string-fields-explicit",
+      "input": {
+        "tenant_id": "",
+        "principal_id": "",
+        "stream_id": "",
+        "tenant_seq": 0,
+        "event_time": "",
+        "payload_hash": ""
+      },
+      "_note": "Pathological but must be deterministic. Ingest layer rejects; canonical fn does not.",
+      "expected_preimage": "{\"tenant_id\":\"\",\"principal_id\":\"\",\"stream_id\":\"\",\"tenant_seq\":0,\"event_time\":\"\",\"payload_hash\":\"\",\"dims\":{}}",
+      "expected_leaf_hash": "bfdde2aafd0a3c50e119a4c346f25bf11998ef8e26d3a28e1271066b8fda08e6"
+    },
+    {
+      "name": "09-principal-id-missing-defaults-to-empty",
+      "input": {
+        "tenant_id": "TEN_scruple",
+        "stream_id": "STR_c2pasign",
+        "tenant_seq": 5,
+        "event_time": "2026-07-12T00:00:00.000Z",
+        "payload_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_scruple\",\"principal_id\":\"\",\"stream_id\":\"STR_c2pasign\",\"tenant_seq\":5,\"event_time\":\"2026-07-12T00:00:00.000Z\",\"payload_hash\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"dims\":{}}",
+      "expected_leaf_hash": "9e6d13f071d4b285701581b72ea4b18bc221bcf92a1de9a09f91d0e17cc13b58"
+    },
+    {
+      "name": "10-dims-with-single-empty-key",
+      "input": {
+        "tenant_id": "TEN_edge",
+        "principal_id": "PRN_00000004",
+        "stream_id": "STR_edge",
+        "tenant_seq": 1,
+        "event_time": "2026-07-12T00:00:00.000Z",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dims": {
+          "": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_edge\",\"principal_id\":\"PRN_00000004\",\"stream_id\":\"STR_edge\",\"tenant_seq\":1,\"event_time\":\"2026-07-12T00:00:00.000Z\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"dims\":{\"\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}}",
+      "expected_leaf_hash": "9ce8c3b99d3138ebf74d2af528719851385c840fd8c008a463d1ddd5cbd63ba2"
+    }
+  ],
+  "chain_hash_vectors": [
+    {
+      "name": "cv-01-first-leaf-in-stream",
+      "prev_chain_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "leaf_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected_chain_hash": "9ef814b42fa0be12d197c44d3e8e03441a4b1118237658368ba1351090e556ed"
+    },
+    {
+      "name": "cv-02-subsequent-leaf",
+      "prev_chain_hash": "abababababababababababababababababababababababababababababababab",
+      "leaf_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "expected_chain_hash": "a6a96ccb5233f068bf41343ffd5984bf8d4d7e591f1e4bdb12bda296534409b8"
+    }
+  ]
+}
