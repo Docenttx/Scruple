@@ -58,20 +58,28 @@ def _sha256_of(path: str) -> tuple[str, int]:
     return h.hexdigest(), size
 
 
-def _extract_safetensors_header(path: str) -> dict[str, Any] | None:
-    """Parse a safetensors file's JSON header. Returns None on failure."""
+def _extract_safetensors_header(path: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Parse a safetensors file's JSON header + return SHA-256 of the raw header bytes.
+
+    The header_hash lets a verifier confirm the model's structural fingerprint
+    (layer names + shapes + dtypes) independently of the full content_hash —
+    it survives metadata-only tampering that changes bytes elsewhere in the
+    file but preserves the tensor structure. Both hashes are written into
+    training_runs by the /api/apps/kohya/witness route.
+    """
     try:
         with open(path, "rb") as f:
             header_len_bytes = f.read(8)
             if len(header_len_bytes) < 8:
-                return None
+                return None, None
             header_len = int.from_bytes(header_len_bytes, "little")
             if header_len <= 0 or header_len > 20_000_000:  # sanity
-                return None
+                return None, None
             header_bytes = f.read(header_len)
-        return json.loads(header_bytes.decode("utf-8"))
+        header_hash = hashlib.sha256(header_bytes).hexdigest()
+        return json.loads(header_bytes.decode("utf-8")), header_hash
     except Exception:
-        return None
+        return None, None
 
 
 def _post_witness(payload: dict[str, Any]) -> None:
@@ -119,7 +127,7 @@ def _install() -> None:
 
         try:
             sha, size = _sha256_of(filename)
-            header = _extract_safetensors_header(filename)
+            header, header_hash = _extract_safetensors_header(filename)
             # Compact structural summary — layers + shapes + dtypes.
             structural_summary: dict[str, Any] = {}
             if header:
@@ -141,6 +149,7 @@ def _install() -> None:
                 "event": "checkpoint_save",
                 "path": filename,
                 "output_hash": sha,
+                "header_hash": header_hash,
                 "size_bytes": size,
                 "structural_summary": structural_summary,
                 "pod_id": os.environ.get("RUNPOD_POD_ID"),

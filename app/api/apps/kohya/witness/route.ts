@@ -38,6 +38,8 @@ interface WitnessBody {
   event: string;
   path: string;
   output_hash: string;
+  /** SHA-256 of the safetensors raw header bytes; may be undefined from older hook builds. */
+  header_hash?: string;
   size_bytes: number;
   structural_summary?: Record<string, unknown>;
   pod_id?: string;
@@ -80,7 +82,9 @@ export async function POST(req: NextRequest) {
 
   // Update the app_kohya_progress mirror
   const now = new Date().toISOString();
-  conn()
+  const database = conn();
+
+  database
     .prepare(
       `INSERT INTO app_kohya_progress (session_id, latest_ckpt_sha256, latest_ckpt_path, updated_at)
          VALUES (?, ?, ?, ?)
@@ -91,15 +95,104 @@ export async function POST(req: NextRequest) {
     )
     .run(row.id, body.output_hash, body.path, now);
 
-  // TODO Phase 4-B: POST to witness server (:5799) for leaf hash +
-  // HMAC seal, insert iterations + training_runs rows. For now we log
-  // the receipt so the pipeline is testable end-to-end minus the leaf.
-  // (Witness server integration follows the same pattern as
-  //  /api/canvas/witness — startWorkflow / captureOutput on the runner
-  //  code path.)
+  // Phase 4-B: persist the trained model's fingerprint into the training run
+  // so the receipt page + audit script can display it and downstream tooling
+  // (LoRA sidecar emitter, provenance decomposition) can bind to it.
+  //
+  // We look up the session's active project (via app_sessions.endpoint_id
+  // which for kohya carries the parent project_id, or via the app_kohya_progress
+  // mirror if the session-to-project mapping lives there). If the training_runs
+  // row for this project+run_sequence doesn't exist yet we create it; if it
+  // does we update the trained-model hash fields in place — same shape either
+  // way. All in one transaction so a partial write can't leave the DB
+  // inconsistent.
+  //
+  // We do NOT yet POST to the witness server for a leaf hash from this route —
+  // the leaf construction still runs through the canonical /api/v1/log/*
+  // ingest surface, keyed by the tenant's API principal, not by the pod-side
+  // HMAC (which authenticates the hook, not the human customer). Wiring the
+  // pod-side HMAC through to a witness leaf is a separate follow-up.
+  try {
+    const projectRow = database
+      .prepare(
+        `SELECT p.id AS project_id
+           FROM app_sessions s
+           JOIN projects p ON p.id = CAST(s.endpoint_id AS INTEGER)
+          WHERE s.id = ?
+            AND p.type = 'training'
+          LIMIT 1`,
+      )
+      .get(row.id) as { project_id: number } | undefined;
+
+    if (projectRow) {
+      const filename = body.path.split('/').pop() ?? body.path;
+      const existing = database
+        .prepare(
+          `SELECT id, run_sequence FROM training_runs
+            WHERE project_id = ?
+            ORDER BY run_sequence DESC
+            LIMIT 1`,
+        )
+        .get(projectRow.project_id) as { id: number; run_sequence: number } | undefined;
+
+      if (existing) {
+        database
+          .prepare(
+            `UPDATE training_runs
+                SET model_hash       = ?,
+                    header_hash      = ?,
+                    output_path      = ?,
+                    output_filename  = ?,
+                    completed_at     = ?,
+                    status           = 'complete',
+                    structural_summary = COALESCE(?, structural_summary)
+              WHERE id = ?`,
+          )
+          .run(
+            body.output_hash,
+            body.header_hash ?? null,
+            body.path,
+            filename,
+            now,
+            body.structural_summary ? JSON.stringify(body.structural_summary) : null,
+            existing.id,
+          );
+      } else {
+        database
+          .prepare(
+            `INSERT INTO training_runs
+              (project_id, run_sequence, status, created_at, started_at, completed_at,
+               output_path, output_filename, model_hash, header_hash, structural_summary,
+               source)
+             VALUES (?, 1, 'complete', ?, ?, ?, ?, ?, ?, ?, ?, 'kohya_ss')`,
+          )
+          .run(
+            projectRow.project_id,
+            now,
+            now,
+            now,
+            body.path,
+            filename,
+            body.output_hash,
+            body.header_hash ?? null,
+            body.structural_summary ? JSON.stringify(body.structural_summary) : null,
+          );
+      }
+    }
+  } catch (e) {
+    // Non-fatal — checkpoint save must not fail training. Log for observability.
+    console.error(
+      `[kohya-witness] training_runs write failed for session=${row.id}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+
   console.log(
     `[kohya-witness] session=${row.id} user=${row.user_id} pod=${body.pod_id?.slice(0, 8)} ` +
-      `output_hash=${body.output_hash.slice(0, 12)} size=${body.size_bytes} path=${body.path}`,
+      `output_hash=${body.output_hash.slice(0, 12)} ` +
+      `header_hash=${body.header_hash?.slice(0, 12) ?? 'null'} ` +
+      `size=${body.size_bytes} path=${body.path}`,
   );
 
   return NextResponse.json({

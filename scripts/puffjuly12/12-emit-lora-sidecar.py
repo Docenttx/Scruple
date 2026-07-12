@@ -127,12 +127,15 @@ def build_manifest(db: dict) -> dict:
     run = db["run"]
     it = db["iteration"]
 
-    # The user-declared "content hash" of the LoRA is stored in
-    # iterations.model_fingerprints_hash for project 181. (Historical detail:
-    # this value also happens to equal training_runs.base_model_hash in the
-    # row — see NOTES.md; we treat model_fingerprints_hash as authoritative
-    # for the LoRA output.)
-    lora_hash_hex = it["model_fingerprints_hash"]
+    # The trained LoRA's whole-file SHA-256 is stored in iterations.output_hash
+    # (matches training_runs.session_hash on the corresponding row). The
+    # iterations.model_fingerprints_hash column for a training iteration holds
+    # the BASE model's hash (the model that was loaded during training), NOT
+    # the trained-model output — so we bind c2pa.hash.data to output_hash.
+    # Historical anomaly correction (2026-07-12): earlier revision of this
+    # script mistakenly used model_fingerprints_hash which bound the sidecar
+    # to the SDXL base hash instead of the trained LoRA. Fixed.
+    lora_hash_hex = it["output_hash"]
     assert lora_hash_hex and len(lora_hash_hex) == 64, "expected sha256 hex for LoRA hash"
     lora_hash_bytes = bytes.fromhex(lora_hash_hex)
     lora_hash_b64 = base64.b64encode(lora_hash_bytes).decode("ascii")
@@ -554,7 +557,7 @@ def build_verification_report(
     it = db["iteration"]
     proj = db["project"]
 
-    lora_hash_hex = it["model_fingerprints_hash"]
+    lora_hash_hex = it["output_hash"]
     lora_hash_bytes = bytes.fromhex(lora_hash_hex)
     decomposed = decompose_sidecar(sidecar)
 

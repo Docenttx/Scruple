@@ -2,7 +2,7 @@
   "sidecar": {
     "path": "/data/scruple-web/docs/provenance-bundles/bundle-29e9a40e1d43/iterations/training-181/stay-puft-cyberpunk-lora-r4.safetensors.c2pa",
     "bytes": 16498,
-    "sha256_hex": "0027d50242c8439028ad3e1833882e7603745f8738a59525abf9ba66fb7bd2dd",
+    "sha256_hex": "16bf0821f51127c7e2104aceffd4e2dfb1bfc832ad71d8a4d9834d1568e5f651",
     "signing_approach": "a: c2pa.Builder.sign(format='c2pa', empty_src)",
     "signer_pubkey_sha256_hex": "879614a0a05df88d6fa0dee07d188e642d33e38c3a72a5ae86cacd509883a9f3",
     "cert_chain_leaf_pem_first_line": "-----BEGIN CERTIFICATE-----",
@@ -10,10 +10,10 @@
   },
   "model_binding": {
     "expected_lora_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
-    "expected_lora_content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+    "expected_lora_content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
     "sidecar_stored_hash_bytes": 32,
-    "sidecar_stored_hash_b64": "MeNcgPxIKdFPkBU/THTNWckLd59q/gWnTNYSC4k/fls=",
-    "sidecar_stored_hash_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+    "sidecar_stored_hash_b64": "MUHrdX1NvGue9eszy3x6uDNLhZj+8YoAe1FdJyK76QA=",
+    "sidecar_stored_hash_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
     "hash_binding_ok": true
   },
   "leaf_to_root_chain": {
@@ -56,7 +56,7 @@
           "signingCredential.untrusted",
           "assertion.dataHash.mismatch"
         ],
-        "active_manifest": "urn:c2pa:ed9e5131-f454-4682-897c-0151abb27403",
+        "active_manifest": "urn:c2pa:ac072a14-e353-4e22-9f90-836ac9fcc734",
         "manifest_assertion_labels": [
           "c2pa.actions.v2",
           "c2pa.assertion.training-mining",
@@ -66,19 +66,19 @@
     ]
   },
   "assertions_decoded": {
-    "urn:c2pa:ed9e5131-f454-4682-897c-0151abb27403": {
+    "urn:c2pa:ac072a14-e353-4e22-9f90-836ac9fcc734": {
       "actions": [
         {
           "action": "c2pa.created",
           "parameters": {
-            "com.scruple.scr_id": "SCR_DB433994",
-            "com.scruple.project_id": 181,
             "com.scruple.leaf_scheme": "v2.2",
-            "com.scruple.output_bytes": 11778336,
-            "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
-            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+            "com.scruple.scr_id": "SCR_DB433994",
             "com.scruple.trainer": "diffusers+peft",
-            "com.scruple.output_content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b"
+            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+            "com.scruple.output_content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
+            "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
+            "com.scruple.output_bytes": 11778336,
+            "com.scruple.project_id": 181
           },
           "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia"
         }
@@ -89,14 +89,14 @@
         {
           "action": "c2pa.created",
           "parameters": {
-            "com.scruple.scr_id": "SCR_DB433994",
-            "com.scruple.project_id": 181,
             "com.scruple.leaf_scheme": "v2.2",
-            "com.scruple.output_bytes": 11778336,
-            "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
-            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+            "com.scruple.scr_id": "SCR_DB433994",
             "com.scruple.trainer": "diffusers+peft",
-            "com.scruple.output_content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b"
+            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+            "com.scruple.output_content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
+            "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
+            "com.scruple.output_bytes": 11778336,
+            "com.scruple.project_id": 181
           },
           "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia"
         }
@@ -114,7 +114,7 @@
           "merkle_root_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771"
         },
         "lora": {
-          "content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+          "content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
           "learning_rate": 0.0001,
           "lr_scheduler": null,
           "max_train_epochs": null,
@@ -140,7 +140,7 @@
       "exclusions": [],
       "name": "stay-puft-cyberpunk-lora-r4.safetensors",
       "alg": "sha256",
-      "hash": "b'1\\xe3\\\\\\x80\\xfcH)\\xd1O\\x90\\x15?Lt\\xcdY\\xc9\\x0bw\\x9fj\\xfe\\x05\\xa7L\\xd6\\x12\\x0b\\x89?~['",
+      "hash": "b'1A\\xebu}M\\xbck\\x9e\\xf5\\xeb3\\xcb|z\\xb83K\\x85\\x98\\xfe\\xf1\\x8a\\x00{Q]\\'\"\\xbb\\xe9\\x00'",
       "pad": "b''"
     },
     "com.scruple.leaf": {
