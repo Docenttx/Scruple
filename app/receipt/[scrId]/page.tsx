@@ -13,6 +13,7 @@ import {
   type TrainingRunRow,
 } from '@/lib/types';
 import type { InputArtifactRecord } from '@/lib/iterations/ingest';
+import { readL2Attestation, type L2Attestation } from '@/lib/l2/attestation';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,8 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
     .all(project.id) as TrainingRunRow[];
 
   const witnessedCount = iterations.filter((i) => i.witnessed === 1).length;
+
+  const l2 = readL2Attestation(scrId, project.pre_scr_id);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
@@ -239,6 +242,8 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
           </div>
         </section>
       )}
+
+      {l2 && <L2AttestationSection l2={l2} />}
 
       {(project.rvn_txid || project.ipfs_cid || project.arweave_uri) && (
         <section className="mt-8">
@@ -642,6 +647,115 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function L2AttestationSection({ l2 }: { l2: L2Attestation }) {
+  return (
+    <section className="mt-8 rounded-md border-2 border-scruple-accent/60 bg-scruple-accent/[0.03] p-4 print:break-inside-avoid">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs uppercase tracking-widest text-scruple-accent">
+          L2 Attestation
+        </h2>
+        <span className="text-[10px] text-scruple-muted">
+          C2PA Assurance Level 2 · SEV-SNP substrate
+        </span>
+      </div>
+      <p className="mt-1 text-[10px] text-scruple-muted">
+        Every iteration output is C2PA-signed by a distinct ES256 key (creative-work-level provenance).
+        The witness Merkle root is separately signed by an Ed25519 key (attestation-level).
+        Both keys are attested to run in an AMD SEV-SNP Confidential VM with SoftHSM
+        key confinement (see §6.1.2 + §6.2.2 of the C2PA GPSR).
+      </p>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 text-[11px] md:grid-cols-2">
+        {/* C2PA signer */}
+        <div className="rounded border border-scruple-border bg-scruple-surface p-3">
+          <div className="text-[10px] uppercase tracking-widest text-scruple-muted">
+            C2PA signer (per-iteration cert)
+          </div>
+          <dl className="mt-2 grid grid-cols-3 gap-x-2 gap-y-1">
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">subject</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text">{l2.c2pa.signer_cert_subject}</dd>
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">issuer</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text">{l2.c2pa.signer_cert_issuer}</dd>
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">root CA</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text">{l2.c2pa.root_ca_subject}</dd>
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">pubkey sha256</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text break-all">{l2.c2pa.signer_pubkey_sha256}</dd>
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">chain sha256</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text break-all">{l2.c2pa.cert_chain_sha256}</dd>
+          </dl>
+          <p className="mt-2 text-[10px] italic text-scruple-muted">{l2.c2pa.profile_notes}</p>
+        </div>
+
+        {/* Witness signer */}
+        <div className="rounded border border-scruple-border bg-scruple-surface p-3">
+          <div className="text-[10px] uppercase tracking-widest text-scruple-muted">
+            Witness checkpoint signer (Merkle root cert)
+          </div>
+          <dl className="mt-2 grid grid-cols-3 gap-x-2 gap-y-1">
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">algorithm</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text">{l2.witness.signer_pubkey_alg}</dd>
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">pubkey sha256</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text break-all">{l2.witness.signer_pubkey_sha256}</dd>
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">sign-input prefix</dt>
+            <dd className="col-span-2 font-mono text-[10px] text-scruple-text">{l2.witness.sign_input_prefix}</dd>
+            <dt className="col-span-1 text-[10px] uppercase text-scruple-muted">signature</dt>
+            <dd className="col-span-2 break-all font-mono text-[10px] text-scruple-text">{l2.witness.signature_b64.slice(0, 24)}…{l2.witness.signature_b64.slice(-16)}</dd>
+          </dl>
+        </div>
+      </div>
+
+      {/* SEV-SNP substrate */}
+      <div className="mt-3 rounded border border-scruple-border bg-scruple-surface p-3">
+        <div className="text-[10px] uppercase tracking-widest text-scruple-muted">
+          SEV-SNP substrate (AMD hardware Root of Trust)
+        </div>
+        <dl className="mt-2 grid grid-cols-4 gap-x-2 gap-y-1 text-[10px]">
+          <dt className="col-span-1 uppercase text-scruple-muted">measurement</dt>
+          <dd className="col-span-3 break-all font-mono text-scruple-text">{l2.sev_snp_substrate.vm_measurement_hex}</dd>
+          <dt className="col-span-1 uppercase text-scruple-muted">chip id</dt>
+          <dd className="col-span-3 break-all font-mono text-scruple-text">{l2.sev_snp_substrate.chip_id_hex}</dd>
+          <dt className="col-span-1 uppercase text-scruple-muted">reported TCB</dt>
+          <dd className="col-span-3 font-mono text-scruple-text">{l2.sev_snp_substrate.reported_tcb_hex}</dd>
+          <dt className="col-span-1 uppercase text-scruple-muted">VCEK sha256</dt>
+          <dd className="col-span-3 break-all font-mono text-scruple-text">{l2.sev_snp_substrate.vcek_der_sha256}</dd>
+          <dt className="col-span-1 uppercase text-scruple-muted">bound pubkey</dt>
+          <dd className="col-span-3 break-all font-mono text-scruple-text">{l2.sev_snp_substrate.signer_pubkey_bound_sha256}</dd>
+        </dl>
+        <p className="mt-2 text-[10px] text-scruple-muted">
+          Evidence bundle: <span className="font-mono">{l2.sev_snp_substrate.evidence_relpath}</span>
+        </p>
+      </div>
+
+      {/* Bundle Merkle root — the ONE hash anchored on-chain */}
+      <div className="mt-3 rounded border-2 border-scruple-accent/60 bg-scruple-surface p-3">
+        <div className="text-[10px] uppercase tracking-widest text-scruple-accent">
+          Full-send bundle root
+        </div>
+        <div className="mt-2 grid grid-cols-4 gap-x-2 gap-y-1 text-[10px]">
+          <dt className="col-span-1 uppercase text-scruple-muted">merkle root</dt>
+          <dd className="col-span-3 break-all font-mono text-scruple-text">{l2.merkle_root_sha256}</dd>
+          <dt className="col-span-1 uppercase text-scruple-muted">bundle sha256</dt>
+          <dd className="col-span-3 break-all font-mono text-scruple-text">{l2.bundle_root}</dd>
+          <dt className="col-span-1 uppercase text-scruple-muted">bundle folder</dt>
+          <dd className="col-span-3 font-mono text-scruple-text">{l2.bundle_relpath}</dd>
+          <dt className="col-span-1 uppercase text-scruple-muted">leaves</dt>
+          <dd className="col-span-3 text-scruple-text">{l2.leaves.length} iterations, each C2PA-signed and Merkle-included</dd>
+        </div>
+      </div>
+
+      <p className="mt-3 text-[10px] text-scruple-muted">
+        Decomposition: given the RVN asset data hash, walk to <span className="font-mono">BUNDLE.merkle-root.txt</span> →
+        <span className="font-mono"> witness/checkpoint.json</span> → each leaf preimage →
+        <span className="font-mono"> iterations/N/output.png</span> +
+        <span className="font-mono"> output.c2pa.png</span>. Verify signatures with
+        <span className="font-mono"> l2/c2pa-cert-chain.pem</span> +
+        <span className="font-mono"> l2/witness-ed25519-pubkey.pem</span>. Verify substrate against
+        <span className="font-mono"> l2/sev-snp-substrate/</span>.
+      </p>
+    </section>
+  );
 }
 
 function formatParamCount(n: number): string {

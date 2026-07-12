@@ -1,0 +1,75 @@
+{
+  "scr_id": "SCR_3DE79573",
+  "bundle_root": "26f9dfe515d2552cb3e34fb15d9eae436efb37eb246901ca8b7dd529fdaa3685",
+  "bundle_relpath": "docs/provenance-bundles/bundle-29e9a40e1d43",
+  "merkle_root_sha256": "29e9a40e1d436ce7c4aae2edd4c28bad73bfcece8e9477b9da9b43375543016c",
+  "c2pa": {
+    "signer_cert_subject": "C = US, ST = CA, L = Somewhere, O = Scruple puffjuly12 Signing Cert, OU = PUFFJULY12_L2_DEMO, CN = puffjuly12 C2PA Signer",
+    "signer_cert_issuer": "C = US, ST = CA, L = Somewhere, O = Scruple puffjuly12 Root CA, OU = PUFFJULY12_L2_DEMO, CN = puffjuly12 Root CA",
+    "root_ca_subject": "C = US, ST = CA, L = Somewhere, O = Scruple puffjuly12 Root CA, OU = PUFFJULY12_L2_DEMO, CN = puffjuly12 Root CA",
+    "signer_pubkey_sha256": "879614a0a05df88d6fa0dee07d188e642d33e38c3a72a5ae86cacd509883a9f3",
+    "cert_chain_sha256": "91291e24ba930f9be7d835b231231f29f29bc3cf7e6533d1c07465c79b5a571d",
+    "profile_notes": "Full-DN cert (C/ST/L/O/OU/CN) issued by distinct root CA, EKU=critical emailProtection, KU=digitalSignature+nonRepudiation. Cert profile fix landed 2026-07-12 (commit 43cf346)."
+  },
+  "witness": {
+    "signer_pubkey_sha256": "406afbff4401344692b635aca58bc0430349a07fc33acba00b52c4313064a4bc",
+    "signer_pubkey_alg": "Ed25519",
+    "signature_b64": "9q6zdmNCBDUGyuJG0pI0/TA3wgEuJRmt2dfK5LqWH/MseS65Joj39yimbtQCKIgFaZ2UvjVKcOrwrc9JosxNBg==",
+    "sign_input_prefix": "puffjuly12/checkpoint/v1|"
+  },
+  "sev_snp_substrate": {
+    "evidence_relpath": "docs/l2-evidence/2026-07-12T174954Z",
+    "vm_measurement_hex": "7237c44bfc842925afa7860596631e8b7e28bcb679fc15c443e1a091c6ec3d1999b90c43b0580a414dde18cb3efbd45a",
+    "chip_id_hex": "bd296e674119acb7367311bf0be06eaf0f6d15b5f0fc78d4f38653f46ca48baa285388d4f07f2964fa62ede902111de6115ada7b4f0289b2beaeae49e7a65aa4",
+    "reported_tcb_hex": "581c00000000000a",
+    "vcek_der_sha256": "e8e2726d38a363120b5988f6de7a55fbcdc61511c7ed9b7fdf18ad79c214b90f",
+    "signer_pubkey_bound_sha256": "d5b782d80eb3e4f38ac8a54c1ff6ef496fb30fb841f0ebf417996eb73c7398ab"
+  },
+  "leaves": [
+    {
+      "iteration": 1,
+      "output_sha256": "3a2f0adf0fe0f8f3b2ad39d81ceee69a865bd09d1d2695a6990113003c8a09d9",
+      "signed_output_sha256": "91e8a75a54631e53185b01fcb052c12569ecc7dfcc66f1be9d183e9d46f92912",
+      "workflow_sha256": "e318c264043999ecf81d7249b4ccf458c5139c275ee97953da16f27f243932eb",
+      "c2pa_reader_state": "Valid"
+    },
+    {
+      "iteration": 2,
+      "output_sha256": "512f4fe6646de5cffeca435c8b2d3e8e88c58b4a48d6e9befddb0745a3d9dde6",
+      "signed_output_sha256": "5c195869599eadabf04fbfc9914a2dbce968c2536df0e78d7057feea6a5b2dac",
+      "workflow_sha256": "8462d4461d3195231eec514ff7e50828a9545950ca0da390034116b336d224d4",
+      "c2pa_reader_state": "Valid"
+    },
+    {
+      "iteration": 3,
+      "output_sha256": "c773fcc88537ce511d5e3b49f401074fcc74a70ea6ddef70ebaf1ba40493cc51",
+      "signed_output_sha256": "bb048c473816abac0684e182fb317741b2214ec1fbb5cd1bad8e05d2540c92a9",
+      "workflow_sha256": "03322ff3b10ceb29d0e42e431067ac19eaf34e3e0a9b13e923414d9211a7276c",
+      "c2pa_reader_state": "Valid"
+    },
+    {
+      "iteration": 4,
+      "output_sha256": "fc3be5012fa1c4e85f55abbdc13f83f3161510bc1bee903c58030820f2609da5",
+      "signed_output_sha256": "c3a4341d2d64549797a55e7131f16b688d1e8510ec8660726cd93b7cb6599cbf",
+      "workflow_sha256": "c550333dfaeeb098717db5836689be6e5254198f09f39a3bb815ef688fe0aec2",
+      "c2pa_reader_state": "Valid"
+    },
+    {
+      "iteration": 5,
+      "output_sha256": "58f4cddbe50f502e272962a0e6e6d3b5dc3fd30c911b6c73231e95666cab6725",
+      "signed_output_sha256": "dbe820af26942a09007e845ca61431be5ea50ad055242d64e1d14b3632929c80",
+      "workflow_sha256": "4393490d08542f3dacca8e90c92e665b2df628b6a2016bbefca2a18e281bff47",
+      "c2pa_reader_state": "Valid"
+    }
+  ],
+  "generated_at": "2026-07-12T18:52:21.181654Z",
+  "rvn_anchor": {
+    "scr_id": "SCR_3DE79573",
+    "chain": "rvn-testnet",
+    "rvn_txid": "8f8f95867d1c9185a1f4439e12f3aad88f0697a41ee23874c1822e06bc5d9e93",
+    "ipfs_cid": "bafkreickjxn3docjsbkwfaocbv37efl4sqwlb3t7mr2rayksok5cnacbva",
+    "arweave_tx_id": "ECrbDO8aojgCS3Fm51tL0AdwlJLrXUBUCIFhbwMd-Xw",
+    "server_signature": "8730ee3883d4b45202480f64d2f05683f198a1a1668aacb4bcd30b4e85682678",
+    "witness_project_id": "puffjuly12-1783882341"
+  }
+}

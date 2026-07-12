@@ -1,0 +1,23 @@
+{
+  "text_encoders/clip_l.safetensors": {
+    "content_hash": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd",
+    "header_hash": "65fae1da983dd0dff519f96d4ca08ef7558d815e1b86a93a331a88f8d2e20663",
+    "header_size": 23184,
+    "bytes": 246144152,
+    "mtime": 1778859359.842594
+  },
+  "text_encoders/t5xxl_fp8_e4m3fn.safetensors": {
+    "content_hash": "7d330da4816157540d6bb7838bf63a0f02f573fc48ca4d8de34bb0cbfd514f09",
+    "header_hash": "89cc6e32ec60396fa683fef06ec688fbcdc68fa3ac20f041aa7ba14157113b07",
+    "header_size": 27952,
+    "bytes": 4893934904,
+    "mtime": 1778859389.347456
+  },
+  "vae/ae.safetensors": {
+    "content_hash": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+    "header_hash": "6753860d781c5040a82e9aee0726719966ae774c1513d38789b264b30c496a39",
+    "header_size": 25648,
+    "bytes": 335304388,
+    "mtime": 1778859412.408409
+  }
+}

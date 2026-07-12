@@ -9,3 +9,44 @@
 html, body {
   height: 100%;
 }
+
+/* Receipt PDF export via browser Print → Save as PDF.
+   Force light colors and page-break control so the L2 attestation block
+   doesn't split mid-cert. */
+@media print {
+  :root { color-scheme: light; }
+  html, body {
+    background: white !important;
+    color: black !important;
+  }
+  main {
+    max-width: 100% !important;
+    padding: 0.5in !important;
+  }
+  a { color: #0055aa !important; text-decoration: none !important; }
+  .print\:break-inside-avoid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Tailwind's arbitrary bg-scruple-* + border-scruple-* are dark-theme
+     colors; wash them out for print so the paper output is readable. */
+  [class*="bg-scruple-surface"], [class*="bg-scruple-bg"] {
+    background: #fafafa !important;
+    color: black !important;
+  }
+  [class*="border-scruple-border"] {
+    border-color: #cccccc !important;
+  }
+  [class*="text-scruple-muted"] {
+    color: #444 !important;
+  }
+  [class*="text-scruple-text"] {
+    color: black !important;
+  }
+  [class*="text-scruple-accent"] {
+    color: #a30014 !important;   /* Scruple crimson holds up in print */
+  }
+  @page {
+    margin: 0.5in;
+  }
+}

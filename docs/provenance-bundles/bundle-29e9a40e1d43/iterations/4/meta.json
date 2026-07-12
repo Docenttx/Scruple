@@ -1,0 +1,12 @@
+{
+  "iteration": 4,
+  "seed": 26071204,
+  "workflow_sha256": "c550333dfaeeb098717db5836689be6e5254198f09f39a3bb815ef688fe0aec2",
+  "output_sha256": "fc3be5012fa1c4e85f55abbdc13f83f3161510bc1bee903c58030820f2609da5",
+  "output_content_type": "image/png",
+  "output_bytes": 1165369,
+  "modal_filename": "puffjuly12-4_00001_.png",
+  "modal_gpu": "T4",
+  "modal_duration_ms": 138002,
+  "modal_prompt_id": "0d39a2ea-6aea-4285-8c4b-21285dd52a3f"
+}

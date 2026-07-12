@@ -1,0 +1,57 @@
+[
+  {
+    "iteration": 1,
+    "input_output_sha256": "3a2f0adf0fe0f8f3b2ad39d81ceee69a865bd09d1d2695a6990113003c8a09d9",
+    "signed_output_sha256": "91e8a75a54631e53185b01fcb052c12569ecc7dfcc66f1be9d183e9d46f92912",
+    "signed_output_bytes": 1050100,
+    "c2pa_reader_state": "Valid",
+    "c2pa_reader_codes": [
+      "signingCredential.untrusted"
+    ],
+    "ok": true
+  },
+  {
+    "iteration": 2,
+    "input_output_sha256": "512f4fe6646de5cffeca435c8b2d3e8e88c58b4a48d6e9befddb0745a3d9dde6",
+    "signed_output_sha256": "5c195869599eadabf04fbfc9914a2dbce968c2536df0e78d7057feea6a5b2dac",
+    "signed_output_bytes": 1415198,
+    "c2pa_reader_state": "Valid",
+    "c2pa_reader_codes": [
+      "signingCredential.untrusted"
+    ],
+    "ok": true
+  },
+  {
+    "iteration": 3,
+    "input_output_sha256": "c773fcc88537ce511d5e3b49f401074fcc74a70ea6ddef70ebaf1ba40493cc51",
+    "signed_output_sha256": "bb048c473816abac0684e182fb317741b2214ec1fbb5cd1bad8e05d2540c92a9",
+    "signed_output_bytes": 1121373,
+    "c2pa_reader_state": "Valid",
+    "c2pa_reader_codes": [
+      "signingCredential.untrusted"
+    ],
+    "ok": true
+  },
+  {
+    "iteration": 4,
+    "input_output_sha256": "fc3be5012fa1c4e85f55abbdc13f83f3161510bc1bee903c58030820f2609da5",
+    "signed_output_sha256": "c3a4341d2d64549797a55e7131f16b688d1e8510ec8660726cd93b7cb6599cbf",
+    "signed_output_bytes": 1267740,
+    "c2pa_reader_state": "Valid",
+    "c2pa_reader_codes": [
+      "signingCredential.untrusted"
+    ],
+    "ok": true
+  },
+  {
+    "iteration": 5,
+    "input_output_sha256": "58f4cddbe50f502e272962a0e6e6d3b5dc3fd30c911b6c73231e95666cab6725",
+    "signed_output_sha256": "dbe820af26942a09007e845ca61431be5ea50ad055242d64e1d14b3632929c80",
+    "signed_output_bytes": 1321895,
+    "c2pa_reader_state": "Valid",
+    "c2pa_reader_codes": [
+      "signingCredential.untrusted"
+    ],
+    "ok": true
+  }
+]
