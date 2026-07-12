@@ -433,21 +433,40 @@ Rider becomes a false representation and this doc must be updated.
 
 ## 11. C2PA L2 Evidence Checklist
 
-The list below is what the Conformance Program submission must be able to
-point at. Each item maps to a work order.
+**Corrected 2026-07-12 per C2PA GPSR v0.1 (June 2025) — earlier version of
+this section incorrectly framed L2 as requiring FIPS 140-2 Level 3 physical
+HSM. The actual spec requires "hardware Root of Trust attestation" across
+two objectives (key confidentiality + binary integrity), which is
+satisfiable by cloud-native TEE mechanisms including OCI Confidential
+Compute + SEV-SNP attestation + SoftHSM. See §18 for the full evidence
+path we adopted.**
 
-| # | L2 requirement | Evidence artifact | WO |
+The list below is what the Conformance Program submission must be able to
+point at. Each item maps to a work order or artifact.
+
+| # | GPSR objective | Our evidence | WO / artifact |
 |---|---|---|---|
-| 1 | HSM-backed non-exportable signing key | OCI Vault key OCID + Vault console screenshot showing "Protection Mode: Virtual Private" + OCI Audit sample of Sign call | WO-01 |
-| 2 | Production C2PA-trust-list-issued cert | Cert PEM + issuer CA + trust-list linkage | WO-02 |
-| 3 | Signer callback path (raw key never in memory) | Code diff on `sign.py` from `from_info` to `from_callback` | WO-03 |
-| 4 | Signer process isolation | systemd unit + IAM policy JSON + `ls -l /run/scruple-signer.sock` showing 0660 | WO-04 |
-| 5 | Per-sign audit log with third-party witness | Leaf ID for a sample sign event + inclusion proof + checkpoint sig + TSA token + anchor references (all verifiable via `scruple-verify c2pa`) | WO-08, WO-12 |
-| 6 | Rate limiting on signing route | Config + rate-limit test result | WO-04 |
-| 7 | Key lifecycle documentation | `docs/architecture/lifecycle/*.md` — generation, rotation, revocation, incident response | WO-17 |
-| 8 | Interop against production path | C2PA interop v2 report: sign via OCI-Vault path → verify with c2pa-python + c2pa-node + c2patool + `scruple-verify c2pa` | WO-15, WO-18 |
-| 9 | CI conformance gate | `.github/workflows/c2pa-conformance.yml` running on every PR; artifact of last passing run | WO-16 |
-| 10 | Security policy document | `docs/architecture/security-policy.md` covering the above | WO-17 |
+| 1 | §6.2.2 key confidentiality — key never exposed to Claim Generator memory, hardware-derived wrapping, attestation-backed | Key generated inside SoftHSM inside SEV-SNP-attested CVM; sealed to enclave measurement; SEV-SNP attestation report | WO-CVM-01 (§18) |
+| 2 | §6.1.2 binary integrity — hardware-RoT artifact confirming Generator binary | SEV-SNP attestation report contains VM image measurement + firmware measurement chain rooted at AMD PSP CA; VM boot image is a reproducible-build artifact whose hash appears in the report | WO-CVM-01 (§18) |
+| 3 | §6.3.2 Claim Generator hardening — exploit countermeasures, static analysis, patch attestation | Static-analysis output on signer + witness code; systemd hardening flags on signer unit; SEV-SNP report includes firmware / kernel measurements attesting patch level | WO-CVM-01 (§18) + Sprint 3 |
+| 4 | Signer callback path (raw key never enters Claim Generator memory) | Code diff on `sign.py` from `from_info(private_key=...)` to `from_callback(vault_sign_es256, ...)` | WO-03 (shipped 0d45097) |
+| 5 | Per-sign audit log with third-party witness | Leaf ID + inclusion proof + checkpoint sig + anchor references verifiable via `scruple-verify c2pa` | WO-08 (shipped 0d45097) |
+| 6 | Production C2PA-trust-list-issued cert | Cert PEM + issuer CA + trust-list linkage (DigiCert Content Credentials or SSL.com) | WO-02 (external issuer) |
+| 7 | Signing environment access control | IAM policy JSON restricting Sign to instance principal; OCI Audit sample of Sign call showing correct identity | WO-CVM-01 (§18) |
+| 8 | Interop v2 against production path | c2pa-python + c2pa-node + `scruple-verify c2pa` all validate the CVM-signed asset | WO-CVM-01 (§18) |
+| 9 | Attestation form answer | **"None of the above"** with attached Security Architecture Document (see §18 + `L2_EVIDENCE_TEMPLATE.md`) documenting SEV-SNP + SoftHSM as the functional-equivalent RoT | Evidence pack |
+| 10 | Key lifecycle documentation | Generation, rotation, revocation, incident-response runbooks | Sprint 3 |
+| 11 | Security policy document | The Security Architecture Document itself | `L2_EVIDENCE_TEMPLATE.md` |
+
+**Not needed for L2** (contrary to earlier drafts of this doc):
+- Physical HSM (Virtual Private Vault or YubiHSM)
+- FIPS 140-2 Level 3 certification
+- Continuously-running HSM infrastructure
+
+The CVM path (§18) closes both mandatory objectives (§6.1.2 + §6.2.2)
+in a single mechanism at ~$120/mo when active + ~$1 per evidence-only
+run — dramatically cheaper than the $1,800/mo Virtual Private Vault
+that we thought was required.
 
 ## 12. Rollout Plan (Sprints)
 
@@ -721,6 +740,8 @@ speculatively.
   API surface details, still authoritative for those sections
 - `docs/architecture/Independent_AI_Witnessing_Rider_TEMPLATE.md` — customer
   contract template that this system satisfies
+- `docs/architecture/L2_EVIDENCE_TEMPLATE.md` — the Security Architecture
+  Document template we submit to the C2PA Conformance Program under §18
 - `docs/c2pa-interop/2026-07-12-interop-test-report.md` — L1 interop evidence
 - `docs/architecture/canvas-v2.md` — existing canvas/witness scaffold this
   builds on
@@ -728,3 +749,218 @@ speculatively.
 - `docs/architecture/lifecycle/` — key lifecycle runbooks (Sprint 3 output)
 - `docs/architecture/security-policy.md` — L2 security policy (Sprint 3 output)
 - `docs/architecture/eu-ai-act-mapping.md` — Article 50 mapping (Sprint 3 output)
+
+## 18. L2 Evidence via Confidential Compute + SoftHSM
+
+**Status:** load-bearing addition 2026-07-12. Corrects §11's earlier over-reach
+about FIPS 140-2 Level 3 hardware. This is the actual L2 path Scruple
+adopts. Costs almost nothing to hold the code + provision on-demand.
+
+### 18.1 What C2PA L2 actually requires
+
+Per C2PA Generator Product Security Requirements (GPSR) v0.1 (June 2025)
+in the [`c2pa-org/conformance-public`](https://github.com/c2pa-org/conformance-public)
+repo, L2 elevates over L1 across six objectives. The two that carry the
+"hardware Root of Trust" requirement are:
+
+- **§6.1.2 (binary integrity)** — Generator Product "SHALL be capable of
+  producing or deriving verifiable artifacts backed by a hardware Root
+  of Trust … confirming the GP binary/binaries via package names,
+  hashes, code signing certificates, other digital certificates, or a
+  combination of the above."
+- **§6.2.2 (key confidentiality)** — signer environment (a) authenticates
+  callers, (b) never exposes raw private key to the Claim Generator's
+  memory, (c) uses hardware-derived wrapping keys, and (d) satisfies
+  **one of**: (i) hardware-RoT attestation confirming key possession,
+  **OR** (ii) accredited third-party auditor certification of the
+  storage environment.
+
+**FIPS 140-2 is not mentioned anywhere in GPSR for Generator Products.**
+Appendix B.4 names SOC 2 Type 2 as the only enumerated certification
+scheme. Appendix B.3's list of named attestation options (Nitro, Azure
+Attestation, Play Integrity, RATS, …) is explicitly "non-exhaustive and
+does not represent formal endorsement." Appendix C's Security
+Architecture Document Template is free-text — "**None of the above**"
+on the intake form routes an applicant to this documented-equivalent
+path.
+
+### 18.2 Why Confidential Compute + SoftHSM closes both objectives
+
+The Scruple L2 signing environment runs as an OCI Confidential Compute VM
+(AMD EPYC with SEV-SNP enabled). Inside this VM, SoftHSM 2 holds the
+C2PA signing key. Signing runs entirely inside the enclave.
+
+- **§6.2.2 (key confidentiality)**: The signing key is generated inside
+  SoftHSM inside the SEV-SNP enclave. VM memory is encrypted with a
+  key that even Oracle's hypervisor cannot access. The key is sealed
+  to the enclave's measurement — a fresh CVM with the same VM image
+  can re-derive access, but any modification to the boot image breaks
+  the seal. The `Signer.from_callback` path (shipped in WO-03) means
+  the Claim Generator's memory (Next.js process) never holds the key
+  — only the enclave-bound SoftHSM subprocess does. This satisfies
+  §6.2.2(d)(i): the SEV-SNP attestation report is the hardware-RoT
+  attestation confirming key possession.
+- **§6.1.2 (binary integrity)**: The SEV-SNP attestation report
+  contains the VM image measurement plus the firmware/loader
+  measurement chain, all rooted at AMD's Platform Security Processor
+  CA. The report can be fetched by the VM itself via `/dev/sev-guest`
+  and included in the Scruple witness trust manifest + evidence pack.
+  Verifiers with AMD's public CA certs can confirm the report and
+  therefore the VM's boot state. Combined with a reproducible-build
+  hash of the Scruple signer binary that appears in the report, this
+  satisfies §6.1.2's "verifiable artifacts backed by hardware Root of
+  Trust confirming the GP binary."
+
+Single mechanism closes both objectives. This is why §18 is the
+recommended architecture for a cloud-native L2 filer.
+
+### 18.3 On-demand economics
+
+The CVM is a normal OCI compute instance. Provisioning takes ~1-2 min;
+teardown is seconds with no retention penalty (unlike Virtual Private
+Vault's 7-30 day soft-delete window).
+
+- **Evidence-only ephemeral run** (one-time, for the L2 filing): spin
+  up CVM for 2-4 hours, generate key, sign test asset, capture SEV-SNP
+  report, tear down. **Cost: ~$0.50-$1.**
+- **Continuous operation** (activated when first paying L2 customer
+  engages): CVM stays up. **Cost: ~$120/mo** (2 OCPU + 16 GB RAM
+  E5.Flex AMD with Confidential Computing enabled + boot volume + Audit
+  archive). Rolled into L2 subscription pricing.
+- **Zero L2 customers**: nothing running, $0 to Docent.
+
+### 18.4 Evidence artifacts (produced during the ephemeral run)
+
+The L2 filing evidence bundle assembled during the evidence-only run,
+per `docs/architecture/L2_EVIDENCE_TEMPLATE.md`:
+
+1. **SEV-SNP attestation report** — binary blob fetched via
+   `/dev/sev-guest` from inside the CVM. Contains VM image measurement,
+   firmware measurement chain, and a caller-supplied nonce for
+   freshness. Signed by AMD PSP.
+2. **AMD PSP CA cert chain** — public certs that anyone with them can
+   use to verify the attestation report.
+3. **VM image measurement + reproducible-build hash** — the exact bytes
+   of the signer binary that appears in the report.
+4. **Signed test asset** — C2PA-signed PNG produced by the CVM signer
+   during the run.
+5. **Cert used for signing** — end-entity cert chain (dev cert during
+   pre-WO-02 evidence run; production cert once WO-02 issues).
+6. **Interop verification output** — c2pa-python + c2pa-node +
+   `scruple-verify c2pa` all confirming the signed asset is valid.
+7. **Signer identity string** — `sev-snp-cvm:<vm-ocid-hash>` or similar
+   showing the L2 signing mode was active during the run.
+8. **OCI Audit sample** — CVM launch event + Sign call log entries.
+9. **VM teardown timestamp** — proves the CVM was ephemeral for the
+   evidence-only run.
+
+All nine live in `docs/l2-evidence/2026-XX-XX-run/` after the run.
+
+### 18.5 Provenance across evidence-only and operational keys
+
+Enclave-sealed keys are lost on teardown by design. Two workable
+patterns for reconciling the ephemeral evidence run with continuous
+operation:
+
+- **Pattern A (recommended):** distinct keys for evidence vs
+  operational. The evidence-only run generates a key we can call
+  `scr-c2pa-l2-evidence-2026-XX-XX`, files evidence for it, tears down.
+  When the first L2 customer engages, a NEW long-running CVM
+  generates `scr-c2pa-l2-prod-YYYY`. Trust manifest carries both keys
+  with an `active_from` field so verifiers can validate historical
+  signs against the correct key. This pattern gives Scruple genuine
+  "$0 until revenue" economics.
+- **Pattern B (simpler, more expensive):** keep the evidence-run CVM
+  running as production. Filing evidence key = operational key. $120/mo
+  from filing day. Simpler operational story; no key rotation.
+
+Pattern A wins on cost until we have >~5 continuous L2 customers.
+
+### 18.6 What the "None of the above" answer explicitly attaches
+
+For the C2PA Conformance intake form's attestation question, select
+"None of the above" and attach the Security Architecture Document
+(`docs/architecture/L2_EVIDENCE_TEMPLATE.md` populated with the run
+artifacts). The Security Architecture Document explicitly claims
+functional equivalence to Appendix B.3's `Nitro` and
+`GoogleCloud_ConfidentialVMAttestation` entries via SEV-SNP, plus
+Yubico-style key-in-hardware attestation via SoftHSM-in-enclave sealing.
+
+### 18.7 What we would be first to file
+
+**No public C2PA L2 filing has used a server-side Confidential Compute
++ SoftHSM path.** The only publicly documented L2 filer as of Sept 2025
+is Google Pixel 10 with Titan M2 StrongBox (mobile, physical secure
+element). Every other filer we could identify (Leica, Sony) uses
+dedicated hardware secure elements. Scruple filing this path is
+precedent-setting for the server-side generator segment.
+
+Risk: the Conformance Task Force may accept, reject, or request
+clarification of the SEV-SNP-satisfies-§6.1.2 argument. Mitigation:
+Security Architecture Document cites the spec text directly + provides
+verifier-runnable attestation validation code. If rejected, the same
+code stack pivots to a physical HSM path (Option 2 or 3 from prior
+analysis) with no re-architecture — just a different backend module in
+the same `Signer.from_callback` slot.
+
+### 18.8 Signer backend module
+
+The Sprint 1 abstraction (WO-03's `services/c2pa-signer/vault_sign.py`)
+already dispatches on `SCRUPLE_C2PA_VAULT_KEY_OCID`. Add a third
+dispatch mode:
+
+```
+SCRUPLE_C2PA_SIGNER_MODE=softhsm    # inside the CVM
+SCRUPLE_C2PA_SOFTHSM_SLOT=0
+SCRUPLE_C2PA_SOFTHSM_PIN=<env>       # not committed
+```
+
+`vault_sign.py` dispatches:
+1. `softhsm` if `SCRUPLE_C2PA_SIGNER_MODE=softhsm` — PKCS#11 via
+   python-pkcs11 or via subprocess to `pkcs11-tool`.
+2. `vault` if `SCRUPLE_C2PA_VAULT_KEY_OCID` set — OCI KMS Sign API.
+3. `local` otherwise — local file (dev only).
+
+Same 64-byte raw R||S output either way. The Node.js signAsset callers
+never change.
+
+### 18.9 Trust manifest addition
+
+`app/.well-known/witness-trust.json` gains an entry per signing
+environment:
+
+```jsonc
+{
+  "topologies": [
+    {
+      "id": "scruple-hosted-oci-cvm",
+      "signer_public_key_pem": "...",
+      "attestation": {
+        "type": "amd-sev-snp",
+        "cvm_id_hash": "sha256:...",
+        "image_measurement": "...",
+        "attestation_report_url": "https://scruple.stooges.ai/attest/reports/<id>",
+        "amd_psp_ca_cert_chain_url": "https://kdsintf.amd.com/vcek/..."
+      },
+      "signer_key_id_hash": "sha256:...",
+      "activated_at": "2026-XX-XX"
+    }
+  ]
+}
+```
+
+Verifiers pull the report + AMD CA + measurement, validate the
+attestation chain, and confirm the signer key was produced by a CVM
+matching the declared measurement. This is what makes "None of the
+above" defensible on inspection.
+
+### 18.10 Related
+
+- WO-CVM-01 — wiring the CVM path (SoftHSM backend + attestation fetcher
+  + evidence-run scripts + trust-manifest enrichment)
+- `L2_EVIDENCE_TEMPLATE.md` — the Security Architecture Document
+  template we file
+- §11 evidence checklist — how each GPSR objective maps to our artifacts
+- §15 attestation abstraction — SoftHSM+SEV-SNP is a new provider
+- §16 topologies — `scruple-hosted-oci-cvm` is a new topology under
+  the same satellite invariant

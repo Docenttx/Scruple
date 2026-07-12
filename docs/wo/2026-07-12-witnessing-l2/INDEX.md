@@ -6,6 +6,18 @@
 Continuous Audit API + Rider-compliant witnessing, in one build. Sprint 1
 target: **vendor-demoable within 5–7 days.**
 
+## L2 evidence path (added 2026-07-12 after C2PA GPSR research)
+
+**Not in the original sprint plan.** Corrects the earlier assumption
+that L2 required a $1,800/mo physical HSM. C2PA GPSR §6.1.2 + §6.2.2
+are satisfied by AMD SEV-SNP attestation + SoftHSM in an OCI CVM at
+~$1/evidence-run + ~$120/mo when active. See canonical §18 and
+`WO-CVM-01-l2-evidence-path.md`.
+
+| WO | Title | Blocking | Owner-hours |
+|---|---|---|---|
+| [WO-CVM-01](WO-CVM-01-l2-evidence-path.md) | SoftHSM in SEV-SNP CVM — signer backend + evidence-run playbook + verifier attestation subcommand | Nothing for code. Live run needs user to `oci compute instance launch` on demand | 8h code + ~2h live run |
+
 ## Sprint layout
 
 | Sprint | Target window | Deliverable | WOs |
