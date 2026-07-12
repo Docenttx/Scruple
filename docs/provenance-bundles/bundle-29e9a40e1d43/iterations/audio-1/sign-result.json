@@ -1,0 +1,15 @@
+{
+  "kind": "audio-synth-evidence",
+  "wav_sha256": "e6a75470404b1416a1a7957ebbcc1ac3b38ea710ff98ab35a5e2736cf24d9809",
+  "wav_bytes": 352844,
+  "signed_wav_sha256": "8e8faa3527e71ad7a136d3767deea7c08a1de00f5bb6f84a3841e71a91661ff0",
+  "signed_wav_bytes": 366204,
+  "sample_rate_hz": 44100,
+  "duration_s": 2.0,
+  "c2pa_reader_state": "Valid",
+  "c2pa_reader_codes": [
+    "signingCredential.untrusted"
+  ],
+  "c2pa_reader_alg": "Es256",
+  "ok": true
+}
