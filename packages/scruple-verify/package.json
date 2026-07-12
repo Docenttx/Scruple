@@ -1,0 +1,19 @@
+{
+  "name": "@scruple/verify",
+  "version": "0.1.0-rc.1",
+  "description": "Reference verifier for the Scruple witness — independent third-party validation of leaf inclusion + checkpoint signatures against the published trust manifest.",
+  "type": "module",
+  "bin": {
+    "scruple-verify": "./src/cli.mjs"
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["scruple", "c2pa", "provenance", "witness", "verifier"],
+  "license": "UNLICENSED",
+  "private": true
+}
