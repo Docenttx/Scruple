@@ -1,0 +1,24 @@
+[req]
+distinguished_name = req_distinguished_name
+prompt = no
+x509_extensions = v3_req
+
+[req_distinguished_name]
+C = US
+ST = CA
+L = Somewhere
+O = Scruple Dev Signing Cert
+OU = FOR TESTING_ONLY
+CN = Scruple Dev Signer
+
+[v3_req]
+basicConstraints = critical, CA:FALSE
+extendedKeyUsage = critical, emailProtection
+keyUsage = critical, digitalSignature, nonRepudiation
+subjectKeyIdentifier = hash
+
+# c2pa-rs (0.86+ bundled in c2pa-python 0.34+) rejects signatures made with a
+# leaf cert whose DN has fewer than the C/ST/L/O/OU/CN attributes present here.
+# The error surfaces as `claimSignature.mismatch` from c2pa.Reader — misleading,
+# because the raw ECDSA signature IS valid; c2pa-rs fails the cert-profile
+# check upstream and emits mismatch as the outer symptom. Isolated 2026-07-12.

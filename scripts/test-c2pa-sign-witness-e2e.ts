@@ -121,6 +121,23 @@ async function main(): Promise<number> {
   assert(w.leaf_hash?.startsWith('sha256:'), 'witness.leaf_hash sha256: prefix');
   assert(w.principal_id?.startsWith('PRN_'), 'witness.principal_id PRN_ prefix');
 
+  // ---- signed asset validates via c2pa.Reader (real interop check) ----
+  // Guards against a whole class of silent regressions where the signer
+  // produces a JUMBF manifest that our own leaf-verifier accepts but a stock
+  // C2PA reader would reject as `claimSignature.mismatch`. Discovered
+  // 2026-07-12 that sparse-DN dev certs trigger exactly this failure mode.
+  if (signJson.signed_path) {
+    const verify = spawnSync('python3', [
+      path.join(process.cwd(), 'scripts', 'verify-c2pa-reader.py'),
+      signJson.signed_path,
+    ], { encoding: 'utf-8' });
+    const readerResult = verify.stdout.trim() ? JSON.parse(verify.stdout.trim()) : null;
+    console.log(`  c2pa.Reader: ${verify.stdout.trim()}`);
+    if (verify.stderr.trim()) console.log(`  c2pa.Reader stderr: ${verify.stderr.trim()}`);
+    assert(verify.status === 0, 'c2pa.Reader validates signed asset', readerResult);
+    assert(readerResult?.validation_state === 'Valid', 'c2pa.Reader state=Valid', readerResult);
+  }
+
   // ---- principal was minted for the user ----
   const userRow = db
     .prepare(`SELECT principal_id FROM users WHERE id = ?`)

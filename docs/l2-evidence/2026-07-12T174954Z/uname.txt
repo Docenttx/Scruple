@@ -1,0 +1,1 @@
+Linux scruple-l2-evidence-snp-2026-07-12 6.17.0-1011-oracle #11~24.04.1-Ubuntu SMP Fri Apr 10 02:28:06 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux

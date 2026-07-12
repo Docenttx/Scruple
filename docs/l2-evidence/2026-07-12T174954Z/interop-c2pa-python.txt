@@ -1,0 +1,4 @@
+validation_state: Invalid
+signature_alg: Es256
+title: Scruple C2PA L2 Evidence (SEV-SNP)
+claim_generator: None
