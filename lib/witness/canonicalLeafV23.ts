@@ -79,7 +79,7 @@ export function canonicalLeafV23(input: CanonicalLeafV23Input): string {
     } else if (key === 'tenant_seq') {
       out.tenant_seq = input.tenant_seq ?? 0;
     } else {
-      out[key] = (input as Record<string, unknown>)[key] ?? '';
+      out[key] = (input as unknown as Record<string, unknown>)[key] ?? '';
     }
   }
   return JSON.stringify(out);
