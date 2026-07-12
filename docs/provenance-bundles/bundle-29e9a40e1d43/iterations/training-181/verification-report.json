@@ -1,0 +1,197 @@
+{
+  "sidecar": {
+    "path": "/data/scruple-web/docs/provenance-bundles/bundle-29e9a40e1d43/iterations/training-181/stay-puft-cyberpunk-lora-r4.safetensors.c2pa",
+    "bytes": 16498,
+    "sha256_hex": "0027d50242c8439028ad3e1833882e7603745f8738a59525abf9ba66fb7bd2dd",
+    "signing_approach": "a: c2pa.Builder.sign(format='c2pa', empty_src)",
+    "signer_pubkey_sha256_hex": "879614a0a05df88d6fa0dee07d188e642d33e38c3a72a5ae86cacd509883a9f3",
+    "cert_chain_leaf_pem_first_line": "-----BEGIN CERTIFICATE-----",
+    "manifest_first_16_bytes_hex": "000040726a756d620000001e6a756d64"
+  },
+  "model_binding": {
+    "expected_lora_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+    "expected_lora_content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+    "sidecar_stored_hash_bytes": 32,
+    "sidecar_stored_hash_b64": "MeNcgPxIKdFPkBU/THTNWckLd59q/gWnTNYSC4k/fls=",
+    "sidecar_stored_hash_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+    "hash_binding_ok": true
+  },
+  "leaf_to_root_chain": {
+    "leaf_hash_sha256_hex": "1404513c398fe04b98a88523b3c1dfac82c1c53c3de7e70eb34d56c49ccfbe97",
+    "merkle_root_sha256_hex": "1404513c398fe04b98a88523b3c1dfac82c1c53c3de7e70eb34d56c49ccfbe97",
+    "iteration_count": 1,
+    "single_leaf_root_equals_leaf_ok": true
+  },
+  "anchor": {
+    "rvn_txid": "32882d63ff67b75c99d4c5fbcc651b5c7d83d862a771f8651b091af22f52b616",
+    "rvn_network": "raven-testnet",
+    "ipfs_cid": "bafkreiffhfhdepwvumfje75ojztufagx7qwnq6gcdckkhvylpclhanempa",
+    "arweave_tx": "98-2Udb-TMUfCxRI-kYUuatktkHRnAcDB3WduGdmSnI",
+    "scr_id": "SCR_DB433994",
+    "package_hash_sha256_hex": "70c1b90f7f1450dea64d78613c0087f97592cd00f4b3588bcf9072f61556063d",
+    "scruple_leaf_assertion_matches_db_anchor_ok": true
+  },
+  "signature": {
+    "ok": true,
+    "alg_header": -7,
+    "alg_expected_-7_ES256": true,
+    "x5chain_present": true,
+    "x5chain_cert_count": 2,
+    "x5chain_cert_lens": [
+      675,
+      611
+    ],
+    "leaf_pubkey_matches_puffjuly12_signer": true,
+    "ecdsa_verify_note": null,
+    "signature_bytes": 64,
+    "payload_detached": true
+  },
+  "diagnostics": {
+    "note": "c2pa.Reader is run without the .safetensors bytes in-band, so an `assertion.dataHash.mismatch` is EXPECTED for a sidecar-style external manifest. The stored hash in c2pa.hash.data.hash is what a verifier compares against when they have the actual model file. See README.md for the intended verifier flow.",
+    "c2pa_reader_attempts": [
+      {
+        "format": "application/c2pa",
+        "state": "Invalid",
+        "codes": [
+          "signingCredential.untrusted",
+          "assertion.dataHash.mismatch"
+        ],
+        "active_manifest": "urn:c2pa:ed9e5131-f454-4682-897c-0151abb27403",
+        "manifest_assertion_labels": [
+          "c2pa.actions.v2",
+          "c2pa.assertion.training-mining",
+          "com.scruple.leaf"
+        ]
+      }
+    ]
+  },
+  "assertions_decoded": {
+    "urn:c2pa:ed9e5131-f454-4682-897c-0151abb27403": {
+      "actions": [
+        {
+          "action": "c2pa.created",
+          "parameters": {
+            "com.scruple.scr_id": "SCR_DB433994",
+            "com.scruple.project_id": 181,
+            "com.scruple.leaf_scheme": "v2.2",
+            "com.scruple.output_bytes": 11778336,
+            "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
+            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+            "com.scruple.trainer": "diffusers+peft",
+            "com.scruple.output_content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b"
+          },
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia"
+        }
+      ]
+    },
+    "c2pa.actions.v2": {
+      "actions": [
+        {
+          "action": "c2pa.created",
+          "parameters": {
+            "com.scruple.scr_id": "SCR_DB433994",
+            "com.scruple.project_id": 181,
+            "com.scruple.leaf_scheme": "v2.2",
+            "com.scruple.output_bytes": 11778336,
+            "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
+            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+            "com.scruple.trainer": "diffusers+peft",
+            "com.scruple.output_content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b"
+          },
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia"
+        }
+      ]
+    },
+    "c2pa.assertion.training-mining": {
+      "training_run": {
+        "base_model": {
+          "path": "sd_xl_base_1.0.safetensors",
+          "sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b"
+        },
+        "dataset": {
+          "caption_count": 5,
+          "image_count": 5,
+          "merkle_root_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771"
+        },
+        "lora": {
+          "content_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+          "learning_rate": 0.0001,
+          "lr_scheduler": null,
+          "max_train_epochs": null,
+          "mixed_precision": null,
+          "network_alpha": 4.0,
+          "network_dim": 4,
+          "optimizer_type": null,
+          "output_bytes": 11778336,
+          "output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
+          "rank": 4,
+          "resolution": 768,
+          "save_precision": null,
+          "steps": 200,
+          "train_batch_size": null
+        },
+        "session_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
+        "structural_layer_count": 1120,
+        "trainer": "diffusers+peft",
+        "trainer_family": "kohya-ss / diffusers+peft"
+      }
+    },
+    "c2pa.hash.data": {
+      "exclusions": [],
+      "name": "stay-puft-cyberpunk-lora-r4.safetensors",
+      "alg": "sha256",
+      "hash": "b'1\\xe3\\\\\\x80\\xfcH)\\xd1O\\x90\\x15?Lt\\xcdY\\xc9\\x0bw\\x9fj\\xfe\\x05\\xa7L\\xd6\\x12\\x0b\\x89?~['",
+      "pad": "b''"
+    },
+    "com.scruple.leaf": {
+      "anchor": {
+        "arweave_tx": "98-2Udb-TMUfCxRI-kYUuatktkHRnAcDB3WduGdmSnI",
+        "ipfs_cid": "bafkreiffhfhdepwvumfje75ojztufagx7qwnq6gcdckkhvylpclhanempa",
+        "iteration_count": 1,
+        "lock_server_signature": "",
+        "merkle_root_sha256_hex": "1404513c398fe04b98a88523b3c1dfac82c1c53c3de7e70eb34d56c49ccfbe97",
+        "package_hash_sha256_hex": "70c1b90f7f1450dea64d78613c0087f97592cd00f4b3588bcf9072f61556063d",
+        "rvn_network": "raven-testnet",
+        "rvn_txid": "32882d63ff67b75c99d4c5fbcc651b5c7d83d862a771f8651b091af22f52b616",
+        "witnessed_count": 1
+      },
+      "leaf": {
+        "input_hash_sha256_hex": null,
+        "leaf_hash_sha256_hex": "1404513c398fe04b98a88523b3c1dfac82c1c53c3de7e70eb34d56c49ccfbe97",
+        "leaf_scheme_note": "v2.2 canonical record built by the witness server; reproduce via /opt/scruple-witness canonical-record.",
+        "machine_manifest_hash_sha256_hex": null,
+        "model_fingerprints_hash_sha256_hex": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+        "output_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
+        "previous_hash_sha256_hex": null,
+        "run_sequence": 1,
+        "scheme": "v2.2",
+        "workflow_hash_sha256_hex": null
+      },
+      "project": {
+        "id": 181,
+        "locked_at": "2026-07-05T07:22:06.509Z",
+        "name": "Stay Puft cyberpunk LoRA \u2014 overnight train (2026-07-05)",
+        "pre_scr_id": "SCR_A92053A8",
+        "scr_id": "SCR_DB433994",
+        "status": "persistent_locked",
+        "type": "training",
+        "user_id": "VFkUaqCs4qELs3HViFrPm"
+      },
+      "schema": "com.scruple.leaf/v2.2",
+      "signer_pubkey_sha256_hex": "879614a0a05df88d6fa0dee07d188e642d33e38c3a72a5ae86cacd509883a9f3",
+      "storage_pointer": {
+        "fileId": "1P6cUfEseH678-dgXTb3PRcrog4OYbsJ0",
+        "path": "Scruple Projects/training/stay-puft-cyberpunk-lora-r4-1783232592.safetensors",
+        "provider": "gdrive",
+        "size": 11778336,
+        "url": "https://drive.google.com/file/d/1P6cUfEseH678-dgXTb3PRcrog4OYbsJ0/view?usp=drivesdk"
+      },
+      "witness": {
+        "witness_id": "wit_0b6b3c0a8c42fe0c",
+        "witness_signature": "573b238495125d86841d7c05b1697088f7f8bf7afad5e6e02084e19f73a75f7d",
+        "witness_timestamp": "2026-07-05T07:21:54.787Z"
+      }
+    }
+  },
+  "chain_summary_ok": true
+}
