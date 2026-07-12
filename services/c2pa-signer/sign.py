@@ -8,32 +8,38 @@ Job spec:
     {
         "asset_path": "/tmp/thumb.png",
         "output_path": "/tmp/thumb.c2pa.png",
-        "cert_path": ".../keys/signer.pem",
-        "key_path":  ".../keys/signer.key",
+        "cert_path":   ".../keys/es256.pub",   # public cert chain PEM
+        "key_path":    ".../keys/es256.pem",   # LOCAL MODE ONLY — ignored
+                                               # in Vault mode. Kept for
+                                               # backward-compat.
         "manifest": {
             "claim_generator": "Scruple/0.1 (c2pa-python/0.36)",
             "format": "image/png",
             "title": "MyDesign",
-            "assertions": [
-                { "label": "ai.scruple.provenance.v1", "data": {...} },
-                ...
-            ]
+            "assertions": [...]
         }
     }
 
 Result (success):
-    { "ok": true, "output_path": "...", "bytes": 12345 }
+    { "ok": true, "output_path": "...", "bytes": 12345,
+      "signing_mode": "vault" | "local",
+      "signer_identity": "vault:...<last-8-of-ocid>" | "local:<path>" }
 
 Result (failure):
-    { "ok": false, "error": "..." }
+    { "ok": false, "error": "...", "trace": [...] }
 
-The manifest is passed straight through — the caller is responsible
-for constructing the assertion list.
+Signing path:
+  c2pa-python 0.36 Signer.from_callback(vault_sign_es256, ES256, cert_pem, ta_url)
+
+The callback dispatches to OCI Vault (Sign API) when
+SCRUPLE_C2PA_VAULT_KEY_OCID is set; otherwise loads the local PEM.
+Same output shape either way — c2pa-python doesn't need to know.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -51,17 +57,24 @@ def main() -> int:
         asset_path = Path(job["asset_path"]).resolve()
         output_path = Path(job["output_path"]).resolve()
         cert_path = Path(job["cert_path"]).resolve()
-        key_path = Path(job["key_path"]).resolve()
         manifest = job["manifest"]
     except KeyError as e:
         print(json.dumps({"ok": False, "error": f"missing field {e}"}))
         return 1
 
+    # key_path is honored only in LOCAL mode (i.e., when the Vault OCID
+    # env var is unset). In Vault mode, key material is inside OCI Vault
+    # and this field is silently ignored.
+    if not os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID"):
+        key_path = job.get("key_path")
+        if key_path:
+            os.environ["SCRUPLE_C2PA_LOCAL_KEY_PATH"] = str(Path(key_path).resolve())
+
     if not asset_path.exists():
         print(json.dumps({"ok": False, "error": f"asset not found: {asset_path}"}))
         return 1
-    if not cert_path.exists() or not key_path.exists():
-        print(json.dumps({"ok": False, "error": "cert or key not found"}))
+    if not cert_path.exists():
+        print(json.dumps({"ok": False, "error": f"cert not found: {cert_path}"}))
         return 1
 
     try:
@@ -70,25 +83,43 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": f"c2pa import failed: {e}"}))
         return 1
 
-    # Dev-mode trust relaxation — self-signed certs won't validate against
-    # the CAI trust list. In prod (SSL.com / DigiCert-issued cert) drop
-    # these lines.
+    # Import our callback shim. Its module-level import chain is light
+    # (cryptography only); OCI SDK is lazy-imported inside the callback.
     try:
-        c2pa.load_settings('{"verify":{"verify_after_sign":false,"verify_trust":false}}', "json")
-    except Exception:
-        pass  # older SDKs may not need this
+        # Ensure this file's directory is on sys.path so `vault_sign`
+        # resolves without a full package install.
+        HERE = Path(__file__).resolve().parent
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        from vault_sign import vault_sign_es256, signing_mode, signer_identity
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"vault_sign import failed: {e}"}))
+        return 1
+
+    # Dev-mode trust relaxation — only when SCRUPLE_C2PA_DEV=1 exactly.
+    # The prod systemd unit sets SCRUPLE_C2PA_DEV="" (empty), which fails
+    # the equality check.
+    if os.environ.get("SCRUPLE_C2PA_DEV") == "1":
+        try:
+            c2pa.load_settings(
+                '{"verify":{"verify_after_sign":false,"verify_trust":false}}',
+                "json",
+            )
+        except Exception:
+            pass  # older SDKs don't need it
 
     try:
         cert_bytes = cert_path.read_bytes()
-        key_bytes = key_path.read_bytes()
+        cert_str = cert_bytes.decode("utf-8")
+        ta_url = os.environ.get("SCRUPLE_C2PA_TA_URL") or None
 
-        signer = c2pa.Signer.from_info(
-            c2pa.C2paSignerInfo(
-                alg=c2pa.C2paSigningAlg.ES256,
-                sign_cert=cert_bytes,
-                private_key=key_bytes,
-                ta_url="http://timestamp.digicert.com",
-            )
+        # Signer.from_callback: raw ES256 R||S (64 bytes) per RFC 8152.
+        # Kwarg is `tsa_url` (not `ta_url` — matches c2pa-python 0.36).
+        signer = c2pa.Signer.from_callback(
+            callback=vault_sign_es256,
+            alg=c2pa.C2paSigningAlg.ES256,
+            certs=cert_str,
+            tsa_url=ta_url,
         )
 
         builder = c2pa.Builder(manifest)
@@ -104,6 +135,8 @@ def main() -> int:
             "ok": True,
             "output_path": str(output_path),
             "bytes": bytes_out,
+            "signing_mode": signing_mode(),
+            "signer_identity": signer_identity(),
         }))
         return 0
     except Exception as e:

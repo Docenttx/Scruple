@@ -25,6 +25,8 @@ import os from 'os';
 import { requireUser } from '@/lib/auth/apiKey';
 import { conn } from '@/lib/db/sqlite';
 import { signAsset, type LockTier, type ScrupleAssertionData } from '@/lib/c2pa/signAsset';
+import { ensurePrincipalForUser } from '@/lib/witness/principalForUser';
+import { emitC2paSignLeaf } from '@/lib/witness/scrupleInternalEmit';
 
 export const dynamic = 'force-dynamic';
 
@@ -171,6 +173,53 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: result.error, trace: result.trace }, { status: 500 });
   }
 
+  // Emit the sign event as a witnessed leaf on scruple.c2pa.sign.
+  // Fail-open: on emit failure we still return the signed asset with
+  // a witness_error field so the caller can retry the proof-fetch
+  // later. Not emitting the leaf must NEVER block the sign response.
+  let witnessBlock: unknown = undefined;
+  let witnessErrorBlock: string | undefined = undefined;
+  try {
+    if (
+      result.assetSha256 &&
+      result.outputManifestSha256 &&
+      result.signingMode &&
+      result.signerIdentity
+    ) {
+      const { principalId } = ensurePrincipalForUser(me.id);
+      const emit = await emitC2paSignLeaf({
+        principalId,
+        assetSha256Hex: result.assetSha256,
+        outputManifestSha256Hex: result.outputManifestSha256,
+        certSubjectKeyId: 'dev-cert',   // WO-02 prod cert lands here later
+        signingIdentity: result.signerIdentity,
+        signingMode: result.signingMode,
+        product: body.product,
+        tier: body.tier,
+        status: 'signed',
+      });
+      if (emit.ok) {
+        witnessBlock = {
+          stream_id: emit.leaf.stream_id,
+          tenant_seq: emit.leaf.tenant_seq,
+          leaf_hash: emit.leaf.leaf_hash,
+          chain_hash: emit.leaf.chain_hash,
+          pending_checkpoint_epoch: emit.leaf.pending_checkpoint_epoch,
+          principal_id: principalId,
+          idempotency_key: emit.idempotency_key,
+        };
+      } else {
+        witnessErrorBlock = emit.error;
+      }
+    } else {
+      witnessErrorBlock = 'signer did not report hashes/identity';
+    }
+  } catch (e) {
+    // Any thrown error — including principal lookup failure — is
+    // reported but does NOT fail the sign response.
+    witnessErrorBlock = `witness emit exception: ${(e as Error).message}`;
+  }
+
   return NextResponse.json({
     ok: true,
     signed_path: result.outputPath,
@@ -179,7 +228,9 @@ export async function POST(req: NextRequest) {
     scr_id: project.scr_id,
     project_id: project.id,
     iteration_id: iteration?.id ?? null,
-    // Verification: `python3 -m c2pa read <signed_path>` or upload to
-    // contentcredentials.org
+    signing_mode: result.signingMode,
+    signer_identity: result.signerIdentity,
+    ...(witnessBlock ? { witness: witnessBlock } : {}),
+    ...(witnessErrorBlock ? { witness_error: witnessErrorBlock } : {}),
   });
 }

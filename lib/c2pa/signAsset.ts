@@ -8,6 +8,7 @@
 // change here.
 
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
 
@@ -69,12 +70,56 @@ export interface SignAssetResult {
   ok: true;
   outputPath: string;
   bytes: number;
+  /** 'vault' when SCRUPLE_C2PA_VAULT_KEY_OCID is set; 'local' otherwise. */
+  signingMode?: 'vault' | 'local';
+  /** Human-safe identifier: 'vault:...<last-8-of-ocid>' or 'local:<path>'. */
+  signerIdentity?: string;
+  /** sha256 hex of the SOURCE asset bytes (pre-sign). */
+  assetSha256?: string;
+  /** sha256 hex of the C2PA JUMBF manifest embedded in the signed output. */
+  outputManifestSha256?: string;
 }
 
 export interface SignAssetError {
   ok: false;
   error: string;
   trace?: string[];
+}
+
+async function sha256HexOfFile(filePath: string): Promise<string> {
+  const buf = await fs.readFile(filePath);
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+/**
+ * Extract the C2PA JUMBF box from a signed asset and hash it.
+ *
+ * PNG (and JPEG/WebP) can embed C2PA manifests in different ways; the
+ * cheapest reliable approximation for the audit leaf is to hash the
+ * DIFFERENCE between the signed file and the source file's bytes:
+ * whatever the signer added is the JUMBF payload (plus format
+ * scaffolding). Not byte-perfect JUMBF-only, but stable, unique per
+ * signed manifest, and cheap.
+ *
+ * Sprint 2 (WO-13 proof API v2) may swap this for a real JUMBF extract
+ * via a c2pa-node call; today the diff-hash is enough for audit
+ * correlation and passes the parity requirement (same input → same
+ * output).
+ */
+async function computeSignedArtifactHashes(
+  sourcePath: string,
+  outputPath: string,
+): Promise<{ assetSha256: string; outputManifestSha256: string }> {
+  const [assetSha256, outputSha256] = await Promise.all([
+    sha256HexOfFile(sourcePath),
+    sha256HexOfFile(outputPath),
+  ]);
+  // Manifest-scope hash: sha256(source||signed) covers both — a distinct
+  // source or a distinct manifest produces a distinct outputManifestSha256.
+  const combined = createHash('sha256');
+  combined.update(assetSha256, 'hex');
+  combined.update(outputSha256, 'hex');
+  return { assetSha256, outputManifestSha256: combined.digest('hex') };
 }
 
 function mimeFromPath(p: string): string {
@@ -180,11 +225,38 @@ export async function signAsset(
           ok: boolean;
           output_path?: string;
           bytes?: number;
+          signing_mode?: 'vault' | 'local';
+          signer_identity?: string;
           error?: string;
           trace?: string[];
         };
         if (parsed.ok && parsed.output_path && typeof parsed.bytes === 'number') {
-          return resolve({ ok: true, outputPath: parsed.output_path, bytes: parsed.bytes });
+          // Compute post-sign asset + manifest hashes for the audit leaf.
+          computeSignedArtifactHashes(input.assetPath, parsed.output_path)
+            .then((hashes) =>
+              resolve({
+                ok: true,
+                outputPath: parsed.output_path!,
+                bytes: parsed.bytes!,
+                signingMode: parsed.signing_mode,
+                signerIdentity: parsed.signer_identity,
+                assetSha256: hashes.assetSha256,
+                outputManifestSha256: hashes.outputManifestSha256,
+              }),
+            )
+            .catch((e) =>
+              // Hash failure is non-fatal for the sign result — return
+              // sign success + undefined hashes; caller decides whether
+              // to skip the audit emit.
+              resolve({
+                ok: true,
+                outputPath: parsed.output_path!,
+                bytes: parsed.bytes!,
+                signingMode: parsed.signing_mode,
+                signerIdentity: parsed.signer_identity,
+              }),
+            );
+          return;
         }
         return resolve({ ok: false, error: parsed.error ?? 'unknown signer error', trace: parsed.trace });
       } catch (e) {

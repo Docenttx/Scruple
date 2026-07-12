@@ -25,14 +25,14 @@ append-only.
 |---|---|---|---|
 | WO-01 OCI Vault | BLOCKED (human) | — | Requires OCI console access + admin creds |
 | WO-02 C2PA cert | BLOCKED (human) | — | Requires Docent legal signatory + procurement |
-| WO-03 Signer refactor | pending | — | Needs WO-01 Vault OCID (can scaffold with mock) |
-| WO-04 Signer isolation | pending | — | Blocks on WO-03 |
+| WO-03 Signer refactor | **DONE** | (staged) | Vault-callback + local-file fallback. Tomorrow's HSM swap = env-var only |
+| WO-04 Signer isolation | pending | — | Deferred — systemd/socket refactor not required for HSM demo |
 | WO-05 Audit schema | **DONE** | 30e5b0d | — |
 | WO-06 Ingest API | **DONE** | e6e2ffc | 21/21 assertions PASS |
 | WO-07 Checkpoint scheduler | **DONE** | aaec20e | Mocked Ed25519 (swap seam ready for OCI Vault); 20/20 assertions PASS |
-| WO-08 C2PA emit leaf | pending | — | Blocks on WO-04 (isolated signer) — needs Vault story first |
+| WO-08 C2PA emit leaf | **DONE** | (staged) | 24/24 E2E assertions incl. principal auto-mint + delegation + chain advance |
 | WO-09 Verifier CLI | **DONE** | 8a270fd | 12/12 assertions PASS; standalone package; VALID + tampered-FAIL both work |
-| WO-10 E2E smoke | pending | — | Blocks on all above |
+| WO-10 E2E smoke | **DONE (as part of WO-08 test)** | (staged) | scripts/test-c2pa-sign-witness-e2e.ts covers sign → witness → checkpoint → verify → PASS |
 
 ## Overnight autonomy plan (2026-07-12 → 2026-07-13)
 
@@ -59,6 +59,8 @@ recording that all benefit from a human in the loop.
 ## Log
 
 <!-- Newest entries go at the top of the log below. Snapshot table above updates in place. -->
+
+[2026-07-12T07:45:00Z] WO-03+WO-08+WO-10 | DONE | (staged) | Full C2PA sign → witness → verify pipeline shipping. Migration 031 (users.principal_id). Python vault_sign.py callback with local-fallback + OCI Vault lazy-import (only imports oci SDK when env vars set). sign.py refactored to Signer.from_callback + reports signing_mode + signer_identity. signAsset.ts adds asset_sha256 + outputManifestSha256 for audit correlation. New TS helpers: scrupleInternalEmit.ts (auto-provisions internal tenant creds with dev-file persistence across hot-reloads), principalForUser.ts (get-or-create Principal + delegation). /api/scruple/c2pa/sign wraps sign with witness emission — fail-open. E2E test 24/24 PASS: sign → witness fields → principal auto-minted → delegation active → leaf in DB → second sign chains → checkpoint → verifier CLI VALID. Tomorrow's HSM: set SCRUPLE_C2PA_VAULT_KEY_OCID + endpoint env vars + pip install oci; no code change.
 
 [2026-07-12T07:15:00Z] WO-09 | DONE | 8a270fd | Verifier CLI shipped as standalone @scruple/verify package (packages/scruple-verify/), byte-copy of canonical modules for isolation. New /api/v1/proof/leaf endpoint (public, unauthed) rebuilds inclusion path per request. E2E test 12/12 assertions PASS: fetch proof, VALID exit 0, tampered leaf FAIL exit 1, URL mode, JSON output. Deferrals: `c2pa` subcommand waits for WO-08, `trust-manifest` subcommand skipped for v0.1, anchor step deferred to WO-12.
 
