@@ -1,0 +1,16 @@
+{
+  "iteration": 1,
+  "kind": "img2vid",
+  "input_image_sha256": "3a2f0adf0fe0f8f3b2ad39d81ceee69a865bd09d1d2695a6990113003c8a09d9",
+  "input_workflow_sha256": "3198071c5adbd23869018071336a86e91ec9cc1308a3c761512c12286224fa73",
+  "video_mp4_sha256": "1a80fb81421f5cb4e6979b0e298446f1e8ea1186ea25249e0336ac40861aa9c8",
+  "video_webp_sha256": "67c85076820e703ac261ff501b90044e78784ac18431f54189e13baf0f52906d",
+  "signed_video_mp4_sha256": "2ef03284bc14ee07061c0009ff227930a35367fabe7ee1275c5f11a5bed16ee6",
+  "signed_video_mp4_bytes": 123558,
+  "c2pa_reader_state": "Valid",
+  "c2pa_reader_codes": [
+    "signingCredential.untrusted"
+  ],
+  "c2pa_reader_alg": "Es256",
+  "ok": true
+}

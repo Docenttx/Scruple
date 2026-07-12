@@ -1,0 +1,17 @@
+{
+  "iteration": 1,
+  "kind": "img2vid",
+  "model": "ltx-video-2b-v0.9.5",
+  "input_image_sha256": "3a2f0adf0fe0f8f3b2ad39d81ceee69a865bd09d1d2695a6990113003c8a09d9",
+  "workflow_sha256": "3198071c5adbd23869018071336a86e91ec9cc1308a3c761512c12286224fa73",
+  "output_sha256": "1a80fb81421f5cb4e6979b0e298446f1e8ea1186ea25249e0336ac40861aa9c8",
+  "output_content_type": "video/mp4",
+  "output_bytes": 109788,
+  "modal_filename": "puffjuly12-video_00001_.webp",
+  "modal_gpu": "T4",
+  "modal_duration_ms": 90275,
+  "modal_prompt_id": "205d18d3-b8af-4131-8525-9a0ff0eb886a",
+  "output_container_conversion": "animated webp \u2192 h264 mp4 via ffmpeg (24fps, crf 20)",
+  "webp_output_sha256": "67c85076820e703ac261ff501b90044e78784ac18431f54189e13baf0f52906d",
+  "webp_output_bytes": 396776
+}
