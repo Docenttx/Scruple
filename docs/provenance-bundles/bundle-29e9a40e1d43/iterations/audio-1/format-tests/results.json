@@ -1,0 +1,28 @@
+{
+  "audio/flac": {
+    "ok": true,
+    "state": "Valid",
+    "codes": [
+      "signingCredential.untrusted"
+    ]
+  },
+  "audio/aac": {
+    "ok": false,
+    "error_at": "sign",
+    "error": "Error signing file: Builder does not support audio/aac"
+  },
+  "audio/mpeg": {
+    "ok": true,
+    "state": "Valid",
+    "codes": [
+      "signingCredential.untrusted"
+    ]
+  },
+  "audio/mp4": {
+    "ok": true,
+    "state": "Valid",
+    "codes": [
+      "signingCredential.untrusted"
+    ]
+  }
+}
