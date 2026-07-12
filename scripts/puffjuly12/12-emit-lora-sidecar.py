@@ -40,11 +40,13 @@ a random nonce, so the exact sidecar bytes differ each run — but the manifest
 content (assertions, hash bindings, cert chain) is byte-identical, and the
 `sidecar_manifest_content_sha256` in verification-report.json is stable.
 """
+import argparse
 import base64
 import binascii
 import hashlib
 import io
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -59,18 +61,27 @@ import c2pa
 # ---------- paths & constants ----------
 
 REPO = Path("/data/scruple-web")
-DB = REPO / "data" / "scruple.db"
-KEYS = Path("/tmp/puffjuly12/keys")
+DB = Path(os.environ.get("SCRUPLE_DB_PATH", str(REPO / "data" / "scruple.db")))
+KEYS = Path(os.environ.get("SCRUPLE_C2PA_KEYS_DIR", "/tmp/puffjuly12/keys"))
 CERT_CHAIN_PATH = KEYS / "c2pa-cert-chain.pem"
 PRIV_KEY_PATH = KEYS / "c2pa-es256.pem"
 LEAF_CERT_PATH = KEYS / "c2pa-signer-leaf.pem"
 ROOT_CERT_PATH = KEYS / "c2pa-root-ca.pem"
 
 BUNDLE = REPO / "docs" / "provenance-bundles" / "bundle-29e9a40e1d43"
-OUT_DIR = BUNDLE / "iterations" / "training-181"
 
-PROJECT_ID = 181
-SIDECAR_NAME = "stay-puft-cyberpunk-lora-r4.safetensors.c2pa"
+# Defaults for the puffjuly12 evidence bundle. Overridable via CLI so this
+# script can serve any training-project sidecar to the /api/projects/[id]/
+# lora-sidecar.c2pa route (writes to data/lora-sidecars/<scrId>.c2pa).
+DEFAULT_PROJECT_ID = 181
+DEFAULT_OUT_DIR = BUNDLE / "iterations" / "training-181"
+DEFAULT_SIDECAR_NAME = "stay-puft-cyberpunk-lora-r4.safetensors.c2pa"
+
+# Mutable at runtime — set from CLI in emit() before the rest of the module
+# references them via the global scope.
+PROJECT_ID = DEFAULT_PROJECT_ID
+OUT_DIR = DEFAULT_OUT_DIR
+SIDECAR_NAME = DEFAULT_SIDECAR_NAME
 
 
 # ---------- db access ----------
@@ -659,8 +670,33 @@ def build_verification_report(
 # ---------- writeout ----------
 
 def emit() -> None:
+    """CLI entry. --project-id switches which project's sidecar to emit; the
+    output goes to --out-dir with filename --sidecar-name. Defaults reproduce
+    the puffjuly12-evidence-bundle emission byte-for-byte."""
+    global PROJECT_ID, OUT_DIR, SIDECAR_NAME
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
+    parser.add_argument("--project-id", type=int, default=DEFAULT_PROJECT_ID,
+                        help="Scruple project id (must be type='training' and locked)")
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="output directory (default: puffjuly12 evidence bundle)")
+    parser.add_argument("--sidecar-name", type=str, default=None,
+                        help="output sidecar filename (default: derived from iteration image_filename)")
+    args = parser.parse_args()
+
+    PROJECT_ID = args.project_id
+    if args.out_dir:
+        OUT_DIR = args.out_dir
+    if args.sidecar_name:
+        SIDECAR_NAME = args.sidecar_name
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     db = load_db()
+    # Auto-derive sidecar filename from the trained-model filename if not
+    # explicitly set via --sidecar-name.
+    if not args.sidecar_name:
+        model_fname = db["iteration"]["image_filename"] or f"lora-project-{PROJECT_ID}.safetensors"
+        SIDECAR_NAME = f"{model_fname}.c2pa"
+
     manifest = build_manifest(db)
     cert_chain_pem = CERT_CHAIN_PATH.read_text()
     priv = load_priv()
