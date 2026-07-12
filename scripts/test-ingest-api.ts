@@ -109,7 +109,7 @@ async function main(): Promise<number> {
     checkpoint_secs: 60,
     principal_mode: 'per_leaf',
   });
-  let r = await req('POST', '/v1/streams', {
+  let r = await req('POST', '/api/v1/streams', {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
   }, streamBody);
@@ -119,7 +119,7 @@ async function main(): Promise<number> {
 
   // ---- Streams: list ----
   console.log('\n[2] GET /v1/streams');
-  r = await req('GET', '/v1/streams', { Authorization: `Bearer ${apiKey}` });
+  r = await req('GET', '/api/v1/streams', { Authorization: `Bearer ${apiKey}` });
   assert(r.status === 200, 'list streams returns 200');
   const streams = (r.body as { streams?: unknown[] }).streams ?? [];
   assert(streams.length >= 1, 'stream count >= 1');
@@ -135,7 +135,7 @@ async function main(): Promise<number> {
     dims: { input_hash: 'sha256:' + 'b'.repeat(64) },
     meta: { region: 'us-west' },
   });
-  r = await req('POST', '/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody1), leafBody1);
+  r = await req('POST', '/api/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody1), leafBody1);
   assert(r.status === 200, 'single leaf returns 200', r);
   const leaf1 = (r.body as { leaf?: { leaf_hash?: string; chain_hash?: string; tenant_seq?: number } }).leaf;
   assert(leaf1?.leaf_hash?.startsWith('sha256:'), 'leaf_hash has sha256: prefix');
@@ -143,7 +143,7 @@ async function main(): Promise<number> {
 
   // ---- Idempotency ----
   console.log('\n[4] POST /v1/log/test.ingest — replay same idempotency key');
-  r = await req('POST', '/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody1), leafBody1);
+  r = await req('POST', '/api/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody1), leafBody1);
   assert(r.status === 200, 'idempotent replay returns 200');
   assert((r.body as { duplicate?: boolean }).duplicate === true, 'response marked duplicate');
 
@@ -156,7 +156,7 @@ async function main(): Promise<number> {
     event_time: new Date().toISOString(),
     payload_hash: 'sha256:' + 'c'.repeat(64),
   });
-  r = await req('POST', '/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody5), leafBody5);
+  r = await req('POST', '/api/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody5), leafBody5);
   assert(r.status === 200, 'gap accepted with 200');
   assert((r.body as { gap?: boolean }).gap === true, 'gap flag set');
   assert((r.body as { gap_from?: number }).gap_from === 2, 'gap_from = 2 (first missing seq)');
@@ -170,7 +170,7 @@ async function main(): Promise<number> {
     event_time: new Date().toISOString(),
     payload_hash: 'sha256:' + 'd'.repeat(64),
   });
-  r = await req('POST', '/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody3), leafBody3);
+  r = await req('POST', '/api/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, leafBody3), leafBody3);
   assert(r.status === 409, 'seq_replay returns 409', r);
   assert((r.body as { error?: string }).error === 'seq_replay', 'error code = seq_replay');
 
@@ -184,7 +184,7 @@ async function main(): Promise<number> {
     payload_hash: 'sha256:' + 'e'.repeat(64),
     payload_bytes: 'AAAAAA==',
   });
-  r = await req('POST', '/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, badBytesBody), badBytesBody);
+  r = await req('POST', '/api/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, badBytesBody), badBytesBody);
   assert(r.status === 400, 'payload_bytes returns 400');
   assert((r.body as { error?: string }).error === 'payload_bytes_not_allowed', 'error code correct');
 
@@ -198,7 +198,7 @@ async function main(): Promise<number> {
     payload_hash: 'sha256:' + 'f'.repeat(64),
     meta: { email: 'user@example.com' },
   });
-  r = await req('POST', '/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, piiBody), piiBody);
+  r = await req('POST', '/api/v1/log/test.ingest', signedHeaders(hmacSecret, apiKey, piiBody), piiBody);
   assert(r.status === 400, 'pii key returns 400');
   assert((r.body as { error?: string }).error === 'pii_key_in_meta', 'error code correct');
 
@@ -213,13 +213,13 @@ async function main(): Promise<number> {
   });
   const badHeaders = signedHeaders(hmacSecret, apiKey, someBody);
   badHeaders['X-Scruple-Signature'] = 'a'.repeat(64);
-  r = await req('POST', '/v1/log/test.ingest', badHeaders, someBody);
+  r = await req('POST', '/api/v1/log/test.ingest', badHeaders, someBody);
   assert(r.status === 401, 'bad hmac returns 401');
   assert((r.body as { code?: string }).code === 'invalid_signature', 'code correct');
 
   // ---- Reserved stream ----
   console.log('\n[10] POST /v1/streams — non-internal tenant cannot create scruple.* stream');
-  r = await req('POST', '/v1/streams', {
+  r = await req('POST', '/api/v1/streams', {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
   }, JSON.stringify({ name: 'scruple.forbidden', principal_mode: 'none' }));
@@ -234,7 +234,7 @@ async function main(): Promise<number> {
       { tenant_seq: 302, idempotency_key: 'b-302', principal_id: principalId, event_time: new Date().toISOString(), payload_hash: 'sha256:' + '4'.repeat(64) },
     ],
   });
-  r = await req('POST', '/v1/log/test.ingest/batch', signedHeaders(hmacSecret, apiKey, batchBody), batchBody);
+  r = await req('POST', '/api/v1/log/test.ingest/batch', signedHeaders(hmacSecret, apiKey, batchBody), batchBody);
   assert(r.status === 200, 'batch returns 200');
   const batchResults = (r.body as { results?: Array<{ leaf?: unknown }> }).results ?? [];
   assert(batchResults.length === 3, 'batch returned 3 results');
