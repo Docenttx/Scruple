@@ -1,158 +1,143 @@
 # Morning Briefing — 2026-07-13
 
-**Session:** overnight autonomous 2026-07-12 → 2026-07-13
+**Session:** 2026-07-12 → 2026-07-13
 **Branch:** `feature/witnessing-l2-sprint1`
-**Sprint 1 status:** 2 of 10 WOs shipped as code; 8 remain.
+**Sprint 1 status:** 4 of 10 WOs shipped end-to-end with passing tests;
+the audit chain minus the C2PA-signer stage is demonstrable today.
 
 ## TL;DR
 
-WO-05 (audit schema + canonical leaf v23) and WO-06 (audit-API ingest routes)
-landed as clean, typechecking commits on the sprint branch. The parity-test
-gate (TS ↔ Python byte-identical leaf hashes) is green across 12 vectors.
-No unrelated files touched — everything new is under new namespaces
-(`lib/witness/`, `app/api/v1/`, `services/witness/`, `test/fixtures/`,
-`scripts/`).
+The **audit chain works**. You can:
 
-Nothing merged, nothing pushed. Everything is local git on the sprint branch.
+1. Ingest a leaf via `POST /api/v1/log/<stream>`.
+2. Fire the checkpoint scheduler (`npx tsx scripts/run-checkpoint-tick.ts`).
+3. Fetch the proof bundle via `GET /api/v1/proof/leaf/<stream>/<seq>`.
+4. Run `node packages/scruple-verify/src/cli.mjs leaf --proof <file>` and get `VALID`.
+5. Tamper the proof, re-run, get `FAIL`.
+
+This is the load-bearing story for the Rider and for the Continuous Audit
+API product. C2PA-specific signing (WO-08) is the only thing standing
+between us and the full "sign asset → witness → third-party verify"
+demo, and it's blocked on the OCI Vault (WO-01) decision.
 
 ## What shipped tonight
 
-Two commits on `feature/witnessing-l2-sprint1`:
+Six commits on `feature/witnessing-l2-sprint1`:
 
-- **`30e5b0d` — feat(l2/WO-05): audit-API schema + canonical leaf v23 + parity gate**
-  - Migration `030_scruple_log.sql` (7 new tables + TEN_scruple seed)
-  - `lib/witness/canonicalLeafV23.ts` + `lib/witness/streamIds.ts`
-  - `services/witness/canonical_leaf_v23.py`
-  - `test/fixtures/canonical-leaf-v23-vectors.json` (10 leaf + 2 chain,
-    expected values frozen)
-  - `scripts/test-canonical-leaf-v23.ts` (--freeze | verify)
-  - `services/witness/tests/test_canonical_leaf_v23.py`
-  - `scripts/seed-c2pa-stream.mjs` (idempotent seed of the reserved
-    `scruple.c2pa.sign` stream)
+| Commit | WO | What |
+|---|---|---|
+| `30e5b0d` | WO-05 | Migration 030 + canonical leaf v23 + TS↔Python parity gate (12 vectors) |
+| `7a18698` | WO-06 | `/v1/log/*` + `/v1/streams` + HMAC + rate limits |
+| `523b5b0` | — | First MORNING_BRIEFING (superseded by this file) |
+| `e6e2ffc` | WO-06 | URL prefix fix + integration test 21/21 PASS |
+| `aaec20e` | WO-07 | Checkpoint scheduler + Merkle + Ed25519 signer + trust manifest, 20/20 E2E PASS |
+| `8a270fd` | WO-09 | `scruple-verify` CLI + `/api/v1/proof/leaf` endpoint, 12/12 E2E PASS |
 
-- **`7a18698` — feat(l2/WO-06): audit-API ingest — /v1/log + /v1/streams + HMAC + rate limits**
-  - `lib/witness/{tenantAuth,hmacMiddleware,rateLimit,ingest}.ts`
-  - `app/api/v1/log/[stream_name]/route.ts`
-  - `app/api/v1/log/[stream_name]/batch/route.ts`
-  - `app/api/v1/streams/route.ts` (POST + GET)
-  - `scripts/test-ingest-api.ts` (11 assertions covering happy path,
-    idempotency, gaps, replays, PII denylist, HMAC, batch, reserved
-    streams)
+Total: 4 WOs delivered with tests, all typechecking clean, all zero-touch
+on the existing app surface outside their new namespaces.
 
-## Two deviations from the WO docs (documented)
-
-1. Migration number is **030**, not 022 as WO-05 predicted. The WO was
-   drafted against a stale `ls migrations/` output; actual next available
-   was 030.
-2. Table name **`log_checkpoints`**, not `checkpoints` as the WO/design
-   said. `001_core.sql` already owned the `checkpoints` name (older
-   run-level checkpoints, unrelated). The rename is code-only — the
-   canonical design doc §6.1 still says `checkpoints`; needs a doc-only
-   alignment pass to keep the two in sync.
-
-Both deviations are notes in `PROGRESS.md`.
-
-## Verify commands (run these first thing to confirm session state)
+## Verify commands (run these first)
 
 ```bash
 cd /data/scruple-web
 
-# git state
+# 1. git state
 git branch --show-current    # feature/witnessing-l2-sprint1
-git log --oneline -8         # should show 30e5b0d + 7a18698 as tips
+git log --oneline -8         # should show 30e5b0d → 8a270fd chain
 
-# parity gate — must be green both directions
+# 2. parity gate — must be green both directions
 npx tsx scripts/test-canonical-leaf-v23.ts
 python3 services/witness/tests/test_canonical_leaf_v23.py
 
-# typecheck — should show 3 pre-existing errors, 0 new (mine)
+# 3. typecheck — should show 3 pre-existing errors, 0 new (mine)
 npm run typecheck 2>&1 | grep -E "TS[0-9]+"
+
+# 4. Run all three E2E tests against a scratch stack (~90 seconds total)
+rm -f /tmp/scruple-l2.db && rm -rf /tmp/scruple-witness-data
+SCRUPLE_DB_PATH=/tmp/scruple-l2.db npm run db:migrate
+SCRUPLE_DB_PATH=/tmp/scruple-l2.db SCRUPLE_WITNESS_KEY_DIR=/tmp/scruple-witness-data \
+  npx next dev -p 3005 > /tmp/l2-next.log 2>&1 &
+until curl -sSf -o /dev/null http://localhost:3005/api/health; do sleep 2; done
+SCRUPLE_DB_PATH=/tmp/scruple-l2.db SCRUPLE_TEST_URL=http://localhost:3005 \
+  npx tsx scripts/test-ingest-api.ts               # 21/21
+SCRUPLE_DB_PATH=/tmp/scruple-l2.db SCRUPLE_WITNESS_KEY_DIR=/tmp/scruple-witness-data \
+  SCRUPLE_TEST_URL=http://localhost:3005 \
+  npx tsx scripts/test-checkpoint-e2e.ts           # 20/20
+SCRUPLE_DB_PATH=/tmp/scruple-l2.db SCRUPLE_WITNESS_KEY_DIR=/tmp/scruple-witness-data \
+  SCRUPLE_TEST_URL=http://localhost:3005 \
+  npx tsx scripts/test-verify-cli-e2e.ts           # 12/12
+pkill -f "next dev -p 3005"
 ```
 
-## What did NOT ship tonight (and why)
+## What's done vs not
 
-- **WO-01/02** — OCI Vault provisioning + C2PA cert application. Both
-  need human OCI console access + procurement authority. Not attemptable
-  from a code-only session.
+| WO | Status | Notes |
+|---|---|---|
+| WO-01 OCI Vault | pending (human) | Needs OCI console + IAM |
+| WO-02 C2PA cert | pending (human) | Needs procurement + signatory |
+| WO-03 Signer refactor | pending | Blocks on WO-01 (real Vault) OR your green-light for a mocked OCI client |
+| WO-04 Signer isolation | pending | Blocks on WO-03 |
+| WO-05 Audit schema | ✅ **DONE** | 30e5b0d |
+| WO-06 Ingest API | ✅ **DONE** | 7a18698 + e6e2ffc |
+| WO-07 Checkpoint scheduler | ✅ **DONE** | aaec20e — Ed25519 mocked, Vault swap seam ready |
+| WO-08 C2PA emit | pending | Blocks on WO-04 |
+| WO-09 Verifier CLI | ✅ **DONE** | 8a270fd |
+| WO-10 E2E smoke | pending | Waits for WO-08 |
 
-- **WO-06 integration test run.** The test script `scripts/test-ingest-api.ts`
-  is written and ready. Running it requires:
-  (a) applying migration 030 to a database (`npm run db:migrate` against
-      a dedicated `SCRUPLE_DB_PATH`),
-  (b) starting a dedicated Next.js dev server against that DB,
-  (c) `npx tsx scripts/test-ingest-api.ts`.
-  Both (a) and (b) touch a running system — held for you to sign off.
+## What still needs human sign-off
 
-- **WO-03/04** — signer refactor + isolation. Blocked on WO-01 (need
-  Vault OCID); can be scaffolded against a mock OCI client if you want,
-  but that touches `services/c2pa-signer/sign.py` + `lib/c2pa/signAsset.ts`
-  which are existing files under active use. Held for you to say "go."
+1. **WO-01 OCI Vault** — provisioning is a 6h task; every downstream Vault
+   swap (WO-07's signer, WO-03's C2PA signer) is a ~10-line change once
+   the OCID lands.
 
-- **WO-07** — checkpoint scheduler. Blocked on WO-01 (Vault checkpoint
-  key). Can be built against a mock Ed25519 local key today, wire to
-  real Vault once WO-01 lands.
+2. **WO-02 C2PA cert application** — weeks-of-lead-time procurement.
 
-- **WO-08** — C2PA leaf emission. Blocks on WO-04 (isolated daemon).
+3. **Should I mock OCI Vault for WO-03?** — the C2PA signer refactor
+   touches existing files (`services/c2pa-signer/sign.py`,
+   `lib/c2pa/signAsset.ts`, `app/api/scruple/c2pa/sign/route.ts`) that
+   are in active use. Same design pattern I used for WO-07 works — write
+   a `vaultSignEs256()` seam using a locally-generated ES256 key, then
+   swap to OCI Vault callback later. It won't regress interop (the L1
+   evidence stands) but it does modify the current signing path. **Tell
+   me yes/no** and I'll ship WO-03 + WO-04 that way.
 
-- **WO-09** — verifier CLI. Deferred not because it's blocked — it's
-  independent — but because with WO-07 still pending there are no real
-  checkpoints or inclusion proofs to validate against; the CLI would
-  ship half-built. Better to write it after WO-07 lands so it can be
-  smoke-tested end-to-end same-day.
+4. **Migration 030 on the shared dev DB** — Sprint 1 tests all run on
+   scratch DBs. When you want the shared dev server to see the new
+   tables: `npm run db:migrate` against the shared DB and bounce the
+   port-3001 server so it picks up the schema. I did not do this
+   autonomously.
 
-## What to do first thing this morning
+5. **npm publish `@scruple/verify`** — the package works locally; when
+   you want it public, `cd packages/scruple-verify && npm publish
+   --access public`. Not blocking anything.
 
-Ordered by leverage:
+## Doc-alignment TODO (short)
 
-1. **Kick off WO-01 (OCI Vault).** External dependency; longest lead
-   time still to close. See `docs/wo/2026-07-12-witnessing-l2/WO-01-oci-vault-provisioning.md`
-   — 6 owner-hours estimated. Every downstream WO except WO-05/06 wants
-   Vault OCIDs.
-
-2. **File the WO-02 cert application.** DigiCert Content Credentials
-   or SSL.com. Weeks of issuer wait; start the clock.
-
-3. **Apply migration 030 + run the WO-06 integration test.**
-   ```bash
-   cd /data/scruple-web
-   # If the shared dev server on :3001 uses data/scruple.db, do this
-   # against a scratch DB and a scratch port instead — do not migrate
-   # prod in-place without a plan.
-   SCRUPLE_DB_PATH=/tmp/scruple-l2.db npm run db:migrate
-   SCRUPLE_DB_PATH=/tmp/scruple-l2.db npm run dev -- -p 3005 &  # separate port
-   SCRUPLE_DB_PATH=/tmp/scruple-l2.db SCRUPLE_TEST_URL=http://localhost:3005 \
-     npx tsx scripts/test-ingest-api.ts
-   ```
-   All 11 assertions should pass.
-
-4. **Then either me or you can proceed to WO-07 / WO-09.** WO-09 is a
-   nice fresh-context task for a sub-agent.
-
-## Reference — the canonical & work-order docs
-
-Read in this order after the compaction survives the night:
-
-1. `docs/wo/2026-07-12-witnessing-l2/INDEX.md` — WO manifest
-2. `docs/wo/2026-07-12-witnessing-l2/PROGRESS.md` — status log (this
-   session appended two entries at the top)
-3. `docs/architecture/CANONICAL_SCRUPLE_WITNESSING_L2.md` — design
-4. `docs/wo/2026-07-12-witnessing-l2/WORK_ALLOCATION_PLAN.md` — how
-   to dispatch tracks in parallel
-5. Individual `WO-*.md` files for the next unit of work
-
-## Small doc-alignment TODO (5-min job)
-
-The canonical design doc §6.1 still lists `checkpoints` as a table name.
-Rename to `log_checkpoints` in that section so the doc matches the shipped
-schema. Same for WO-07 references. This is doc-only — no code change.
+The canonical design doc + WO-07 doc reference table name `checkpoints`
+and URL prefix `/v1/*`. Actual shipped code is `log_checkpoints` (rename
+to avoid `001_core.sql` collision) and `/api/v1/*` (Next.js `app/api/`
+convention). ~5-min doc pass; noted in PROGRESS.md.
 
 ## What NOT to do without me
 
-- Don't merge the sprint branch into `feature/pivot` or `main`. It's a
-  work-in-progress branch.
-- Don't apply migration 030 to `/data/scruple-web/data/scruple.db` (the
-  shared dev DB) — use a scratch DB path per the run instructions above.
-  If you do apply it to the shared DB, that's fine, but restart the
-  shared dev server so the routes see the new tables.
+- Don't merge `feature/witnessing-l2-sprint1` yet — WO-08 + WO-10 gate.
+- Don't apply migration 030 to shared `data/scruple.db` without bouncing
+  the port-3001 dev server.
 - Don't `git push` unless you're intentionally publishing the branch.
-  Everything is local.
+- Don't touch `services/c2pa-signer/sign.py` while I'm mid-WO-03 later.
+
+## Where to pick up
+
+Best next step depends on your call on point 3 above:
+
+- **If yes to mocked OCI for WO-03:** I ship WO-03 + WO-04 + WO-08 as a
+  chain, ending with the full "sign asset → sign event landed as leaf →
+  offline-verify with `scruple-verify`" demo. That's the Sprint 1 gate
+  (WO-10) hit in one more session.
+
+- **If no, wait for real Vault:** WO-01 + WO-02 first, then the same
+  chain runs against real Vault. Same demo at the end, cleaner posture
+  for L2 evidence.
+
+Either path, the audit-chain half is already built and tested; nothing
+you decide here undoes what shipped tonight.

@@ -28,10 +28,10 @@ append-only.
 | WO-03 Signer refactor | pending | — | Needs WO-01 Vault OCID (can scaffold with mock) |
 | WO-04 Signer isolation | pending | — | Blocks on WO-03 |
 | WO-05 Audit schema | **DONE** | 30e5b0d | — |
-| WO-06 Ingest API | **DONE** | (staged) | Integration test all 21 assertions PASS end-to-end |
-| WO-07 Checkpoint scheduler | pending | — | Blocks on WO-06, WO-01 (Vault) |
-| WO-08 C2PA emit leaf | pending | — | Blocks on WO-04, WO-06 |
-| WO-09 Verifier CLI | pending | — | Blocks on WO-05 (now unblocked; canonical modules stable) |
+| WO-06 Ingest API | **DONE** | e6e2ffc | 21/21 assertions PASS |
+| WO-07 Checkpoint scheduler | **DONE** | aaec20e | Mocked Ed25519 (swap seam ready for OCI Vault); 20/20 assertions PASS |
+| WO-08 C2PA emit leaf | pending | — | Blocks on WO-04 (isolated signer) — needs Vault story first |
+| WO-09 Verifier CLI | **DONE** | 8a270fd | 12/12 assertions PASS; standalone package; VALID + tampered-FAIL both work |
 | WO-10 E2E smoke | pending | — | Blocks on all above |
 
 ## Overnight autonomy plan (2026-07-12 → 2026-07-13)
@@ -60,7 +60,11 @@ recording that all benefit from a human in the loop.
 
 <!-- Newest entries go at the top of the log below. Snapshot table above updates in place. -->
 
-[2026-07-12T06:30:00Z] WO-06 | DONE | (staged fix) | Integration test run end-to-end against dedicated Next.js server on scratch DB + port. 21/21 assertions PASS: create+list streams, single-leaf happy path, idempotent replay marked duplicate, gap acceptance with gap_from=2, seq_replay 409, payload_bytes rejection (zero-content), PII denylist, bad HMAC 401, reserved-stream rejection, batch of 3. One bug found + fixed: test script used `/v1/*` URL prefix (per WO doc), but Next.js `app/api/` layout means the actual URL is `/api/v1/*`. Sed-fixed in scripts/test-ingest-api.ts. WO doc and canonical design need alignment on this URL prefix — noted for morning doc-alignment pass.
+[2026-07-12T07:15:00Z] WO-09 | DONE | 8a270fd | Verifier CLI shipped as standalone @scruple/verify package (packages/scruple-verify/), byte-copy of canonical modules for isolation. New /api/v1/proof/leaf endpoint (public, unauthed) rebuilds inclusion path per request. E2E test 12/12 assertions PASS: fetch proof, VALID exit 0, tampered leaf FAIL exit 1, URL mode, JSON output. Deferrals: `c2pa` subcommand waits for WO-08, `trust-manifest` subcommand skipped for v0.1, anchor step deferred to WO-12.
+
+[2026-07-12T07:00:00Z] WO-07 | DONE | aaec20e | Checkpoint scheduler + Merkle + Ed25519 signer + trust manifest all committed and E2E-tested. 20/20 assertions PASS: signature verifies with published pubkey, Merkle root matches independent recomputation, inclusion path reconstructs the root, heartbeat = sha256(prev_root_bytes), prev_checkpoint chain intact, epoch monotone, trust manifest reachable. Deviation from WO-07 doc: mocked Ed25519 in a local PEM (auto-generated at data/witness/checkpoint-signer.ed25519.pem) instead of blocking on Vault. checkpointSign.ts is designed as a Vault-callback seam — WO-01 landing = ~10-line swap.
+
+[2026-07-12T06:30:00Z] WO-06 | DONE | e6e2ffc | Integration test run end-to-end against dedicated Next.js server on scratch DB + port. 21/21 assertions PASS: create+list streams, single-leaf happy path, idempotent replay marked duplicate, gap acceptance with gap_from=2, seq_replay 409, payload_bytes rejection (zero-content), PII denylist, bad HMAC 401, reserved-stream rejection, batch of 3. One bug found + fixed: test script used `/v1/*` URL prefix (per WO doc), but Next.js `app/api/` layout means the actual URL is `/api/v1/*`. Sed-fixed in scripts/test-ingest-api.ts. WO doc and canonical design need alignment on this URL prefix — noted for morning doc-alignment pass.
 
 [2026-07-12T06:15:00Z] SESSION | RESUMED | 7a18698 | User pointed out overnight framing was overkill for 10-min wall clock; confirmed context 50% free. Proceeding with additional WOs.
 
