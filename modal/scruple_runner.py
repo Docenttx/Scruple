@@ -644,6 +644,23 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
 
     duration_ms = int((time.time() - started) * 1000)
 
+    # WO-B1: in-container machine manifest — walks /opt/ComfyUI/custom_nodes/,
+    # git rev-parses each pack, hashes pack contents. Cached at container
+    # lifetime. The web-side ingest folds container_machine_manifest_hash
+    # into the leaf as the v2.4 first-class machine_manifest_hash field.
+    try:
+        from container_manifest import cached_container_manifest
+        cm = cached_container_manifest()
+        container_manifest = cm["manifest"]
+        container_manifest_hash = cm["hash"]
+    except Exception as e:
+        container_manifest = None
+        container_manifest_hash = None
+        _log = _tail_comfy_log(1)  # keep the log warm
+        del _log
+        # Non-fatal — leaf still records; machine_manifest_hash just stays ''.
+        print(f"[scruple_runner] container manifest failed: {e}")
+
     return {
         "ok": True,
         "image_bytes_b64": base64.b64encode(bytes_).decode("ascii"),
@@ -655,6 +672,8 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
         "gpu": RUN_GPU,
         "attestation": None,  # populated on H100 CC builds
         "model_fingerprints": model_fingerprints,
+        "container_machine_manifest": container_manifest,
+        "container_machine_manifest_hash": container_manifest_hash,
     }
 
 

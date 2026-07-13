@@ -36,6 +36,12 @@ interface ModalResponse {
     bytes?: number;
     mtime?: number;
   }>;
+  // WO-B1 — container-side machine manifest (sha256 of canonical form).
+  // When present, the web-side ingest prefers this over the DB-lookup
+  // default because it pins the toolchain the runner ACTUALLY had, not
+  // what the descriptor claimed. Null when the runner can't resolve it.
+  container_machine_manifest?: Record<string, unknown> | null;
+  container_machine_manifest_hash?: string | null;
   error?: string;
 }
 
@@ -116,6 +122,7 @@ export const modalRunner: ComputeBackend = {
         modelFingerprints: data.model_fingerprints ?? {},
         outputKind: data.output_kind ?? 'image',
         outputFilename: data.output_filename,
+        containerMachineManifestHash: data.container_machine_manifest_hash ?? null,
       };
     } finally {
       clearTimeout(t);

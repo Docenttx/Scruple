@@ -59,6 +59,12 @@ export interface ComputeResult {
     bytes?: number;
     mtime?: number;
   }>;
+  /** WO-B1 — sha256 hex of the CONTAINER-side machine manifest (comfyui
+   *  version + custom-node pack commit_shas + pack content hashes). When
+   *  present, ingest.ts prefers this over the DB-lookup default so the
+   *  leaf's machine_manifest_hash pins what the runner actually had, not
+   *  the descriptor's declared refs. Null when the backend can't resolve it. */
+  containerMachineManifestHash?: string | null;
   /** Populated when ok=false. */
   rawError?: string;
 }

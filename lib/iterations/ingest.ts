@@ -95,6 +95,12 @@ export interface IngestParams {
    *  by the caller. NULL for /api/generate path (per-request runner has
    *  no user-customizable manifest yet). */
   machineManifestHash?: string | null;
+  /** WO-B1 — sha256 of the CONTAINER's actual machine manifest, computed
+   *  by the runner from the file system it ran on (real commit_shas +
+   *  content_hashes per pack, not the declarative descriptor). When
+   *  present, preferred over the DB-lookup default because it pins what
+   *  the runner ACTUALLY had, not what the descriptor claimed. */
+  containerMachineManifestHash?: string | null;
 }
 
 export interface IngestResult {
@@ -233,12 +239,18 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     .prepare(`SELECT name FROM projects WHERE id = ?`)
     .get(p.projectId) as { name?: string } | undefined;
 
-  // v2.2 — auto-resolve machine_manifest_hash if the caller didn't pass
-  // one. Selects the user's most recent ready machine, falling back to
-  // the shared default. Canvas-proxy callers (lib/canvas/witness.ts)
-  // already pass it explicitly; /api/generate and other callers get it
-  // resolved here so every iteration carries the binding.
-  let machineManifestHash = p.machineManifestHash ?? null;
+  // v2.2 — machine_manifest_hash resolution ladder (most trusted first):
+  //  1. containerMachineManifestHash (WO-B1) — computed by the runner
+  //     from actual on-disk pack commit_shas + content hashes. This IS
+  //     what ran; strongly preferred.
+  //  2. machineManifestHash explicitly passed by the caller (e.g. the
+  //     canvas-proxy path resolves the per-user Machine row).
+  //  3. DB-lookup default — the user's most recent ready machine
+  //     (falls back to shared default).
+  let machineManifestHash =
+    p.containerMachineManifestHash ??
+    p.machineManifestHash ??
+    null;
   if (machineManifestHash === null) {
     const mrow = conn()
       .prepare(
