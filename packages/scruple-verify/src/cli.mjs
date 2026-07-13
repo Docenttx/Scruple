@@ -28,6 +28,22 @@ Usage:
       Verify an on-disk proof bundle. --trust-manifest defaults to the
       witness_url derived from the proof, or SCRUPLE_TRUST_MANIFEST_URL.
 
+  scruple-verify baseline --receipt <url|path> [--history <url|path>]
+      Verify baseline chain integrity: the receipt's baseline_hash is
+      in the tenant's chain and each prev_baseline_hash link is valid
+      back to genesis.
+
+  scruple-verify attestation --receipt <url|path>
+      Re-verify every platform_attestation envelope on the receipt
+      via the same shared verifier plugins the server uses (SEV-SNP,
+      NVIDIA H100 CC, AWS Nitro, Azure MAA, Intel TDX, TPM 2.0).
+      Passthrough attestations are reported with their verifier_reference
+      URL and NOT counted as failure — see Standard §15.4.
+
+  scruple-verify full --receipt <url|path>
+      Runs baseline + attestation in sequence. Overall verdict is
+      VALID only if both pass.
+
 Common flags:
   --json          Emit structured verdict on stdout.
   --quiet         Print only PASS/FAIL.
@@ -190,6 +206,32 @@ async function verifyLeaf() {
 const subcommand = process.argv[2];
 if (subcommand === 'leaf') {
   await verifyLeaf();
+} else if (subcommand === 'baseline') {
+  const { verifyBaseline } = await import('./baseline_verify.mjs');
+  const ok = await verifyBaseline({
+    receiptSource: argVal('--receipt'),
+    historySource: argVal('--history'),
+    json: argFlag('--json'),
+    quiet: argFlag('--quiet'),
+  });
+  process.exit(ok ? 0 : 1);
+} else if (subcommand === 'attestation') {
+  const { verifyAttestations } = await import('./attestation_verify.mjs');
+  const ok = await verifyAttestations({
+    receiptSource: argVal('--receipt'),
+    json: argFlag('--json'),
+    quiet: argFlag('--quiet'),
+  });
+  process.exit(ok ? 0 : 1);
+} else if (subcommand === 'full') {
+  // Run leaf + baseline + attestation in sequence; overall verdict.
+  const receipt = argVal('--receipt');
+  const { verifyBaseline } = await import('./baseline_verify.mjs');
+  const { verifyAttestations } = await import('./attestation_verify.mjs');
+  const bOk = await verifyBaseline({ receiptSource: receipt, json: false, quiet: false });
+  const aOk = await verifyAttestations({ receiptSource: receipt, json: false, quiet: false });
+  console.log(`\nOverall: ${bOk && aOk ? 'VALID' : 'INVALID'}`);
+  process.exit(bOk && aOk ? 0 : 1);
 } else if (subcommand === '--help' || subcommand === '-h' || !subcommand) {
   usage(0);
 } else {
