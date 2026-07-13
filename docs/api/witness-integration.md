@@ -64,27 +64,73 @@ Design details are in
 §5. The 30-second version:
 
 ```
-POST https://witness.scruple.ai/v1/tenants/<tenant>/streams/<stream>/leaves
+POST https://witness.scruple.ai/v1/log/<stream>
 Authorization: Bearer <tenant_key>
-X-Signature: <hmac-sha256 over body with tenant HMAC secret>
+X-Scruple-Timestamp: <RFC 3339 UTC>
+X-Scruple-Signature: <hmac-sha256 over `${timestamp}\n${raw_body}` with tenant HMAC secret>
+X-Baseline-Hash: <64-hex tenant baseline hash>
 
 {
-  "principal_id": "<the end-customer this leaf is on behalf of>",
-  "sequence": 42,
-  "event_time": "2026-07-13T02:00:00.000Z",
-  "content_hash_sha256": "<hex>",
-  "input_hash_sha256": "<hex>",
-  "model_fingerprints_hash_sha256": "<hex>",
-  "machine_manifest_hash_sha256": "<hex>",
-  "kind": "inference.completed",
-  "prev_leaf_hash_sha256": "<previous leaf's hash, or 32 zero bytes if first>"
+  "tenant_seq":            42,
+  "idempotency_key":       "<caller-supplied unique id>",
+  "principal_id":          "<the end-customer this leaf is on behalf of>",
+  "event_time":            "2026-07-13T02:00:00.000Z",
+  "payload_hash":          "sha256:<hex>",
+  "workflow_hash":         "<bare 64-hex>",
+  "machine_manifest_hash": "<bare 64-hex>",
+  "dims":                  { "input_hash": "sha256:<hex>", "output_hash": "sha256:<hex>" },
+  "platform_attestation":  { "attestation_type": "amd-sev-snp", "attestation_document_b64": "…" }
 }
 ```
 
-Response includes the signed leaf hash, the witness signature, and the
-`checkpoint_epoch` it will be included in.
+Response includes the signed leaf hash, the chain hash, `leaf_scheme`
+(`v2.3` or `v2.4`), and `pending_checkpoint_epoch`.
 
 Availability: private beta for design partners, GA on Sprint 3 close.
+
+### The two first-class provenance fields (v2.4)
+
+`workflow_hash` and `machine_manifest_hash` are promoted to first-class
+leaf preimage fields as of leaf v2.4 (WO-A1, 2026-07-13). Both default
+to empty string when absent, so callers who don't have a workflow or a
+pinned toolchain can omit them and the leaf still hashes deterministically.
+
+**When to send `workflow_hash`.** Whenever the event was produced by a
+declarative pipeline whose graph the operator chose. For ComfyUI-style
+workflows this is the `workflow_api_json`. For anything else, it's
+whatever your equivalent pipeline description is.
+
+The hash MUST be computed over the *canonical* serialization of the
+workflow — recursively sorted object keys, no whitespace between
+separators, arrays preserved in declaration order. Reference
+implementations live in `lib/scruple/canonicalWorkflow.ts` (TS) and
+`services/witness/canonical_workflow.py` (Python). Using default
+`JSON.stringify()` / `json.dumps()` (insertion-order keys) will produce
+a hash that no third-party auditor can reproduce.
+
+**When to send `machine_manifest_hash`.** Whenever the operator's choice
+of toolchain (framework version + node/plugin pack pinning + commit
+SHAs) is part of the authorship claim you want witnessed. Reference
+implementation for the canonical form is `lib/canvas/manifest.ts`
+`canonicalizeManifest()`. Present-day scruple-web populates this from
+its per-user Machine table; integrators may derive it however matches
+their runtime, as long as the canonical serialization discipline is
+followed.
+
+Both fields are validated at ingest as 64-char lowercase hex without a
+`sha256:` prefix (differing from `payload_hash`, which uses the prefixed
+form because it's a `dims`-shape reference).
+
+### The `leaf_scheme` response field
+
+Every ingest response echoes `leaf.leaf_scheme` — either `v2.3` (neither
+workflow nor manifest hash present) or `v2.4` (either or both present).
+Integrators that persist the leaf record for their own audit purposes
+should also persist this discriminator so downstream verifiers know
+which canonicalization module to use when re-deriving the leaf hash.
+
+Any change to the leaf preimage format bumps the scheme; the on-wire
+protocol is additive-only within a scheme.
 
 ---
 
@@ -191,5 +237,10 @@ zero-content posture.
 
 ## Change log
 
+- 2026-07-13 (afternoon) — leaf v2.4: `workflow_hash` and `machine_manifest_hash`
+  promoted to first-class leaf preimage fields; response includes `leaf_scheme`
+  so integrators can distinguish v2.3 vs v2.4 receipts. Reference canonical
+  workflow / manifest hashing modules published in `lib/scruple/canonicalWorkflow.ts`
+  and `lib/canvas/manifest.ts` (see WO-A1 + WO-A2).
 - 2026-07-13 — Initial draft. Sprint 1 (Mode A per-app endpoints) shipping;
   Sprint 2 (Mode B generic ingest) design-partner private beta.
