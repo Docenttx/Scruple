@@ -1,7 +1,7 @@
-# Scruple Integration Requirements, v1.1
+# Scruple Integration Requirements, v1.2
 
 **Status:** Implementation specification. Integrator-facing.
-**Version:** 1.1
+**Version:** 1.2
 **Date:** 2026-07-13
 **Owner:** Docent Technologies LLC (dba Scruple)
 **Audience:** Engineers implementing a Scruple integration on behalf of
@@ -24,7 +24,7 @@ that the baseline Scruple attests to *means anything useful*.
 
 Compliance under the Standard is binary: an integration is
 Scruple-witnessed or it is not, determined by whether the baseline
-verifies against the running integration. The seven properties in §2
+verifies against the running integration. The eight properties in §2
 below are the requirements a baseline must be constructed against; if
 any property fails, the baseline attests to nothing useful, and the
 integration therefore cannot be Scruple-witnessed.
@@ -34,7 +34,7 @@ of them" state that qualifies for a lower level. Either all applicable
 properties hold and the baseline is meaningful, or the integration is
 not Scruple-witnessed.
 
-## 2. The seven properties of a sound baseline
+## 2. The eight properties of a sound baseline
 
 ### P1 — Runtime boundary integrity
 
@@ -139,19 +139,58 @@ Integrations that must preserve full-resolution evidence bundles MUST
 preserve them in the customer's own storage (WORM bucket, evidence
 locker) and submit only the hash-commitment leaf to Scruple.
 
-### P7 — Attestation transport
+### P7 — Attestation declaration
 
 If the platform's compute environment provides hardware attestation
 (AMD SEV-SNP, Intel TDX, AWS Nitro Enclave, Google Confidential Space,
-TPM 2.0 Quote), the attestation report or a stable reference to it
-MUST be included with the baseline and refreshed on each re-baseline.
+TPM 2.0 Quote, NVIDIA H100 confidential mode, or similar), the baseline
+manifest MUST declare an `attestation.provider` value naming the
+attestation type. A stable reference to the attestation (or the
+attestation itself) MUST be included with the baseline and refreshed on
+each re-baseline. The mechanics of per-event attestation import are
+governed by P8.
 
 If the platform's compute environment does not provide hardware
-attestation, P7 is not applicable. The integration is still
-Scruple-witnessed on the strength of Scruple's own substrate
-attestation, provided all other properties hold. Whether the customer
-requires their own compute attestation is a scope question for their
-specific evidence claim, not a compliance criterion.
+attestation, the baseline manifest declares `attestation.provider: none`
+and P8 is not applicable. The integration is still Scruple-witnessed on
+the strength of Scruple's own substrate attestation, provided all other
+properties hold. Whether the customer requires their own compute
+attestation is a scope question for their specific evidence claim, not
+a compliance criterion.
+
+### P8 — Attestation import discipline
+
+If P7 declares an `attestation.provider` other than `none`, every leaf
+MUST carry a `platform_attestation` envelope conforming to the shape
+defined in §4. The envelope MUST satisfy the following:
+
+- The `nonce` field MUST equal SHA-256 of the leaf preimage (excluding
+  the `platform_attestation` envelope itself). This binds the attestation
+  to the specific event; a stale or replayed attestation will not verify.
+- The `attestation_time` MUST be within the tenant's configured
+  freshness window. The default maximum is fifteen minutes at the time
+  of leaf submission; tenants MAY configure shorter windows for stricter
+  postures.
+- For `attestation_type` values Scruple maintains a built-in verifier
+  for (AMD SEV-SNP, Intel TDX, AWS Nitro Enclave, NVIDIA H100
+  confidential mode, Azure Attestation Service, TPM 2.0), the attestation
+  MUST verify server-side at ingest. Leaves whose attestation fails
+  verification are rejected with a 4xx and do not enter the log.
+- For `attestation_type` values Scruple does not verify natively (uncommon
+  or emerging formats), the integration MUST supply a `verifier_reference`
+  URL naming an independent verifier the customer trusts. The envelope
+  is anchored as-is; the resulting receipt is labeled **Passthrough
+  attestation**, distinct from Scruple-verified.
+
+The integration SHOULD fetch a fresh attestation per witness call.
+Cached attestations MAY be reused within the tenant's freshness window.
+When the window expires, the next witness call MUST re-fetch.
+
+Baselines MUST NOT mix `attestation.provider` values across a single
+integration's leaves. If the compute environment changes (e.g., customer
+migrates from AMD SEV-SNP compute to NVIDIA H100 confidential), the
+integration MUST re-baseline with the new provider before submitting
+leaves under it.
 
 ## 3. HMAC vs signature — what each does
 
@@ -191,7 +230,116 @@ Verification order for a receipt:
 Steps 1–4 establish integrity. Step 5 establishes discoverability;
 its failure does not compromise integrity.
 
-## 4. Rejection criteria — concrete anti-patterns
+## 4. Attestation import — the envelope and the protocol split
+
+Where §15 of the Standard defines the capability (two-chain receipt
+architecture, verified vs. passthrough distinction, freshness
+deferral), this section defines the mechanics an integration must
+implement to satisfy P7 and P8.
+
+### 4.1 The envelope
+
+Every attestation submitted with a leaf uses the normalized envelope:
+
+```json
+{
+  "attestation_type": "nvidia-h100-cc" | "amd-sev-snp" | "intel-tdx"
+                    | "aws-nitro-enclave" | "gcp-confidential-space"
+                    | "azure-attestation-service" | "tpm-2.0-quote"
+                    | "<other; requires verifier_reference>",
+  "attestation_report": "<base64 raw bytes or JWT>",
+  "certificate_chain": ["<pem1>", "<pem2>", ...],
+  "nonce": "<hex; MUST equal SHA-256 of the leaf preimage>",
+  "attestation_time": "<RFC 3339>",
+  "verifier_reference": "<optional URL; required if attestation_type
+                          is not natively supported by Scruple>"
+}
+```
+
+The envelope is the same shape at baseline time (submitted with the
+baseline manifest) and at witness time (submitted with each leaf). The
+nonce binding differs: at baseline time the nonce binds the baseline's
+signing-key SPKI hash; at witness time it binds the leaf preimage.
+
+### 4.2 Protocol split — where each side lives
+
+The attestation import protocol has three implementation surfaces.
+Integrators need only implement the first; the other two are Scruple's
+responsibility and shipped for downstream use.
+
+**SDK (customer-side, integrator implements against):**
+
+- Per-vendor fetcher modules:
+  `scruple.attestation.nvidia_h100_cc.fetch(nonce)`,
+  `scruple.attestation.amd_sev_snp.fetch(nonce)`,
+  `scruple.attestation.aws_nitro.fetch(nonce)`,
+  `scruple.attestation.azure_maa.fetch(nonce)`,
+  `scruple.attestation.tpm_2.fetch(pcrs, nonce)`, etc.
+- Each fetcher wraps the platform vendor's native attestation API and
+  returns a valid envelope.
+- Auto-inclusion: the SDK includes the envelope on every witness call
+  when the baseline declares an `attestation.provider` other than `none`.
+- Envelope validation before send: schema check, freshness check
+  against configured window.
+
+**API (Scruple server-side, integrators consume as a service):**
+
+- Verifies the envelope at ingest by dispatching to a plugin selected
+  by `attestation_type`.
+- For built-in types, chains the report to the vendor's public root,
+  confirms `nonce` matches SHA-256 of the received leaf preimage,
+  confirms `attestation_time` is within freshness window.
+- For passthrough types (attestation_type not natively supported),
+  stores the envelope as-is with the `verifier_reference`; does not
+  itself verify.
+- Records verification status in the leaf's audit record.
+- Rejects invalid attestations with 4xx (rejected leaves do not
+  enter the log).
+
+**Reference verifier CLI (`scruple-verify`, third-party operable):**
+
+- Ships the same verifier plugin code the API uses, so anyone can
+  independently re-verify a receipt's attestations without calling
+  Scruple's API. This is what makes a Scruple-verified attestation
+  truly self-authenticating; a receipt consumer with the CLI does not
+  have to trust Scruple's word that the verification passed.
+
+### 4.3 Verified vs. passthrough — integrator-facing implications
+
+The Standard requires (§15.4) that a passthrough attestation MUST NOT
+present identically to a Scruple-verified attestation on the receipt.
+The integrator's responsibility is only to correctly declare the
+`attestation_type` and to supply a `verifier_reference` when the type
+is not Scruple-verified. The receipt's visual distinction is Scruple's
+responsibility, not the integrator's.
+
+Integrators SHOULD NOT declare a well-known `attestation_type` for
+attestations they know Scruple's built-in verifier will reject. Doing
+so wastes ingest calls; using a passthrough envelope with a
+`verifier_reference` is the correct path for unusual formats.
+
+### 4.4 Freshness windows — per-tenant configuration
+
+The Standard §15.5 defers freshness windows to this document. The
+current normative values:
+
+- **Default maximum:** 15 minutes at leaf-submission time.
+- **Tenant-configurable minimum:** as short as 60 seconds. Shorter
+  windows narrow the replay surface at the cost of higher fetch
+  rates against the platform's attestation subsystem.
+- **Cache scope:** attestations MAY be cached within the window and
+  reused across leaves whose preimages produce the same nonce (i.e.,
+  they don't — each leaf has a unique preimage, so caching only
+  helps if the same leaf is retried).
+- **Long-lived integrations that don't produce leaves frequently
+  SHOULD** schedule proactive attestation refreshes so a fresh
+  attestation is always available on demand.
+
+An attestation older than the tenant's freshness window at
+leaf-submission time is rejected at ingest. The integration MUST
+re-fetch.
+
+## 5. Rejection criteria — concrete anti-patterns
 
 These patterns are explicit failures. They exist as worked examples so
 integration teams do not replicate them.
@@ -238,8 +386,31 @@ integration teams do not replicate them.
   integration no longer matches the witnessed baseline. Verification
   fails; the integration is not Scruple-witnessed until re-baseline
   is completed.
+- **Stale attestation reuse beyond the freshness window.** The
+  integration reuses an attestation captured hours or days ago rather
+  than fetching a fresh one within the tenant's configured window.
+  Fails P8. Server rejects at ingest.
+- **Nonce not bound to leaf.** The integration supplies a
+  `platform_attestation` envelope whose `nonce` is arbitrary (random
+  UUID, timestamp, unrelated hash) instead of SHA-256 of the leaf
+  preimage. Fails P8. Server rejects at ingest.
+- **Passthrough attestation with no `verifier_reference`.** The
+  integration declares an `attestation_type` Scruple does not natively
+  verify but does not supply a `verifier_reference`. Fails P8. Server
+  rejects at ingest.
+- **Mixed attestation providers within a baseline.** The baseline
+  declares `attestation.provider: nvidia-h100-cc` but individual leaves
+  attempt to import AWS Nitro attestations for a different attestation
+  surface. Fails P7 (baseline declares one provider). Server rejects at
+  ingest. Re-baseline is required to change providers.
+- **Declaring a well-known `attestation_type` for an attestation
+  Scruple will reject.** The integration knows a report is malformed
+  or from a broken driver but submits it under a well-known type,
+  hoping Scruple's verifier will pass it. Fails P8. Server rejects.
+  The correct path for known-broken or non-standard attestations is
+  passthrough with `verifier_reference`, not misdeclaration.
 
-## 5. Retrofit checklist
+## 6. Retrofit checklist
 
 For teams designing a new integration or auditing an existing one,
 work through this gate. If any answer is "no," the baseline will not
@@ -278,7 +449,21 @@ be sound and the integration will not be Scruple-witnessed.
       re-baseline as a first-class witness event) on any change to
       the tamper-surface?
 
-## 6. Getting to a valid baseline
+**Attestation import** *(only if `attestation.provider != none`)*
+- [ ] Does the SDK fetch a fresh attestation on every witness call, or
+      only reuse cached attestations within the tenant's freshness
+      window?
+- [ ] Is the `nonce` field of every `platform_attestation` envelope
+      set to SHA-256 of the leaf preimage (excluding the envelope
+      itself)?
+- [ ] Is `attestation_time` reliably within the tenant's configured
+      freshness window at the moment of leaf submission?
+- [ ] For `attestation_type` values Scruple does not natively verify,
+      is a valid `verifier_reference` URL supplied?
+- [ ] Is the baseline's declared `attestation.provider` consistent
+      with the attestation type submitted on every leaf?
+
+## 7. Getting to a valid baseline
 
 Two paths lead to a valid baseline. Both are legitimate; the choice is
 a matter of team capacity and preferred engagement model.
@@ -316,7 +501,7 @@ paid engagement is help implementing correctly; the "certification"
 outcome is the same as self-implementation — the baseline verifies, or
 it does not.
 
-## 7. Re-baseline discipline
+## 8. Re-baseline discipline
 
 A re-baseline MUST be submitted when the tamper-surface changes
 materially. Material changes include:
@@ -341,7 +526,7 @@ If in doubt, submit a re-baseline. Re-baselining is a first-class
 public event; over-baselining produces noise but no compromise.
 Under-baselining silently invalidates the integration.
 
-## 8. Change discipline for this document
+## 9. Change discipline for this document
 
 This document is versioned. Material changes to property definitions,
 new anti-patterns, or new checklist items constitute minor version
@@ -374,6 +559,32 @@ The current version's canonical location is this document.
 
 ## Change log
 
+- **2026-07-13, v1.2** —
+  - Property count expanded from seven to eight to accommodate
+    attestation import.
+  - **P7 reshaped as "Attestation declaration"** — the baseline-side
+    presence/absence question and the requirement to include
+    attestation with the baseline. Existing "not applicable if no
+    hardware attestation" language preserved.
+  - **P8 added — "Attestation import discipline"** — the per-leaf
+    envelope requirements: nonce = SHA-256(leaf preimage), freshness
+    window compliance, server-side verification for built-in types,
+    passthrough with `verifier_reference` for uncommon types, no
+    mixing providers within a baseline.
+  - **New §4 — "Attestation import — the envelope and the protocol
+    split"** covers: the envelope shape (aligned with §15 of the
+    Standard); the three implementation surfaces (SDK fetches only;
+    API verifies authoritatively; reference verifier CLI ships the
+    same plugin code for independent re-verification); verified vs.
+    passthrough integrator obligations; and freshness window operational
+    ceilings (15-minute default max, 60-second configurable minimum).
+  - Renumbered existing sections §4–§8 to §5–§9.
+  - Rejection criteria: added five new anti-patterns for attestation
+    import (stale reuse, nonce not bound, passthrough without
+    verifier_reference, mixed providers within baseline, misdeclared
+    well-known type).
+  - Retrofit checklist: added attestation-import section, applicable
+    only when the baseline declares a non-`none` attestation provider.
 - **2026-07-13, v1.1** —
   - Split out of the previous v1.0 Scruple Standard. This document
     now holds implementation requirements; the Standard document
