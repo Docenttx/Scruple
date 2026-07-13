@@ -373,6 +373,13 @@ function IterationCard({ it }: { it: IterationRow }) {
           detects any swap. */}
       <ModelFingerprintsBlock raw={it.model_fingerprints} />
 
+      {/* raw workflow (node choice + wiring + params) — the human-authorship
+          claim. Hidden by publication='hash-only' | 'witness-only'.
+          Rendered from iterations.metadata.generationSpec.providerExtras.workflowApiJson,
+          which is stored raw at ingest time. Never redacted here — the
+          publication check above governs whether we render it at all. */}
+      {showWorkflowHash && <WorkflowBlock raw={it.metadata} />}
+
       {/* input artifacts */}
       {inputs.length > 0 && (
         <div className="mt-2">
@@ -466,6 +473,74 @@ function ModelFingerprintsBlock({ raw }: { raw: string | null }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+interface ComfyNodeShape {
+  class_type?: string;
+  inputs?: Record<string, unknown>;
+}
+
+/**
+ * Renders the raw ComfyUI workflow_api_json for this iteration:
+ * a compact "N nodes" summary + a collapsible <details> containing the
+ * full JSON. The workflow is the human-authorship claim — the operator
+ * chose these specific nodes, wired them THIS way, and set these params.
+ *
+ * Reads from iterations.metadata.generationSpec.providerExtras.workflowApiJson,
+ * which is persisted raw at ingest time (lib/iterations/ingest.ts:308).
+ */
+function WorkflowBlock({ raw }: { raw: string | null }) {
+  if (!raw) return null;
+  let workflow: Record<string, ComfyNodeShape> | null = null;
+  try {
+    const meta = JSON.parse(raw) as {
+      generationSpec?: { providerExtras?: { workflowApiJson?: unknown } };
+    };
+    const wf = meta?.generationSpec?.providerExtras?.workflowApiJson;
+    if (wf && typeof wf === 'object' && !Array.isArray(wf)) {
+      workflow = wf as Record<string, ComfyNodeShape>;
+    }
+  } catch {
+    /* stored metadata is malformed — silently skip */
+  }
+  if (!workflow) return null;
+  const entries = Object.entries(workflow);
+  if (entries.length === 0) return null;
+
+  // Node inventory: unique class_types with counts, natural sort.
+  const inventory: Record<string, number> = {};
+  for (const [, node] of entries) {
+    const key = node.class_type ?? '(unknown)';
+    inventory[key] = (inventory[key] ?? 0) + 1;
+  }
+  const nodeTypeSummary = Object.entries(inventory)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([type, count]) => (count > 1 ? `${type} ×${count}` : type));
+
+  const fullJson = JSON.stringify(workflow, null, 2);
+
+  return (
+    <details className="mt-2 rounded border border-scruple-border bg-scruple-bg text-[10px]">
+      <summary className="cursor-pointer px-2 py-1.5 text-scruple-text hover:bg-scruple-surface">
+        <span className="text-[9px] uppercase tracking-widest text-scruple-muted">Workflow</span>
+        <span className="ml-2 font-mono">{entries.length} nodes</span>
+        <span className="ml-2 text-scruple-muted">·</span>
+        <span className="ml-2 font-mono text-scruple-muted">
+          {nodeTypeSummary.slice(0, 4).join(', ')}
+          {nodeTypeSummary.length > 4 && ` + ${nodeTypeSummary.length - 4} more`}
+        </span>
+      </summary>
+      <div className="border-t border-scruple-border p-2">
+        <p className="mb-1 text-[9px] text-scruple-muted">
+          The ComfyUI graph — node choice, wiring, and parameters — that produced this output.
+          workflow_hash above is sha256 of the canonical (sorted-key) serialization of this JSON.
+        </p>
+        <pre className="max-h-96 overflow-auto rounded bg-scruple-surface p-2 font-mono text-[9px]">
+          {fullJson}
+        </pre>
+      </div>
+    </details>
   );
 }
 
