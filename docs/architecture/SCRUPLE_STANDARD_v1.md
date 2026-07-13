@@ -270,10 +270,63 @@ collapsed to a single grade or tier.
 Compliance is binary (§5) and is not an axis. A receipt may carry
 values on all three axes independently.
 
-## 12. Change discipline for this Standard
+## 12. [Reserved for future material]
+
+## 13. [Reserved for future material]
+
+## 14. [Reserved for future material]
+
+## 15. Hardware Attestation
+
+### 15.1 Two attestation chains
+
+A receipt MAY carry two independent, hardware-rooted attestation chains. They terminate at different roots and are verified independently.
+
+| Chain | Proves | Terminates at |
+|---|---|---|
+| **Scruple substrate** | Scruple's signer runs in an attested CVM (operator-independent). | Scruple's substrate root (AMD ARK, Intel TCS, etc.) |
+| **Customer compute** | The workload ran on genuine, vendor-attested hardware in a measured confidential-compute state, bound to this specific event. | Customer platform's hardware root (NVIDIA root CA, AMD ARK, Intel TCS, AWS Nitro root, Azure Attestation Service, etc.) |
+
+Both verifying is stronger than either alone: a forger must defeat two vendors' attestation chains, not one.
+
+### 15.2 What the customer-compute chain does and does not prove
+
+**Proves:** the workload ran on genuine, measured, vendor-attested hardware (the operator could not tamper with the *compute environment*), and the attestation is bound to this event via `nonce = sha256(leaf_preimage)` (no replay).
+
+**Does NOT prove:** that the content committed in the leaf is the content that hardware actually processed.
+
+The reason is structural: the attestation and the leaf content both flow through the customer's integration code. A non-compliant or compromised integration can run workload B on genuinely attested hardware while computing the leaf over workload A, then bind the real attestation to the A-leaf. Every cryptographic check passes; the receipt is false.
+
+**This content-to-compute binding is not a hardware property at this tier.** It rests entirely on R1 (witness-boundary integrity) and the baseline — i.e., it is a software property of the integration. Imported hardware attestation raises the *compute* into hardware; it does not raise the *content binding* into hardware.
+
+### 15.3 The blind spot only local inference closes
+
+The unclosed inch is: *did the observer see the actual bytes the GPU received and produced, or the bytes the integration reported?*
+
+Remote and imported-attestation architectures cannot close it, because the observer never touches the GPU's actual inputs and outputs — it trusts the integration's hash of them. **Only local inference with a directly-observing witness closes it:** Hard Scruple's sequestered observer reads the workload's bytes off the memory bus directly, so the witnessed content is the content the hardware processed — by construction, not by the integration's assertion.
+
+The three-rung ladder, stated exactly:
+
+- **Soft (CVM witness)** — operator-tampering removed on the witness; content binding is software.
+- **Soft + imported attestation** — customer *compute* is hardware-attested; content binding is still software (§15.2).
+- **Hard Scruple (local, sequestered observer on TME)** — the observer sees the real bytes directly; content binding is physical. The only tier that closes the blind spot.
+
+Claim discipline: imported attestation *matches the strongest guarantee others ship*. It does not equal Hard Scruple, because no remote or shared-substrate architecture can prove content-to-compute binding — only direct local observation can.
+
+### 15.4 Verified vs. passthrough attestations
+
+Scruple verifies well-known attestation types at ingest (chains to the vendor root; nonce matches the leaf; within freshness window) and rejects invalid reports with a 4xx. Uncommon or newer types MAY be stored and anchored opaquely with a `verifier_reference`; downstream verification is then the receipt-consumer's responsibility.
+
+A receipt MUST visibly distinguish a **Scruple-verified** attestation from a **stored-but-unverified (passthrough)** one. A passthrough attestation MUST NOT present identically to a root-verified one. "Stored" MUST NOT read as "verified."
+
+### 15.5 Operational
+
+Attestation freshness windows (per-event fetch vs. cached-within-window) are per-tenant operational configuration with a stated maximum — set in the Integration Requirements, not fixed in this Standard. A shorter window narrows the replay surface; a longer one reduces latency and load.
+
+## 16. Change discipline for this Standard
 
 This Standard is versioned. Material changes to the capability register
-bump the minor version (v1.2, v1.3). Backwards-incompatible changes to
+bump the minor version (v1.3, v1.4). Backwards-incompatible changes to
 capability guarantees bump the major version (v2.0) and are announced
 with a defined transition window for existing integrations.
 
