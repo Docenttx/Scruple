@@ -1,0 +1,26 @@
+{
+  "name": "@scruple/attestation-verifiers",
+  "version": "0.1.0",
+  "description": "Attestation verifier plugins for Scruple. Shared between server API (ingest verification) and reference CLI (independent re-verification).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./envelope": "./dist/envelope.js",
+    "./verifier": "./dist/verifier.js",
+    "./dispatch": "./dist/dispatch.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/*.test.js",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["scruple", "attestation", "provenance", "witness"],
+  "author": "Docent Technologies LLC",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
