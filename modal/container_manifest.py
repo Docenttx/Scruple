@@ -108,14 +108,21 @@ def _hash_dir_contents(root: str) -> str:
     return h.hexdigest()
 
 
+_TOPLEVEL_SKIP = {"__pycache__", ".DS_Store", ".ipynb_checkpoints"}
+
+
 def enumerate_custom_nodes(custom_nodes_dir: str = CUSTOM_NODES_DIR) -> List[Dict[str, Any]]:
     """Walk each subdirectory under custom_nodes/ and return:
         {pack, commit_sha, contents_hash}
-    ordered by pack name (deterministic)."""
+    ordered by pack name (deterministic). Skips well-known non-pack
+    directories (__pycache__, .DS_Store, .ipynb_checkpoints) and any
+    entry starting with '.'."""
     if not os.path.isdir(custom_nodes_dir):
         return []
     packs: List[Dict[str, Any]] = []
     for name in sorted(os.listdir(custom_nodes_dir)):
+        if name in _TOPLEVEL_SKIP or name.startswith("."):
+            continue
         full = os.path.join(custom_nodes_dir, name)
         if not os.path.isdir(full):
             continue
