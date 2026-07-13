@@ -10,6 +10,11 @@ import { bearerFromHeader, lookupTenantByBearer } from '@/lib/witness/tenantAuth
 import { extractHmacHeaders, verifyHmac } from '@/lib/witness/hmacMiddleware';
 import { tryConsume } from '@/lib/witness/rateLimit';
 import { ingestLeaf, type IngestResult, type LeafInput } from '@/lib/witness/ingest';
+import {
+  enforceBaselineRef,
+  enforceAttestation,
+  computeExpectedNonce,
+} from '@/lib/baseline/ingest_check';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,13 +60,42 @@ export async function POST(
     );
   }
 
+  // Baseline enforcement — one check per request. All leaves in a batch
+  // reference the same baseline.
+  const baselineCheck = enforceBaselineRef(tenant.tenant_id, req.headers.get('x-baseline-hash'));
+  if (!baselineCheck.ok) {
+    return NextResponse.json(baselineCheck.body, { status: baselineCheck.status });
+  }
+
   const results: Array<
     | { leaf: { stream_id: string; tenant_seq: number; leaf_hash: string; chain_hash: string; pending_checkpoint_epoch: number }; duplicate?: true; gap?: true; gap_from?: number }
     | { error: string; detail?: string; tenant_seq: number; latest_seq?: number }
   > = [];
 
   for (const input of leaves) {
-    const r: IngestResult = ingestLeaf(tenant, params.stream_name, input);
+    // Per-leaf attestation enforcement — each leaf has its own preimage,
+    // so the expected nonce differs per leaf. `input` is LeafInput plus
+    // an optional `platform_attestation` field carried through the batch
+    // payload; strip it before hashing.
+    const inputWithoutEnv = { ...(input as unknown as Record<string, unknown>) };
+    const envelopeRaw = inputWithoutEnv.platform_attestation;
+    delete inputWithoutEnv.platform_attestation;
+    const expectedNonce = computeExpectedNonce(inputWithoutEnv);
+    const attCheck = enforceAttestation(
+      tenant.tenant_id,
+      baselineCheck.baseline,
+      envelopeRaw ?? null,
+      expectedNonce,
+    );
+    if (!attCheck.ok) {
+      results.push({
+        error: attCheck.body.code,
+        detail: attCheck.body.error,
+        tenant_seq: (input as LeafInput).tenant_seq,
+      });
+      continue;
+    }
+    const r: IngestResult = ingestLeaf(tenant, params.stream_name, inputWithoutEnv as never);
     if (r.ok) {
       results.push({
         leaf: {

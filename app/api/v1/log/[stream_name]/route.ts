@@ -11,6 +11,11 @@ import { bearerFromHeader, lookupTenantByBearer } from '@/lib/witness/tenantAuth
 import { extractHmacHeaders, verifyHmac } from '@/lib/witness/hmacMiddleware';
 import { tryConsume } from '@/lib/witness/rateLimit';
 import { ingestLeaf } from '@/lib/witness/ingest';
+import {
+  enforceBaselineRef,
+  enforceAttestation,
+  computeExpectedNonce,
+} from '@/lib/baseline/ingest_check';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,8 +72,30 @@ export async function POST(
     );
   }
 
+  // Baseline enforcement (WO-03). Skipped when the tenant has no baseline.
+  const baselineCheck = enforceBaselineRef(tenant.tenant_id, req.headers.get('x-baseline-hash'));
+  if (!baselineCheck.ok) {
+    return NextResponse.json(baselineCheck.body, { status: baselineCheck.status });
+  }
+
+  // Attestation enforcement (WO-03). Requires the leaf preimage minus the
+  // envelope so we can compute the expected nonce = sha256(preimage). We
+  // build a canonical view of the incoming leaf fields excluding
+  // `platform_attestation`.
+  const { platform_attestation: envelopeRaw, ...bodyWithoutEnvelope } = body as Record<string, unknown>;
+  const expectedNonce = computeExpectedNonce(bodyWithoutEnvelope);
+  const attCheck = enforceAttestation(
+    tenant.tenant_id,
+    baselineCheck.baseline,
+    envelopeRaw ?? null,
+    expectedNonce,
+  );
+  if (!attCheck.ok) {
+    return NextResponse.json(attCheck.body, { status: attCheck.status });
+  }
+
   // Ingest
-  const result = ingestLeaf(tenant, params.stream_name, body as never);
+  const result = ingestLeaf(tenant, params.stream_name, bodyWithoutEnvelope as never);
   if (!result.ok) {
     const status = result.code === 'stream_not_found'
       ? 404
