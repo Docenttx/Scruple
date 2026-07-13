@@ -14,6 +14,8 @@
 import { createPublicKey, verify as nodeVerify } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { leafHashV23 } from './core/canonicalLeafV23.mjs';
+import { leafHashV24 } from './core/canonicalLeafV24.mjs';
+import { hashWorkflow } from './core/canonicalWorkflow.mjs';
 import { canonicalCheckpointV1 } from './core/canonicalCheckpointV1.mjs';
 import { rootFromInclusion } from './core/merkle.mjs';
 
@@ -143,21 +145,54 @@ async function verifyLeaf() {
     }
     record('proof bundle has all required sections', true);
 
-    // 1. Recompute leaf_hash from canonical leaf fields.
-    const recomputedLeafHash = leafHashV23({
-      tenant_id: proof.leaf.tenant_id,
-      principal_id: proof.leaf.principal_id ?? '',
-      stream_id: proof.leaf.stream_id,
-      tenant_seq: proof.leaf.tenant_seq,
-      event_time: proof.leaf.event_time,
-      payload_hash: proof.leaf.payload_hash,
-      dims: proof.leaf.dims ?? {},
-    });
+    // 1. Recompute leaf_hash from canonical leaf fields. Dispatch on
+    // leaf_scheme; default to v2.3 for legacy proofs that predate WO-A1.
+    const scheme = proof.leaf.leaf_scheme ?? 'v2.3';
+    let recomputedLeafHash;
+    if (scheme === 'v2.4') {
+      recomputedLeafHash = leafHashV24({
+        tenant_id: proof.leaf.tenant_id,
+        principal_id: proof.leaf.principal_id ?? '',
+        stream_id: proof.leaf.stream_id,
+        tenant_seq: proof.leaf.tenant_seq,
+        event_time: proof.leaf.event_time,
+        payload_hash: proof.leaf.payload_hash,
+        workflow_hash: proof.leaf.workflow_hash ?? '',
+        machine_manifest_hash: proof.leaf.machine_manifest_hash ?? '',
+        dims: proof.leaf.dims ?? {},
+      });
+    } else if (scheme === 'v2.3') {
+      recomputedLeafHash = leafHashV23({
+        tenant_id: proof.leaf.tenant_id,
+        principal_id: proof.leaf.principal_id ?? '',
+        stream_id: proof.leaf.stream_id,
+        tenant_seq: proof.leaf.tenant_seq,
+        event_time: proof.leaf.event_time,
+        payload_hash: proof.leaf.payload_hash,
+        dims: proof.leaf.dims ?? {},
+      });
+    } else {
+      record(`leaf_scheme "${scheme}" recognized`, false, '  supported: v2.3, v2.4');
+      throw new Error(`unsupported leaf_scheme ${scheme}`);
+    }
     const claimedLeafHash = String(proof.leaf.leaf_hash).replace(/^sha256:/, '');
     const leafOk = recomputedLeafHash === claimedLeafHash;
-    record('leaf_hash re-derives from canonical fields', leafOk,
+    record(`leaf_hash re-derives from canonical fields (${scheme})`, leafOk,
       leafOk ? undefined : `  expected ${claimedLeafHash}, got ${recomputedLeafHash}`);
     if (!leafOk) overall = false;
+
+    // 1a. If the proof attaches raw workflow_api_json (optional under
+    // publication='full'), re-derive workflow_hash from canonical form
+    // and compare to the leaf's first-class field. This is the audit
+    // step that proves the surface JSON on the receipt page matches
+    // the hash committed into the leaf.
+    if (scheme === 'v2.4' && proof.leaf.workflow_hash && proof.workflow_api_json) {
+      const recomputedWfHash = hashWorkflow(proof.workflow_api_json);
+      const wfOk = recomputedWfHash === proof.leaf.workflow_hash;
+      record('workflow_hash re-derives from raw workflow_api_json', wfOk,
+        wfOk ? undefined : `  expected ${proof.leaf.workflow_hash}, got ${recomputedWfHash}`);
+      if (!wfOk) overall = false;
+    }
 
     // 2. Walk the inclusion proof up to a Merkle root.
     const reconstructedRoot = rootFromInclusion(recomputedLeafHash, proof.inclusion);

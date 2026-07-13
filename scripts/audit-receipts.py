@@ -29,6 +29,13 @@ def sha256_hex(b: bytes) -> str:
 def canonical(obj) -> str:
     return json.dumps(obj, separators=(',', ':'), ensure_ascii=False)
 
+# Canonical form for content whose hash MUST be reproducible without
+# knowing the original serializer's key insertion order. Used for
+# workflow_hash (v2.4 canonical workflow hashing — WO-A2) and for the
+# machine manifest hash. Sorted-key + no whitespace + UTF-8 pass-through.
+def canonical_sorted(obj) -> str:
+    return json.dumps(obj, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
 # Replicate /data/scruple-web/lib/scruple/merkle.ts
 def build_merkle(leaves):
     if not leaves: return None
@@ -210,13 +217,18 @@ for mode, pid, expected_status in MODE_PROJECTS:
                 check(mode, f'#{seq} witness.leaf_hash == iter.leaf_hash',
                       wrow['leaf_hash'] == it['leaf_hash'])
 
-        # 2) workflow_hash recompute (v2 only)
-        if scheme == 'v2' and it['workflow_hash']:
+        # 2) workflow_hash recompute (v2+). Uses canonical (sort_keys) JSON
+        # per WO-A2 — matches lib/scruple/canonicalWorkflow.ts. For rows
+        # captured before that fix (older v2 iterations), the stored hash
+        # may have been computed with insertion-order JSON.stringify;
+        # accept either form so the audit doesn't false-fail on legacy rows.
+        if scheme in ('v2', 'v2.2') and it['workflow_hash']:
             meta = json.loads(it['metadata'])
             wf = meta['generationSpec']['providerExtras']['workflowApiJson']
-            recomputed = sha256_hex(canonical(wf).encode())
+            recomputed_sorted = sha256_hex(canonical_sorted(wf).encode())
+            recomputed_legacy = sha256_hex(canonical(wf).encode())
             check(mode, f'#{seq} workflow_hash reproducible from metadata',
-                  recomputed == it['workflow_hash'])
+                  it['workflow_hash'] in (recomputed_sorted, recomputed_legacy))
 
         # 3) input_hash recompute
         meta = json.loads(it['metadata'])
