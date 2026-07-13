@@ -127,7 +127,15 @@ def test_no_drift_when_local_matches_server(tmp_path: Path):
     m = load_manifest(manifest)
     local_hash, _ = compute_baseline_hash(m, signer_pubkey_spki_sha256_hex="c" * 64)
     session = MockSession(current_baseline_hash=local_hash)
-    client = _make_client(tmp_path, "raise", session)
+    # Reuse fixture — don't re-create dirs; construct client directly
+    client = WitnessClient(
+        api_base="https://witness.test.local",
+        tenant="TEN_test",
+        api_key="sk_test_x",
+        baseline_manifest_path=manifest,
+        signer_pubkey_spki_sha256_hex="c" * 64,
+        on_baseline_drift="raise",
+    )
     with mock.patch("scruple.client.requests.get", side_effect=session.get), \
          mock.patch("scruple.client.requests.post", side_effect=session.post):
         drifted = client.check_baseline_drift()
