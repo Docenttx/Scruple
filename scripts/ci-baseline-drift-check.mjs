@@ -29,8 +29,11 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { globSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+
+const require = createRequire(import.meta.url);
+const { globSync } = require('glob');
 
 const MANIFEST_PATH = 'scruple-baseline.yaml';
 const DECISION_RE = /\[baseline-decision:\s*(rebaseline|expand-manifest|false-positive)\]/i;
