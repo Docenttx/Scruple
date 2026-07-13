@@ -1,0 +1,17 @@
+integration_id: scruple-web
+version: 0.1.0-witnessing-l2
+declared_at: '2026-07-13T05:00:00Z'
+code:
+  - lib/baseline/**/*.ts
+  - lib/witness/**/*.ts
+  - services/witness/**/*.py
+  - services/c2pa-signer/**/*.py
+  - packages/scruple-attestation-verifiers/src/**/*.ts
+  - app/api/v1/tenants/**/*.ts
+  - app/api/v1/log/**/*.ts
+  - app/api/v1/registry/**/*.ts
+dependencies:
+  - package.json
+  - package-lock.json
+attestation:
+  provider: amd-sev-snp
