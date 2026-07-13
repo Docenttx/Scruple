@@ -19,7 +19,10 @@
 //   9. Compute pending_checkpoint_epoch.
 
 import { canonicalLeafV23, leafHashV23, chainHashV23, CHAIN_HASH_ZERO } from './canonicalLeafV23';
+import { leafHashV24 } from './canonicalLeafV24';
 import { conn } from '@/lib/db/sqlite';
+
+const HEX64 = /^[0-9a-f]{64}$/;
 
 const PII_DENYLIST_KEY = /^(name|email|phone|ssn|dob|password|address|first_name|last_name)$/i;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -34,6 +37,11 @@ export interface LeafInput {
   payload_bytes?: string | null;
   dims?: Record<string, string>;
   meta?: Record<string, unknown>;
+  /** v2.4 — SHA-256 of the canonical workflow_api_json. Bare 64-hex string
+   *  (no `sha256:` prefix). Presence promotes the leaf to leaf_scheme='v2.4'. */
+  workflow_hash?: string;
+  /** v2.4 — SHA-256 of the canonical machine manifest. Bare 64-hex string. */
+  machine_manifest_hash?: string;
 }
 
 export interface StreamRow {
@@ -53,6 +61,7 @@ export interface IngestSuccess {
   leaf_hash: string;
   chain_hash: string;
   pending_checkpoint_epoch: number;
+  leaf_scheme: 'v2.3' | 'v2.4';
   duplicate?: true;
   gap?: true;
   gap_from?: number;
@@ -68,6 +77,8 @@ export interface IngestError {
     | 'invalid_body'
     | 'invalid_payload_hash'
     | 'invalid_dims_value'
+    | 'invalid_workflow_hash'
+    | 'invalid_machine_manifest_hash'
     | 'pii_key_in_meta'
     | 'payload_bytes_not_allowed'
     | 'seq_replay';
@@ -102,12 +113,12 @@ function hasActiveDelegation(principalId: string, tenantId: string): boolean {
 function findDuplicate(streamId: string, idempotencyKey: string): IngestSuccess | null {
   const row = conn()
     .prepare(
-      `SELECT tenant_seq, leaf_hash, chain_hash
+      `SELECT tenant_seq, leaf_hash, chain_hash, leaf_scheme
          FROM log_leaves
         WHERE stream_id = ? AND idempotency_key = ?`,
     )
     .get(streamId, idempotencyKey) as
-    | { tenant_seq: number; leaf_hash: string; chain_hash: string }
+    | { tenant_seq: number; leaf_hash: string; chain_hash: string; leaf_scheme: 'v2.3' | 'v2.4' }
     | undefined;
   if (!row) return null;
   return {
@@ -117,6 +128,7 @@ function findDuplicate(streamId: string, idempotencyKey: string): IngestSuccess 
     leaf_hash: row.leaf_hash,
     chain_hash: row.chain_hash,
     pending_checkpoint_epoch: 0, // filler; caller may recompute
+    leaf_scheme: row.leaf_scheme ?? 'v2.3',
     duplicate: true,
   };
 }
@@ -186,6 +198,14 @@ export function ingestLeaf(
       }
     }
   }
+  // v2.4 first-class fields. Bare 64-hex; leaf preimage folds them in
+  // verbatim without the sha256: prefix. Empty string means absent.
+  if (input.workflow_hash !== undefined && input.workflow_hash !== '' && !HEX64.test(input.workflow_hash)) {
+    return { ok: false, code: 'invalid_workflow_hash', detail: 'workflow_hash must be 64 lowercase hex chars (no sha256: prefix)' };
+  }
+  if (input.machine_manifest_hash !== undefined && input.machine_manifest_hash !== '' && !HEX64.test(input.machine_manifest_hash)) {
+    return { ok: false, code: 'invalid_machine_manifest_hash', detail: 'machine_manifest_hash must be 64 lowercase hex chars' };
+  }
   if (input.meta) {
     for (const k of Object.keys(input.meta)) {
       if (PII_DENYLIST_KEY.test(k)) {
@@ -233,16 +253,35 @@ export function ingestLeaf(
   const isGap = input.tenant_seq > latest.seq + 1;
 
   // Hash the leaf. `principal_id` empty string when absent, per canonical
-  // module.
-  const leafHash = leafHashV23({
-    tenant_id: tenant.tenant_id,
-    principal_id: principalId,
-    stream_id: stream.stream_id,
-    tenant_seq: input.tenant_seq,
-    event_time: input.event_time,
-    payload_hash: input.payload_hash,
-    dims: input.dims,
-  });
+  // module. When workflow_hash OR machine_manifest_hash is present, use
+  // v2.4 which folds them into the preimage as first-class fields. Otherwise
+  // fall back to v2.3 for backward compatibility with existing tenants.
+  const workflowHash = input.workflow_hash ?? '';
+  const manifestHash = input.machine_manifest_hash ?? '';
+  const leafScheme: 'v2.3' | 'v2.4' = (workflowHash || manifestHash) ? 'v2.4' : 'v2.3';
+  const leafHash = leafScheme === 'v2.4'
+    ? leafHashV24({
+        tenant_id: tenant.tenant_id,
+        principal_id: principalId,
+        stream_id: stream.stream_id,
+        tenant_seq: input.tenant_seq,
+        event_time: input.event_time,
+        payload_hash: input.payload_hash,
+        workflow_hash: workflowHash,
+        machine_manifest_hash: manifestHash,
+        dims: input.dims,
+      })
+    : leafHashV23({
+        tenant_id: tenant.tenant_id,
+        principal_id: principalId,
+        stream_id: stream.stream_id,
+        tenant_seq: input.tenant_seq,
+        event_time: input.event_time,
+        payload_hash: input.payload_hash,
+        dims: input.dims,
+      });
+  // chainHashV23 and V24 are byte-identical (chain hash is not version-scoped);
+  // we call the v2.3 export as the canonical name.
   const chainHash = chainHashV23(latest.chain, leafHash);
 
   // Fold gap flag into meta before persisting.
@@ -256,8 +295,9 @@ export function ingestLeaf(
     .prepare(
       `INSERT INTO log_leaves
          (stream_id, principal_id, tenant_seq, leaf_hash, prev_chain_hash,
-          chain_hash, event_time, idempotency_key, payload_hash, dims_json, meta_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          chain_hash, event_time, idempotency_key, payload_hash, dims_json, meta_json,
+          workflow_hash, machine_manifest_hash, leaf_scheme)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       stream.stream_id,
@@ -271,6 +311,9 @@ export function ingestLeaf(
       input.payload_hash,
       input.dims ? JSON.stringify(input.dims) : null,
       Object.keys(metaOut).length ? JSON.stringify(metaOut) : null,
+      workflowHash || null,
+      manifestHash || null,
+      leafScheme,
     );
 
   const result: IngestSuccess = {
@@ -280,6 +323,7 @@ export function ingestLeaf(
     leaf_hash: leafHash,
     chain_hash: chainHash,
     pending_checkpoint_epoch: pendingCheckpointEpoch(stream),
+    leaf_scheme: leafScheme,
   };
   if (isGap) {
     result.gap = true;

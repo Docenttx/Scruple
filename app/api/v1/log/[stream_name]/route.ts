@@ -113,6 +113,7 @@ export async function POST(
       tenant_seq: result.tenant_seq,
       leaf_hash: `sha256:${result.leaf_hash}`,
       chain_hash: `sha256:${result.chain_hash}`,
+      leaf_scheme: result.leaf_scheme,
       pending_checkpoint_epoch: result.pending_checkpoint_epoch,
     },
     ...(result.duplicate ? { duplicate: true } : {}),

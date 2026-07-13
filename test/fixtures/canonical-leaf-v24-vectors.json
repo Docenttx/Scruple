@@ -1,0 +1,183 @@
+{
+  "_notes": [
+    "Vectors for canonicalLeafV24 (TS) and canonical_leaf_v24 (Python). Both",
+    "MUST produce identical leaf_hash values for each vector.",
+    "",
+    "v2.4 adds workflow_hash and machine_manifest_hash as first-class leaf",
+    "fields (both defaulting to '' when absent) so the primary artistic-",
+    "authorship claim is bound into the signed preimage."
+  ],
+  "vectors": [
+    {
+      "name": "01-minimum-required-fields",
+      "input": {
+        "tenant_id": "TEN_scruple",
+        "stream_id": "STR_c2pasign",
+        "tenant_seq": 1,
+        "event_time": "2026-07-13T00:00:00.000Z",
+        "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_scruple\",\"principal_id\":\"\",\"stream_id\":\"STR_c2pasign\",\"tenant_seq\":1,\"event_time\":\"2026-07-13T00:00:00.000Z\",\"payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"workflow_hash\":\"\",\"machine_manifest_hash\":\"\",\"dims\":{}}",
+      "expected_leaf_hash": "dfcfd4be74c6c276981bef8f16557e4f00b57815b83f13552203d917964c0c65"
+    },
+    {
+      "name": "02-with-workflow-hash",
+      "input": {
+        "tenant_id": "TEN_scruple",
+        "principal_id": "PRN_9F8E7D6C",
+        "stream_id": "STR_workflow",
+        "tenant_seq": 42,
+        "event_time": "2026-07-13T14:03:22.114Z",
+        "payload_hash": "sha256:ab12cd34ef56ab78cd90ef12ab34cd56ef78ab90cd12ef34ab56cd78ef90ab12",
+        "workflow_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_scruple\",\"principal_id\":\"PRN_9F8E7D6C\",\"stream_id\":\"STR_workflow\",\"tenant_seq\":42,\"event_time\":\"2026-07-13T14:03:22.114Z\",\"payload_hash\":\"sha256:ab12cd34ef56ab78cd90ef12ab34cd56ef78ab90cd12ef34ab56cd78ef90ab12\",\"workflow_hash\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"machine_manifest_hash\":\"\",\"dims\":{}}",
+      "expected_leaf_hash": "3c8b4abf50dd903bfa58255d7a296349ad1e21979271f13a3ae838374402bf7d"
+    },
+    {
+      "name": "03-with-machine-manifest-hash",
+      "input": {
+        "tenant_id": "TEN_scruple",
+        "principal_id": "PRN_9F8E7D6C",
+        "stream_id": "STR_workflow",
+        "tenant_seq": 43,
+        "event_time": "2026-07-13T14:03:23.114Z",
+        "payload_hash": "sha256:ab12cd34ef56ab78cd90ef12ab34cd56ef78ab90cd12ef34ab56cd78ef90ab12",
+        "machine_manifest_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_scruple\",\"principal_id\":\"PRN_9F8E7D6C\",\"stream_id\":\"STR_workflow\",\"tenant_seq\":43,\"event_time\":\"2026-07-13T14:03:23.114Z\",\"payload_hash\":\"sha256:ab12cd34ef56ab78cd90ef12ab34cd56ef78ab90cd12ef34ab56cd78ef90ab12\",\"workflow_hash\":\"\",\"machine_manifest_hash\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"dims\":{}}",
+      "expected_leaf_hash": "8d1acf4b507d5a0dc4e47431ae4a6f2da7838b1f93f8a47e9861a5910eb42b4e"
+    },
+    {
+      "name": "04-with-both-workflow-and-manifest",
+      "input": {
+        "tenant_id": "TEN_customer_x",
+        "principal_id": "PRN_00000001",
+        "stream_id": "STR_txt2img",
+        "tenant_seq": 918273,
+        "event_time": "2026-07-13T14:03:22.114Z",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workflow_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "machine_manifest_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_customer_x\",\"principal_id\":\"PRN_00000001\",\"stream_id\":\"STR_txt2img\",\"tenant_seq\":918273,\"event_time\":\"2026-07-13T14:03:22.114Z\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_hash\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"machine_manifest_hash\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"dims\":{}}",
+      "expected_leaf_hash": "308dcddfac47f6d56659d45f84c3724a2fa72b8a92210744e54e57638d3bec52"
+    },
+    {
+      "name": "05-with-dims-in-natural-order",
+      "input": {
+        "tenant_id": "TEN_customer_x",
+        "principal_id": "PRN_00000001",
+        "stream_id": "STR_txt2img",
+        "tenant_seq": 918274,
+        "event_time": "2026-07-13T14:03:22.114Z",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workflow_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "machine_manifest_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "dims": {
+          "input_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "output_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_customer_x\",\"principal_id\":\"PRN_00000001\",\"stream_id\":\"STR_txt2img\",\"tenant_seq\":918274,\"event_time\":\"2026-07-13T14:03:22.114Z\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_hash\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"machine_manifest_hash\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"dims\":{\"input_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"output_hash\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}}",
+      "expected_leaf_hash": "b9ad8d1c1c763a5eec309874c6d30ebffd1d06ffb243e8b7a32ff3220069977e"
+    },
+    {
+      "name": "06-with-dims-out-of-order-must-sort",
+      "input": {
+        "tenant_id": "TEN_customer_x",
+        "principal_id": "PRN_00000001",
+        "stream_id": "STR_txt2img",
+        "tenant_seq": 918274,
+        "event_time": "2026-07-13T14:03:22.114Z",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workflow_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "machine_manifest_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "dims": {
+          "output_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "input_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "_note": "Same hash as 05 despite key insertion order.",
+      "expected_preimage": "{\"tenant_id\":\"TEN_customer_x\",\"principal_id\":\"PRN_00000001\",\"stream_id\":\"STR_txt2img\",\"tenant_seq\":918274,\"event_time\":\"2026-07-13T14:03:22.114Z\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_hash\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"machine_manifest_hash\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"dims\":{\"input_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"output_hash\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}}",
+      "expected_leaf_hash": "b9ad8d1c1c763a5eec309874c6d30ebffd1d06ffb243e8b7a32ff3220069977e"
+    },
+    {
+      "name": "07-workflow-and-manifest-empty-strings-explicit",
+      "input": {
+        "tenant_id": "TEN_customer_x",
+        "principal_id": "PRN_00000001",
+        "stream_id": "STR_txt2img",
+        "tenant_seq": 100,
+        "event_time": "2026-07-13T00:00:00.000Z",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workflow_hash": "",
+        "machine_manifest_hash": ""
+      },
+      "_note": "Explicit '' MUST hash identically to omitted fields (vector 01-style).",
+      "expected_preimage": "{\"tenant_id\":\"TEN_customer_x\",\"principal_id\":\"PRN_00000001\",\"stream_id\":\"STR_txt2img\",\"tenant_seq\":100,\"event_time\":\"2026-07-13T00:00:00.000Z\",\"payload_hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workflow_hash\":\"\",\"machine_manifest_hash\":\"\",\"dims\":{}}",
+      "expected_leaf_hash": "ab067fe794d5473fc03c0a82c1846aa53d0ad20088ea82fc19358ace0c8293f4"
+    },
+    {
+      "name": "08-unicode-in-dims",
+      "input": {
+        "tenant_id": "TEN_intl",
+        "principal_id": "PRN_00000003",
+        "stream_id": "STR_intl",
+        "tenant_seq": 7,
+        "event_time": "2026-07-13T12:00:00.000Z",
+        "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "workflow_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "dims": {
+          "note": "hello 日本語 🌍"
+        }
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_intl\",\"principal_id\":\"PRN_00000003\",\"stream_id\":\"STR_intl\",\"tenant_seq\":7,\"event_time\":\"2026-07-13T12:00:00.000Z\",\"payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000007\",\"workflow_hash\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"machine_manifest_hash\":\"\",\"dims\":{\"note\":\"hello 日本語 🌍\"}}",
+      "expected_leaf_hash": "abeb5288e0de6fbcfba3a00eaa2a192cd69d91ab8747a33181a2fc5d37a8745b"
+    },
+    {
+      "name": "09-large-tenant-seq-with-both-hashes",
+      "input": {
+        "tenant_id": "TEN_high_volume",
+        "principal_id": "PRN_00000002",
+        "stream_id": "STR_events",
+        "tenant_seq": 9007199254740992,
+        "event_time": "2027-01-01T00:00:00.000Z",
+        "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "workflow_hash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "machine_manifest_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "expected_preimage": "{\"tenant_id\":\"TEN_high_volume\",\"principal_id\":\"PRN_00000002\",\"stream_id\":\"STR_events\",\"tenant_seq\":9007199254740992,\"event_time\":\"2027-01-01T00:00:00.000Z\",\"payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000001\",\"workflow_hash\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"machine_manifest_hash\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"dims\":{}}",
+      "expected_leaf_hash": "a026f6c01db9310e3aca2a1a232407e28b3a5277cf45b0df249807eeffc94afd"
+    },
+    {
+      "name": "10-pathological-all-empty",
+      "input": {
+        "tenant_id": "",
+        "principal_id": "",
+        "stream_id": "",
+        "tenant_seq": 0,
+        "event_time": "",
+        "payload_hash": "",
+        "workflow_hash": "",
+        "machine_manifest_hash": ""
+      },
+      "expected_preimage": "{\"tenant_id\":\"\",\"principal_id\":\"\",\"stream_id\":\"\",\"tenant_seq\":0,\"event_time\":\"\",\"payload_hash\":\"\",\"workflow_hash\":\"\",\"machine_manifest_hash\":\"\",\"dims\":{}}",
+      "expected_leaf_hash": "2ae094be2a5ff14beb21ea8fbcfd1d83acfeb22ae6611432d83dd9ff56563b1d"
+    }
+  ],
+  "chain_hash_vectors": [
+    {
+      "name": "cv-01-first-leaf-in-stream",
+      "prev_chain_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "leaf_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected_chain_hash": "9ef814b42fa0be12d197c44d3e8e03441a4b1118237658368ba1351090e556ed"
+    },
+    {
+      "name": "cv-02-subsequent-leaf",
+      "prev_chain_hash": "abababababababababababababababababababababababababababababababab",
+      "leaf_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "expected_chain_hash": "a6a96ccb5233f068bf41343ffd5984bf8d4d7e591f1e4bdb12bda296534409b8"
+    }
+  ]
+}

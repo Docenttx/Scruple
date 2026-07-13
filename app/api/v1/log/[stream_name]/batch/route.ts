@@ -68,7 +68,7 @@ export async function POST(
   }
 
   const results: Array<
-    | { leaf: { stream_id: string; tenant_seq: number; leaf_hash: string; chain_hash: string; pending_checkpoint_epoch: number }; duplicate?: true; gap?: true; gap_from?: number }
+    | { leaf: { stream_id: string; tenant_seq: number; leaf_hash: string; chain_hash: string; leaf_scheme: 'v2.3' | 'v2.4'; pending_checkpoint_epoch: number }; duplicate?: true; gap?: true; gap_from?: number }
     | { error: string; detail?: string; tenant_seq: number; latest_seq?: number }
   > = [];
 
@@ -103,6 +103,7 @@ export async function POST(
           tenant_seq: r.tenant_seq,
           leaf_hash: `sha256:${r.leaf_hash}`,
           chain_hash: `sha256:${r.chain_hash}`,
+          leaf_scheme: r.leaf_scheme,
           pending_checkpoint_epoch: r.pending_checkpoint_epoch,
         },
         ...(r.duplicate ? { duplicate: true as const } : {}),
