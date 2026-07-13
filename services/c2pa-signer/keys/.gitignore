@@ -1,3 +1,6 @@
+# NEVER track private keys in this directory. Even the dev-mode fallback
+# key (es256.pem) must stay local — production signing lives in OCI Vault.
 signer.key
 signer.pem
 signer-root.pem
+es256.pem
