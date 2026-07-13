@@ -101,6 +101,10 @@ export interface IngestParams {
    *  present, preferred over the DB-lookup default because it pins what
    *  the runner ACTUALLY had, not what the descriptor claimed. */
   containerMachineManifestHash?: string | null;
+  /** WO-B1 — the RAW manifest object the runner enumerated. Persisted
+   *  on iterations.container_machine_manifest for trust-label rendering
+   *  (WO-B2) and human inspection. NOT part of any signed preimage. */
+  containerMachineManifest?: Record<string, unknown> | null;
 }
 
 export interface IngestResult {
@@ -308,8 +312,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            workflow_hash, leaf_scheme,
            model_fingerprints, model_fingerprints_hash,
            witnessed, witness_id, witness_timestamp, witness_signature,
-           compute_machine_id, machine_manifest_hash, workflow_publication
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           compute_machine_id, machine_manifest_hash, workflow_publication,
+           container_machine_manifest
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -343,6 +348,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         p.computeMachineId ?? null,
         machineManifestHash,
         getDefaultPublicationMode(p.userId),
+        p.containerMachineManifest ? JSON.stringify(p.containerMachineManifest) : null,
       );
 
     conn()

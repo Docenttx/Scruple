@@ -123,6 +123,7 @@ export const modalRunner: ComputeBackend = {
         outputKind: data.output_kind ?? 'image',
         outputFilename: data.output_filename,
         containerMachineManifestHash: data.container_machine_manifest_hash ?? null,
+        containerMachineManifest: data.container_machine_manifest ?? null,
       };
     } finally {
       clearTimeout(t);

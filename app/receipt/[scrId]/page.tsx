@@ -14,6 +14,8 @@ import {
 } from '@/lib/types';
 import type { InputArtifactRecord } from '@/lib/iterations/ingest';
 import { readL2Attestation, type L2Attestation } from '@/lib/l2/attestation';
+import { fetchTrustList } from '@/lib/trust/comfyorg';
+import { labelManifest, type LabeledCustomNode } from '@/lib/trust/label';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +28,7 @@ const LOCKED_STATUSES = new Set([
   'permanent_locked',
 ]);
 
-export default function ReceiptPage({ params }: { params: { scrId: string } }) {
+export default async function ReceiptPage({ params }: { params: { scrId: string } }) {
   const { scrId } = params;
   // Local lock derives a 6-hex suffix from the Merkle root; chain lock
   // (witness server handleLock + handleConfirmAndExecute) derives an
@@ -60,6 +62,23 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
   const witnessedCount = iterations.filter((i) => i.witnessed === 1).length;
 
   const l2 = readL2Attestation(scrId, project.pre_scr_id);
+
+  // WO-B2 — fetch ComfyOrg trust list ONCE per receipt render, then
+  // label each iteration's stored container_machine_manifest. The
+  // fetcher is cached in-process (1h TTL) and returns [] on network
+  // failure so trust labeling is best-effort and never blocks the page.
+  const trustList = await fetchTrustList();
+  const trustByIter = new Map<number, LabeledCustomNode[]>();
+  for (const it of iterations) {
+    const raw = (it as { container_machine_manifest?: string | null }).container_machine_manifest;
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as { custom_nodes?: unknown };
+      if (Array.isArray(parsed.custom_nodes)) {
+        trustByIter.set(it.id, labelManifest(parsed.custom_nodes as never, trustList));
+      }
+    } catch { /* skip malformed rows */ }
+  }
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
@@ -143,7 +162,7 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
         </p>
         <div className="mt-3 space-y-3">
           {iterations.map((it) => (
-            <IterationCard key={it.id} it={it} />
+            <IterationCard key={it.id} it={it} labeledNodes={trustByIter.get(it.id) ?? null} />
           ))}
         </div>
       </section>
@@ -304,7 +323,13 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
   );
 }
 
-function IterationCard({ it }: { it: IterationRow }) {
+function IterationCard({
+  it,
+  labeledNodes,
+}: {
+  it: IterationRow;
+  labeledNodes: LabeledCustomNode[] | null;
+}) {
   // Parse the input-artifact manifest (training images, init image, etc.)
   // so we can render kind / filename / hash per input. The bytes themselves
   // live at /api/artifact/[hash], content-addressed by the input bytes.
@@ -379,6 +404,13 @@ function IterationCard({ it }: { it: IterationRow }) {
           which is stored raw at ingest time. Never redacted here — the
           publication check above governs whether we render it at all. */}
       {showWorkflowHash && <WorkflowBlock raw={it.metadata} />}
+
+      {/* custom-node trust badges (WO-B2). Best-effort; skips render when
+          the runner didn't produce a container_machine_manifest yet OR
+          when the ComfyOrg trust-list fetch failed. */}
+      {labeledNodes && labeledNodes.length > 0 && (
+        <TrustBadgesBlock labeled={labeledNodes} />
+      )}
 
       {/* input artifacts */}
       {inputs.length > 0 && (
@@ -539,6 +571,93 @@ function WorkflowBlock({ raw }: { raw: string | null }) {
         <pre className="max-h-96 overflow-auto rounded bg-scruple-surface p-2 font-mono text-[9px]">
           {fullJson}
         </pre>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Renders ComfyOrg trust-set badges for the container_machine_manifest.
+ * Purely a viewer-side label — the trust list is fetched at page render
+ * time, NOT folded into the signed leaf. See lib/trust/comfyorg.ts.
+ *
+ * The color scheme: trusted (green), listed (yellow), unknown (muted).
+ * The design intent is that "unknown" is not a rejection — it just means
+ * the pack isn't on ComfyOrg's list right now.
+ */
+function TrustBadgesBlock({ labeled }: { labeled: LabeledCustomNode[] }) {
+  const trusted = labeled.filter((n) => n.trust === 'trusted').length;
+  const listed = labeled.filter((n) => n.trust === 'listed').length;
+  const unknown = labeled.filter((n) => n.trust === 'unknown').length;
+  return (
+    <details className="mt-2 rounded border border-scruple-border bg-scruple-bg text-[10px]">
+      <summary className="cursor-pointer px-2 py-1.5 text-scruple-text hover:bg-scruple-surface">
+        <span className="text-[9px] uppercase tracking-widest text-scruple-muted">
+          Node trust
+        </span>
+        <span className="ml-2 font-mono text-scruple-muted">
+          {trusted > 0 && <span className="text-emerald-400">{trusted} trusted</span>}
+          {trusted > 0 && (listed > 0 || unknown > 0) && ' · '}
+          {listed > 0 && <span className="text-amber-400">{listed} listed</span>}
+          {listed > 0 && unknown > 0 && ' · '}
+          {unknown > 0 && <span className="text-scruple-muted">{unknown} unknown</span>}
+        </span>
+      </summary>
+      <div className="border-t border-scruple-border p-2">
+        <p className="mb-1 text-[9px] text-scruple-muted">
+          Custom-node packs cross-checked against the ComfyOrg trust list at
+          the time this receipt was rendered.
+          <strong className="text-scruple-muted">
+            {' '}
+            The trust label is a viewer-side annotation only — it is NOT part
+            of the signed leaf preimage
+          </strong>{' '}
+          (which would fossilize a moving list). Trust status can change over
+          time as ComfyOrg adds or removes packs.
+        </p>
+        <ul className="mt-1 space-y-0.5">
+          {labeled.map((n, i) => (
+            <li
+              key={`${n.pack}-${i}`}
+              className="flex items-baseline gap-2 rounded border border-scruple-border bg-scruple-surface px-2 py-1"
+            >
+              <span
+                className={`rounded px-1.5 py-0.5 font-mono text-[9px] uppercase ${
+                  n.trust === 'trusted'
+                    ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                    : n.trust === 'listed'
+                      ? 'border border-amber-500/40 bg-amber-500/10 text-amber-300'
+                      : 'border border-scruple-border bg-scruple-bg text-scruple-muted'
+                }`}
+                title={
+                  n.trust === 'trusted'
+                    ? 'Pack appears on ComfyOrg trust list; commit matches list-latest (or list has no commit pin)'
+                    : n.trust === 'listed'
+                      ? 'Pack is on the list but the container ran a different commit than the list-latest'
+                      : 'Pack is not on the ComfyOrg trust list. Not necessarily bad — just not blessed.'
+                }
+              >
+                {n.trust}
+              </span>
+              <span className="font-mono text-scruple-text">{n.pack}</span>
+              {n.commit_sha && (
+                <span className="ml-2 font-mono text-[9px] text-scruple-muted" title={n.commit_sha}>
+                  @ {n.commit_sha.slice(0, 8)}
+                </span>
+              )}
+              {n.trust_repository && (
+                <span className="ml-2 text-[9px] text-scruple-muted">
+                  {n.trust_repository.replace(/^https?:\/\/(?:www\.)?github\.com\//, '')}
+                </span>
+              )}
+              {n.trust_tags && n.trust_tags.length > 0 && (
+                <span className="ml-2 text-[9px] text-emerald-300">
+                  {n.trust_tags.join(' · ')}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
       </div>
     </details>
   );

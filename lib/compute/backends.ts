@@ -65,6 +65,10 @@ export interface ComputeResult {
    *  leaf's machine_manifest_hash pins what the runner actually had, not
    *  the descriptor's declared refs. Null when the backend can't resolve it. */
   containerMachineManifestHash?: string | null;
+  /** WO-B1 — the raw manifest object the runner enumerated. Persisted on
+   *  iterations for trust-label rendering (WO-B2) and human inspection.
+   *  NOT part of any signed preimage — the hash above is what's signed. */
+  containerMachineManifest?: Record<string, unknown> | null;
   /** Populated when ok=false. */
   rawError?: string;
 }
