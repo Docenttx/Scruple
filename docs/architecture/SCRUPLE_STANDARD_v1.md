@@ -1,376 +1,327 @@
-# The Scruple Standard, v1.0
+# The Scruple Standard, v1.1
 
-**Status:** Normative. This document defines what an integration MUST meet to
-qualify as Scruple-witnessed.
-**Version:** 1.0
+**Status:** Capability register. Public-facing.
+**Version:** 1.1
 **Date:** 2026-07-13
 **Owner:** Docent Technologies LLC (dba Scruple)
-**Audience:** Any organization integrating the Scruple witnessing API into
-their platform, product, or workflow.
+**Audience:** Anyone who needs to understand what a Scruple-witnessed record
+means and what it guarantees — customers evaluating adoption, auditors and
+regulators reading receipts, integration teams' leadership.
+**Companion:** [`SCRUPLE_INTEGRATION_REQUIREMENTS_v1.md`](./SCRUPLE_INTEGRATION_REQUIREMENTS_v1.md)
+— the technical implementation specification for integrators.
 **Related:** [`CANONICAL_SCRUPLE_WITNESSING_L2.md`](./CANONICAL_SCRUPLE_WITNESSING_L2.md)
 (internal architecture), [`Independent_AI_Witnessing_Rider_TEMPLATE.md`](./Independent_AI_Witnessing_Rider_TEMPLATE.md)
 (customer legal instrument).
 
-The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** in
-this document are used in the sense of RFC 2119.
-
 ---
 
-## 1. What this Standard exists to do
-
-The value of any provenance receipt is exactly the trustworthiness of the
-capture point that produced it. A witness leaf signed by Scruple that
-attests to bytes the end user could have substituted, edited, or fabricated
-before the hash was taken proves nothing beyond "the user chose to show us
-these bytes at this time."
-
-This Standard specifies the minimum properties an integration MUST have so
-that the receipt it produces is meaningful — so that when a Scruple-witnessed
-artifact is presented in court, in regulatory review, in a copyright claim,
-or in a marketplace listing, the receipt carries the weight it appears to
-carry.
-
-An integration that does not meet this Standard MUST NOT be described,
-marketed, or represented as Scruple-witnessed. Scruple reserves the right
-to revoke API access to integrations found to fall out of compliance.
-
-## 2. Who this applies to
-
-Any party that:
-
-- Holds a Scruple tenant API key, and
-- Calls the Scruple witnessing API on behalf of an end user, or embeds a
-  Scruple-provided client into a product used by end users.
-
-This includes but is not limited to: AI inference platforms, model-training
-services, creative-tool vendors, content-management systems, and enterprise
-compliance stacks that use Scruple as their provenance backend.
-
-## 3. The load-bearing principle
-
-> **The end user MUST NOT have access to the layer that performs the
-> witnessing.**
-
-Everything in Section 4 follows from this one principle. If your integration
-lets the user modify the code that hashes the artifact, control the API key
-that authenticates the witness call, choose whether the witness fires, or
-substitute bytes between hash and POST — the witness is theater and the
-integration does not meet this Standard.
-
-## 4. The Seven Rules
-
-### R1 — Witness-boundary integrity
-
-The code that computes the artifact hash and submits the witness leaf MUST
-run in a boundary the end user does not control.
-
-**Acceptable boundaries:**
-- Server-side capture in your platform's backend
-- Attested-client capture in a code-signed installer where the user cannot
-  modify the running binary (examples: Fusion palette running inside
-  Autodesk's app, code-signed UXP plugin inside Adobe apps, code-signed
-  desktop agent with tamper-detection)
-- Trusted-execution-environment worker (AMD SEV-SNP, Intel TDX, AWS Nitro
-  Enclave, Google Confidential Space) where the workload is measured and
-  attested
-
-**Unacceptable boundaries:**
-- Browser JavaScript the user can inspect and modify via DevTools
-- ComfyUI custom nodes, Kohya plugins, or similar user-installable modules
-  where the user can disable or replace the integration at runtime
-- Server-side code the user has shell or admin access to (their own EC2
-  instance, their own RunPod pod with root)
-
-### R2 — Capture-point discipline
-
-The hash MUST be computed at a point where the artifact cannot be modified
-between hash computation and witness submission.
-
-- **Training:** Hash the trained model file from within the training
-  process, from a controlled path the user cannot write to. If the model
-  is written to a user-writable location, the hash MUST be taken from an
-  in-memory buffer before that write.
-- **Inference:** Hash the output artifact within the inference server's
-  process, before the bytes are served to the user, and MUST NOT accept a
-  user-supplied hash for the same artifact.
-- **Post-processing / edit:** Hash within the application's Save handler,
-  before the user has an opportunity to swap files. The Save handler MUST
-  read the file bytes it just wrote (not accept a user-supplied filename
-  the user could point elsewhere).
-- **Dataset capture:** Hash all constituent files before the training job
-  begins. The dataset Merkle root MUST be computed and witnessed prior to
-  the first training step, not reconstructed after the fact.
-
-### R3 — API key custody
-
-The Scruple tenant API key MUST be held by the platform. End users MUST NOT
-possess, view, or transmit the key.
-
-**Acceptable:**
-- Platform's server-side secret manager (AWS Secrets Manager, Azure Key
-  Vault, GCP Secret Manager, HashiCorp Vault, OCI Vault)
-- Attested-client keychain-scoped storage where the OS keystore prevents
-  extraction by non-signing processes
-
-**Unacceptable:**
-- API key embedded in client-side JavaScript, mobile app bundle, or any
-  bytecode the user can dump
-- API key distributed to end users via email, config file, or environment
-  variable in a user-controlled shell
-- Shared "team" API key that multiple end users can extract from an
-  admin console
-
-### R4 — Principal identity
-
-The `principal_id` field on every witness call MUST be derived from
-authenticated session state on the platform, MUST NOT be a value the
-end user can supply or modify in the request, and MUST be stable across
-sessions for the same end user.
-
-If the platform allows end users to see or change their own principal ID,
-the platform MUST cryptographically bind the principal ID to authenticated
-identity at witness time (e.g. server signs the principal ID using its own
-key before including in the witness payload).
-
-### R5 — Immutable event chain
-
-Once a witness leaf is submitted and acknowledged, the platform MUST NOT
-attempt to alter or delete prior leaves for the same project or stream.
-
-- Retractions MUST be modeled as new witness events ("event X was
-  retracted at time Y for reason Z"), not as deletions.
-- Late-arriving events MUST be witnessed with the actual event time and
-  the actual server-received time — never backdated.
-- If a platform bug causes an incorrect leaf to be submitted, the
-  correction MUST be a new leaf that references and supersedes the
-  incorrect one. The incorrect leaf remains in the audit chain.
-
-### R6 — Zero-content posture
-
-Payload bytes — prompts, images, model weights, source files, PII —
-MUST NOT be transmitted to Scruple. Only cryptographic hashes, small
-structured metadata (counts, timestamps, tags), and identifiers.
-
-The Scruple ingest schema rejects payload_bytes-shaped fields with a 4xx
-response. Integrations MUST NOT attempt to work around this by encoding
-content into permitted fields (e.g. base64 in a metadata string, JSON
-containing raw bytes). Doing so is a compliance violation regardless of
-whether the schema catches the specific attempt.
-
-Integrations that need to preserve full-resolution evidence bundles MUST
-preserve them in the customer's own storage (WORM bucket, evidence
-locker) and submit only the hash-commitment leaf to Scruple.
-
-### R7 — Attestation transport (Level 2 and above)
-
-If the platform's compute environment provides hardware attestation
-(AMD SEV-SNP, Intel TDX, AWS Nitro Enclave, Google Confidential Space,
-TPM 2.0 Quote), the attestation report or a stable reference to it MUST
-be included with each witness call so the leaf's provenance chain
-terminates in hardware, not in the platform's assertion.
-
-For Level 1 (Standard) integrations, R7 does not apply. R7 is normative
-only for platforms seeking Level 2 (Attested) or Level 3 (Certified)
-qualification.
-
-## 5. Compliance Levels
-
-Every Scruple-integrated deployment operates at one of three levels. The
-level is agreed at contract time and appears on receipts and public
-verification pages.
-
-### Level 1 — Standard
-
-**Requirements:** R1 through R6.
-
-**Fitness:** Platform-hosted SaaS integrations where the platform's own
-operational trust is adequate for the evidence claim being made.
-
-**Typical use:** Creative platforms attesting user-authored work,
-marketplaces recording provenance for listing purposes, workflow tools
-where the audit posture is commercial rather than regulatory.
-
-**Public label:** "Scruple L1" or "Scruple Standard."
-
-### Level 2 — Attested
-
-**Requirements:** R1 through R7.
-
-**Fitness:** Regulatory and legal contexts where the trust chain must
-terminate in hardware. The platform's compute environment provides
-hardware attestation and that attestation is bound into every leaf.
-
-**Typical use:** EU AI Act Article 50 obligations, US SEC audit
-requirements, FDA compliance, financial-industry evidence chains,
-cross-border legal defensibility.
-
-**Public label:** "Scruple L2 Attested."
-
-### Level 3 — Certified
-
-**Requirements:** Level 2 plus periodic third-party audit against this
-Standard, on a cadence defined in the contract (typically annual, with
-event-triggered re-audit on material integration change).
-
-**Fitness:** Public-attestation postures where the integration is itself
-under external scrutiny.
-
-**Typical use:** Newsroom evidence chains (AP, Getty), court-admissibility
-positions where the integration will be subject to discovery, high-value
-provenance registries.
-
-**Public label:** "Scruple L3 Certified."
-
-## 6. Rejection Criteria — concrete anti-patterns
-
-The following patterns are explicit compliance failures. They exist as
-worked examples to save integration teams from replicating them.
-
-- **Browser POSTs directly to Scruple.** Client JavaScript holds the API
-  key and calls the witness endpoint from the user's browser. Violates R1
-  and R3. The user can inspect the request, steal the key, and forge
-  witness calls for any content they choose.
-- **Optional integration node.** A ComfyUI custom node or plugin the user
-  installs and can uninstall at will, wired to fire witness calls only
-  when present. Violates R1. A user who wishes to produce unwitnessed
-  content trivially disables the node.
-- **User-supplied output hash.** The platform accepts a hash from the
-  user and forwards it as the witness leaf's `content_hash`. Violates
-  R2. The user can supply the hash of whatever bytes flatter their
-  claim, not the bytes they actually produced.
-- **User-controlled principal.** The platform allows the end user to set
-  their own principal ID as a request parameter, and the platform passes
-  it through unchanged. Violates R4. Two users can trade principal IDs
-  and impersonate each other in the audit chain.
-- **Silent-drop of failed witness calls.** The integration catches
-  witness-API errors and continues without a leaf, without recording the
-  drop. Violates R5 (the event that was supposed to be witnessed now has
-  no representation in the chain, and no gap-marker). Failed witness
-  calls MUST be retried with backoff and, if permanently failing,
-  surfaced as an operational alarm — never silently discarded.
-- **Content in the metadata.** Base64-encoded image bytes stuffed into
-  a `meta.description` field to "keep everything together." Violates R6.
-- **Development attestation in production.** A Level 2 integration that
-  ships with a mock attestation report generated at build time rather
-  than a live report from a real TEE. Violates R7.
-
-## 7. Retrofit Checklist
-
-For teams designing a new integration or auditing an existing one, work
-through this gate. If any answer is "no," the integration is not L1
-compliant.
-
-**Boundary**
-- [ ] Is the code that hashes and POSTs the leaf running in a boundary the
-      end user cannot modify at runtime?
-- [ ] Is the API key held server-side or in an attested-client keystore?
-
-**Capture**
-- [ ] Is the hash taken before the user has any opportunity to substitute
-      bytes?
-- [ ] For training: is the dataset hashed before the first training step?
-- [ ] For inference: is the output hashed before it's served to the user?
-- [ ] For edits: is the file hashed by the Save handler, from bytes the
-      handler just wrote?
-
-**Identity**
-- [ ] Does the principal ID on every call derive from authenticated
-      session state on the platform, not from a user-supplied parameter?
-
-**Chain integrity**
-- [ ] Are historical leaves treated as immutable? Retractions modeled as
-      new events?
-- [ ] Are failed witness calls retried, and if permanently failed,
-      surfaced as alarms rather than silently dropped?
-
-**Content posture**
-- [ ] Does the integration send only hashes and small structured
-      metadata? No payload bytes anywhere in the request tree?
-
-**Attestation (L2 only)**
-- [ ] Does the compute environment produce a hardware attestation report,
-      and is that report (or a stable reference) included with each
-      witness call?
-
-## 8. Getting to compliance
-
-There are two paths to a compliant integration. Both are legitimate; the
-choice is a matter of team capacity and preferred engagement model.
-
-### 8.1 Self-implementation
-
-Your team designs and implements the integration to this Standard, then
-submits a self-certification attestation to Scruple describing how each
-rule is met. Scruple reviews the attestation and, on satisfaction, enables
-production API access at the declared level.
-
-Self-certification suits teams with strong platform-security discipline
-and an existing security-review practice.
-
-The self-certification form and submission instructions are provided at
-contract signing.
-
-### 8.2 Scruple-assisted design
-
-Scruple engineers work with your team to design the integration against
-the Standard. Deliverables typically include:
-
-- Capture-point map for your specific pipeline
-- Reference implementations for each capture point in your primary
-  languages
-- Security review of the completed integration
-- Level attestation on completion
-
-This path is a paid engagement scoped at contract signing and is standard
-practice for teams new to provenance-system integration.
-
-## 9. Revocation and re-certification
-
-A Scruple integration's compliance status may be revoked if:
-
-- A material change to the integration is made without notification and
-  re-review (any change to capture point, API-key handling, principal
-  derivation, or attestation transport)
-- A compliance violation is discovered in production (through customer
-  audit, Scruple monitoring, or third-party report)
-- The Level 3 audit cadence is missed for more than one cycle
-
-Revocation is reversible via re-review. The integration's public status
-page (if operated) MUST reflect the revocation within 72 hours.
-
-## 10. Change discipline for this Standard
-
-This Standard is versioned. Material changes bump the minor version
-(v1.1, v1.2). Backwards-incompatible changes bump the major version
-(v2.0) and existing integrations are granted a defined transition period.
-
-Rule additions, clarifications, or new anti-pattern examples that do not
-require existing integrations to change constitute minor versions.
-
-New rules that require existing integrations to change constitute a
-major version. Scruple will not publish a major version without a
-minimum 90-day transition window and direct notification to all
-integration owners.
-
-The current version's canonical URL is:
-`https://docs.scruple.ai/standard/v1` (once `docs.scruple.ai` is live;
-until then, the version at rest in the Scruple repository is
-authoritative).
+## 1. What this document is
+
+The Scruple Standard defines the capabilities and guarantees of a
+Scruple-witnessed record. It is a *capability register*, not an
+implementation specification. It answers: what does it mean, and what does
+it guarantee, when a record carries a Scruple witness?
+
+Integrators seeking the technical requirements for producing such records
+should consult the companion document, *Scruple Integration Requirements*.
+
+## 2. What Scruple witnesses
+
+Scruple's witness — a signer operating inside an attested Confidential
+Virtual Machine — witnesses two things through the same signing key:
+
+1. **AI-workflow events.** The training runs, inference runs, dataset
+   assemblies, and derivative-work actions that produce artifacts whose
+   provenance the customer wishes to establish.
+2. **The integration itself.** At install and on every material change,
+   the integration's own tamper-surface — the code, configuration, and
+   attested compute environment that produces the workflow events — is
+   measured, hashed, and signed as a baseline.
+
+Both are ordinary leaves in the same audit log, signed by the same
+attested key, chained by the same discipline.
+
+## 3. Baseline attestation
+
+At integration install, the Scruple witness measures the integration's
+tamper-surface and signs a baseline hash covering it. That baseline is
+the tenant's genesis leaf.
+
+Every subsequent workflow leaf references the baseline. The receipts
+Scruple emits therefore attest not only to the workflow event, but to
+the state of the integration that produced it.
+
+The capability this delivers: **a Scruple-witnessed record commits both
+to what happened and to the environment that produced it.** A verifier
+holding a receipt can, without cooperation from the vendor or from
+Scruple, confirm that the record was produced by the specific baselined
+integration Scruple attested — not a modified version of it.
+
+## 4. Changing an integration is itself a witnessed event
+
+If the customer modifies anything in the tamper-surface — a new SDK
+version, a new deployment, a changed configuration, a substituted
+capture point — the running baseline no longer matches the witnessed
+baseline. Two things follow:
+
+1. **New leaves either fail to verify against the declared baseline,**
+   producing an immediate signal to any verifier, or
+2. **The customer must re-baseline.** Re-baselining is itself a
+   Scruple-signed leaf ("integration baseline transitioned from X to Y
+   at time T"). It is a first-class public event in the audit chain,
+   linked to prior baselines by hash.
+
+Silent modification of the integration is cryptographically impossible.
+Every material change is either verified (matches the baseline) or
+surfaces as a witnessed event on the record.
+
+**Public ledger anchoring of the baseline is a core transparency
+option.** When enabled, the genesis baseline and every re-baseline event
+are inscribed on the public ledger (via the same anchor mechanism used
+for workflow-event locking). This turns the vendor's integration
+lifecycle into a transparency artifact — anyone with the vendor's
+identifier can independently audit when the vendor began using Scruple,
+what their initial baseline was, and every change since, without asking
+the vendor or asking Scruple. It is a first-class product option; some
+vendors will elect it for the trust position it creates.
+
+## 5. Compliance is binary
+
+An integration is either Scruple-witnessed or it is not. This is
+determined cryptographically by baseline verification, not by
+self-declaration or by third-party audit at a point in time.
+
+- **Scruple-witnessed:** the baseline is bound; all leaves chain to it;
+  any tamper-surface change is a witnessed event.
+- **Not Scruple-witnessed:** the baseline cannot be computed, has been
+  broken, or the integration is running unbaselined code.
+
+There is no tier structure. There is no *Standard / Attested / Certified*
+grading. Any earlier language describing tiered integrator compliance is
+superseded by this document.
+
+Two roles remain for what were previously described as levels:
+- Whether the customer's compute carries hardware attestation (which
+  extends the baseline's coverage into the substrate — an integration
+  requirement, not a compliance tier, described in the companion
+  Requirements document).
+- Whether the baseline is publicly anchored (§4 above — a
+  transparency-visibility choice, not a compliance grade).
+
+## 6. Security ends at the signing moment
+
+A Scruple receipt's security is established in three distinguishable
+phases. The distinction is load-bearing.
+
+**Phase 1 — pre-signing.** The integrator's discipline — everything
+enumerated in the companion Requirements document — and the substrate's
+attested integrity. Every element of Phase 1 exists to make the eventual
+signature *meaningful* — to guarantee that the bytes about to be signed
+are the bytes the workflow actually produced.
+
+**Phase 2 — the signing moment.** The Confidential Virtual Machine's
+attested key signs the record that includes the workflow leaf and its
+reference to the baseline. **This instant is terminal for integrity.**
+Once the signature exists, the record's cryptographic tamper-evidence
+is complete.
+
+**Phase 3 — post-signing.** Merkle inclusion in Scruple's log, local
+lock (finalize + user receipt), chain lock (inscription on Ravencoin),
+IPFS pinning, Arweave record. Every Phase-3 action changes *where the
+tamper-evidence hash is published* and *who can find it without
+cooperation from Scruple or the vendor*. None of them adds or removes
+security.
+
+Precisely: the signature is terminal for **integrity**; its
+**trustworthiness** is fully determined by Phase 1; higher Phase-3
+publication tiers add **censorship-resistant discoverability, not
+integrity**.
+
+## 7. Lock tiers add discoverability, not integrity
+
+A checkpoint receipt and a permanent-locked receipt of the same event
+have identical cryptographic tamper-evidence. What differs is only how
+publicly the tamper-evidence hash is registered and how many independent
+paths a verifier has to find it.
+
+Marketing or contract language that describes higher lock tiers as
+"stronger security" is inaccurate. Higher lock tiers add
+censorship-resistant discoverability. Pricing for higher lock tiers is
+therefore pricing for public-ledger anchoring cost and for the
+downstream verifier reach it delivers.
+
+When network or ledger operations fail during a Phase-3 publication
+(mint failures, confirmation delays, pin failures, anchor retries), the
+receipt's integrity is unaffected — the anchor is not yet published, but
+the signature is complete. Scruple retries with backoff and surfaces
+persistent failure as an operational alarm. Under no circumstances is a
+failed Phase-3 operation silently dropped.
+
+## 8. The two Scruple Layers
+
+Scruple's substrate is delivered in two layers. Both witness through the
+same attested-signer pattern; they differ in what shared trust they
+remove.
+
+### 8.1 Soft Scruple
+
+The current production substrate. A witness signer runs inside a
+Confidential Virtual Machine on a public-cloud host with hardware-rooted
+attestation (AMD SEV-SNP, Intel TDX, AWS Nitro Enclave, Google
+Confidential Space). The signer's key is generated inside the CVM; its
+public-key SPKI hash is cryptographically bound into the platform's
+attestation report, which chains through the platform vendor's hardware
+root of trust.
+
+The capability this delivers: **an operator-independent witness.** The
+Scruple operator cannot extract the signing key, cannot sign outside the
+attested environment, and cannot forge historical records — the
+attestation report published alongside each signer identity is
+externally verifiable against a hardware root Scruple does not control.
+
+**Soft Scruple removes operator trust from the witness. This matches the
+strongest guarantee currently shipped in the AI provenance category.**
+
+### 8.2 Hard Scruple
+
+An observer operating on sequestered register-transfer-level hardware,
+physically isolated from the workload it observes. Unchanged from the
+original Standard. Confidential; detailed architecture is out of scope
+for this document.
+
+The capability Hard Scruple adds beyond Soft: **shared host and root-
+complex trust are removed as well.** Where Soft Scruple depends on the
+integrity of the cloud host's virtualization platform and the hardware
+root-of-trust vendor's CA infrastructure, Hard Scruple depends only on
+the sequestered observer.
+
+**Hard Scruple goes beyond the category's ceiling.** No competing
+provenance system in the AI ecosystem ships an observer physically
+isolated from the workload.
+
+### 8.3 Precise claim, precise limitation
+
+Wording to keep straight:
+
+- Soft Scruple removes **operator trust** and matches the strongest
+  guarantee others ship.
+- Hard Scruple additionally removes **shared-hardware trust**.
+- Neither claim reduces to "as good as hardware, nothing left to trust."
+  Both Soft and Hard Scruple have documented threat models that
+  include what they do and do not defend against.
+
+## 9. C2PA as graceful-degradation floor
+
+Scruple's guarantee is stronger than what C2PA alone provides. When
+operational conditions prevent the full Scruple guarantee — for example,
+when the CVM signer is temporarily unavailable and the customer's
+integration continues to produce signed content — the system degrades
+to a **C2PA-only receipt with C2PA's known and stated limitations,
+never to no receipt.**
+
+Two distinct failure classes:
+
+- **Verification-fails** — the baseline is broken, the signature does
+  not chain, or a tamper-surface change has occurred that was not
+  re-baselined. The receipt is not Scruple-witnessed. This is terminal.
+- **Verification-pending** — an operational condition (network,
+  anchor-ledger congestion, temporary signer outage) means a signature
+  is not yet complete or a Phase-3 anchor is not yet published. This is
+  retryable and never silently dropped.
+
+The degradation is precise. Under C2PA-only fallback:
+- **Preserved:** the C2PA sidecar's own signature and its trust-list-
+  based verification path.
+- **Lost:** the baseline attestation binding to the integration's state,
+  the chained audit log providing tamper-evident event ordering, and
+  Scruple's operator-independent witness posture.
+
+C2PA plays a positive role in this architecture: it is the floor the
+system stands on, not a hedge Scruple is retreating toward. Every
+Scruple-witnessed record is also a valid C2PA record; the additional
+Scruple guarantees layer on top.
+
+## 10. Evidentiary discipline
+
+Scruple-witnessed records are **self-authenticating, tamper-evident,
+and verifiable**. Any party holding the record and the referenced
+public data can independently confirm its integrity without cooperation
+from Scruple or from the vendor.
+
+Scruple does not, and does not claim to, make records "court-ready,"
+"court-admissible," or "compliant" with any particular regulatory
+regime. Whether a Scruple-witnessed record satisfies the evidentiary
+requirements of a specific court, agency, or contract is a question
+for the party presenting it and their counsel. Scruple's role is to
+produce the cryptographic substrate on which such determinations can
+be made.
+
+## 11. Three axes
+
+Three independent axes describe a Scruple receipt. They are never
+collapsed to a single grade or tier.
+
+1. **Scruple Layer** — Soft, Hard. The substrate.
+2. **C2PA Assurance** — the external C2PA program's own L1 / L2
+   assurance scale. Distinct from Scruple's compliance question.
+3. **Lock Tier** — checkpoint, local, chain (RVN), IPFS, Arweave. The
+   Phase-3 discoverability progression.
+
+Compliance is binary (§5) and is not an axis. A receipt may carry
+values on all three axes independently.
+
+## 12. Change discipline for this Standard
+
+This Standard is versioned. Material changes to the capability register
+bump the minor version (v1.2, v1.3). Backwards-incompatible changes to
+capability guarantees bump the major version (v2.0) and are announced
+with a defined transition window for existing integrations.
+
+The current version's canonical location is this document. A public
+web-hosted mirror will be established at `https://docs.scruple.ai/standard`
+when infrastructure is available; until then, the version at rest in
+Scruple's repository is authoritative.
 
 ## Appendix A — Vocabulary
 
-- **Witness call** — a POST to the Scruple ingest API that produces a leaf.
-- **Leaf** — a canonical, HMAC-signed record of one event in the audit log.
-- **Principal** — the end user or entity on whose behalf a witness call
-  is made.
-- **Tenant** — the customer (organization) that holds the Scruple API key.
-- **Platform** — the software system operated by the tenant that hosts the
-  integration.
-- **End user** — a user of the tenant's platform.
-- **Attestation** — a hardware- or TEE-signed statement about the state
-  of the compute environment producing a witness call.
+- **Baseline** — a signed hash covering an integration's tamper-surface
+  at a point in time. The tenant's genesis leaf.
+- **Re-baseline** — a signed leaf recording that the tamper-surface has
+  materially changed, linked by hash to the prior baseline.
+- **Witness** — the Scruple signer, operating in an attested Confidential
+  Virtual Machine (Soft) or on a sequestered observer (Hard).
+- **Leaf** — one record in the audit log. Both workflow events and
+  baseline events are leaves.
+- **Signing moment** — the instant the attested key signs the record.
+  Phase 2 in the three-phase model. Terminal for integrity.
+- **Lock tier** — the Phase-3 publication level a customer selects for a
+  finalized record. Determines discoverability, not integrity.
+- **Compliance** — binary. An integration is Scruple-witnessed or it is
+  not. Determined by baseline verification.
 
 ## Change log
 
-- 2026-07-13, v1.0 — Initial publication. Seven rules, three levels,
-  RFC 2119 normative language.
+- **2026-07-13, v1.1** —
+  - Split from v1.0 into this Capability register plus a companion
+    *Scruple Integration Requirements* implementation document.
+  - Compliance collapsed to binary. Removed *Standard / Attested /
+    Certified* tier hierarchy.
+  - Added: baseline attestation and re-baseline as a first-class
+    witnessed public event.
+  - Added: public-ledger anchoring of the baseline as a core
+    transparency option.
+  - Added: three-phase signing-boundary principle (pre-signing / signing
+    moment / post-signing) with the load-bearing claim that security
+    ends at the signing moment.
+  - Added: C2PA as graceful-degradation floor with precise
+    verification-fails vs verification-pending distinction.
+  - Reframed: Soft Scruple matches the category's strongest guarantee
+    via operator-trust removal; Hard Scruple goes beyond by removing
+    shared-hardware trust. Precise wording bounds.
+  - Corrected: three independent axes only (Scruple Layer, C2PA
+    Assurance, Lock Tier). No integrator-compliance axis.
+  - Evidentiary discipline: self-authenticating / tamper-evident /
+    verifiable — never court-ready / court-admissible / guarantees
+    compliance.
+- 2026-07-13, v1.0 — Initial publication (superseded by v1.1 same day
+  after harmonization).
