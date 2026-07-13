@@ -1,7 +1,7 @@
-# The Scruple Standard, v1.1
+# The Scruple Standard, v1.2
 
 **Status:** Capability register. Public-facing.
-**Version:** 1.1
+**Version:** 1.2
 **Date:** 2026-07-13
 **Owner:** Docent Technologies LLC (dba Scruple)
 **Audience:** Anyone who needs to understand what a Scruple-witnessed record
@@ -301,6 +301,10 @@ Scruple's repository is authoritative.
 
 ## Change log
 
+- **2026-07-13, v1.2** —
+  - Added §15 Hardware Attestation covering: two-chain receipt architecture (Scruple substrate + customer compute), what the customer-compute chain does and does not prove (content-to-compute binding is a software property until Hard Scruple), the three-rung ladder (Soft / Soft+imported attestation / Hard), verified vs. passthrough distinction with the requirement that receipts visibly distinguish them, and operational note that freshness windows are per-tenant config.
+  - Reserved §§12–14 for future material (temporal + code-space integrity, prepare/commit for gating events, and one open slot).
+  - Renumbered previous §12 (Change discipline) to §16.
 - **2026-07-13, v1.1** —
   - Split from v1.0 into this Capability register plus a companion
     *Scruple Integration Requirements* implementation document.
