@@ -471,7 +471,7 @@ a matter of team capacity and preferred engagement model.
 ### 7.1 Self-implementation
 
 The customer's team designs and implements the integration to meet the
-seven properties, computes a candidate baseline, and submits it to
+eight properties, computes a candidate baseline, and submits it to
 Scruple for provisioning. Scruple's provisioning process attempts to
 verify the baseline against the customer's declared tamper-surface. If
 verification succeeds, the integration is provisioned; if it fails, the
@@ -543,7 +543,7 @@ The current version's canonical location is this document.
 - **Tamper-surface** — the union of code, configuration, key handles,
   and (when P7 applies) attestation coverage that determines what a
   witness leaf actually attests to.
-- **Property** (P1–P7) — a baseline-soundness requirement in this
+- **Property** (P1–P8) — a baseline-soundness requirement in this
   document. Not a compliance tier.
 - **Leaf** — one record in the audit log. Both workflow events and
   baseline events are leaves.
