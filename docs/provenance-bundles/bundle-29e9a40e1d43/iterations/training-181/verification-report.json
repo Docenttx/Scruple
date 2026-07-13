@@ -2,7 +2,7 @@
   "sidecar": {
     "path": "/data/scruple-web/docs/provenance-bundles/bundle-29e9a40e1d43/iterations/training-181/stay-puft-cyberpunk-lora-r4.safetensors.c2pa",
     "bytes": 16498,
-    "sha256_hex": "16bf0821f51127c7e2104aceffd4e2dfb1bfc832ad71d8a4d9834d1568e5f651",
+    "sha256_hex": "39b5efae880261776bd4b2e526752538c5d6484ce52d5c66041bdbd4996d72ee",
     "signing_approach": "a: c2pa.Builder.sign(format='c2pa', empty_src)",
     "signer_pubkey_sha256_hex": "879614a0a05df88d6fa0dee07d188e642d33e38c3a72a5ae86cacd509883a9f3",
     "cert_chain_leaf_pem_first_line": "-----BEGIN CERTIFICATE-----",
@@ -56,7 +56,7 @@
           "signingCredential.untrusted",
           "assertion.dataHash.mismatch"
         ],
-        "active_manifest": "urn:c2pa:ac072a14-e353-4e22-9f90-836ac9fcc734",
+        "active_manifest": "urn:c2pa:25a7e3fd-a7af-4a70-b9c5-29c5b57a175d",
         "manifest_assertion_labels": [
           "c2pa.actions.v2",
           "c2pa.assertion.training-mining",
@@ -66,19 +66,19 @@
     ]
   },
   "assertions_decoded": {
-    "urn:c2pa:ac072a14-e353-4e22-9f90-836ac9fcc734": {
+    "urn:c2pa:25a7e3fd-a7af-4a70-b9c5-29c5b57a175d": {
       "actions": [
         {
           "action": "c2pa.created",
           "parameters": {
             "com.scruple.leaf_scheme": "v2.2",
-            "com.scruple.scr_id": "SCR_DB433994",
             "com.scruple.trainer": "diffusers+peft",
-            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
-            "com.scruple.output_content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
+            "com.scruple.project_id": 181,
             "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
+            "com.scruple.output_content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
             "com.scruple.output_bytes": 11778336,
-            "com.scruple.project_id": 181
+            "com.scruple.scr_id": "SCR_DB433994",
+            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors"
           },
           "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia"
         }
@@ -90,13 +90,13 @@
           "action": "c2pa.created",
           "parameters": {
             "com.scruple.leaf_scheme": "v2.2",
-            "com.scruple.scr_id": "SCR_DB433994",
             "com.scruple.trainer": "diffusers+peft",
-            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors",
-            "com.scruple.output_content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
+            "com.scruple.project_id": 181,
             "com.scruple.dataset_merkle_sha256_hex": "8689db16a87c2e78e7f49da05d226ca13147a9a6e987714f7579abda1b947771",
+            "com.scruple.output_content_hash_sha256_hex": "3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900",
             "com.scruple.output_bytes": 11778336,
-            "com.scruple.project_id": 181
+            "com.scruple.scr_id": "SCR_DB433994",
+            "com.scruple.output_filename": "stay-puft-cyberpunk-lora-r4.safetensors"
           },
           "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia"
         }
