@@ -17,6 +17,15 @@ import { readL2Attestation, type L2Attestation } from '@/lib/l2/attestation';
 
 export const dynamic = 'force-dynamic';
 
+// Match the set enforced by /api/projects/[id]/lora-sidecar.c2pa —
+// sidecar is served only for projects that have chain-anchored data.
+const LOCKED_STATUSES = new Set([
+  'local_locked',
+  'chain_locked',
+  'persistent_locked',
+  'permanent_locked',
+]);
+
 export default function ReceiptPage({ params }: { params: { scrId: string } }) {
   const { scrId } = params;
   // Local lock derives a 6-hex suffix from the Merkle root; chain lock
@@ -240,6 +249,36 @@ export default function ReceiptPage({ params }: { params: { scrId: string } }) {
               <ModelFingerprintCard key={run.id} run={run} />
             ))}
           </div>
+          {project.type === 'training' && LOCKED_STATUSES.has(project.status) && (
+            <div className="mt-4 rounded-md border border-scruple-accent/40 bg-scruple-accent/[0.03] p-3 print:break-inside-avoid">
+              <div className="flex items-baseline justify-between">
+                <h3 className="text-[10px] uppercase tracking-widest text-scruple-accent">
+                  C2PA sidecar
+                </h3>
+                <a
+                  href={`/api/projects/${project.id}/lora-sidecar.c2pa`}
+                  download
+                  className="rounded border border-scruple-accent/60 bg-scruple-accent/10 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-scruple-accent hover:bg-scruple-accent/20"
+                >
+                  download .c2pa
+                </a>
+              </div>
+              <p className="mt-2 text-[10px] text-scruple-muted">
+                A COSE_Sign1-signed C2PA sidecar that binds this trained model to
+                its dataset, hyperparameters, and blockchain anchor. Attach it
+                alongside the <span className="font-mono">.safetensors</span> file
+                when redistributing — any C2PA reader can verify the signature
+                and any auditor can walk the chain of custody offline without
+                contacting Scruple.
+              </p>
+              <p className="mt-2 text-[10px] text-scruple-muted">
+                Verify with{' '}
+                <span className="font-mono">python3 scripts/verify-c2pa-reader.py &lt;sidecar&gt;</span>
+                {' '}or any c2pa-python 0.36+ reader on{' '}
+                <span className="font-mono">application/c2pa</span>.
+              </p>
+            </div>
+          )}
         </section>
       )}
 
