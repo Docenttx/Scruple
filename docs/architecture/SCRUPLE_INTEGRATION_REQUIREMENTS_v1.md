@@ -468,7 +468,7 @@ be sound and the integration will not be Scruple-witnessed.
 Two paths lead to a valid baseline. Both are legitimate; the choice is
 a matter of team capacity and preferred engagement model.
 
-### 6.1 Self-implementation
+### 7.1 Self-implementation
 
 The customer's team designs and implements the integration to meet the
 seven properties, computes a candidate baseline, and submits it to
@@ -484,7 +484,7 @@ Note: what Scruple performs at this stage is baseline verification, not
 a compliance-tier grade. There is no form Scruple reviews and countersigns.
 The result is binary: your baseline verifies, or it does not.
 
-### 6.2 Scruple-assisted design
+### 7.2 Scruple-assisted design
 
 Scruple engineers work with the customer's team to design the
 integration against the properties. Deliverables typically include:
