@@ -13,6 +13,7 @@
 
 import { conn } from '@/lib/db/sqlite';
 import { sha256Hex } from '@/lib/scruple/hash';
+import { hashWorkflow } from '@/lib/scruple/canonicalWorkflow';
 import { storeArtifact } from '@/lib/scruple/artifacts';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProvider } from '@/lib/storage/dispatch';
@@ -173,9 +174,13 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   // workflow_hash binds the ComfyUI graph that produced the output. Sync
   // executeRun puts it under spec.providerExtras.workflowApiJson; async
   // pollRunJob does the same after T4. NULL when the path has no workflow.
+  //
+  // MUST use canonical (sorted-key, whitespace-free) JSON — not default
+  // JSON.stringify — so any auditor with the same workflow JSON reproduces
+  // the same hash regardless of key insertion order in their serializer.
   let workflowHash: string | null = null;
   const wf = (p.spec as unknown as { providerExtras?: { workflowApiJson?: unknown } })?.providerExtras?.workflowApiJson;
-  if (wf) workflowHash = sha256Hex(JSON.stringify(wf));
+  if (wf) workflowHash = hashWorkflow(wf);
 
   // model_fingerprints_hash binds the actual weights loaded for this run.
   // Canonicalize the manifest (keys sorted ascending) so the hash is
