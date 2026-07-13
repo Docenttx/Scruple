@@ -23,12 +23,15 @@ function statusDotColor(status: ProjectRow['status']): string {
   }
 }
 
-// Type prefix per desktop convention.
+// Type prefix per desktop convention. Note: 'cad' (Fusion) has no desktop
+// convention yet — falls through to a generic bracket to stay non-empty.
 function typePrefix(type: ProjectRow['type']): string {
   switch (type) {
     case 'training': return '[T]';
     case 'video':    return '[V]';
     case 'image':    return '[I]';
+    case 'cad':      return '[C]';
+    default:         return '[·]';
   }
 }
 

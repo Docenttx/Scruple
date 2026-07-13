@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
          VALUES (?, ?, 'image', 'unlocked', ?, ?, 0, 0, 0, 0)`,
       )
       .run(userId, `Adobe ${body.host_app.charAt(0).toUpperCase() + body.host_app.slice(1)} Documents`, now, now);
-    projectId = cur.lastrowid as number;
+    projectId = Number(cur.lastInsertRowid);
   }
 
   const seqRow = conn()

@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
                  ?, ?, 0, 0, 0, 0)`,
       )
       .run(userId, now, now);
-    projectId = cur.lastrowid as number;
+    projectId = Number(cur.lastInsertRowid);
   }
 
   // Determine run_sequence for this project
