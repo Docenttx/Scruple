@@ -19,6 +19,9 @@ import {
   EnvelopeValidationError,
   type AttestationEnvelope,
 } from '@/packages/scruple-attestation-verifiers/src/envelope';
+import { dispatch } from '@/packages/scruple-attestation-verifiers/src/dispatch';
+// Import plugin files for side-effect registration into the dispatch registry.
+import '@/packages/scruple-attestation-verifiers/src/plugins/sev_snp';
 
 /** Default per Integration Requirements v1.2 §4.4. */
 export const DEFAULT_FRESHNESS_MAX_SECONDS = 15 * 60;
@@ -84,6 +87,13 @@ export function enforceBaselineRef(
 export interface AttestationCheckOk {
   ok: true;
   envelope: AttestationEnvelope | null;
+  /**
+   * Set on successful envelope processing:
+   *   0 = no envelope required or none supplied
+   *   1 = envelope server-verified by built-in plugin
+   *   2 = passthrough (stored, downstream verifier_reference)
+   */
+  verified_status: 0 | 1 | 2;
 }
 export interface AttestationCheckReject {
   ok: false;
@@ -102,25 +112,27 @@ function tenantFreshnessMaxSeconds(tenant_id: string): number {
 }
 
 /**
- * Enforce platform_attestation shape + freshness + nonce-binding for
- * tenants whose baseline declares a non-`none` attestation provider.
+ * Enforce platform_attestation shape + freshness + nonce-binding + full
+ * verifier plugin verification for tenants whose baseline declares a
+ * non-`none` attestation provider.
  *
  * `expected_nonce_hex` is SHA-256 of the leaf preimage EXCLUDING the
  * envelope itself. Caller computes this before calling us.
  *
- * NOTE: this WO does NOT run verifier plugins. WO-04 wires dispatch()
- * into a follow-on enforcement step; here we just validate shape,
- * freshness, and nonce binding, and set platform_attestation_verified = 0.
+ * As of WO-04, this function now dispatches to the shared verifier
+ * library — SEV-SNP is verified end-to-end (structurally; full crypto
+ * chain follow-up per plugin notes). Passthrough types are accepted
+ * with verified_status = 2.
  */
-export function enforceAttestation(
+export async function enforceAttestation(
   tenant_id: string,
   baseline: BaselineRow | null,
   envelope_raw: unknown,
   expected_nonce_hex: string,
-): AttestationCheck {
+): Promise<AttestationCheck> {
   if (!baseline || baseline.attestation_provider === 'none') {
     // No attestation required. If one was submitted anyway, ignore silently.
-    return { ok: true, envelope: null };
+    return { ok: true, envelope: null, verified_status: 0 };
   }
 
   if (envelope_raw === undefined || envelope_raw === null) {
@@ -207,7 +219,26 @@ export function enforceAttestation(
     };
   }
 
-  return { ok: true, envelope: env };
+  // Dispatch to the shared verifier library. SEV-SNP is registered via
+  // side-effect import at the top of this file; other plugins land in
+  // subsequent WOs.
+  const dispatchResult = await dispatch(env, expected_nonce_hex, maxSec);
+  if (!dispatchResult.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        error: `platform_attestation verification failed: ${dispatchResult.error}`,
+        code: 'attestation_verification_failed',
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    envelope: env,
+    verified_status: dispatchResult.passthrough ? 2 : 1,
+  };
 }
 
 /**

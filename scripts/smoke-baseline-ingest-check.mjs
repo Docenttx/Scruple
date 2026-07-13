@@ -78,18 +78,17 @@ db.prepare(
 
 db.close();
 
-// Compute expected nonce for a sample preimage
-function canon(o) {
-  if (o === null || o === undefined) return 'null';
-  if (Array.isArray(o)) return '[' + o.map(canon).join(',') + ']';
-  if (typeof o === 'object') {
-    const keys = Object.keys(o).sort();
-    return '{' + keys.map((k) => JSON.stringify(k) + ':' + canon(o[k])).join(',') + '}';
-  }
-  return JSON.stringify(o);
-}
-const preimage = { field_a: 1, field_b: 'x' };
-const expectedNonce = createHash('sha256').update(canon(preimage)).digest('hex');
+// For the "valid envelope" case in step [7], use the real captured
+// SEV-SNP report from docs/l2-evidence/. Its report_data first 32 bytes
+// is our expected nonce for that test — we DO NOT recompute nonce from
+// a leaf preimage here, we assert the fixture matches.
+const REAL_REPORT = fs.readFileSync(path.join(__dirname, '..', 'docs', 'l2-evidence', '2026-07-12T174954Z', 'sev-snp-report.bin'));
+const REAL_CHAIN = fs.readFileSync(path.join(__dirname, '..', 'docs', 'l2-evidence', '2026-07-12T174954Z', 'amd-cert-chain.pem'), 'utf8');
+const REAL_CHAIN_PEMS = [...REAL_CHAIN.matchAll(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g)].map((m) => m[0] + '\n');
+const REAL_NONCE = 'd5b782d80eb3e4f38ac8a54c1ff6ef496fb30fb841f0ebf417996eb73c7398ab';
+
+// For the tests that don't exercise real crypto, we use a bogus nonce
+// that just needs to differ from REAL_NONCE.
 const bogusNonce = 'a'.repeat(64);
 
 const worker = `
@@ -104,12 +103,12 @@ function assert(cond, name, detail) {
 const H_NONE  = '${'a'.repeat(64)}';
 const H_SEV   = '${H_SEV}';
 const H_C     = '${H_C}';
-const expected = '${expectedNonce}';
+const expected = '${REAL_NONCE}';
 const bogus    = '${bogusNonce}';
 const validEnv = {
   attestation_type: 'amd-sev-snp',
-  attestation_report: 'aGVsbG8=',
-  certificate_chain: ['-----BEGIN CERTIFICATE-----\\nfake\\n-----END CERTIFICATE-----\\n'],
+  attestation_report: ${JSON.stringify(REAL_REPORT.toString('base64'))},
+  certificate_chain: ${JSON.stringify(REAL_CHAIN_PEMS)},
   nonce: expected,
   attestation_time: new Date().toISOString(),
 };
@@ -119,13 +118,13 @@ const wrongNonceEnv = { ...validEnv, nonce: bogus };
 console.log('[1] tenant with no baseline — skips both checks');
 const r1 = enforceBaselineRef('TEN_a', null);
 assert(r1.ok && r1.baseline === null, 'baseline check pass, no baseline row', r1);
-const r1a = enforceAttestation('TEN_a', null, null, expected);
+const r1a = await enforceAttestation('TEN_a', null, null, expected);
 assert(r1a.ok, 'attestation check skipped when no baseline', r1a);
 
 console.log('[2] provider=none tenant — passes with matching baseline');
 const r2 = enforceBaselineRef('TEN_c', H_C);
 assert(r2.ok && r2.baseline && r2.baseline.attestation_provider === 'none', 'baseline matched', r2);
-const r2a = enforceAttestation('TEN_c', r2.baseline ?? null, null, expected);
+const r2a = await enforceAttestation('TEN_c', r2.baseline ?? null, null, expected);
 assert(r2a.ok, 'attestation skipped for provider=none', r2a);
 
 console.log('[3] provider=none tenant — wrong baseline_hash → 409');
@@ -135,19 +134,19 @@ assert(!r3.ok && r3.status === 409 && r3.body.code === 'baseline_mismatch', 'wro
 console.log('[4] provider=amd-sev-snp — missing envelope → 400');
 const r4b = enforceBaselineRef('TEN_b', H_SEV);
 assert(r4b.ok, 'baseline OK', r4b);
-const r4 = enforceAttestation('TEN_b', r4b.baseline ?? null, null, expected);
+const r4 = await enforceAttestation('TEN_b', r4b.baseline ?? null, null, expected);
 assert(!r4.ok && r4.status === 400 && r4.body.code === 'attestation_required', 'missing envelope → 400', r4);
 
 console.log('[5] wrong nonce → 400 attestation_nonce_mismatch');
-const r5 = enforceAttestation('TEN_b', r4b.baseline ?? null, wrongNonceEnv, expected);
+const r5 = await enforceAttestation('TEN_b', r4b.baseline ?? null, wrongNonceEnv, expected);
 assert(!r5.ok && r5.status === 400 && r5.body.code === 'attestation_nonce_mismatch', 'wrong nonce → 400', r5);
 
 console.log('[6] stale attestation_time → 400 attestation_stale');
-const r6 = enforceAttestation('TEN_b', r4b.baseline ?? null, staleEnv, expected);
+const r6 = await enforceAttestation('TEN_b', r4b.baseline ?? null, staleEnv, expected);
 assert(!r6.ok && r6.status === 400 && r6.body.code === 'attestation_stale', 'stale → 400', r6);
 
 console.log('[7] valid envelope → passes');
-const r7 = enforceAttestation('TEN_b', r4b.baseline ?? null, validEnv, expected);
+const r7 = await enforceAttestation('TEN_b', r4b.baseline ?? null, validEnv, expected);
 assert(r7.ok, 'valid → ok', r7);
 
 console.log('[8] missing baseline header on non-empty tenant → 409');
@@ -155,7 +154,7 @@ const r8 = enforceBaselineRef('TEN_b', null);
 assert(!r8.ok && r8.status === 409 && r8.body.code === 'baseline_required', 'missing header → 409', r8);
 
 console.log('[9] type mismatch — declared amd-sev-snp, submitted nvidia-h100-cc');
-const r9 = enforceAttestation('TEN_b', r4b.baseline ?? null,
+const r9 = await enforceAttestation('TEN_b', r4b.baseline ?? null,
   { ...validEnv, attestation_type: 'nvidia-h100-cc' }, expected);
 assert(!r9.ok && r9.body.code === 'attestation_type_mismatch', 'type mismatch caught', r9);
 

@@ -81,7 +81,7 @@ export async function POST(
     const envelopeRaw = inputWithoutEnv.platform_attestation;
     delete inputWithoutEnv.platform_attestation;
     const expectedNonce = computeExpectedNonce(inputWithoutEnv);
-    const attCheck = enforceAttestation(
+    const attCheck = await enforceAttestation(
       tenant.tenant_id,
       baselineCheck.baseline,
       envelopeRaw ?? null,

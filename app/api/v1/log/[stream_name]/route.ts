@@ -84,7 +84,7 @@ export async function POST(
   // `platform_attestation`.
   const { platform_attestation: envelopeRaw, ...bodyWithoutEnvelope } = body as Record<string, unknown>;
   const expectedNonce = computeExpectedNonce(bodyWithoutEnvelope);
-  const attCheck = enforceAttestation(
+  const attCheck = await enforceAttestation(
     tenant.tenant_id,
     baselineCheck.baseline,
     envelopeRaw ?? null,
