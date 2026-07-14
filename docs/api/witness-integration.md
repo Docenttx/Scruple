@@ -209,6 +209,118 @@ zero-content posture.
 
 ---
 
+## Watermark integration (v1.1 design, phased ship)
+
+Scruple's imperceptible watermark layer (design at
+[`docs/architecture/WATERMARK_DESIGN_v1.md`](../architecture/WATERMARK_DESIGN_v1.md))
+applies **at publication/lock time only**, never at generation. This
+means integrators do NOT need to change the generation path — the
+existing witness-on-ingest flow keeps working exactly as before, and
+customers who don't opt into watermarking see no behavior change.
+
+For customers who DO opt in (default for Local Lock, Chain Lock; opt-in
+for Checkpoint), the flow adds two API calls between "user has a signed
+clean master" and "user has a published derivative":
+
+### The two-call flow
+
+**1. Request the watermark payload** for the desired lock tier:
+
+```
+POST /v1/watermark/payload
+Authorization: Bearer <tenant_key>
+X-Scruple-Signature: <hmac>
+
+{
+  "master_hash": "sha256:<hash-of-clean-bytes>",
+  "intended_tier": "chain-lock-basic",   // or checkpoint / local-lock / chain-lock-pinned
+  "chain_lock_id_ref": "SCR_A38E30FF"    // required only for chain-lock tiers
+}
+→
+{
+  "payload_hex": "5c14a3...",   // 32 hex = 128 bits, ready to embed
+  "tier": 4,
+  "version": 1,
+  "encoder_recommendation": "stegastamp-v1"
+}
+```
+
+**2. Embed the watermark locally** using `@scruple/watermark` (npm) or
+`scruple-watermark` (PyPI). Bytes never transit to Scruple:
+
+```typescript
+import { embedWatermark } from '@scruple/watermark';
+const derivativeBytes = await embedWatermark(cleanBytes, {
+  mimeType: 'image/png',
+  payloadHex: '5c14a3...',
+});
+```
+
+**3. Sign the derivative** via the existing `/v1/log/<stream>` endpoint
+with derivative-lineage fields:
+
+```
+POST /v1/log/<stream>
+Authorization: Bearer <tenant_key>
+X-Scruple-Signature: <hmac>
+
+{
+  ...standard leaf fields...
+  "payload_hash": "sha256:<hash-of-derivative-bytes>",
+  "master_hash": "sha256:<hash-of-clean-master>",
+  "action": "c2pa.edited",
+  "ingredient_master_leaf_hash": "sha256:<clean-master-leaf-hash>"
+}
+```
+
+The server verifies the derivative's payload matches the tier +
+master + chain-lock combination before signing. This prevents a caller
+from claiming a chain-lock watermark without holding the actual chain
+lock.
+
+### Master preservation obligation
+
+The critical invariant: **the customer's environment MUST preserve the
+clean master bytes for the artifact's entire useful life.** The master
+is what the artist uses for img2img, ControlNet, LoRA training, and
+further generation passes. Applying a watermark to the master destroys
+the pipeline reusability and can poison downstream training runs
+(documented failure mode: mid-2023 Getty Images / Stable Diffusion case).
+
+Scruple keeps the master's hash + signature + witness leaf forever.
+Bytes are the customer's responsibility unless the customer is using
+the Scruple SaaS storage tier.
+
+### Two-download UX obligation
+
+Any customer surface that lets an end user download a Scruple-marked
+artifact MUST expose two distinct download controls when both a master
+and one or more derivatives exist:
+
+- **Master (clean)** — the untainted bytes, for re-editing / re-generation
+- **Release (watermarked)** — the signed derivative, for public distribution
+
+Labels can be re-styled to match the host's UI, but the semantic
+distinction must be visible. Rationale: this is how the artist keeps
+their workflow clean while satisfying the Article 50(2) + EU Code
+Sub-measure 1.1.2 marking on published content.
+
+### When watermark is NOT applied
+
+Regardless of settings, watermarking is skipped for:
+
+- MIME types outside the v1.1 scheme (SVG vector, PDF, model files —
+  see `WATERMARK_DESIGN_v1.md` §2 for the current scope)
+- Audio clips shorter than 7 seconds (payload doesn't fit at 20 bps —
+  the server returns `insufficient-duration` on the payload request)
+- Any artifact where the customer explicitly sets `watermark: false`
+  in the lock request (overrides the tier default)
+
+In each of those cases, the lock still succeeds and the derivative is
+signed — it just doesn't carry the imperceptible payload.
+
+---
+
 ## What we do NOT do
 
 - **We do not host your inference.** You bring your own model, compute,
@@ -237,6 +349,10 @@ zero-content posture.
 
 ## Change log
 
+- 2026-07-14 (evening) — watermark integration section added. Two-call
+  flow (`POST /v1/watermark/payload` + client-side embed + derivative
+  leaf), master preservation obligation, two-download UX requirement.
+  Design detail in `docs/architecture/WATERMARK_DESIGN_v1.md` v1.1.
 - 2026-07-13 (afternoon) — leaf v2.4: `workflow_hash` and `machine_manifest_hash`
   promoted to first-class leaf preimage fields; response includes `leaf_scheme`
   so integrators can distinguish v2.3 vs v2.4 receipts. Reference canonical
