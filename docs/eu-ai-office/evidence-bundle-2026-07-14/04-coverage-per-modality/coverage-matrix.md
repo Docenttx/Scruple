@@ -13,8 +13,8 @@ without ambiguity.
 | Marking layer | Implementation | Status | Evidence |
 |---|---|---|---|
 | 1.1.1 C2PA v2.x | Full support across png, jpeg, webp, svg+xml, tiff, x-adobe-dng, heic, heif, avif via c2pa-python 0.89 wrapper | Shipped | `github.com/Docenttx/Scruple/tree/feature/witnessing-l2-sprint1/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.*/` (9 folders, each with a signed sample + JSON manifest) |
+| 1.1.2 Imperceptible watermark | DCT spread-spectrum + Reed-Solomon ECC in mid-frequency Y-channel coefficients; 128-bit payload with tier-scoped body; applied at publication time via `/api/lock/local` to a derivative alongside the preserved master | Shipped | `services/watermark/image_dct.py` (encoder); `services/watermark/payload.py` (wire format); `scripts/smoke-watermark.mjs` (8 assertions including JPEG q=75 + 75% resize survival); `scripts/smoke-watermark-e2e.mjs` (5-step end-to-end); `../03-marking-implementation/marking-technical-spec.md` §Layer 2 |
 | 1.1.3 Witness leaf | Per-iteration hash + Merkle chain + ledger anchor | Shipped | `docs/architecture/SCRUPLE_STANDARD_v1.md` §6; `lib/witness/canonicalLeafV24.ts` (normative); `_bundle_report.json` for iterations 1–15 |
-| 1.1.2 Imperceptible watermark | SynthID evaluation Q4 2026 | Roadmap | `../05-governance/interoperability-roadmap.md` §Q4 |
 
 ## Video
 
@@ -22,7 +22,7 @@ without ambiguity.
 |---|---|---|---|
 | 1.1.1 C2PA v2.x | Full support: mp4, quicktime (mov), x-msvideo (avi) via c2pa-python; BMFF hash assertion included | Shipped | `Generate.output.video.mp4/`, `Generate.output.video.quicktime/`, `Validate.output.video.x-msvideo/` |
 | 1.1.3 Witness leaf | Same as image (all 11 systems use identical witness path) | Shipped | Same as image |
-| 1.1.2 Imperceptible watermark | Not currently supported by any evaluated open-source video watermarking scheme; will follow C2PA content-credential v3 video-watermark harmonisation timeline | Roadmap-dependent | Note only |
+| 1.1.2 Imperceptible watermark | Per-frame image watermark with GOP-level payload rotation, async post-processor; extends the image-modality reference implementation shipped for the image row above | Roadmap Q4 2026 | `../05-governance/interoperability-roadmap.md` §Q4 |
 
 ## Audio
 
@@ -30,7 +30,7 @@ without ambiguity.
 |---|---|---|---|
 | 1.1.1 C2PA v2.x | Full support: wav, flac, mpeg (MP3), mp4 (AAC) via c2pa-python | Shipped | `Generate.output.audio.wav/`, `.flac/`, `.mpeg/`, `.mp4/` |
 | 1.1.3 Witness leaf | Same | Shipped | Same as image |
-| 1.1.2 Imperceptible watermark | SynthID Audio evaluation Q4 2026 (ElevenLabs precedent) | Roadmap | `../05-governance/interoperability-roadmap.md` |
+| 1.1.2 Imperceptible watermark | Frequency-domain spread-spectrum via FFT; SynthID Audio evaluation for base-model-side embedding continues in parallel (ElevenLabs precedent) | Roadmap Q4 2026 | `../05-governance/interoperability-roadmap.md` §Q4 |
 
 ## Text
 
@@ -62,8 +62,10 @@ Validate-only. Scruple does not generate PDFs currently.
 
 ## Overall summary
 
-- Every currently-produced Scruple output has two-layer marking (1.1.1 + 1.1.3),
-  satisfying Section 1's multi-layered requirement.
+- Raster image outputs carry all three Section 1 layers (1.1.1 + 1.1.2 + 1.1.3).
+- Video, audio, and mlModel outputs carry two layers (1.1.1 + 1.1.3), each
+  satisfying Section 1's multi-layered requirement. Video and audio 1.1.2
+  extension is on the Q4 2026 roadmap.
 - Every gap is disclosed against the specific technical reason and mapped
   to a roadmap milestone.
 - Every claim has a file-level evidence pointer for a reviewer to inspect.

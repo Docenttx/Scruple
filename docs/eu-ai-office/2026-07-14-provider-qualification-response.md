@@ -45,7 +45,8 @@ A web application that permits an end user to generate images, video, and fine-t
 
 - **Cryptographically signed** with a C2PA v1/v2 manifest (see §5 for the technical evidence).
 - **Marked as AI-generated** using the `c2pa.actions` assertion (action = `c2pa.created` when produced from scratch, `c2pa.opened + c2pa.edited` when derived from an ingested asset). The mark is machine-readable and satisfies Article 50(2)(a).
-- **Bound to the specific workflow and model weights** that produced it, via the leaf preimage of the Scruple witness chain (see §5). This provides a second, independent transparency layer beyond the C2PA manifest.
+- **Imperceptibly watermarked at publication time** for raster image outputs, via a classical DCT spread-spectrum encoder with Reed-Solomon ECC protecting a 128-bit payload. The clean master is preserved unmodified; the watermark is applied to a derivative alongside for public distribution. Reference implementation is open at `services/watermark/`. Video and audio watermarking follows in Q4 2026.
+- **Bound to the specific workflow and model weights** that produced it, via the leaf preimage of the Scruple witness chain (see §5). This provides an independent transparency layer beyond the C2PA manifest and the watermark.
 
 ### 3.2 Scruple Witness API (`witness.scruple.ai`)
 
@@ -89,6 +90,8 @@ Every C2PA manifest produced by any of our systems is designed to be:
 - **Machine-detectable** via `c2pa.actions.v2` — satisfies Article 50(2)(a).
 - **Independently verifiable** via a public reference verifier (`scruple-verify` npm package + `c2pa-python` upstream) with no runtime dependency on Scruple infrastructure.
 - **Chained to a public ledger** via the Scruple witness Merkle root, providing tamper-evidence beyond the C2PA manifest itself.
+
+The imperceptible watermark layer (Sub-measure 1.1.2, raster image outputs) is documented in `docs/architecture/WATERMARK_DESIGN_v1.md` (design) and `services/watermark/` (reference implementation). Robustness against JPEG re-encoding at `q=75` and 75% linear resize is validated by `scripts/smoke-watermark.mjs`. Third-party decoding is available via the extended `scruple-verify watermark` subcommand.
 
 ## 6. What our signature does NOT cover
 

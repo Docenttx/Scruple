@@ -19,19 +19,37 @@ identified in `../03-marking-implementation/marking-technical-spec.md` and
   explicitly enumerated.
 - **Expose Sub-measure 1.1.1 signing surface to downstream vendors via
   Witness API** — SHIPPED. Public HTTPS endpoint at `witness.scruple.ai`.
+- **Ship Sub-measure 1.1.2 for raster image outputs of Scruple Studio** —
+  SHIPPED. Classical DCT spread-spectrum + Reed-Solomon ECC reference
+  implementation open-sourced at `services/watermark/`. 128-bit payload
+  with tier-scoped body (self-contained tiers 1-3; chain-locked tiers
+  4-5). Applied at `/api/lock/local`; master-preservation invariant
+  honoured (clean master + watermarked derivative both preserved).
+  `scruple-verify watermark` subcommand extended for third-party
+  decoding. Design at
+  `docs/architecture/WATERMARK_DESIGN_v1.md` v1.2.
 
-### Q4 2026 (Oct–Dec) — 1.1.2 evaluation
+### Q4 2026 (Oct–Dec) — 1.1.2 extension + chain-lock wiring
 
-- **Sub-measure 1.1.2 evaluation for image outputs** — begin. Candidate:
-  Google SynthID Image integration for outputs produced by Scruple Studio
-  directly (where Scruple has control over the generator hook), gated on
-  SynthID model-family availability for the base models we deploy (SD 1.5,
-  SDXL, FLUX.1).
-- **Sub-measure 1.1.2 evaluation for audio outputs** — begin. Candidate:
-  Google SynthID Audio (ElevenLabs is the shipping precedent).
+- **Sub-measure 1.1.2 extension to video outputs** — per-frame image
+  watermark with GOP-level payload rotation via async post-processor;
+  covers SeedVR2 and AnimateDiff / VideoHelperSuite output paths.
+- **Sub-measure 1.1.2 extension to audio outputs** — frequency-domain
+  spread-spectrum via FFT; SynthID Audio evaluation for base-model-side
+  embedding continues in parallel (ElevenLabs is the shipping
+  precedent for base-model-side audio marking).
+- **Chain-lock route wiring** — wire tier 4/5 watermark payloads into
+  `/api/lock/chain-*` routes. Local-lock (tier 3) MVP shipped in Q3
+  proves the pattern; tier 4/5 requires the SCR-ID timing flow.
 - **PDF signing pass-through** — track c2pa-python releases; wire in as
   soon as the `pdf` feature is exposed.
 - **application/x-pytorch signing pass-through** — same discipline.
+- **`@scruple/watermark` npm package publish** — client-side JS/TS
+  library for third-party integrators; separate repository, MIT-licensed.
+- **StegaStamp deep-learning encoder evaluation** — Q3 shipped
+  classical DCT is adequate for typical distribution transforms; a
+  neural encoder is a potential Phase 1.1 upgrade for adversarial
+  survival.
 
 ### Q1 2027 (Jan–Feb, deadline 2 February)
 

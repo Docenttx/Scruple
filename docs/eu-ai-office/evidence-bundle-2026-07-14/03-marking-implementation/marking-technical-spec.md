@@ -46,7 +46,32 @@ manifest engine, so Scruple manifests are structurally interoperable with
 JPEG Trust readers. Content Credentials readers (Adobe Verify) can display
 Scruple-signed content without adaptation.
 
-## Layer 2 — Sub-measure 1.1.3 (Fingerprinting / logging)
+## Layer 2 — Sub-measure 1.1.2 (Imperceptible watermark, raster image outputs)
+
+**Standard:** Imperceptible watermarking is a technique family enumerated in Recital 133 of the AI Act ("watermarks, metadata identifications"). No single ISO or IEC standard is normative at the AI Act signature date; the Code Section 1 language explicitly notes that Sub-measure 1.1.2 standards are "yet to be developed." Scruple ships a documented reference implementation in the interim, sized to the survival requirements of typical downstream distribution (recompression, resize).
+
+**Scope shipped:** Raster image outputs of Scruple Studio Web at publication time (via `/api/lock/local`). Video + audio watermarking is scheduled for Q4 2026 (see `../05-governance/interoperability-roadmap.md`).
+
+**Cryptographic parameters:**
+- Payload: 128 bits. Wire format: magic byte (`0x5C`) + version (4 bits) + tier (4 bits) + tier-specific body (112 bits). Tier-1..3 bodies encode a Unix seconds timestamp (64 bits) + reserved (48 bits) — self-contained, no external lookup required to interpret. Tier-4..5 bodies encode a Ravencoin public-asset identifier (SCR-ID, 64 bits) + optional pinned-hint (48 bits). Payload wire specification is normative at `services/watermark/payload.py`.
+- Embedding: Classical DCT spread-spectrum in mid-frequency coefficients (position `(4,3)` of `8×8` YCbCr Y-channel blocks); coefficient perturbation magnitude `α=20` targeting PSNR > 40 dB (imperceptible to the human observer per standard perceptual quality thresholds). Reference implementation at `services/watermark/image_dct.py`.
+- Error correction: Reed-Solomon `RS(255,241)` (14 parity bytes) + triple-repeat per bit + majority vote at decode. Payload is recoverable from partial reads of the coefficient grid.
+- Master-preservation invariant: The clean master bytes are preserved unmodified. The watermark is applied to a derivative alongside; the receipt exposes both files to the artist (`Master (clean)` and `Release (watermarked)`) so the derivative is used for public distribution while the master remains available for upstream reuse (img2img, LoRA training input, subsequent generation).
+- Ingest binding: The Scruple Witness API `/v1/log` accepts three linked fields on the derivative leaf — `master_hash`, `watermark_payload_hex`, `ingredient_master_leaf_hash` — so third-party integrators can chain the watermarked derivative back to its clean-master leaf cryptographically.
+
+**Robustness (validated in `scripts/smoke-watermark.mjs`):**
+- Survives JPEG re-encoding at quality `q=75` (typical CDN / social-media transcode floor).
+- Survives 75% linear resize (typical mobile-first re-scale).
+- Returns null on unwatermarked input (no false-positive; watermark-absence is distinguishable from watermark-tampered).
+- Aggressive geometric crop returns null (not a wrong payload) — validated behaviour.
+
+**Detection:**
+- `scruple-verify watermark --input <file>` decodes the payload, dispatches self-contained (tier 1-3) or chain-lock (tier 4-5) verification, and reports version + tier + timestamp / SCR-ID.
+- Reference decoder is the same Python module used at embed time (`services/watermark/cli.py`); WASM decoder for pure-browser verification is on the roadmap.
+
+**Coverage:** Every raster image output published through `/api/lock/local` at Scruple Studio Web carries the watermark. Chain-lock routes (`/api/lock/chain-*`) receive the watermark in a subsequent commit (tier 4/5 flow is more complex; local-lock proves the pattern).
+
+## Layer 3 — Sub-measure 1.1.3 (Fingerprinting / logging)
 
 **Standard:** Cryptographic-fingerprint per-iteration log with public-ledger
 anchoring — a technique family enumerated in Recital 133 ("logging methods,
@@ -90,24 +115,15 @@ provides:
 (rows 1–11) emits a witness leaf, unconditionally, without regard to the
 downstream marking wrapper.
 
-## Layer we do NOT satisfy — Sub-measure 1.1.2 (Imperceptible watermark)
+## Modality coverage of Sub-measure 1.1.2
 
-Scruple does not currently embed a pixel-domain / frequency-domain
-imperceptible watermark in generated content. This is disclosed openly.
+Sub-measure 1.1.2 is shipped for raster image outputs of Scruple Studio Web at publication time. Video, audio, and chain-locked-route wiring are on the interoperability roadmap:
 
-Rationale for the current gap:
-- The Code recognises that Sub-measure 1.1.2 standards are "yet to be
-  developed" (Code Section 1 language on state of the art).
-- The Article 50(2) "as far as technically feasible" clause applies:
-  Scruple's role as a downstream provider of third-party base models
-  means the imperceptible watermark ideally lives in the base model's
-  generator (SynthID pattern), not in a downstream signer.
-- Our roadmap explicitly commits to closing this gap — see
-  `../05-governance/interoperability-roadmap.md`.
-
-The multi-layered requirement of Section 1 is satisfied by our two
-independent layers (1.1.1 + 1.1.3). The 1.1.2 addition is a strengthening,
-not a compliance prerequisite, per the Code text.
+- **Video** — per-frame image watermark with GOP-level payload rotation; async post-processor to keep the interactive lock path responsive. Scheduled for Q4 2026.
+- **Audio** — spread-spectrum in the frequency domain via `soundfile` + FFT. Scheduled for Q4 2026.
+- **Chain-lock routes** — `/api/lock/chain-*` wiring for tier 4-5 payloads (SCR-ID timing). Follows the local-lock MVP pattern shipped in Q3 2026.
+- **Model weights (mlModel/pytorch)** — not applicable; watermark applies at derivative content generation time from the model, not to the model weights themselves.
+- **Text** — not currently produced as an output; if a text surface is added, Sub-measure 1.1.2 will be satisfied via Google SynthID-Text (open-sourced October 2024).
 
 ## Detection and verification
 
