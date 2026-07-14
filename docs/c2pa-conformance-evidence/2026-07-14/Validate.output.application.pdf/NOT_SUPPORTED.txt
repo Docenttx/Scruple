@@ -1,0 +1,4 @@
+MIME application/pdf is validated (read) via c2pa-python
+0.89.0 but the wrapper does not currently
+expose the signer for this MIME. Raw ingested sample
+copied here so the format is present in the evidence.

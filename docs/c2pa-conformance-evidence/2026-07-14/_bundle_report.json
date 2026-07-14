@@ -1,0 +1,346 @@
+{
+  "intake_record_id": "019f5856-bff8-7f57-a879-80594a6fb3fe",
+  "claim_generator": {
+    "name": "Scruple",
+    "version": "0.1"
+  },
+  "cert_subject": "CN=Scruple Dev Signer (DEV MODE \u2014 production uses OCI Vault)",
+  "generate": {
+    "image/jpeg": {
+      "ok": true,
+      "signed_bytes": 51016,
+      "active_manifest": "urn:c2pa:4c461b03-a2f1-488b-b681-aafbe0d19a5f",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.jpeg"
+    },
+    "image/png": {
+      "ok": true,
+      "signed_bytes": 49461,
+      "active_manifest": "urn:c2pa:badb9289-ba35-4bbb-ae51-899e48a0431b",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.png"
+    },
+    "image/svg+xml": {
+      "ok": true,
+      "signed_bytes": 17550,
+      "active_manifest": "urn:c2pa:e6e1db91-99fb-45ba-a7a3-62f903b351d6",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.svg+xml"
+    },
+    "image/x-adobe-dng": {
+      "ok": true,
+      "signed_bytes": 25415,
+      "active_manifest": "urn:c2pa:9d086929-2bed-45f3-86f2-3bed60d10e00",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.x-adobe-dng"
+    },
+    "image/tiff": {
+      "ok": true,
+      "signed_bytes": 60903,
+      "active_manifest": "urn:c2pa:69ed8802-3bad-4b83-9a34-f4999464c03c",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.tiff"
+    },
+    "image/webp": {
+      "ok": true,
+      "signed_bytes": 409594,
+      "active_manifest": "urn:c2pa:5b65fe2a-d13b-4287-bf4e-71dfc5c256cc",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.webp"
+    },
+    "image/heic": {
+      "ok": true,
+      "signed_bytes": 13704,
+      "active_manifest": "urn:c2pa:3fb47c7d-bc0f-42ec-9b1d-bcc7e8dfb9a5",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.heic"
+    },
+    "image/heif": {
+      "ok": true,
+      "signed_bytes": 14163,
+      "active_manifest": "urn:c2pa:5d0951ad-3085-412d-a0c4-06f8368c73eb",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.heif"
+    },
+    "image/avif": {
+      "ok": true,
+      "signed_bytes": 13659,
+      "active_manifest": "urn:c2pa:795f777b-ee86-4042-8c58-9bf17557d8dd",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.image.avif"
+    },
+    "video/mp4": {
+      "ok": true,
+      "signed_bytes": 15026,
+      "active_manifest": "urn:c2pa:441523d6-bfac-4690-9b21-0bec3c07a8ea",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.video.mp4"
+    },
+    "video/quicktime": {
+      "ok": true,
+      "signed_bytes": 14979,
+      "active_manifest": "urn:c2pa:2b34a863-b5b7-4a5e-848e-9e37f57f2a1e",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.video.quicktime"
+    },
+    "audio/flac": {
+      "ok": true,
+      "signed_bytes": 17821,
+      "active_manifest": "urn:c2pa:cae8fda7-0638-4f2c-93f0-ce8f06009672",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.audio.flac"
+    },
+    "audio/mpeg": {
+      "ok": true,
+      "signed_bytes": 17858,
+      "active_manifest": "urn:c2pa:20b1af82-b64f-4bf7-a3a7-b5b3d9a8bd60",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.audio.mpeg"
+    },
+    "audio/wav": {
+      "ok": true,
+      "signed_bytes": 28928,
+      "active_manifest": "urn:c2pa:46a63b69-2941-4149-9628-2030bde4a62c",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.audio.wav"
+    },
+    "audio/mp4": {
+      "ok": true,
+      "signed_bytes": 17105,
+      "active_manifest": "urn:c2pa:1763bed3-3623-40fd-9151-e5e19aa8d7f8",
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Generate.output.audio.mp4"
+    },
+    "application/x-pytorch": {
+      "ok": false,
+      "skipped": "wrapper_unsupported",
+      "raw_only": true,
+      "raw_bytes": 1829
+    }
+  },
+  "raw_input": {
+    "image/jpeg": {
+      "ok": true,
+      "raw_bytes": 1160,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.jpeg/scruple-jpg-seed2000.jpg"
+    },
+    "image/jxl": {
+      "ok": true,
+      "raw_bytes": 345,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.jxl/scruple-jxl-seed2001.jxl"
+    },
+    "image/png": {
+      "ok": true,
+      "raw_bytes": 153,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.png/scruple-png-seed2002.png"
+    },
+    "image/svg+xml": {
+      "ok": true,
+      "raw_bytes": 288,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.svg+xml/scruple-svg-seed2003.svg"
+    },
+    "image/gif": {
+      "ok": true,
+      "raw_bytes": 3175,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.gif/scruple-gif-seed2004.gif"
+    },
+    "image/x-adobe-dng": {
+      "ok": true,
+      "raw_bytes": 12492,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.x-adobe-dng/scruple-dng-seed2005.dng"
+    },
+    "image/tiff": {
+      "ok": true,
+      "raw_bytes": 11576,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.tiff/scruple-tiff-seed2006.tiff"
+    },
+    "image/webp": {
+      "ok": true,
+      "raw_bytes": 336,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.webp/scruple-webp-seed2007.webp"
+    },
+    "image/heic": {
+      "ok": true,
+      "raw_bytes": 488,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.heic/scruple-heic-seed2008.heic"
+    },
+    "image/heif": {
+      "ok": true,
+      "raw_bytes": 940,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.heif/scruple-heif-seed2009.heif"
+    },
+    "image/avif": {
+      "ok": true,
+      "raw_bytes": 446,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.avif/scruple-avif-seed2010.avif"
+    },
+    "video/x-msvideo": {
+      "ok": true,
+      "raw_bytes": 7030,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.video.x-msvideo/scruple-avi-seed2011.avi"
+    },
+    "video/mp4": {
+      "ok": true,
+      "raw_bytes": 1807,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.video.mp4/scruple-mp4-seed2012.mp4"
+    },
+    "video/quicktime": {
+      "ok": true,
+      "raw_bytes": 1758,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.video.quicktime/scruple-mov-seed2013.mov"
+    },
+    "audio/flac": {
+      "ok": true,
+      "raw_bytes": 4798,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.flac/scruple-flac-seed2014.flac"
+    },
+    "audio/mpeg": {
+      "ok": true,
+      "raw_bytes": 4941,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.mpeg/scruple-mp3-seed2015.mp3"
+    },
+    "audio/wav": {
+      "ok": true,
+      "raw_bytes": 16044,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.wav/scruple-wav-seed2016.wav"
+    },
+    "audio/mp4": {
+      "ok": true,
+      "raw_bytes": 4138,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.mp4/scruple-m4a-seed2017.m4a"
+    },
+    "application/pdf": {
+      "ok": true,
+      "raw_bytes": 1443,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.application.pdf/scruple-pdf-seed2018.pdf"
+    },
+    "application/x-pytorch": {
+      "ok": true,
+      "raw_bytes": 1829,
+      "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.application.x-pytorch/scruple-pt-seed2019.pt"
+    }
+  },
+  "validate": {
+    "image/jpeg": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.jpeg/scruple-jpg-seed2000.jpg",
+      "ingested_sha256": "2799cd16495cf9dda6a6db9055436f0fdcf52679a49c4daa2a7ee51463c5156f",
+      "signed_bytes": 51403,
+      "active_manifest": "urn:c2pa:d1d052d2-fffc-484a-9f58-e5a42ebf0df8"
+    },
+    "image/jxl": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.jxl/scruple-jxl-seed2001.jxl",
+      "ingested_sha256": "ab4565cf0b69b6678ae9b2d36fc6f8e3d2aaf73298b3293e11541e176974688a",
+      "signed_bytes": 13621,
+      "active_manifest": "urn:c2pa:1ab3b85f-ae04-4b1a-9458-0435c9b91577"
+    },
+    "image/png": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.png/scruple-png-seed2002.png",
+      "ingested_sha256": "03dfb1e77284eefbac732d69547fd95994f288a7d056b4ea41b041aa257a9c0e",
+      "signed_bytes": 49860,
+      "active_manifest": "urn:c2pa:4442f031-3e96-48ae-8910-6c38a0aee8d2"
+    },
+    "image/svg+xml": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.svg+xml/scruple-svg-seed2003.svg",
+      "ingested_sha256": "4a1b8adb5e7eab2542d8ae7a765cd6ca577ccaebb47c481a38c83a8eb21b578c",
+      "signed_bytes": 18098,
+      "active_manifest": "urn:c2pa:3a32691b-6cfa-4d4b-bea8-0c3fef83303a"
+    },
+    "image/gif": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.gif/scruple-gif-seed2004.gif",
+      "ingested_sha256": "0b7655e853f6d7e336ac4b290bc6228262f2f8894b25c863bbf300d8a57e01e9",
+      "signed_bytes": 83240,
+      "active_manifest": "urn:c2pa:ef3fc354-0f80-4288-b82e-acec3dbc721b"
+    },
+    "image/x-adobe-dng": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.x-adobe-dng/scruple-dng-seed2005.dng",
+      "ingested_sha256": "56917b93c9b4daba79964536d7f8497ffe2c979bd5e0a9deba8a8460b6ecf1fd",
+      "signed_bytes": 25832,
+      "active_manifest": "urn:c2pa:23800f22-dc9c-4a59-a542-9f89208608fe"
+    },
+    "image/tiff": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.tiff/scruple-tiff-seed2006.tiff",
+      "ingested_sha256": "4b9f87aac97b8243a5fbc3f59d054209b9126de0870dc94d90a1ed6620a9406f",
+      "signed_bytes": 61305,
+      "active_manifest": "urn:c2pa:d4cefa63-0d3d-4ef3-ab3a-1672491cc903"
+    },
+    "image/webp": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.webp/scruple-webp-seed2007.webp",
+      "ingested_sha256": "b4ed4b789b15a5fe7659edc262d989fa6f42550c9f36b0aea762f7d7bca02332",
+      "signed_bytes": 392708,
+      "active_manifest": "urn:c2pa:fde559d0-8097-4e2f-bcd9-c65f3640e807"
+    },
+    "image/heic": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.heic/scruple-heic-seed2008.heic",
+      "ingested_sha256": "579d7fa72f1918c89c45503687e626eaa2448f8e6a7348c1db3224adf159143d",
+      "signed_bytes": 14109,
+      "active_manifest": "urn:c2pa:f4b2dc5a-aa99-432f-a2fc-fea258dd4295"
+    },
+    "image/heif": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.heif/scruple-heif-seed2009.heif",
+      "ingested_sha256": "b4d2cc5bbf096f45696c862d13f91a5c0c9ab7fb6f82e77868f034b8e0bf01fd",
+      "signed_bytes": 14561,
+      "active_manifest": "urn:c2pa:14e84cca-ed05-47ed-ac18-9d762cbe5022"
+    },
+    "image/avif": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.image.avif/scruple-avif-seed2010.avif",
+      "ingested_sha256": "54d6f74eae4c2e762f4113a9042a103bccfd8a62f57f5acde14b105565493cb7",
+      "signed_bytes": 14067,
+      "active_manifest": "urn:c2pa:bbbb5c03-5087-46be-a88f-f7d5e838c7ad"
+    },
+    "video/x-msvideo": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.video.x-msvideo/scruple-avi-seed2011.avi",
+      "ingested_sha256": "0b80cb7bfa24697c8db656abdf96f83c37f7875b6c86d3348b2efcb0136a85fc",
+      "signed_bytes": 20332,
+      "active_manifest": "urn:c2pa:9d327ddb-2083-444d-909a-a0501c495992"
+    },
+    "video/mp4": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.video.mp4/scruple-mp4-seed2012.mp4",
+      "ingested_sha256": "ec1d4a0630ec48bebf1c392443593f30319fdecb736d6881a563fa74a4e9ef84",
+      "signed_bytes": 15423,
+      "active_manifest": "urn:c2pa:56b592c0-6c24-4a91-ab2d-07423e237b09"
+    },
+    "video/quicktime": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.video.quicktime/scruple-mov-seed2013.mov",
+      "ingested_sha256": "ad4699be44b285a5470d234680f34f11311ca2c0d53f196ed5ae82699b5dda03",
+      "signed_bytes": 15392,
+      "active_manifest": "urn:c2pa:98101135-f46e-4684-926a-396cb64ce450"
+    },
+    "audio/flac": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.flac/scruple-flac-seed2014.flac",
+      "ingested_sha256": "65a97ab95d0f076d27364395783c4388cee54e6afeb6446694ee12ba1d7fe825",
+      "signed_bytes": 18141,
+      "active_manifest": "urn:c2pa:ca18e2e0-1306-4df4-975c-031403d120f5"
+    },
+    "audio/mpeg": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.mpeg/scruple-mp3-seed2015.mp3",
+      "ingested_sha256": "48bebac3e11adf790919224239fbb54a2b77af525b03331cee3aad7348a360af",
+      "signed_bytes": 18261,
+      "active_manifest": "urn:c2pa:921965a2-e7af-4861-b15d-c4829cfe2223"
+    },
+    "audio/wav": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.wav/scruple-wav-seed2016.wav",
+      "ingested_sha256": "01cfce2731c8daef0ae4ead5eae4f13f77556b7feb0eadf2bb657a32c79647c0",
+      "signed_bytes": 29328,
+      "active_manifest": "urn:c2pa:02c7ab6a-9f2b-4ea5-b34d-895813948dd6"
+    },
+    "audio/mp4": {
+      "ok": true,
+      "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-14/Raw.input.audio.mp4/scruple-m4a-seed2017.m4a",
+      "ingested_sha256": "80d7b4b7f11bdbaebbc8980522b309703ac4967be01909b9fe24c48a6a0164ab",
+      "signed_bytes": 17754,
+      "active_manifest": "urn:c2pa:4cf78d98-8f12-4ae7-8096-2c08b9701478"
+    },
+    "application/pdf": {
+      "ok": false,
+      "skipped": "wrapper_unsupported_sign",
+      "copied_raw_bytes": 1443
+    },
+    "application/x-pytorch": {
+      "ok": false,
+      "skipped": "wrapper_unsupported_sign",
+      "copied_raw_bytes": 1829
+    }
+  }
+}

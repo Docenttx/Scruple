@@ -122,13 +122,46 @@ async function computeSignedArtifactHashes(
   return { assetSha256, outputManifestSha256: combined.digest('hex') };
 }
 
+/**
+ * Extension → MIME map. Kept in sync with the C2PA Conformance intake
+ * assertion (services/c2pa-signer/formats.py) so any format we claim to
+ * generate can be routed correctly to the signer at runtime. The Python
+ * signer wrapper (services/c2pa-signer/build_evidence_bundle.py) uses
+ * an identical dispatch — see docs/c2pa-conformance-evidence/2026-07-14/.
+ *
+ * If you add a MIME here, also add it to formats.GENERATE_MIMES and
+ * producers.PRODUCERS so the evidence bundle stays complete.
+ */
 function mimeFromPath(p: string): string {
   const ext = path.extname(p).toLowerCase();
+  // images
   if (ext === '.png') return 'image/png';
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
   if (ext === '.webp') return 'image/webp';
+  if (ext === '.svg') return 'image/svg+xml';
+  if (ext === '.tif' || ext === '.tiff') return 'image/tiff';
+  if (ext === '.dng') return 'image/x-adobe-dng';
+  if (ext === '.heic') return 'image/heic';
+  if (ext === '.heif') return 'image/heif';
+  if (ext === '.avif') return 'image/avif';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.jxl') return 'image/jxl';
+  // video
   if (ext === '.mp4') return 'video/mp4';
+  if (ext === '.mov') return 'video/quicktime';
+  if (ext === '.avi') return 'video/x-msvideo';
   if (ext === '.webm') return 'video/webm';
+  // audio
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.flac') return 'audio/flac';
+  if (ext === '.mp3') return 'audio/mpeg';
+  if (ext === '.m4a') return 'audio/mp4';
+  // documents / mlModel — INTAKE-asserted but NOT SUPPORTED by
+  // c2pa-python 0.89 signer wrapper as of 2026-07-14. Falls back to
+  // octet-stream so the caller gets a clean error rather than a wrong
+  // MIME dispatch. Revisit when c2pa-python exposes these features.
+  //   .pdf → application/pdf     (wrapper missing)
+  //   .pt / .pth → pytorch       (wrapper missing)
   return 'application/octet-stream';
 }
 
