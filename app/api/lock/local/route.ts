@@ -18,6 +18,7 @@ import { conn } from '@/lib/db/sqlite';
 import { buildMerkle } from '@/lib/scruple/merkle';
 import { deriveScrId } from '@/lib/scruple/hash';
 import { witness } from '@/lib/scruple/witness';
+import { watermarkProjectIterations } from '@/lib/watermark/apply';
 import type { ProjectRow, IterationRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -141,6 +142,23 @@ export async function POST(req: NextRequest) {
 
   console.log(`[LOCAL_LOCK] user=${userId} project=${body.projectId} scr=${scrId} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… sig=${(lockSig ?? '').slice(0, 12)}…`);
 
+  // Watermark image iterations as tier-3 derivatives per
+  // WATERMARK_DESIGN_v1.md v1.2. Master bytes stay unmodified; derivatives
+  // are new byte sequences with their own hash. Non-image iterations and
+  // any masters not reachable locally are skipped with a note in the
+  // response — the lock itself succeeds regardless. Errors here do NOT
+  // roll back the lock (the lock is done; watermarking is additive).
+  let watermarkResult: ReturnType<typeof watermarkProjectIterations> | null = null;
+  try {
+    watermarkResult = watermarkProjectIterations({
+      projectId: body.projectId,
+      tier: 'local-lock',
+    });
+    console.log(`[LOCAL_LOCK] watermark applied=${watermarkResult.applied} skipped=${watermarkResult.skipped.length} errors=${watermarkResult.errors.length}`);
+  } catch (e) {
+    console.error('[LOCAL_LOCK] watermark step failed (lock stands):', e);
+  }
+
   return NextResponse.json({
     ok: true,
     scrId,
@@ -151,5 +169,6 @@ export async function POST(req: NextRequest) {
     paymentVerified: true,
     serverSignature: lockSig,
     lockedAtWitnessed,
+    watermark: watermarkResult,
   });
 }

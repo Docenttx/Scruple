@@ -1,10 +1,21 @@
-// Public, unauthenticated provenance receipt at /receipt/SCR_XXXXXX.
-// Renders project metadata + Merkle proof + witness signatures so any
-// visitor can verify a project's claim.
+// Receipt page at /receipt/SCR_XXXXXX. Renders project metadata + Merkle
+// proof + witness signatures.
+//
+// PRIVACY MODEL (2026-07-14): the receipt is user-controlled by design.
+// Public reachability is granted ONLY when the artist has affirmatively
+// published (IPFS-pinned = projects.ipfs_cid IS NOT NULL). Otherwise the
+// page is owner-only — third parties must obtain the receipt package from
+// the artist directly. This matches the stated Scruple design intent:
+// the only things Scruple affirmatively makes public are the on-chain
+// markers (RVN asset ID, Arweave TX ID). Everything else stays with the
+// artist unless they opt to pin.
+//
+// See docs/wo/RECEIPT_PRIVACY_CLEANUP.md for the design rationale.
 
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { conn } from '@/lib/db/sqlite';
+import { auth } from '@/lib/auth/auth';
 import {
   LOCK_STATE_LABELS,
   type ProjectRow,
@@ -39,6 +50,21 @@ export default async function ReceiptPage({ params }: { params: { scrId: string 
     .prepare(`SELECT * FROM projects WHERE scr_id = ? OR pre_scr_id = ?`)
     .get(scrId, scrId) as ProjectRow | undefined;
   if (!project) notFound();
+
+  // Privacy gate — see file header. Public if the artist has pinned to
+  // IPFS (their affirmative publication action). Otherwise owner-only.
+  const isPubliclyReachable = Boolean(project.ipfs_cid);
+  if (!isPubliclyReachable) {
+    const session = await auth();
+    const requesterId = (session?.user as { id?: string } | undefined)?.id;
+    const isOwner = requesterId && requesterId === project.user_id;
+    if (!isOwner) {
+      // 404 rather than 401/403 — don't confirm the SCR-ID exists to a
+      // third party who can't view it. Preserves plausible deniability
+      // about the receipt's existence at this URL.
+      notFound();
+    }
+  }
 
   const iterations = conn()
     .prepare(`SELECT * FROM iterations WHERE project_id = ? ORDER BY run_sequence ASC`)
@@ -412,6 +438,12 @@ function IterationCard({
         <TrustBadgesBlock labeled={labeledNodes} />
       )}
 
+      {/* Watermark derivative + two-download UX (WATERMARK_DESIGN v1.2).
+          When a watermarked derivative exists, present both the clean
+          master and the released (watermarked) version with clear labels.
+          Downstream pipeline work → Master. Public distribution → Release. */}
+      <WatermarkAndDownloadBlock it={it} />
+
       {/* input artifacts */}
       {inputs.length > 0 && (
         <div className="mt-2">
@@ -511,6 +543,83 @@ function ModelFingerprintsBlock({ raw }: { raw: string | null }) {
 interface ComfyNodeShape {
   class_type?: string;
   inputs?: Record<string, unknown>;
+}
+
+const WATERMARK_TIER_NAMES: Record<number, string> = {
+  1: 'C2PA-signed',
+  2: 'Checkpoint',
+  3: 'Local-lock',
+  4: 'Chain-lock (basic)',
+  5: 'Chain-lock (pinned)',
+};
+
+/**
+ * Two-download UX + watermark badge for a single iteration. When a
+ * watermarked derivative exists, show BOTH the clean master (for
+ * re-editing / re-generation / training input) and the release
+ * (watermarked, for public distribution / evidence). Also renders the
+ * watermark tier + payload as a badge so verifiers can confirm at a
+ * glance. See WATERMARK_DESIGN_v1.md §4.3 (master preservation
+ * invariant) and §7.5 (two-download UX).
+ */
+function WatermarkAndDownloadBlock({ it }: { it: IterationRow }) {
+  // Extract watermark fields — some may be undefined on older rows
+  // (pre-migration 038) or on iterations that were never watermarked.
+  const wm = it as unknown as {
+    watermark_derivative_hash?: string | null;
+    watermark_payload_hex?: string | null;
+    watermark_scheme_version?: number | null;
+    watermark_tier?: number | null;
+    watermark_signed_at?: string | null;
+  };
+  const hasDerivative = Boolean(wm.watermark_derivative_hash);
+  const tierName = wm.watermark_tier != null ? WATERMARK_TIER_NAMES[wm.watermark_tier] : null;
+
+  // Master download always present. Release only when a derivative exists.
+  return (
+    <div className="mt-2 border-t border-scruple-border pt-2">
+      <div className="text-[9px] uppercase tracking-widest text-scruple-muted">
+        Downloads
+      </div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-3 text-[10px]">
+        {it.output_hash && (
+          <a
+            href={`/api/artifact/${it.output_hash}`}
+            download
+            className="rounded border border-scruple-border bg-scruple-bg px-2 py-1 font-mono text-scruple-text hover:bg-scruple-surface"
+            title="Clean master bytes — no watermark. Use for re-editing, re-generation, LoRA training input, or any pipeline that would fight a perceptual watermark."
+          >
+            Master (clean) — {it.output_hash.slice(0, 12)}…
+          </a>
+        )}
+        {hasDerivative && wm.watermark_derivative_hash && (
+          <a
+            href={`/api/artifact/${wm.watermark_derivative_hash}`}
+            download
+            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-mono text-emerald-300 hover:bg-emerald-500/20"
+            title="Watermarked release — signed derivative. Use for public distribution, evidence packages, and court-admissible artifacts."
+          >
+            Release (watermarked) — {wm.watermark_derivative_hash.slice(0, 12)}…
+          </a>
+        )}
+      </div>
+      {hasDerivative && (
+        <div className="mt-1 flex flex-wrap items-baseline gap-2 text-[9px] text-scruple-muted">
+          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-emerald-300">
+            watermark v{wm.watermark_scheme_version} · tier {wm.watermark_tier} · {tierName}
+          </span>
+          {wm.watermark_payload_hex && (
+            <span className="font-mono" title={wm.watermark_payload_hex}>
+              payload {wm.watermark_payload_hex.slice(0, 8)}…
+            </span>
+          )}
+          {wm.watermark_signed_at && (
+            <span>signed {new Date(wm.watermark_signed_at).toLocaleString()}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**

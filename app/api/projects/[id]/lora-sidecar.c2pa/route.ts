@@ -27,6 +27,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { conn } from '@/lib/db/sqlite';
+import { auth } from '@/lib/auth/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,6 +41,8 @@ interface ProjectRow {
   status: string;
   type: string;
   name: string;
+  user_id: string;
+  ipfs_cid: string | null;
 }
 
 export async function GET(
@@ -53,7 +56,7 @@ export async function GET(
 
   const project = conn()
     .prepare(
-      `SELECT id, scr_id, status, type, name
+      `SELECT id, scr_id, status, type, name, user_id, ipfs_cid
          FROM projects
         WHERE id = ?`,
     )
@@ -61,6 +64,17 @@ export async function GET(
 
   if (!project) {
     return NextResponse.json({ error: 'project not found' }, { status: 404 });
+  }
+
+  // Privacy gate (2026-07-14) — mirrors app/receipt/[scrId]/page.tsx.
+  // Public only when the artist has pinned to IPFS. Otherwise owner-only.
+  // See docs/wo/RECEIPT_PRIVACY_CLEANUP.md.
+  if (!project.ipfs_cid) {
+    const session = await auth();
+    const requesterId = (session?.user as { id?: string } | undefined)?.id;
+    if (!requesterId || requesterId !== project.user_id) {
+      return NextResponse.json({ error: 'project not found' }, { status: 404 });
+    }
   }
 
   if (project.type !== 'training') {

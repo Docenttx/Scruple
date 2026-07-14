@@ -42,6 +42,13 @@ export interface LeafInput {
   workflow_hash?: string;
   /** v2.4 — SHA-256 of the canonical machine manifest. Bare 64-hex string. */
   machine_manifest_hash?: string;
+  /** Watermark derivative fields (WATERMARK_DESIGN_v1.md v1.2). When
+   *  present, this leaf represents a watermarked derivative of a clean
+   *  master (identified by `master_hash` + `ingredient_master_leaf_hash`).
+   *  Verifier uses these to establish the master↔derivative lineage. */
+  master_hash?: string;
+  watermark_payload_hex?: string;
+  ingredient_master_leaf_hash?: string;
 }
 
 export interface StreamRow {
@@ -77,6 +84,9 @@ export interface IngestError {
     | 'invalid_body'
     | 'invalid_payload_hash'
     | 'invalid_dims_value'
+    | 'invalid_master_hash'
+    | 'invalid_watermark_payload'
+    | 'invalid_ingredient_leaf_hash'
     | 'invalid_workflow_hash'
     | 'invalid_machine_manifest_hash'
     | 'pii_key_in_meta'
@@ -205,6 +215,32 @@ export function ingestLeaf(
   }
   if (input.machine_manifest_hash !== undefined && input.machine_manifest_hash !== '' && !HEX64.test(input.machine_manifest_hash)) {
     return { ok: false, code: 'invalid_machine_manifest_hash', detail: 'machine_manifest_hash must be 64 lowercase hex chars' };
+  }
+  // Watermark derivative fields (WATERMARK_DESIGN_v1.md v1.2 §7.4).
+  // When any one is present, all three must be present and valid — the
+  // whole point is establishing the master↔derivative lineage cleanly.
+  const hasWmField =
+    input.master_hash !== undefined ||
+    input.watermark_payload_hex !== undefined ||
+    input.ingredient_master_leaf_hash !== undefined;
+  if (hasWmField) {
+    if (!input.master_hash || !HEX64.test(input.master_hash)) {
+      return { ok: false, code: 'invalid_master_hash', detail: 'master_hash must be 64 lowercase hex chars' };
+    }
+    if (!input.watermark_payload_hex || !/^[0-9a-f]{32}$/.test(input.watermark_payload_hex)) {
+      return { ok: false, code: 'invalid_watermark_payload', detail: 'watermark_payload_hex must be 32 lowercase hex chars (128 bits)' };
+    }
+    // Payload magic + version gate (per WATERMARK_DESIGN §3)
+    if (input.watermark_payload_hex.slice(0, 2) !== '5c') {
+      return { ok: false, code: 'invalid_watermark_payload', detail: 'watermark_payload_hex first byte must be magic 0x5c' };
+    }
+    const versionNibble = parseInt(input.watermark_payload_hex.charAt(2), 16);
+    if (versionNibble !== 1) {
+      return { ok: false, code: 'invalid_watermark_payload', detail: `unsupported watermark version: ${versionNibble}` };
+    }
+    if (!input.ingredient_master_leaf_hash || !HEX64.test(input.ingredient_master_leaf_hash)) {
+      return { ok: false, code: 'invalid_ingredient_leaf_hash', detail: 'ingredient_master_leaf_hash must be 64 lowercase hex chars' };
+    }
   }
   if (input.meta) {
     for (const k of Object.keys(input.meta)) {

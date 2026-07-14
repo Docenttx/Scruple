@@ -35,6 +35,11 @@ Usage:
       in the tenant's chain and each prev_baseline_hash link is valid
       back to genesis.
 
+  scruple-verify watermark --input <path-to-image>
+      Decode the Scruple watermark from an image and report its tier +
+      payload + resolution path (public RVN lookup for chain-lock tiers;
+      self-contained for tier 1-3).
+
   scruple-verify attestation --receipt <url|path>
       Re-verify every platform_attestation envelope on the receipt
       via the same shared verifier plugins the server uses (SEV-SNP,
@@ -250,6 +255,13 @@ if (subcommand === 'leaf') {
     quiet: argFlag('--quiet'),
   });
   process.exit(ok ? 0 : 1);
+} else if (subcommand === 'watermark') {
+  const { verifyWatermark } = await import('./watermark_verify.mjs');
+  await verifyWatermark({
+    inputSource: argVal('--input'),
+    json: argFlag('--json'),
+    quiet: argFlag('--quiet'),
+  });
 } else if (subcommand === 'attestation') {
   const { verifyAttestations } = await import('./attestation_verify.mjs');
   const ok = await verifyAttestations({
