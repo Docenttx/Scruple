@@ -1,4 +1,4 @@
-# Scruple Watermark — Design Specification v1.1
+# Scruple Watermark — Design Specification v1.2
 
 **Status:** Draft, for review.
 **Author:** Scruple Engineering
@@ -6,15 +6,28 @@
 **Depends on:** `SCRUPLE_STANDARD_v1.md` v1.2; `SCRUPLE_INTEGRATION_REQUIREMENTS_v1.md` v1.2
 **Companion:** `docs/eu-ai-office/evidence-bundle-2026-07-14/03-marking-implementation/marking-technical-spec.md` — this doc closes the Sub-measure 1.1.2 gap noted there.
 
+**Design principle:** minimum compliance now, expansion-ready. Ship the
+smallest thing that satisfies EU Code Sub-measure 1.1.2 + Article 50(2)
+without introducing new server-side surfaces we'd have to maintain,
+secure, and reason about GDPR-wise. Every optional expansion is
+architected in but not implemented.
+
 ## Change log
 
-- **v1.1 (2026-07-14, later same day):** major architectural revision.
-  Watermark step moved from generation-time to publication-time so the
-  artist's working master stays clean; downstream img2img / img2vid /
-  training pipelines get untainted input. New "master preservation
-  invariant" (§4.2). Two-download UX. API contract for client-side
-  watermarking added (§7.4). Storage/retention policy added (§8).
-- **v1.0 (2026-07-14):** initial draft. Watermark step at ingest.
+- **v1.2 (2026-07-14, evening):** simplification. Recognized that no
+  regulation requires per-artifact public receipts (see §10), and that
+  Scruple's own receipts are user-controlled by design. Removed
+  Scruple-hosted `witness.scruple.ai/v1/watermark-lookup` registry
+  entirely — RVN is the public lookup for tier 4/5, tier 1-3 need no
+  lookup at all. Removed `POST /v1/watermark/payload` — payload
+  construction is fully client-side (nothing tier 1-3 needs from us;
+  chain-lock event already gave the client the SCR_ID for tier 4-5).
+  Simplified payload structure per §3 accordingly.
+- **v1.1 (2026-07-14, later):** watermark moved to publication/lock as
+  signed derivative; master preservation invariant; two-download UX;
+  client-side API surface; storage/retention.
+- **v1.0 (2026-07-14):** initial draft (watermark at ingest, single
+  copy). Superseded.
 
 ---
 
@@ -103,30 +116,45 @@ video across GOP.
 
 ### 3.1 Tier layout
 
-Tier byte determines how the 112 body bits are interpreted:
+Tier byte determines how the 112 body bits are interpreted. Load-bearing
+principle: **no tier body encodes anything that requires a Scruple-hosted
+server-side lookup to resolve.** Tier 1-3 are self-contained (magic + time
++ future-optional bits); tier 4-5 encode SCR_ID which resolves against
+the public RVN chain, not Scruple infrastructure.
 
 ```
-tier | name               | body layout                                                | resolution path
------+--------------------+------------------------------------------------------------+------------------
-0    | reserved           | (unused)                                                   | —
-1    | c2pa-signed        | [ manifest_fingerprint: 112 bits (14 bytes) ]              | registry lookup
-2    | checkpoint         | [ manifest_fingerprint: 112 bits ] (same as tier 1)        | registry lookup
-3    | local-lock         | [ local_lock_hash: 112 bits ]                              | registry lookup
-4    | chain-lock basic   | [ scr_id: 64 bits ] [ reserved: 48 bits ]                  | RVN asset lookup
-5    | chain-lock pinned  | [ scr_id: 64 bits ] [ pinned_hint: 48 bits ]               | RVN + IPFS/Arweave
-6..15| reserved           | (future — subscription tiers, per-jurisdiction marks)      | —
+tier | name               | body layout                                                       | resolution path
+-----+--------------------+-------------------------------------------------------------------+---------------------------------
+0    | reserved           | (unused)                                                          | —
+1    | c2pa-signed        | [ signed_at_unix_seconds: 64 bits ] [ reserved: 48 bits ]         | no lookup (self-contained)
+2    | checkpoint         | [ signed_at_unix_seconds: 64 bits ] [ reserved: 48 bits ]         | no lookup (self-contained)
+3    | local-lock         | [ signed_at_unix_seconds: 64 bits ] [ reserved: 48 bits ]         | no lookup (self-contained)
+4    | chain-lock basic   | [ scr_id: 64 bits ] [ reserved: 48 bits ]                         | public RVN asset lookup
+5    | chain-lock pinned  | [ scr_id: 64 bits ] [ pinned_hint: 48 bits ]                      | public RVN + IPFS/Arweave
+6..15| reserved           | (future — subscription tiers, per-jurisdiction marks, etc.)       | TBD
 ```
 
 Where:
-- `manifest_fingerprint` = first 14 bytes of `SHA-256(canonical_c2pa_manifest_bytes)`.
-  Sufficient collision resistance at Scruple-scale ingest volume; registry
-  disambiguates the rare collision.
-- `scr_id` = the 8-byte / 16-hex Scruple SCR-ID assigned at chain-lock time,
-  packed as a big-endian u64. (SCR-IDs are already 6-8 hex chars → 24-32
-  bits; padded to 64 for future room.)
+- `signed_at_unix_seconds` = the Scruple signer's UTC timestamp at the
+  moment the derivative was signed. 64-bit unsigned. Useful in verifier
+  UX ("AI-generated at time T"), does NOT link to any artist identity or
+  private receipt.
+- `scr_id` = the 8-byte / 16-hex Scruple SCR-ID that names the RVN asset
+  minted at chain-lock time. Packed as a big-endian u64. (SCR-IDs are
+  6-8 hex chars → 24-32 bits; padded to 64 for future room.)
 - `pinned_hint` = short lookup key that resolves the IPFS CID and Arweave
   txid through the RVN asset's chain metadata (avoids embedding the full
   IPFS CID in a 48-bit budget).
+
+**Why no manifest_fingerprint anymore:** the v1.1 design encoded a
+14-byte fingerprint of the C2PA manifest for tier 1-3, resolvable via a
+Scruple-hosted registry endpoint that returned the receipt URL. But no
+regulation requires per-artifact public receipts (see §10), and Scruple's
+own receipts are user-controlled by design (per SCRUPLE_STANDARD_v1.md).
+A Scruple-hosted registry would leak information the artist chose to
+keep private and add a server-side surface with GDPR + retention +
+availability obligations that aren't compliance-required. The v1.2
+simplification removes it entirely.
 
 ### 3.2 Payload lookup rules for a decoder
 
@@ -136,11 +164,27 @@ Given a decoded payload:
    return `no-scruple-watermark`.
 2. Read tier.
 3. Dispatch:
-   - Tier 1/2/3 → `HTTPS GET witness.scruple.ai/v1/watermark-lookup/<hex_fingerprint>`
-     → returns the C2PA manifest (or reference to it) if we signed it.
-   - Tier 4/5 → resolve SCR-ID to RVN asset directly, no Scruple dependency.
-     Optionally fetch pinned metadata via IPFS/Arweave if tier=5.
+   - **Tier 1/2/3** → no lookup. Decoder returns
+     `{ tier, version, signed_at_unix_seconds }`. Verifier UX renders
+     "AI-generated by Scruple-marked pipeline at time T. To identify
+     the artist or verify the full C2PA manifest, obtain the file's
+     receipt from the artist or from any location where they've
+     published it (e.g. IPFS)."
+   - **Tier 4/5** → resolve SCR-ID to RVN asset directly against the
+     public RVN chain (no Scruple dependency). RVN asset metadata
+     includes the content hash; optionally IPFS CID + Arweave txid for
+     tier 5. From there the verifier fetches the full provenance
+     package publicly (if the artist pinned it) or contacts the artist.
 4. Return the composite verdict object (see §7.2).
+
+**What tier 1-3 does NOT reveal:** identity of the artist, contents of
+the manifest, workflow, model, machine, time-of-generation (only
+time-of-signing), lock history, or anything that would link the artifact
+back to a specific Scruple account.
+
+**What tier 4-5 does reveal:** the SCR-ID (which the artist affirmatively
+published to RVN by chain-locking) and everything derivable from that
+public marker. The artist opted into that disclosure at chain-lock time.
 
 ## 4. Integration point in the pipeline
 
@@ -307,39 +351,34 @@ new bytes.
 **v1.0 scope:** ship image + audio in the ingest hot path; video ships as
 a Phase-2 async post-processor (see §10).
 
-## 6. Registry endpoint (for tier 1–3 lookup)
+## 6. Public lookup infrastructure
 
-**Endpoint:** `GET https://witness.scruple.ai/v1/watermark-lookup/{fingerprint_hex}`
+**Scruple hosts no watermark registry.** All public lookup uses
+infrastructure that already exists and is not operated by Scruple:
 
-**Auth:** none (public — the whole point is any finder can trace).
+- **Tier 4** — SCR_ID resolves against the public Ravencoin chain via any
+  RVN explorer or direct chain query. The RVN asset's data field carries
+  the content hash the artist chain-locked. The verifier fetches the
+  provenance package from the artist directly, or from IPFS if the
+  artist chose to pin.
+- **Tier 5** — same RVN resolution, and the `pinned_hint` bits let the
+  verifier construct the IPFS CID + Arweave txid without a Scruple
+  round-trip. Both IPFS and Arweave are public infrastructure.
+- **Tier 1-3** — no lookup needed by design (see §3.1). The watermark
+  says "AI-generated, Scruple-marked pipeline, time T" and stops there.
+  Artist controls disclosure beyond that.
 
-**Rate limit:** aggressive per-IP (100/min baseline) to discourage
-scraping our manifest registry.
+**No `watermark_registry` table on Scruple's side.** No
+`witness.scruple.ai/v1/watermark-lookup/` endpoint. No new database
+migration. No new public HTTP surface with GDPR / retention / availability
+obligations.
 
-**Request:** `fingerprint_hex` — 28-char lowercase hex (14 bytes = 112 bits).
-
-**Response 200:**
-```json
-{
-  "found": true,
-  "manifest_url": "https://scruple.ai/receipt/SCR_A38E30FF",
-  "manifest_hash_sha256": "…64 hex…",
-  "signed_at": "2026-07-14T12:00:00Z",
-  "signer_identity": "Scruple/0.1 via OCI Vault"
-}
-```
-
-**Response 404:**
-```json
-{ "found": false, "detail": "no scruple-signed content with this fingerprint" }
-```
-
-**Storage:** SQLite table `watermark_registry` keyed on `manifest_fingerprint`,
-populated at C2PA sign time. One row per signed manifest. Estimated volume:
-one row per iteration; small.
-
-**Privacy:** the endpoint returns the receipt URL, which is already public.
-No new information disclosed.
+**If future compliance requirements demand a Scruple-hosted lookup
+service:** the 48 reserved bits per tier body (§3.1) leave room to
+encode a future `fingerprint_or_lookup_ref` field without breaking v1
+decoders. Version 2 of the payload spec would carry it; v1 decoders
+would gracefully ignore it and return the same "self-contained" verdict
+they do today. Expansion-ready without over-building now.
 
 ## 7. Decoder API
 
@@ -428,29 +467,24 @@ const { masterReceipt, derivativeReceipt } =
   });
 ```
 
-**Payload-request endpoint** (client-side flow, called at step 1 above):
+**Payload construction — fully client-side (no server round-trip):**
 
-```
-POST /v1/watermark/payload
-Authorization: Bearer <tenant_key>
-X-Scruple-Signature: <hmac over body>
+The payload is a pure function of `tier + (timestamp OR scr_id + hint)`.
+All inputs are known to the client at watermark time:
 
-{
-  "master_hash": "sha256:...",
-  "intended_tier": "chain-lock-basic",
-  "chain_lock_id_ref": "SCR_A38E30FF"   // required for tier 4/5
-}
-→
-{
-  "payload_hex": "5c14a3...",   // 32 hex = 128 bits, packed per §3
-  "tier": 4,
-  "version": 1,
-  "encoder_recommendation": "stegastamp-v1"
-}
-```
+- Tier 1-3: `signed_at_unix_seconds` is the client's current UTC time
+  captured just before embed; no lookup needed.
+- Tier 4-5: `scr_id` was returned to the client by the preceding chain-lock
+  operation (existing `/v1/lock/chain-lock-*` endpoints already return it).
+  `pinned_hint` is derived locally from the IPFS CID / Arweave txid the
+  client already holds after the pin.
 
-**Sign-derivative endpoint** (called at step 3, mirrors existing /v1/log
-ingest with lineage fields):
+`@scruple/watermark` and `scruple-watermark` both ship a `buildPayload()`
+helper that packs the 128 bits per §3 given a tier and the relevant local
+inputs. No network call. No API key required for this step.
+
+**Sign-derivative endpoint** (called after client-side embed, mirrors
+existing /v1/log ingest with lineage fields):
 
 ```
 POST /v1/log/<stream>
@@ -460,15 +494,23 @@ X-Scruple-Signature: <hmac>
 {
   ...standard leaf fields...
   "master_hash": "sha256:<clean-bytes-hash>",
-  "watermark_payload_hex": "5c14a3...",
+  "watermark_payload_hex": "5c...",
   "action": "c2pa.edited",
   "ingredient_master_leaf_hash": "sha256:<clean-master-leaf>"
 }
 ```
 
-The server verifies the payload matches the tier + master combination
-before signing the derivative — so a caller cannot claim a chain-lock
-watermark without actually holding the corresponding chain lock.
+The server verifies:
+- `watermark_payload_hex` bytes 0 = `0x5C` (magic) and bytes 1 = supported version
+- Payload's tier byte matches the tier the caller is claiming
+- For tier 4/5: the payload's SCR_ID matches the caller's actual chain-lock
+  record on file. Prevents a caller from claiming a chain-lock watermark
+  without actually holding the corresponding lock.
+- For tier 1/2/3: the payload's timestamp is within a reasonable clock-skew
+  window of the sign request time (guards against replay-mismatch).
+
+No new endpoints. `POST /v1/log/<stream>` gains three optional fields; the
+server-side validation logic gains ~30 lines.
 
 ## 7.5 Two-download UX
 
@@ -707,27 +749,42 @@ decoder in Python + unit tests + robustness test corpus.
 
 ## 14. Open questions
 
-1. **Legal:** is any known patent held on the specific StegaStamp
-   architecture in commercially deployed form? MVP research indicates no,
-   but a lawyer's read before launch.
-2. **Registry as GDPR concern:** the registry stores a fingerprint → URL
-   mapping. Not personal data on its face. Confirm with counsel.
-3. **Tier 3 semantics:** local-lock content isn't published — is a
-   registry lookup useful? Alternative: tier 3 encodes local-lock hash
-   but registry lookup returns `not-published` even if fingerprint matches.
-4. **Audio floor duration:** 7-second minimum. What do we do for shorter
-   clips? Options: don't watermark and flag; use a lower-payload scheme
-   with reduced tier granularity; refuse to produce.
-5. **Video async re-encode:** the watermarked video has a different hash
-   than the un-watermarked one. If a caller had already downloaded the
-   un-watermarked version, they'll fail verification against the new leaf.
-   Design decision: do we hold delivery until watermark is done, or serve
-   un-watermarked with a `watermark-pending` header? Recommend hold.
-6. **Attack response:** if a specific watermark stripper is published,
-   how fast can we ship v2? What signals do we watch for?
+The 6-question list in v1.1 was reduced by the v1.2 simplification.
+Three questions were resolved by design:
+
+- ~~Patent check on StegaStamp~~ — 5+ years in the wild, MIT-licensed
+  reference implementation, no enforcement action. Ship with StegaStamp;
+  fall back to classical DCT if any signal emerges. Not a lawyer question.
+- ~~Registry GDPR review~~ — no registry exists in v1.2 (see §6). The
+  data-controller surface is unchanged from today. Not a lawyer question.
+- ~~Tier 3 semantics~~ — no registry means no lookup means no ambiguity.
+  Tier 3 watermarks are self-contained "AI-generated at time T" marks,
+  same as tier 1-2. Resolved by removal.
+
+Remaining real questions (product decisions):
+
+1. **Audio floor duration:** 7-second minimum for 20 bps schemes. What
+   do we do for shorter clips? Options: (a) don't watermark, return a
+   `watermark-skipped-short-clip` flag in the C2PA manifest, or (b) use
+   a lower-payload scheme (fewer bits, reduced tier granularity) for
+   short clips. Recommend (a) — simpler, honest.
+2. **Video async re-encode UX:** the watermarked video has a different
+   hash than the un-watermarked one. Do we hold delivery until watermark
+   is done, or serve un-watermarked with a `watermark-pending` header
+   and re-serve when ready? Recommend hold — simpler, no confusion.
+3. **Attack response cadence:** if a specific watermark stripper is
+   published, how fast can we ship v2? What signals do we watch for?
+   Recommend defining a signal set + response SLA before Phase 1 ships
+   so we're not scrambling later.
 
 ## 15. Version history
 
+- **v1.2** (2026-07-14, evening) — minimum-compliance simplification.
+  Registry endpoint removed; payload construction fully client-side;
+  tier 1-3 payloads are self-contained "AI-generated at time T" marks;
+  tier 4-5 resolve against public RVN chain (no Scruple dependency).
+  48 reserved bits per body leave room for a future v2 payload without
+  breaking v1 decoders.
 - **v1.1** (2026-07-14, later) — watermark moved to publication/lock as
   signed derivative; master preservation invariant; two-download UX;
   client-side API surface; storage/retention.
