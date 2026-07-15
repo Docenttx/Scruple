@@ -1,0 +1,40 @@
+=== OS ===
+NAME="Oracle Linux Server"
+VERSION="9.7"
+ID="ol"
+ID_LIKE="fedora"
+VARIANT="Server"
+VARIANT_ID="server"
+VERSION_ID="9.7"
+PLATFORM_ID="platform:el9"
+PRETTY_NAME="Oracle Linux Server 9.7"
+ANSI_COLOR="0;31"
+CPE_NAME="cpe:/o:oracle:linux:9:7:server"
+HOME_URL="https://linux.oracle.com/"
+BUG_REPORT_URL="https://github.com/oracle/oracle-linux"
+
+ORACLE_BUGZILLA_PRODUCT="Oracle Linux 9"
+ORACLE_BUGZILLA_PRODUCT_VERSION=9.7
+ORACLE_SUPPORT_PRODUCT="Oracle Linux"
+ORACLE_SUPPORT_PRODUCT_VERSION=9.7
+
+=== Kernel ===
+Linux scruple-signer-cvm 6.12.0-204.92.4.2.el9uek.x86_64 #2 SMP PREEMPT_DYNAMIC Thu Jul  2 07:57:39 PDT 2026 x86_64 x86_64 x86_64 GNU/Linux
+
+=== CPU ===
+model name	: AMD EPYC-Genoa-v2 Processor
+
+=== SEV ===
+[    0.652143] Memory Encryption Features active: AMD SEV SEV-ES SEV-SNP
+[    0.652158] SEV: Status: SEV SEV-ES SEV-SNP 
+[    0.756655] SEV: APIC: wakeup_secondary_cpu() replaced with wakeup_cpu_via_vmgexit()
+[    2.376303] SEV: Using SNP CPUID table, 38 entries present.
+[    2.376308] SEV: SNP running at VMPL0.
+[    2.537089] iommu: Memory encryption detected - Disabling default IOMMU Passthrough
+
+=== SoftHSM ===
+ERROR: Failed to enumerate object store in /var/lib/scruple-signer/softhsm/tokens
+ERROR: Please verify that the SoftHSM configuration is correct.
+
+=== c2pa signer key ===
+Using slot with index 0 (0x26af2804)
