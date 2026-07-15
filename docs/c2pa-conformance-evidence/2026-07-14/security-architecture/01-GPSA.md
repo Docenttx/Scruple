@@ -260,19 +260,36 @@ asset bytes or C2PA assertions.
 ```
 
 **Production golden-image + zero-Internet-egress pattern.** The
-production Signer CVM is provisioned from a golden Oracle Linux 9
-image via cloud-init user-data (script at
-`security-architecture/runbooks/cloud-init-signer-cvm-oraclelinux.yaml`).
-Oracle Linux is chosen over Ubuntu specifically so the CVM's Service
-Gateway route to "All IAD Services in Oracle Services Network"
-covers every runtime dependency: the OS package mirror
-(`iad-ad-1.clouds.archive.oracle.com`), OCI Vault (for the SoftHSM
-PIN Secret), and the AMD PSP attestation service. **No NAT Gateway
-and no general-Internet egress from the private subnet.** The trust
-boundary is: OCI-services-only outbound plus mTLS-authenticated
-Backend-Web inbound on port 8443. This is the "golden image" pattern
-called out in NIST SP 800-190 §4.4 and matches C2PA GPSR §6.6 L2 for
-"network segmentation to isolate the hosting environment."
+production Signer CVM is provisioned from a **custom Oracle Linux 9
+golden image** built via `packer` (or equivalent) with every runtime
+dependency baked in:
+- OS: Oracle Linux 9 with UEK kernel supporting SEV-SNP
+- System packages: `softhsm`, `opensc`, `openssl-pkcs11`, `python3`
+  (all from Oracle's yum mirror at image-build time, then locked)
+- Python packages: `oci-cli`, `c2pa==0.36.0`, `cryptography`, `oci`
+  (all pre-installed via pip at image-build time from PyPI; NEVER at
+  runtime)
+- Scruple binaries: the Signer service, systemd units, boot-time
+  PIN-fetch helper — all committed into the image
+- Cloud-init user-data reduced to: fetch PIN from Vault → init
+  SoftHSM token → generate ES256 key → export pubkey → start
+  Signer service
+
+Because everything is pre-baked, **the production CVM's private
+subnet has ZERO Internet egress**. The only outbound network path
+is via the Service Gateway to "All IAD Services in Oracle Services
+Network" — specifically to OCI Vault for the PIN Secret and for
+attestation-report submission. No PyPI, no Ubuntu/Debian mirrors,
+no arbitrary DNS. This matches NIST SP 800-190 §4.4 and C2PA GPSR
+§6.6 L2 "network segmentation to isolate the hosting environment"
+at its strictest.
+
+**Bootstrap-time (non-production) alternative.** For development
+and pre-production instances that pull dependencies at first boot
+rather than using a pre-baked image, a temporary NAT Gateway on the
+private subnet is provisioned during setup, then removed after
+bootstrap completes. This is documented as an operational option
+in `security-architecture/runbooks/`, not as a production pattern.
 
 **Subsystems and their in-TOE status:**
 
