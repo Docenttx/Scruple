@@ -1,0 +1,75 @@
+# Scruple L2 HIDS -- osqueryd unit for Ubuntu 24.04.
+# Install target: /etc/systemd/system/osqueryd.service
+#
+# Runs as User=root because osqueryd needs privileged access for
+# filesystem-wide FIM (file_events), audit subscription (sudo_history,
+# process events), and reads under /root/.ssh. Do not drop privileges.
+#
+# Enable with:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now osqueryd.service
+
+[Unit]
+Description=osquery HIDS daemon (Scruple L2)
+Documentation=https://osquery.readthedocs.io/
+After=network-online.target systemd-journald.service auditd.service
+Wants=network-online.target
+ConditionPathExists=/etc/osquery/osquery.conf
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# osqueryd expects its state / log / pid directories to exist.
+RuntimeDirectory=osqueryd
+RuntimeDirectoryMode=0750
+LogsDirectory=osquery
+LogsDirectoryMode=0750
+StateDirectory=osquery
+StateDirectoryMode=0700
+
+ExecStartPre=/bin/mkdir -p /var/log/osquery
+ExecStart=/usr/bin/osqueryd \
+  --config_path=/etc/osquery/osquery.conf \
+  --logger_path=/var/log/osquery \
+  --pidfile=/var/run/osqueryd.pid \
+  --database_path=/var/osquery/osquery.db \
+  --disable_watchdog=false \
+  --force=true
+
+# Signal handling: osqueryd terminates cleanly on SIGTERM.
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Hardening. ProtectHome=yes still lets us watch /home/*/.ssh via the
+# audit / inotify subsystems, which are kernel-side and not blocked by
+# the systemd mount namespace. ProtectSystem=strict makes /usr, /boot,
+# and /etc read-only for the daemon; we allow writes only to the
+# osquery state / log directories.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=false
+ProtectKernelTunables=true
+ProtectKernelModules=false
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/log/osquery /var/osquery /var/run
+
+# Resource caps -- osqueryd's own watchdog will restart the worker if
+# these are approached; systemd hard caps are the backstop.
+LimitNOFILE=65536
+LimitNPROC=4096
+TasksMax=2048
+
+[Install]
+WantedBy=multi-user.target

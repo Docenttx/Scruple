@@ -1,0 +1,10 @@
+SEV-SNP Report Summary
+======================
+Report length: 1184 bytes
+Version: 5
+Policy: 0x0000000000030000
+Report data (first 32 hex): d5b782d80eb3e4f38ac8a54c1ff6ef496fb30fb841f0ebf417996eb73c7398ab
+Report data binds signer pubkey sha256: True
+VM Measurement: 7237c44bfc842925afa7860596631e8b7e28bcb679fc15c443e1a091c6ec3d1999b90c43b0580a414dde18cb3efbd45a
+Chip ID (64 hex): bd296e674119acb7367311bf0be06eaf0f6d15b5f0fc78d4f38653f46ca48baa...
+Reported TCB: 0x581c00000000000a

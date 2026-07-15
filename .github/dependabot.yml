@@ -1,0 +1,109 @@
+# Dependabot configuration for scruple-web.
+#
+# One PR per ecosystem per week, grouped by production vs. dev to keep
+# the review queue sane. Version-updates only — Dependabot security
+# alerts run on their own cadence regardless of this file.
+
+version: 2
+
+updates:
+  # -------------------- npm (Next.js app + packages/) --------------------
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "Docenttx/security"
+    labels:
+      - dependencies
+      - javascript
+    groups:
+      npm-production:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      npm-development:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # -------------------- pip (c2pa-signer) --------------------
+  # Targets services/c2pa-signer/requirements.txt when present.
+  # Dependabot no-ops silently if the manifest doesn't exist yet.
+  - package-ecosystem: pip
+    directory: /services/c2pa-signer
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Docenttx/security"
+    labels:
+      - dependencies
+      - python
+      - c2pa-signer
+    groups:
+      pip-production:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      pip-development:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # -------------------- pip (watermark) --------------------
+  - package-ecosystem: pip
+    directory: /services/watermark
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Docenttx/security"
+    labels:
+      - dependencies
+      - python
+      - watermark
+    groups:
+      pip-production:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      pip-development:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # -------------------- GitHub Actions --------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Docenttx/security"
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions-all:
+        patterns:
+          - "*"

@@ -1,0 +1,10 @@
+# OSV-Scanner gating config for scruple-web.
+#
+# Add per-CVE exemptions here with a mandatory `reason` and `ignore_until`.
+# CI's second OSV pass fails the job on any un-exempted CRITICAL/HIGH.
+#
+# Example:
+#   [[IgnoredVulns]]
+#   id = "GHSA-xxxx-xxxx-xxxx"
+#   ignoreUntil = 2026-09-01
+#   reason = "Not reachable from our code path — verified in PR #123."

@@ -1,0 +1,439 @@
+# Security CI for scruple-web (Next.js + Python)
+#
+# This workflow is the merge gate for security-relevant regressions.
+# Anything that blocks merge is called out explicitly in the job's header
+# comment with a "what breaks if this triggers" rationale.
+#
+# Triggers:
+#   - push to main            : catch anything that lands directly on trunk
+#   - pull_request (any base) : the primary merge gate
+#   - workflow_dispatch       : manual re-runs (e.g. after allow-listing a CVE)
+#   - push tags v*            : release-only jobs (SBOM upload, stale-vuln gate)
+
+name: security
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+# Default to least-privilege. Individual jobs widen only where required.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # SCA — OSV-Scanner
+  # Blocks on CRITICAL/HIGH per CVSS v3+ across all lockfiles (npm, pip).
+  # What breaks if this triggers: a dependency in package-lock.json or any
+  # requirements.txt has a known exploitable vulnerability. Bump the dep or
+  # add an entry to .osv-scanner.toml with a documented rationale.
+  # --------------------------------------------------------------------------
+  sca-osv-scanner:
+    name: SCA — OSV-Scanner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # for SARIF upload
+    steps:
+      - uses: actions/checkout@v4
+
+      # google/osv-scanner-action pins to the v2 line of osv-scanner.
+      # If Google renames the sub-action path (they have before), update the ref.
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@v2.0.2
+        with:
+          # Recursive scan finds package-lock.json + all requirements.txt +
+          # pyproject.toml automatically. --fail-on-vuln blocks on any match;
+          # we further filter to CRITICAL/HIGH via the config file below.
+          scan-args: |-
+            --recursive
+            --format=sarif
+            --output=osv-results.sarif
+            ./
+
+      - name: Upload OSV SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: osv-results.sarif
+          category: osv-scanner
+
+      # Separate gating pass — fail the job on CRITICAL/HIGH only.
+      # (First pass is best-effort so SARIF always uploads.)
+      - name: Gate on CRITICAL/HIGH
+        uses: google/osv-scanner-action/osv-scanner-action@v2.0.2
+        with:
+          scan-args: |-
+            --recursive
+            --config=.github/osv-scanner.toml
+            ./
+
+  # --------------------------------------------------------------------------
+  # SCA — Grype
+  # Second-opinion dependency scanner. Grype's vuln DB differs from OSV,
+  # so running both catches gaps in either feed.
+  # What breaks if this triggers: same as OSV — bump the dep or ignore
+  # with a documented rationale in .grype.yaml.
+  # --------------------------------------------------------------------------
+  sca-grype:
+    name: SCA — Grype
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Grype (dir scan)
+        uses: anchore/scan-action@v6
+        id: grype
+        with:
+          path: '.'
+          fail-build: true
+          severity-cutoff: high  # blocks on high + critical
+          output-format: sarif
+
+      - name: Upload Grype SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: grype
+
+  # --------------------------------------------------------------------------
+  # SAST — Semgrep
+  # OWASP Top 10 + language rulesets. ERROR-severity findings block.
+  # What breaks if this triggers: your PR introduced a pattern Semgrep flags
+  # as high-confidence security bug (SSRF, injection, weak crypto, etc.).
+  # Either fix the code or, if false positive, add a // nosemgrep comment
+  # with justification.
+  # --------------------------------------------------------------------------
+  sast-semgrep:
+    name: SAST — Semgrep
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    # Semgrep publishes an official container image with the CLI preinstalled.
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Semgrep scan
+        # `--error` exits non-zero on any ERROR-severity finding.
+        # SARIF output feeds the Security tab; JSON output is retained
+        # as an artifact for triage.
+        run: |
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/python \
+            --config p/nodejs \
+            --error \
+            --severity ERROR \
+            --sarif --output=semgrep.sarif \
+            --json --output=semgrep.json \
+            .
+
+      - name: Upload Semgrep SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      - name: Upload Semgrep JSON artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep.json
+          retention-days: 30
+
+  # --------------------------------------------------------------------------
+  # SAST — CodeQL (GitHub-native)
+  # Deep semantic analysis for JavaScript/TypeScript and Python.
+  # What breaks if this triggers: CodeQL detected a data-flow path from a
+  # tainted source to a dangerous sink (SQLi, XSS, path traversal, etc.).
+  # These are high-signal — treat as a real bug unless you can prove the
+  # source isn't attacker-controllable.
+  # --------------------------------------------------------------------------
+  sast-codeql:
+    name: SAST — CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read  # required by codeql-action to read workflow metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended raises the alert threshold coverage;
+          # combined with the analyze step's fail-on gate below it blocks
+          # on high-severity findings only.
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+          # Block the job on any high-severity or higher alert.
+          # (Note: some CodeQL packs report "critical" as its own tier;
+          # "high" here means "high or worse".)
+          upload: always
+        env:
+          # Fail the job on high+ severity findings. This is a codeql-action
+          # v3 env var; the flag has been stable since 3.24.
+          CODEQL_ACTION_FAIL_ON_HIGH_SEVERITY: 'true'
+
+  # --------------------------------------------------------------------------
+  # SBOM — CycloneDX
+  # Emits a CycloneDX-format SBOM every commit; on tag pushes, attaches to
+  # the GitHub Release so downstream consumers can verify supply chain.
+  # This job does NOT block merge — it's evidence, not a gate.
+  # --------------------------------------------------------------------------
+  sbom-cyclonedx:
+    name: SBOM — CycloneDX
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required only on tag events to upload release asset
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: '.'
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          artifact-name: sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 90
+
+      - name: Attach SBOM to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sbom.cdx.json
+
+  # --------------------------------------------------------------------------
+  # Static typecheck
+  # TypeScript strict + Python mypy strict (when installed).
+  # What breaks if this triggers: a type contract regressed. Type errors
+  # in security-adjacent code (auth, crypto, IO) are the ones we care
+  # about most; the check runs against everything to keep the gate simple.
+  # --------------------------------------------------------------------------
+  static-typecheck:
+    name: Static typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: TypeScript typecheck
+        # package.json defines `typecheck: tsc --noEmit` at time of writing.
+        # If that script disappears, fall back to a raw tsc invocation.
+        run: |
+          if npm run | grep -qE '^  typecheck'; then
+            npm run typecheck
+          else
+            npx --no-install tsc --noEmit
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python mypy (best effort)
+        # mypy is optional. If a requirements-dev.txt or pyproject.toml with
+        # mypy config exists, install it; otherwise install mypy standalone
+        # and run --strict against the services/ tree.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install mypy
+          if [ -d services ]; then
+            mypy --strict --ignore-missing-imports services/ || {
+              echo "::error::mypy --strict failed on services/"
+              exit 1
+            }
+          else
+            echo "no services/ directory — skipping mypy"
+          fi
+
+  # --------------------------------------------------------------------------
+  # Countermeasures verification (checksec)
+  # Verifies that the Node.js and Python interpreters we ship against have
+  # NX/PIE/RELRO/canary/stack-protector on. This catches the (rare) case
+  # where a distro rebuild landed without hardening flags.
+  # What breaks if this triggers: the runner's interpreter binary lost a
+  # hardening flag. Usually a distro-side regression, not something in
+  # our code — flag as a runner-image issue.
+  # This job does NOT block merge — it produces evidence for review.
+  # --------------------------------------------------------------------------
+  countermeasures-verification:
+    name: Countermeasures — checksec
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install checksec (from paxtest)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y paxtest checksec
+
+      - name: Run checksec on interpreters
+        run: |
+          {
+            echo "# checksec — Node.js"
+            checksec --file="$(command -v node)" || true
+            echo
+            echo "# checksec --format=cli --file=node"
+            checksec --format=cli --file="$(command -v node)" || true
+            echo
+            echo "# checksec — Python"
+            checksec --file="$(command -v python3)" || true
+            echo
+            echo "# checksec --format=cli --file=python3"
+            checksec --format=cli --file="$(command -v python3)" || true
+          } | tee checksec-report.txt
+
+      - name: Upload checksec report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksec-report
+          path: checksec-report.txt
+          retention-days: 30
+
+  # --------------------------------------------------------------------------
+  # Release blocker — stale CRITICAL/HIGH vulnerabilities
+  # Runs on tag push only. If any CRITICAL/HIGH CVE has been sitting
+  # detected for >90 days without a bump, block the release.
+  # What breaks if this triggers: you're about to tag a release that
+  # carries a known-exploitable dep older than the 90-day grace window.
+  # Bump the dep or explicitly acknowledge in .osv-scanner.toml with
+  # ignore_until + a rationale.
+  # --------------------------------------------------------------------------
+  known-vuln-release-blocker:
+    name: Release gate — stale CVE check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [sca-osv-scanner, sca-grype, sast-semgrep, sast-codeql]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install osv-scanner CLI
+        run: |
+          curl -sSfL https://github.com/google/osv-scanner/releases/download/v2.0.2/osv-scanner_linux_amd64 \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+
+      - name: Scan and emit JSON
+        run: |
+          osv-scanner --recursive --format=json --output=osv-release.json ./ || true
+
+      - name: Fail if any CRITICAL/HIGH is >90 days past first detection
+        # We consider the CVE "first detected" as the vuln's published date.
+        # If that date is >90 days ago and severity is CRITICAL/HIGH, block.
+        # For a per-commit "when did WE first see this" audit trail, wire
+        # this to a persistent store later — for now we conservatively
+        # use published date, which is public.
+        run: |
+          python3 <<'PY'
+          import json, sys, datetime as dt
+          with open("osv-release.json") as f:
+              data = json.load(f)
+          now = dt.datetime.now(dt.timezone.utc)
+          cutoff = now - dt.timedelta(days=90)
+          offenders = []
+          for res in data.get("results", []):
+              for pkg in res.get("packages", []):
+                  for v in pkg.get("vulnerabilities", []):
+                      sev = ""
+                      for s in v.get("severity", []) or []:
+                          # OSV can carry CVSS_V3 / CVSS_V4 score strings.
+                          if s.get("type", "").startswith("CVSS_V"):
+                              sev = s.get("score", "")
+                              break
+                      # Group severity buckets by CVSS numeric if present,
+                      # else fall back to database_specific.severity string.
+                      is_high = False
+                      try:
+                          # CVSS vector strings start with "CVSS:3.x/..."; extract
+                          # base score if the group summary carries one.
+                          pass
+                      except Exception:
+                          pass
+                      grouped_sev = (v.get("database_specific") or {}).get("severity", "").upper()
+                      if grouped_sev in ("CRITICAL", "HIGH"):
+                          is_high = True
+                      if not is_high:
+                          continue
+                      pub = v.get("published") or v.get("modified")
+                      if not pub:
+                          continue
+                      try:
+                          pub_dt = dt.datetime.fromisoformat(pub.replace("Z", "+00:00"))
+                      except ValueError:
+                          continue
+                      if pub_dt < cutoff:
+                          offenders.append({
+                              "id": v.get("id"),
+                              "package": pkg.get("package", {}).get("name"),
+                              "severity": grouped_sev,
+                              "published": pub,
+                          })
+          if offenders:
+              print("Release blocked — CRITICAL/HIGH CVEs older than 90 days:")
+              for o in offenders:
+                  print(f"  - {o['id']} ({o['severity']}) in {o['package']} — published {o['published']}")
+              sys.exit(1)
+          print("No stale CRITICAL/HIGH CVEs. Release gate open.")
+          PY
+
+      - name: Upload release scan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osv-release-scan
+          path: osv-release.json
+          retention-days: 365

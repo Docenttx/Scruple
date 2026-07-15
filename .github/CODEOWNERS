@@ -1,0 +1,14 @@
+# CODEOWNERS — who reviews what.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# The last matching pattern wins.
+
+# Fallback owner for everything.
+*                            @aquanomous
+
+# Security-sensitive paths — require @aquanomous review.
+/services/c2pa-signer/       @aquanomous
+/lib/witness/                @aquanomous
+
+# CI / security policy configuration.
+/.github/                    @aquanomous

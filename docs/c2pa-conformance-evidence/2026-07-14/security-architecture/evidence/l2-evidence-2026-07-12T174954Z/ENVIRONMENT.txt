@@ -1,0 +1,52 @@
+=== HOST ENVIRONMENT ===
+kernel: 6.17.0-1011-oracle
+distro: Ubuntu 24.04.4 LTS
+instance_ocid: ocid1.instance.oc1.iad.anuwcljtzjtltxictqqomtd7thg73al5xlwmjs62omtnbbfjn63nell22hoa
+date_utc: 2026-07-12T17:49:42Z
+
+=== SEV-SNP EVIDENCE (dmesg) ===
+[    0.000000] Linux version 6.17.0-1011-oracle (buildd@lcy02-amd64-114) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #11~24.04.1-Ubuntu SMP Fri Apr 10 02:28:06 UTC 2026 (Ubuntu 6.17.0-1011.11~24.04.1-oracle 6.17.13)
+[    0.000000]   AMD AuthenticAMD
+[    0.000000] secureboot: Secure boot disabled
+[    0.003533] secureboot: Secure boot disabled
+[    0.003534] RAMDISK: [mem 0x75050000-0x77fd4fff]
+[    2.781705] Memory Encryption Features active: AMD SEV SEV-ES SEV-SNP
+[    2.782591] SEV: Status: SEV SEV-ES SEV-SNP 
+[    2.955788] smpboot: CPU0: AMD EPYC-Genoa-v2 Processor (family: 0x19, model: 0x11, stepping: 0x0)
+[    2.956613] SEV: APIC: wakeup_secondary_cpu() replaced with wakeup_cpu_via_vmgexit()
+[    2.977645] Performance Events: Fam17h+ core perfctr, AMD PMU driver.
+[    3.527321] SEV: Using SNP CPUID table, 38 entries present.
+[    3.527588] SEV: SNP running at VMPL0.
+[    4.359769] SEV: SNP guest platform devices initialized.
+[    4.651935] amd_pstate: The CPPC feature is supported but currently disabled by the BIOS.
+[    4.651937] amd_pstate: the _CPC object is not present in SBIOS or ACPI disabled
+[    4.684411] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing: 61482aa2830d0ab2ad5af10b7250da9033ddcef0'
+[    4.685840] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2017): 242ade75ac4a15e50d50c84b0d45ff3eae707a03'
+[    4.687456] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (ESM 2018): 365188c1d374d6b07c3c8f240f8ef722433d6a8b'
+[    4.688977] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2019): c0746fd6c5da3ae827864651ad66ae47fe24b3e8'
+[    4.690451] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2021 v1): a8d54bbb3825cfb94fa13c9f8a594a195c107b8d'
+
+=== /dev/sev-guest ===
+crw------- 1 root root 10, 261 Jul 12 17:32 /dev/sev-guest
+
+=== configfs-tsm ===
+total 0
+drwxr-xr-x 3 root root 0 Jul 12 17:37 .
+drwxr-xr-x 3 root root 0 Jul 12 17:32 ..
+drwxr-xr-x 2 root root 0 Jul 12 17:37 scruple
+
+=== HSM ===
+ERROR: Could not load the SoftHSM configuration.
+ERROR: Please verify that the SoftHSM configuration is correct.
+
+=== PYTHON DEPS ===
+asn1crypto          1.5.1
+c2pa-python         0.36.0
+cryptography        41.0.7
+pillow              12.3.0
+pyasn1              0.4.8
+pyasn1-modules      0.2.8
+python-pkcs11       0.9.5
+
+=== c2patool version ===
+c2patool 0.9.12
