@@ -35,12 +35,24 @@ architected from the beginning against the L2 §6.2.2 requirement. The
 2026-07-12 evidence run demonstrated the substrate end-to-end (see §5
 of the accompanying evidence dossier).
 
-**Filing posture — design-level.** Per the Program's own guidance
-("We will assess your conformance with these requirements at a
-design level. Therefore, we expect your product's design to be fully
-formed and undergoing testing at a pre-production level."), this
-document describes Scruple's **production architecture** at design
-resolution. Sections below name concrete substrates (AMD SEV-SNP,
+**Filing posture — design-level with two live substrate proofs.** Per
+the Program's own guidance ("We will assess your conformance with
+these requirements at a design level. Therefore, we expect your
+product's design to be fully formed and undergoing testing at a
+pre-production level."), this document describes Scruple's
+**production architecture** at design resolution. Two independent
+live substrate proofs are attached, both cryptographically binding
+a SoftHSM ES256 public key to an OCI SEV-SNP CVM attestation:
+
+- **2026-07-12** — Ubuntu 24.04 CVM (`docs/l2-evidence/2026-07-12T174954Z/`)
+- **2026-07-15** — Oracle Linux 9 CVM (`docs/l2-evidence/2026-07-15T132856Z/`)
+
+Both bundles capture identical VM measurements (`7237c44b...`) —
+proving the boot image is reproducible across independent CVM
+launches on different dates. Two separate SoftHSM keys were
+generated inside two separate CVMs; each key's SHA-256 appears
+byte-for-byte as the first 32 bytes of its respective attestation
+report's `report_data` field. Sections below name concrete substrates (AMD SEV-SNP,
 OCI Vault, SoftHSM 2 PKCS#11, cloud-init user-data provisioning,
 etc.) as the design commitment. Scruple is currently pre-production
 — no paying customer is signing on the production hot path today,
