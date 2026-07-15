@@ -3,6 +3,6 @@
 # Pinned to specific patch versions for reproducibility.
 # Dependabot updates weekly per .github/dependabot.yml.
 
-c2pa==0.36.0
+c2pa==1.4.1
 cryptography==42.0.5
 oci==2.129.1
