@@ -4,5 +4,5 @@
 # Dependabot updates weekly per .github/dependabot.yml.
 
 c2pa==0.36.0
-cryptography==42.0.5
+cryptography==49.0.0
 oci==2.129.1
