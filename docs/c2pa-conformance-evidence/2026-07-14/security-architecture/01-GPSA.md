@@ -35,14 +35,37 @@ architected from the beginning against the L2 §6.2.2 requirement. The
 2026-07-12 evidence run demonstrated the substrate end-to-end (see §5
 of the accompanying evidence dossier).
 
-**Filing posture.** The C2PA Program's own guidance is that assessment
-happens at design level for pre-production products. Scruple is
-pre-production: no paying customers are currently signing content on
-the production hot path. The architecture described below is the
-production architecture that a customer signing on with Scruple would
-be onboarded to, ready for immediate cutover once the Trust-List
-end-entity certificate is issued (§C.2.1). The evidence dossier
-attached is the pre-production validation of that architecture.
+**Filing posture — design-level.** Per the Program's own guidance
+("We will assess your conformance with these requirements at a
+design level. Therefore, we expect your product's design to be fully
+formed and undergoing testing at a pre-production level."), this
+document describes Scruple's **production architecture** at design
+resolution. Sections below name concrete substrates (AMD SEV-SNP,
+OCI Vault, SoftHSM 2 PKCS#11, cloud-init user-data provisioning,
+etc.) as the design commitment. Scruple is currently pre-production
+— no paying customer is signing on the production hot path today,
+and the specific instance currently running the substrate is a
+proving-ground CVM, not the customer-facing production CVM. The
+evidence dossier at
+`security-architecture/evidence/l2-evidence-2026-07-12T174954Z/`
+captures a live SEV-SNP attestation with the SoftHSM public key
+cryptographically bound to the CVM measurement, demonstrating that
+the substrate works end-to-end in real Oracle infrastructure. When a
+Program-verified Trust-List end-entity cert is issued and a customer
+signs on, the same architecture is provisioned via reproducible
+cloud-init user-data (script at
+`security-architecture/runbooks/cloud-init-signer-cvm.yaml`) into a
+fresh CVM whose SEV-SNP attestation is captured at first boot for
+that customer's records.
+
+**Level 1 comparison.** Every L2 control described below either
+strictly implies or exceeds the corresponding L1 control per the
+Requirements Document — a Level 2 architecture necessarily satisfies
+Level 1. Level 1 is documented implicitly by our L2 posture; where
+L1-only-eligible controls exist (for §6.5 traffic and §6.6 hosting)
+they are called out in each subsection. If the assessor concludes L2
+evidence is insufficient for a specific objective, Scruple accepts
+grading at L1 for that objective with no architectural change.
 
 ---
 
@@ -316,18 +339,28 @@ subsystems and TLS 1.3 (or higher) encryption. Both are in place; see
 
 ### C.1.6. Target Max Assurance Level
 
-**Level 2.**
+**Level 2 — with explicit Level 1 dual-tier mapping.**
 
-Per-objective self-assessment:
+Per §6 of the Requirements Document, each L2 requirement is defined
+as "In addition to the requirements defined for Level 1, Level 2
+requires the following…". A Level 2-conformant Generator Product
+therefore also satisfies every Level 1 requirement by construction.
+Scruple's production architecture is designed against L2 for every
+applicable objective; L1 is achieved implicitly.
 
-| Objective | Level | Notes |
-|---|---|---|
-| **O.1** Automated cert enrollment | **N/A** — the Program-designated CAs (DigiCert Content Credentials, SSL.com C2PA Signer) use manual CSR-submission enrollment. §6.1 requirements are "only applicable if conforming GP instances rely on automated certificate enrollment for initial certificate issuance or rotation." We do not; §6.1 is N/A. |
-| **O.2** Signing key confidentiality | **L2 satisfied** | ES256 private key generated + held inside SoftHSM inside SEV-SNP CVM. Non-exportable. Attestation report cryptographically binds pubkey to CVM measurement. See §C.2.2 + evidence at `security-architecture/evidence/l2-evidence-2026-07-12T174954Z/` |
-| **O.3** Claim Generator hardening | **L2 satisfied** | SCA/SBOM + Semgrep static analysis wired in `.github/workflows/security.yml`. SEV-SNP measurement pins patch recency (AMD firmware + kernel). See §C.2.3 |
-| **O.4** Content-processing hardening | **L2 satisfied** | Same CI coverage as O.3. Signer isolation via dedicated `scruple-signer` user, systemd hardening, Unix domain socket 0660. See §C.2.4 |
-| **O.5** Traffic protection | **L2 satisfied** | Cloudflare TLS 1.3 externally, mTLS 1.3 + HMAC between Web ↔ Signer, kernel IPC isolation via systemd hardening. See §C.2.5 |
-| **O.6** Hosting environment | **L2 satisfied** | OCI IAM RBAC, OCI Audit logging, osquery HIDS with Fleet-style aggregation, VCN network segmentation. See §C.2.6 |
+| Obj | L1 status | L2 status | Design mechanism |
+|---|---|---|---|
+| **O.1** Automated cert enrollment | N/A | N/A | Program-designated Trust List CAs (DigiCert, SSL.com) use manual CSR-submission enrollment. §6.1 requirements are "only applicable if conforming GP instances rely on automated certificate enrollment." Scruple does not. §C.2.1. |
+| **O.2** Signing-key confidentiality | Achieved | **Achieved** | ES256 key generated + held inside SoftHSM 2 PKCS#11 token inside AMD SEV-SNP Confidential VM. `CKA_EXTRACTABLE=CK_FALSE`. Non-exportable. Attestation report cryptographically binds pubkey to CVM measurement (evidence at `security-architecture/evidence/l2-evidence-2026-07-12T174954Z/`). Backend-Signer authenticates Backend-Web via mTLS 1.3 + per-request HMAC. §C.2.2. |
+| **O.3** Claim Generator hardening | Achieved | **Achieved** | SCA (OSV-Scanner + Grype), SAST (Semgrep + CodeQL), SBOM (CycloneDX), release blocker gates all wired in `.github/workflows/security.yml`. SEV-SNP TCB in attestation report pins AMD firmware + kernel version, satisfying patch-recency-via-hardware-RoT requirement. §C.2.3. |
+| **O.4** Content-processing hardening | Achieved | **Achieved** | Same CI coverage as O.3. Signer service isolation via dedicated `scruple-signer` OS user + systemd hardening (`ProtectSystem=strict`, `PrivateTmp`, `NoNewPrivileges`, `MemoryDenyWriteExecute`, `SystemCallFilter=@system-service`). Modal runner containers per-user ephemeral (Modal SOC 2 for isolation). §C.2.4. |
+| **O.5** Traffic protection | Achieved | **Achieved** | External Edge↔Backend-Web: Cloudflare-terminated TLS 1.3. Backend-Web↔Backend-Signer: mTLS 1.3 + HMAC on private OCI VCN subnet. Kernel-level IPC isolation via systemd (§C.2.5). Distributed-Class-required mutual authentication in place. |
+| **O.6** Hosting environment | Achieved | **Achieved** | OCI IAM RBAC (Dynamic Groups + tight-scoped Policies). OCI Audit tenancy-wide (365d retention). osquery HIDS on Backend-Web, Backend-Signer CVM, Witness host. VCN network segmentation via Cloudflare Tunnel ingress + private-subnet Signer + Service Gateway egress. §C.2.6. |
+
+**Fallback grading acceptance.** If the assessor concludes L2 evidence
+is insufficient for any specific objective, Scruple accepts grading
+at L1 for that objective with no architectural change; the same
+Level-2 substrate is by construction Level-1-conformant.
 
 ### C.1.7. Target Generator Product capabilities
 
