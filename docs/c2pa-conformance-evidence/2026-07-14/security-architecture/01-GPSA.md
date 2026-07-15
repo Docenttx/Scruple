@@ -515,10 +515,15 @@ end-to-end demonstration on the 2026-07-12 evidence run under
   uses per-VM keys derived by the AMD PSP (Platform Security Processor)
   — hardware root of trust. The Oracle hypervisor and any other tenant
   see only encrypted memory. SoftHSM's protected memory region + the
-  private key inside it are inside this encrypted region. Optionally,
-  SoftHSM tokens can be wrapped by an OCI Vault master key
-  (FIPS 140-2 Level 3 HSM-backed) for disaster-recovery backups; the
-  Vault master key is itself hardware-derived.
+  private key inside it are inside this encrypted region. SoftHSM
+  tokens are additionally wrapped by an OCI Vault master key
+  (FIPS 140-2 Level 3 HSM-backed via OCI Vault Virtual Private Vault
+  partition in production) for disaster-recovery backups; the Vault
+  master key is itself hardware-derived. Pre-production runs the same
+  code path against a Standard OCI Vault (the master-key API is
+  identical between Standard and Virtual Private Vaults); the
+  hardware-partition upgrade is a substrate-level operational change
+  with no code impact.
 - **(d) One of: hardware-RoT attestation of key possession, OR
   independent auditor certification.** We satisfy **(d)(i)** —
   hardware-RoT attestation. The SEV-SNP attestation report's
