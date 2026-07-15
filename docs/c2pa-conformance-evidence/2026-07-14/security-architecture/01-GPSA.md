@@ -259,6 +259,21 @@ asset bytes or C2PA assertions.
                               └──────────────────────────────┘
 ```
 
+**Production golden-image + zero-Internet-egress pattern.** The
+production Signer CVM is provisioned from a golden Oracle Linux 9
+image via cloud-init user-data (script at
+`security-architecture/runbooks/cloud-init-signer-cvm-oraclelinux.yaml`).
+Oracle Linux is chosen over Ubuntu specifically so the CVM's Service
+Gateway route to "All IAD Services in Oracle Services Network"
+covers every runtime dependency: the OS package mirror
+(`iad-ad-1.clouds.archive.oracle.com`), OCI Vault (for the SoftHSM
+PIN Secret), and the AMD PSP attestation service. **No NAT Gateway
+and no general-Internet egress from the private subnet.** The trust
+boundary is: OCI-services-only outbound plus mTLS-authenticated
+Backend-Web inbound on port 8443. This is the "golden image" pattern
+called out in NIST SP 800-190 §4.4 and matches C2PA GPSR §6.6 L2 for
+"network segmentation to isolate the hosting environment."
+
 **Subsystems and their in-TOE status:**
 
 | Subsystem | Location | In TOE? | Rationale |
