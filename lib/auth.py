@@ -38,8 +38,13 @@ from . import logging as _log
 CACHE_DIR = os.path.join(os.path.expanduser("~"), ".scruple")
 CACHE_FILE = os.path.join(CACHE_DIR, "blender-auth.json")
 
-DEFAULT_CALLBACK_PORTS = (53171, 53172, 53173, 53174, 53175)
+DEFAULT_CALLBACK_PORTS = tuple(range(53171, 53200))
 DEFAULT_TIMEOUT_SECONDS = 180
+
+
+class _ReusableHTTPServer(HTTPServer):
+    """Set SO_REUSEADDR so tests + rapid restarts don't hit TIME_WAIT."""
+    allow_reuse_address = True
 
 
 def _ensure_cache_dir() -> None:
@@ -139,7 +144,7 @@ class LocalCallbackServer:
         self.received_key: Optional[str] = None
 
     def start(self) -> None:
-        self._httpd = HTTPServer(("127.0.0.1", self.port), _CallbackHandler)
+        self._httpd = _ReusableHTTPServer(("127.0.0.1", self.port), _CallbackHandler)
         self._httpd.received_key = None
         self._thread = threading.Thread(
             target=self._httpd.serve_forever,
