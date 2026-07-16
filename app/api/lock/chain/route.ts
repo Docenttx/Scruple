@@ -8,8 +8,8 @@
 // /api/confirm-and-execute, matching desktop architecture exactly.
 //
 // Tier handling:
-//   tier='basic'  → action='chain-lock-basic'  ($50 via Stripe, RVN only)
-//   tier='pinned' → action='chain-lock-pinned' ($65 via Stripe, RVN+IPFS+Arweave)
+//   tier='basic'  → action='chain-lock-basic'  ($100 via Stripe, RVN only)
+//   tier='pinned' → action='chain-lock-pinned' ($150 via Stripe, RVN+IPFS+Arweave)
 //
 // Body: { projectId, paymentIntentId, tier? }
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   if (false && REQUIRE_PAYMENT && !body.paymentIntentId) {
     return NextResponse.json(
-      { error: 'paymentIntentId required — chain lock costs $50 (basic) or $65 (pinned)' },
+      { error: 'paymentIntentId required — chain lock costs $100 (basic) or $150 (pinned)' },
       { status: 402 },
     );
   }

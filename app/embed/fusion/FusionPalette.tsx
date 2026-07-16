@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import WorkspaceView from '@/components/WorkspaceView';
+import PaymentSettingsPanel from '@/components/fusion/PaymentSettingsPanel';
 import type { ProjectRow, IterationRow } from '@/lib/types';
 
 type ProjectStatus =
@@ -191,6 +192,8 @@ export default function FusionPalette() {
   const [busy, setBusy] = useState<'witnessing' | 'checkpointing' | 'locking' | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [designName, setDesignName] = useState<string | null>(null);
+  const [view, setView] = useState<'studio' | 'settings'>('studio');
+  const [hasDefaultPm, setHasDefaultPm] = useState<boolean>(false);
   const bridgeRef = useRef<FusionBridge | null>(null);
   const refreshRef = useRef<{ projects: () => Promise<void>; detail: () => Promise<void> } | null>(null);
 
@@ -484,9 +487,25 @@ export default function FusionPalette() {
           <img src="/scruple_wordmark_crimson.png" alt="Scruple" className="h-4 w-auto" />
           <span className="text-[10px] text-scruple-muted">Studio for Autodesk Fusion</span>
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-scruple-muted">
+        <div className="flex items-center gap-3 text-[10px] text-scruple-muted">
+          <div className="flex items-center gap-1 border-r border-scruple-border/60 pr-3">
+            <button
+              type="button"
+              onClick={() => setView('studio')}
+              className={`rounded px-2 py-0.5 text-[10px] ${view === 'studio' ? 'bg-scruple-accent-primary/20 text-scruple-text' : 'text-scruple-muted hover:text-scruple-text'}`}
+            >
+              Studio
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('settings')}
+              className={`rounded px-2 py-0.5 text-[10px] ${view === 'settings' ? 'bg-scruple-accent-primary/20 text-scruple-text' : 'text-scruple-muted hover:text-scruple-text'}`}
+            >
+              Settings
+            </button>
+          </div>
           <ConnectionDot state={connection} />
-          {designName && (
+          {designName && view === 'studio' && (
             <>
               <span className="text-scruple-muted">·</span>
               <span>Fusion doc: <span className="text-scruple-text">{designName}</span></span>
@@ -495,7 +514,21 @@ export default function FusionPalette() {
         </div>
       </header>
 
-      {/* Two-pane body: sidebar + workspace */}
+      {view === 'settings' && (
+        <div className="overflow-y-auto p-6">
+          <div className="mx-auto max-w-2xl">
+            <PaymentSettingsPanel onChange={setHasDefaultPm} />
+            {!hasDefaultPm && (
+              <p className="mt-6 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] text-amber-300">
+                No default payment method on file. Paid actions (Checkpoint, C2PA, Chain-lock) will be blocked until you add one above.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'studio' && (
+      /* Two-pane body: sidebar + workspace */
       <div className="grid grid-cols-[240px_1fr] overflow-hidden">
         {/* Sidebar: CAD projects */}
         <aside className="flex flex-col overflow-hidden border-r border-scruple-border bg-scruple-surface">
@@ -646,6 +679,7 @@ export default function FusionPalette() {
           )}
         </main>
       </div>
+      )}
     </div>
   );
 }
