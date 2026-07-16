@@ -70,6 +70,7 @@ if bpy is not None:
             layout.separator()
 
             layout.operator("scruple.witness_now", text="Witness Now", icon="RESTRICT_RENDER_OFF")
+            layout.operator("scruple.witness_export", text="Witness an export...", icon="EXPORT")
 
             pm = _pm_summary_or_none()
             payment_ready = bool(pm)
