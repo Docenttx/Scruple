@@ -1,7 +1,7 @@
 {
-  "active_manifest": "urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37",
+  "active_manifest": "urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a",
   "manifests": {
-    "urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37": {
+    "urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a": {
       "claim_generator_info": [
         {
           "name": "Scruple",
@@ -10,8 +10,27 @@
         }
       ],
       "title": "Scruple audio/mp4 sample",
-      "instance_id": "xmp:iid:52183aba-8a0d-4521-b26a-c271ccccc407",
+      "instance_id": "xmp:iid:1afb67b8-af99-4761-8f8f-4ca3b38b7fc3",
       "assertions": [
+        {
+          "label": "c2pa.actions.v2",
+          "data": {
+            "actions": [
+              {
+                "action": "c2pa.created",
+                "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"
+              },
+              {
+                "action": "c2pa.published",
+                "softwareAgent": {
+                  "name": "Scruple",
+                  "version": "0.1"
+                }
+              }
+            ]
+          },
+          "created": true
+        },
         {
           "label": "c2pa.hash.bmff.v3",
           "data": {
@@ -68,25 +87,10 @@
               }
             ],
             "alg": "sha256",
-            "hash": "h1sRj1cY4TPp5qXQptE4ctHKAKIiX8K+oKEEXeX54Yc=",
+            "hash": "VAe5czbx9iC1yOvMfgxXnI34a9nke39mcN8te7cOnTk=",
             "name": "jumbf manifest"
           },
           "created": true
-        },
-        {
-          "label": "c2pa.actions.v2",
-          "data": {
-            "actions": [
-              {
-                "action": "c2pa.created",
-                "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"
-              },
-              {
-                "action": "c2pa.published",
-                "softwareAgent": "Scruple/0.1"
-              }
-            ]
-          }
         }
       ],
       "signature_info": {
@@ -95,7 +99,7 @@
         "common_name": "Scruple Dev Signer",
         "cert_serial_number": "666052196681262364113542751947891521880317823948"
       },
-      "label": "urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37",
+      "label": "urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a",
       "claim_version": 2
     }
   },
@@ -104,27 +108,27 @@
       "success": [
         {
           "code": "claimSignature.insideValidity",
-          "url": "self#jumbf=/c2pa/urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37/c2pa.signature",
+          "url": "self#jumbf=/c2pa/urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a/c2pa.signature",
           "explanation": "claim signature valid"
         },
         {
           "code": "claimSignature.validated",
-          "url": "self#jumbf=/c2pa/urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37/c2pa.signature",
+          "url": "self#jumbf=/c2pa/urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a/c2pa.signature",
           "explanation": "claim signature valid"
         },
         {
           "code": "assertion.hashedURI.match",
-          "url": "self#jumbf=/c2pa/urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37/c2pa.assertions/c2pa.hash.bmff.v3",
-          "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.bmff.v3"
-        },
-        {
-          "code": "assertion.hashedURI.match",
-          "url": "self#jumbf=/c2pa/urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37/c2pa.assertions/c2pa.actions.v2",
+          "url": "self#jumbf=/c2pa/urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a/c2pa.assertions/c2pa.actions.v2",
           "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2"
         },
         {
+          "code": "assertion.hashedURI.match",
+          "url": "self#jumbf=/c2pa/urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a/c2pa.assertions/c2pa.hash.bmff.v3",
+          "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.bmff.v3"
+        },
+        {
           "code": "assertion.bmffHash.match",
-          "url": "self#jumbf=/c2pa/urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37/c2pa.assertions/c2pa.hash.bmff.v3",
+          "url": "self#jumbf=/c2pa/urn:c2pa:87d2a2ad-eefb-4291-a54d-06e0c22b4e1a/c2pa.assertions/c2pa.hash.bmff.v3",
           "explanation": "BMFF hash valid"
         }
       ],

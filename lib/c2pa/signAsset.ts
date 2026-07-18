@@ -236,8 +236,10 @@ function buildManifest(input: SignAssetInput): Record<string, unknown> {
  * specific actions later without touching the raw manifest builder.
  */
 function buildSupplementaryActions(_input: SignAssetInput): Array<Record<string, unknown>> {
+  // softwareAgent uses ClaimGeneratorInfo object shape per C2PA v2
+  // canonical guidance (opensource.contentauthenticity.org).
   return [
-    { action: 'c2pa.published', softwareAgent: 'Scruple/0.1' },
+    { action: 'c2pa.published', softwareAgent: { name: 'Scruple', version: '0.1' } },
   ];
 }
 

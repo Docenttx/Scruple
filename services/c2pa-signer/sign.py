@@ -127,17 +127,38 @@ def main() -> int:
         }))
         return 1
 
-    # Dev-mode trust relaxation — only when SCRUPLE_C2PA_DEV=1 exactly.
+    # c2pa settings.
+    #
+    # builder.created_assertion_labels: c2pa-rs v2 defaults non-hash
+    # assertions to gathered_assertions unless the label appears in this
+    # list. Without it, our c2pa.actions.v2 and c2pa.thumbnail.claim land
+    # in the gathered bucket, which is wrong per the C2PA v2 spec (they
+    # should be in created). Fix confirmed against c2pa-rs
+    # sdk/src/claim.rs::claim_assertion_type + CAI opensource docs on
+    # created-vs-gathered assertions. Labels are base labels (no .vN).
+    #
+    # verify.*: dev-mode relaxation, only when SCRUPLE_C2PA_DEV=1 exactly.
     # The prod systemd unit sets SCRUPLE_C2PA_DEV="" (empty), which fails
     # the equality check.
+    _settings = {
+        "builder": {
+            "created_assertion_labels": [
+                "c2pa.actions",
+                "c2pa.thumbnail.claim",
+                "c2pa.thumbnail.ingredient",
+                "c2pa.ingredient",
+            ],
+        },
+    }
     if os.environ.get("SCRUPLE_C2PA_DEV") == "1":
-        try:
-            c2pa.load_settings(
-                '{"verify":{"verify_after_sign":false,"verify_trust":false}}',
-                "json",
-            )
-        except Exception:
-            pass  # older SDKs don't need it
+        _settings["verify"] = {
+            "verify_after_sign": False,
+            "verify_trust": False,
+        }
+    try:
+        c2pa.load_settings(json.dumps(_settings), "json")
+    except Exception:
+        pass  # older SDKs may not support all keys
 
     try:
         cert_bytes = cert_path.read_bytes()

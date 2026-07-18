@@ -69,9 +69,44 @@ both migrated from raw `c2pa.actions.v2` assertion injection to c2pa-python
 
 ### Item 3a — c2pa.* assertions inside the `created` block
 
-**Fixed as a side effect of the same API migration.** The intent-based path
-routes assertions to the correct C2PA v2 bucket automatically. Regenerated
-samples show one `c2pa.actions.v2` block only, correctly placed.
+**Fixed via `builder.created_assertion_labels` settings.** Confirmed the
+root cause per c2pa-rs source (`sdk/src/claim.rs::claim_assertion_type`)
+and the CAI opensource docs on created-vs-gathered assertions: c2pa-rs
+v2 defaults non-hash assertions to `gathered_assertions` unless the
+label appears in `builder.created_assertion_labels`. Our previous
+manifest (even after the API migration) had `c2pa.actions.v2` and
+`c2pa.thumbnail.claim` in `gathered_assertions` — the wrong bucket per
+C2PA v2 spec, which was exactly what your screenshot pointed at.
+
+We now set the following via `c2pa.load_settings`:
+
+```
+builder.created_assertion_labels = [
+    "c2pa.actions",
+    "c2pa.thumbnail.claim",
+    "c2pa.thumbnail.ingredient",
+    "c2pa.ingredient"
+]
+```
+
+Regenerated samples verified via `Reader.detailed_json()`:
+
+```
+claim.created_assertions:
+  - self#jumbf=c2pa.assertions/c2pa.thumbnail.claim
+  - self#jumbf=c2pa.assertions/c2pa.actions.v2
+  - self#jumbf=c2pa.assertions/c2pa.hash.data
+claim.gathered_assertions:  (empty)
+```
+
+For samples with an ingredient (Validate.output), the ingredient
+assertions also land in `created_assertions` correctly.
+
+**Additional fix in the same pass — softwareAgent object shape.** Per
+CAI opensource docs, `softwareAgent` should be the `ClaimGeneratorInfo`
+object `{"name": "Scruple", "version": "0.1"}` rather than a plain
+string `"Scruple/0.1"`. Regenerated samples use the object shape
+consistently.
 
 ### Item 3b — inception action must be first
 

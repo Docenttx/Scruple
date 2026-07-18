@@ -53,18 +53,37 @@ from vault_sign import vault_sign_es256  # noqa: E402
 from signer_runtime import runtime_assertion  # noqa: E402
 
 
-# ── Dev-mode c2pa settings ────────────────────────────────────────────
-# Relax trust for the dev root CA. Production runs use a real chain
-# anchored in c2pa's shipped trust list.
+# ── c2pa settings ─────────────────────────────────────────────────────
+# builder.created_assertion_labels: c2pa-rs v2 defaults non-hash
+# assertions to gathered_assertions unless the label appears in this
+# list. Reviewer 2026-07-16 flagged that our c2pa.actions.v2 and
+# c2pa.thumbnail.claim landed in the wrong bucket; this settings key is
+# the current authoritative fix per c2pa-rs sdk/src/claim.rs +
+# opensource.contentauthenticity.org/docs/manifest/writing/assertions-actions/.
+# Labels are the BASE label (no .vN suffix).
+#
+# verify.*: dev-mode relaxation. Production uses a real chain anchored
+# in c2pa's shipped trust list.
 os.environ.setdefault('SCRUPLE_C2PA_DEV', '1')
+_c2pa_settings = {
+    'builder': {
+        'created_assertion_labels': [
+            'c2pa.actions',
+            'c2pa.thumbnail.claim',
+            'c2pa.thumbnail.ingredient',
+            'c2pa.ingredient',
+        ],
+    },
+}
 if os.environ['SCRUPLE_C2PA_DEV'] == '1':
-    try:
-        c2pa.load_settings(
-            '{"verify":{"verify_after_sign":false,"verify_trust":false}}',
-            'json',
-        )
-    except Exception:
-        pass
+    _c2pa_settings['verify'] = {
+        'verify_after_sign': False,
+        'verify_trust': False,
+    }
+try:
+    c2pa.load_settings(json.dumps(_c2pa_settings), 'json')
+except Exception:
+    pass
 
 
 CERT_PATH = HERE / 'keys' / 'signer.pem'
@@ -144,9 +163,11 @@ def _sign_bytes(
     )
     # Supplementary published action — SDK places it after the SDK-emitted
     # inception action, satisfying "inception first" ordering.
+    # softwareAgent uses ClaimGeneratorInfo object shape per C2PA v2
+    # canonical guidance (opensource.contentauthenticity.org).
     builder.add_action({
         'action': 'c2pa.published',
-        'softwareAgent': f"{CLAIM_GENERATOR['name']}/{CLAIM_GENERATOR['version']}",
+        'softwareAgent': dict(CLAIM_GENERATOR),
     })
     src = io.BytesIO(raw_bytes)
     dst = io.BytesIO()
