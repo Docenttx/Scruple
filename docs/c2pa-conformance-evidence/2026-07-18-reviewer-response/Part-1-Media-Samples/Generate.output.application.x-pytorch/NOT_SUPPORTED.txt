@@ -1,0 +1,5 @@
+MIME application/x-pytorch is not supported by c2pa-python 0.89.0
+wrapper as of this bundle. The underlying c2pa-rs library may
+support it behind a feature flag not exposed in the Python
+bindings. Raw sample provided so the format is on-record;
+signed evidence will follow when the wrapper catches up.

@@ -13,11 +13,20 @@ Job spec:
                                                # in Vault mode. Kept for
                                                # backward-compat.
         "manifest": {
-            "claim_generator": "Scruple/0.1 (c2pa-python/0.36)",
+            "claim_generator": "Scruple/0.1 (c2pa-python 0.89)",
             "format": "image/png",
             "title": "MyDesign",
-            "assertions": [...]
-        }
+            "assertions": [...]           # non-c2pa assertions only
+        },
+        "intent": "CREATE",               # C2paBuilderIntent name;
+                                          # defaults to CREATE
+        "digital_source_type":            # C2paDigitalSourceType name;
+            "TRAINED_ALGORITHMIC_MEDIA",  # defaults to
+                                          # TRAINED_ALGORITHMIC_MEDIA
+        "actions": [                      # supplementary actions, added
+            {"action": "c2pa.published",  # AFTER SDK's inception c2pa.created
+             "softwareAgent": "Scruple/0.1"}
+        ]
     }
 
 Result (success):
@@ -29,11 +38,18 @@ Result (failure):
     { "ok": false, "error": "...", "trace": [...] }
 
 Signing path:
-  c2pa-python 0.36 Signer.from_callback(vault_sign_es256, ES256, cert_pem, ta_url)
+  c2pa-python 0.89 Signer.from_callback(vault_sign_es256, ES256, cert_pem, ta_url)
 
 The callback dispatches to OCI Vault (Sign API) when
 SCRUPLE_C2PA_VAULT_KEY_OCID is set; otherwise loads the local PEM.
 Same output shape either way — c2pa-python doesn't need to know.
+
+Actions are constructed via Builder.set_intent() (inception action +
+digitalSourceType) and Builder.add_action() (supplementary actions) —
+the c2pa-python 0.89 first-class API. Raw c2pa.actions.v2 assertion
+injection is not supported here; that path did not satisfy the C2PA v2
+assertion-bucket placement, digitalSourceType requirement, or inception-
+first ordering per reviewer feedback 2026-07-16.
 """
 
 from __future__ import annotations
@@ -114,7 +130,7 @@ def main() -> int:
         ta_url = os.environ.get("SCRUPLE_C2PA_TA_URL") or None
 
         # Signer.from_callback: raw ES256 R||S (64 bytes) per RFC 8152.
-        # Kwarg is `tsa_url` (not `ta_url` — matches c2pa-python 0.36).
+        # Kwarg is `tsa_url` (matches c2pa-python 0.89).
         signer = c2pa.Signer.from_callback(
             callback=vault_sign_es256,
             alg=c2pa.C2paSigningAlg.ES256,
@@ -123,6 +139,28 @@ def main() -> int:
         )
 
         builder = c2pa.Builder(manifest)
+
+        # Intent + digitalSourceType — SDK emits the inception action
+        # (c2pa.created or c2pa.opened depending on intent) first, with
+        # the required digitalSourceType field.
+        intent_name = job.get("intent", "CREATE")
+        dst_name = job.get("digital_source_type", "TRAINED_ALGORITHMIC_MEDIA")
+        try:
+            intent = getattr(c2pa.C2paBuilderIntent, intent_name)
+        except AttributeError:
+            print(json.dumps({"ok": False, "error": f"unknown intent: {intent_name}"}))
+            return 1
+        try:
+            dst = getattr(c2pa.C2paDigitalSourceType, dst_name)
+        except AttributeError:
+            print(json.dumps({"ok": False, "error": f"unknown digital_source_type: {dst_name}"}))
+            return 1
+        builder.set_intent(intent, dst)
+
+        # Supplementary actions — placed after the SDK-emitted inception
+        # action, so inception-first ordering is preserved.
+        for act in job.get("actions", []):
+            builder.add_action(act)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if output_path.exists():

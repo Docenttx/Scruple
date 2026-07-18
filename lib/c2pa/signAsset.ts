@@ -54,6 +54,25 @@ export interface CadAssertionData {
   units?: string;
 }
 
+/** C2PA v2 builder intent — governs which inception action the SDK emits. */
+export type C2paIntent = 'CREATE' | 'EDIT' | 'UPDATE';
+
+/**
+ * IPTC Digital Source Type — required on the inception action per
+ * C2PA v2 spec. Values map 1:1 to c2pa-python's C2paDigitalSourceType
+ * enum names. Defaults to TRAINED_ALGORITHMIC_MEDIA — the accurate
+ * marker for Scruple's canonical use case (signing GenAI output).
+ */
+export type C2paDigitalSourceType =
+  | 'TRAINED_ALGORITHMIC_MEDIA'         // GenAI-produced (Scruple default)
+  | 'ALGORITHMIC_MEDIA'                 // deterministic algorithm, no ML
+  | 'ALGORITHMICALLY_ENHANCED'          // input enhanced by algorithm
+  | 'COMPOSITE_WITH_TRAINED_ALGORITHMIC_MEDIA'
+  | 'HUMAN_EDITS'                       // human-in-the-loop editing
+  | 'DIGITAL_CREATION'                  // digital artist creation
+  | 'DATA_DRIVEN_MEDIA'                 // data-driven synthesis
+  | 'EMPTY';                            // no explicit source type
+
 export interface SignAssetInput {
   assetPath: string;
   outputPath: string;
@@ -64,6 +83,10 @@ export interface SignAssetInput {
   workflow?: WorkflowAssertionData;
   cad?: CadAssertionData;
   format?: string; // MIME type; defaults from asset extension
+  /** C2PA v2 intent. Defaults to CREATE. */
+  intent?: C2paIntent;
+  /** digitalSourceType on the inception action. Defaults to TRAINED_ALGORITHMIC_MEDIA. */
+  digitalSourceType?: C2paDigitalSourceType;
 }
 
 export interface SignAssetResult {
@@ -165,20 +188,17 @@ function mimeFromPath(p: string): string {
   return 'application/octet-stream';
 }
 
+/**
+ * Build the c2pa manifest dict passed to sign.py. The `c2pa.actions.v2`
+ * assertion is NOT constructed here — actions go through the sign.py
+ * job spec's `intent` + `digital_source_type` + `actions` fields, which
+ * the signer feeds into c2pa-python's Builder.set_intent() and
+ * Builder.add_action() APIs. That path handles digitalSourceType,
+ * inception-first ordering, and assertion-bucket placement per C2PA v2.
+ * Raw c2pa.actions.v2 injection did not satisfy the reviewer 2026-07-16.
+ */
 function buildManifest(input: SignAssetInput): Record<string, unknown> {
   const assertions: Array<{ label: string; data: unknown }> = [];
-
-  // Standard C2PA actions — first action MUST be created/opened to avoid
-  // the `assertion.action.malformed` validation warning.
-  assertions.push({
-    label: 'c2pa.actions.v2',
-    data: {
-      actions: [
-        { action: 'c2pa.created' },
-        { action: 'c2pa.published', softwareAgent: 'Scruple/0.1' },
-      ],
-    },
-  });
 
   // Training-mining opt-out (CAWG namespace; c2pa.training_mining was
   // removed in C2PA 2.0).
@@ -203,11 +223,22 @@ function buildManifest(input: SignAssetInput): Record<string, unknown> {
   }
 
   return {
-    claim_generator: 'Scruple/0.1 (c2pa-python 0.36)',
+    claim_generator: 'Scruple/0.1 (c2pa-python 0.89)',
     title: input.title ?? path.basename(input.assetPath),
     format: input.format ?? mimeFromPath(input.assetPath),
     assertions,
   };
+}
+
+/**
+ * Supplementary actions Scruple always emits after the SDK-emitted
+ * inception action. Kept as a small list so it's easy to add product-
+ * specific actions later without touching the raw manifest builder.
+ */
+function buildSupplementaryActions(_input: SignAssetInput): Array<Record<string, unknown>> {
+  return [
+    { action: 'c2pa.published', softwareAgent: 'Scruple/0.1' },
+  ];
 }
 
 export async function signAsset(
@@ -233,6 +264,9 @@ export async function signAsset(
     cert_path: process.env.SCRUPLE_C2PA_CERT ?? DEV_CERT,
     key_path: process.env.SCRUPLE_C2PA_KEY ?? DEV_KEY,
     manifest: buildManifest(input),
+    intent: input.intent ?? 'CREATE',
+    digital_source_type: input.digitalSourceType ?? 'TRAINED_ALGORITHMIC_MEDIA',
+    actions: buildSupplementaryActions(input),
   };
 
   return await new Promise<SignAssetResult | SignAssetError>((resolve) => {

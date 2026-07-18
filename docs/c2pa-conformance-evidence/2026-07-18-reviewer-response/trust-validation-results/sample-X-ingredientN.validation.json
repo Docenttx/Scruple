@@ -1,0 +1,74 @@
+{
+  "sample": "sample-X-ingredientN.mp4",
+  "mime": "video/mp4",
+  "bytes": 4073795,
+  "integrity_check": {
+    "validation_state": "Valid",
+    "success_count": 7,
+    "informational_count": 1,
+    "failure_count": 0,
+    "failures": [],
+    "informational": [
+      {
+        "code": "timeStamp.untrusted",
+        "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T8"
+      }
+    ],
+    "signature": {
+      "issuer": "Google LLC",
+      "time": "2025-10-27T18:10:41+00:00",
+      "alg": "Es256",
+      "cert_serial_number": "577753258235401352320643432677519988913335677"
+    },
+    "claim_generator": "Google C2PA Core Generator Library",
+    "claim_generator_version": "822815833:822815833",
+    "ingredient_count": 1,
+    "ingredient_relationships": [
+      "inputTo"
+    ],
+    "action_chain": [
+      {
+        "action": "c2pa.created",
+        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+        "softwareAgent": null
+      }
+    ]
+  },
+  "trust_check": {
+    "validation_state": "Valid",
+    "success_count": 7,
+    "informational_count": 1,
+    "failure_count": 1,
+    "failures": [
+      {
+        "code": "signingCredential.untrusted",
+        "explanation": "signing certificate untrusted"
+      }
+    ],
+    "informational": [
+      {
+        "code": "timeStamp.untrusted",
+        "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T8"
+      }
+    ],
+    "signature": {
+      "issuer": "Google LLC",
+      "time": "2025-10-27T18:10:41+00:00",
+      "alg": "Es256",
+      "cert_serial_number": "577753258235401352320643432677519988913335677"
+    },
+    "claim_generator": "Google C2PA Core Generator Library",
+    "claim_generator_version": "822815833:822815833",
+    "ingredient_count": 1,
+    "ingredient_relationships": [
+      "inputTo"
+    ],
+    "action_chain": [
+      {
+        "action": "c2pa.created",
+        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+        "softwareAgent": null
+      }
+    ]
+  }
+}

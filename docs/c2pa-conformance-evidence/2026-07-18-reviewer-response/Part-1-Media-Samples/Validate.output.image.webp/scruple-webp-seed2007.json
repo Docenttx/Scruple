@@ -1,0 +1,98 @@
+{
+  "active_manifest": "urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8",
+  "manifests": {
+    "urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8": {
+      "claim_generator_info": [
+        {
+          "name": "Scruple",
+          "version": "0.1",
+          "org.contentauth.c2pa_rs": "0.89.0"
+        }
+      ],
+      "title": "Scruple image/webp sample (ingested from Raw.input)",
+      "instance_id": "xmp:iid:04320fb5-7d46-4a65-be5c-c90011aa9b9b",
+      "thumbnail": {
+        "format": "image/webp",
+        "identifier": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.assertions/c2pa.thumbnail.claim"
+      },
+      "ingredients": [
+        {
+          "title": "scruple-webp-seed2007.webp",
+          "format": "image/webp",
+          "relationship": "inputTo",
+          "description": "Raw input from Raw.input bundle; ingested by the Scruple validator to confirm read-side coverage of image/webp.",
+          "label": "c2pa.ingredient.v3"
+        }
+      ],
+      "assertions": [
+        {
+          "label": "c2pa.actions.v2",
+          "data": {
+            "actions": [
+              {
+                "action": "c2pa.created",
+                "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"
+              },
+              {
+                "action": "c2pa.published",
+                "softwareAgent": "Scruple/0.1"
+              }
+            ]
+          }
+        }
+      ],
+      "signature_info": {
+        "alg": "Es256",
+        "issuer": "Scruple Dev Signing Cert",
+        "common_name": "Scruple Dev Signer",
+        "cert_serial_number": "666052196681262364113542751947891521880317823948"
+      },
+      "label": "urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8",
+      "claim_version": 2
+    }
+  },
+  "validation_results": {
+    "activeManifest": {
+      "success": [
+        {
+          "code": "claimSignature.insideValidity",
+          "url": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.signature",
+          "explanation": "claim signature valid"
+        },
+        {
+          "code": "claimSignature.validated",
+          "url": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.signature",
+          "explanation": "claim signature valid"
+        },
+        {
+          "code": "assertion.hashedURI.match",
+          "url": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.assertions/c2pa.hash.data",
+          "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.hash.data"
+        },
+        {
+          "code": "assertion.hashedURI.match",
+          "url": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.assertions/c2pa.thumbnail.claim",
+          "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.thumbnail.claim"
+        },
+        {
+          "code": "assertion.hashedURI.match",
+          "url": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.assertions/c2pa.ingredient.v3",
+          "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
+        },
+        {
+          "code": "assertion.hashedURI.match",
+          "url": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.assertions/c2pa.actions.v2",
+          "explanation": "hashed uri matched: self#jumbf=c2pa.assertions/c2pa.actions.v2"
+        },
+        {
+          "code": "assertion.dataHash.match",
+          "url": "self#jumbf=/c2pa/urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8/c2pa.assertions/c2pa.hash.data",
+          "explanation": "data hash valid"
+        }
+      ],
+      "informational": [],
+      "failure": []
+    }
+  },
+  "validation_state": "Valid"
+}

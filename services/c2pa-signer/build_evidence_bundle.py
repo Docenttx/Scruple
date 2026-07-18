@@ -86,20 +86,19 @@ def _make_signer() -> c2pa.Signer:
 def _make_manifest(mime: str, title: str, ingredient: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Return a c2pa manifest dict for the given MIME + role.
 
-    - GENERATE-only path: single c2pa.actions[created] assertion
-    - VALIDATE→SIGN path: adds an ingredients_list entry so the resulting
-      manifest documents WHERE the bytes came from (i.e., proves we
-      ingested the raw input we're referencing)
+    Actions are NOT embedded here as a raw c2pa.actions.v2 assertion.
+    They are added after Builder construction via Builder.set_intent()
+    (inception action + digitalSourceType) and Builder.add_action()
+    (supplementary actions). This is the c2pa-python 0.89 first-class
+    path; the raw-assertion path we used previously did not satisfy the
+    C2PA v2 assertion-bucket placement, digitalSourceType requirement,
+    or inception-first ordering per reviewer feedback 2026-07-16.
     """
-    assertions = [
-        {'label': 'c2pa.actions.v2',
-         'data': {'actions': [{'action': 'c2pa.opened' if ingredient else 'c2pa.created'}]}},
-    ]
     manifest: Dict[str, Any] = {
         'claim_generator_info': [dict(CLAIM_GENERATOR)],
         'format': mime,
         'title': title,
-        'assertions': assertions,
+        'assertions': [],
     }
     if ingredient:
         manifest['ingredients'] = [ingredient]
@@ -116,9 +115,31 @@ def _sign_bytes(
     """Sign `raw_bytes` in the given `mime` format via Builder.sign()
     with EXPLICIT format (not sign_file() — that auto-detects MIME from
     extension and silently fails for some formats c2pa-python's sniffer
-    doesn't map). Returns (signed_bytes, manifest_json_dict)."""
+    doesn't map). Returns (signed_bytes, manifest_json_dict).
+
+    Intent + actions are constructed via the c2pa-python 0.89 first-class
+    API (set_intent + add_action) rather than a raw c2pa.actions.v2
+    assertion in the manifest dict. This is the canonical way to get:
+      - c2pa.created inception action, first in the actions array
+      - digitalSourceType on that inception action (required)
+      - correct assertion-bucket placement per C2PA v2 spec
+    """
     manifest = _make_manifest(mime, title, ingredient)
     builder = c2pa.Builder(manifest)
+    # CREATE intent + trainedAlgorithmicMedia. Scruple's canonical use
+    # case is signing GenAI-produced media; trainedAlgorithmicMedia is
+    # accurate even for these synthetic evidence samples (they are
+    # placeholders for the real workload).
+    builder.set_intent(
+        c2pa.C2paBuilderIntent.CREATE,
+        c2pa.C2paDigitalSourceType.TRAINED_ALGORITHMIC_MEDIA,
+    )
+    # Supplementary published action — SDK places it after the SDK-emitted
+    # inception action, satisfying "inception first" ordering.
+    builder.add_action({
+        'action': 'c2pa.published',
+        'softwareAgent': f"{CLAIM_GENERATOR['name']}/{CLAIM_GENERATOR['version']}",
+    })
     src = io.BytesIO(raw_bytes)
     dst = io.BytesIO()
     # sign(signer, format, source_stream, dest_stream) — explicit MIME
