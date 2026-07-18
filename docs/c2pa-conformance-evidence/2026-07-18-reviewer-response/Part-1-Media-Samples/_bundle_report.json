@@ -9,91 +9,91 @@
     "image/jpeg": {
       "ok": true,
       "signed_bytes": 51155,
-      "active_manifest": "urn:c2pa:08c7072b-314e-4146-ab73-d6a5fb7ee174",
+      "active_manifest": "urn:c2pa:ab1f8b07-d218-43bd-9610-0cbbbfa756a1",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.jpeg"
     },
     "image/png": {
       "ok": true,
       "signed_bytes": 49600,
-      "active_manifest": "urn:c2pa:f5fbf0a8-d752-4caf-9e57-dfb305bdb490",
+      "active_manifest": "urn:c2pa:d8baff96-8e31-42de-840d-989d5c605fe1",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.png"
     },
     "image/svg+xml": {
       "ok": true,
       "signed_bytes": 17738,
-      "active_manifest": "urn:c2pa:d971bdbc-9645-4652-b5ea-5dda406df8d6",
+      "active_manifest": "urn:c2pa:21532b2c-6c38-4ec5-a384-bfbfa2421fda",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.svg+xml"
     },
     "image/x-adobe-dng": {
       "ok": true,
       "signed_bytes": 25554,
-      "active_manifest": "urn:c2pa:75341dde-e6cb-445b-b5c0-d9dbf9bb9d62",
+      "active_manifest": "urn:c2pa:bd875571-c300-4c83-9441-00a498e9305c",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.x-adobe-dng"
     },
     "image/tiff": {
       "ok": true,
       "signed_bytes": 61042,
-      "active_manifest": "urn:c2pa:11f57d6c-981a-4ea5-9ffb-a196eec42b4f",
+      "active_manifest": "urn:c2pa:3cfa7c7a-6f31-4f79-92a1-adb96ff61be9",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.tiff"
     },
     "image/webp": {
       "ok": true,
       "signed_bytes": 409732,
-      "active_manifest": "urn:c2pa:9b5d0995-2835-482c-956c-36564d7fb3c8",
+      "active_manifest": "urn:c2pa:a07b377a-9706-4445-a597-2ef5278353d6",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.webp"
     },
     "image/heic": {
       "ok": true,
       "signed_bytes": 13843,
-      "active_manifest": "urn:c2pa:f4304381-4362-49de-92a3-f3d91243470b",
+      "active_manifest": "urn:c2pa:0ced4986-8ae8-4910-9da0-fab505388548",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.heic"
     },
     "image/heif": {
       "ok": true,
       "signed_bytes": 14302,
-      "active_manifest": "urn:c2pa:bcef692d-9eed-428c-8236-fb2456af3efd",
+      "active_manifest": "urn:c2pa:0c850a51-6162-4406-a787-f0a61d0cc706",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.heif"
     },
     "image/avif": {
       "ok": true,
       "signed_bytes": 13798,
-      "active_manifest": "urn:c2pa:fa2fd27e-e0bf-4e6f-9462-2cdfc0a8a197",
+      "active_manifest": "urn:c2pa:5399d8ca-b836-498e-afb1-07ec2fa4dffc",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.image.avif"
     },
     "video/mp4": {
       "ok": true,
       "signed_bytes": 15165,
-      "active_manifest": "urn:c2pa:003fd3cb-f675-4640-a5e3-d0c82b4a5a7e",
+      "active_manifest": "urn:c2pa:393f9190-4fad-4cb7-bfbb-20951e0014fe",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.video.mp4"
     },
     "video/quicktime": {
       "ok": true,
       "signed_bytes": 15118,
-      "active_manifest": "urn:c2pa:3ca3d05e-099f-4a4a-9b89-8b6636b4ea99",
+      "active_manifest": "urn:c2pa:b73d8856-b635-4b1a-bbaf-26b1eb1c72a4",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.video.quicktime"
     },
     "audio/flac": {
       "ok": true,
       "signed_bytes": 17960,
-      "active_manifest": "urn:c2pa:b241e0ea-c05c-41c4-8683-992efd2ba990",
+      "active_manifest": "urn:c2pa:7996f76f-5c95-454e-9cfc-94c3d799c249",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.audio.flac"
     },
     "audio/mpeg": {
       "ok": true,
       "signed_bytes": 17997,
-      "active_manifest": "urn:c2pa:1732b586-fc62-4e4c-a279-2265ed1f0c24",
+      "active_manifest": "urn:c2pa:67e6f05b-6567-4e4e-b18b-858c37a53012",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.audio.mpeg"
     },
     "audio/wav": {
       "ok": true,
       "signed_bytes": 29066,
-      "active_manifest": "urn:c2pa:48a817fc-9f68-4434-b854-5d4312a4a039",
+      "active_manifest": "urn:c2pa:403a7977-c511-4a2f-b26f-04503b44b9b9",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.audio.wav"
     },
     "audio/mp4": {
       "ok": true,
       "signed_bytes": 17244,
-      "active_manifest": "urn:c2pa:20202eaa-c114-4d6e-984e-d08e057ef0bc",
+      "active_manifest": "urn:c2pa:372e293a-7527-4765-9d29-f2ff8793cc37",
       "path": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Generate.output.audio.mp4"
     },
     "application/x-pytorch": {
@@ -211,126 +211,126 @@
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.jpeg/scruple-jpg-seed2000.jpg",
       "ingested_sha256": "2799cd16495cf9dda6a6db9055436f0fdcf52679a49c4daa2a7ee51463c5156f",
       "signed_bytes": 51543,
-      "active_manifest": "urn:c2pa:5e99a0af-2418-44c5-9bcd-8fadc19b31bd"
+      "active_manifest": "urn:c2pa:a3b4b036-d088-4467-aad7-d3b94b4c3e96"
     },
     "image/jxl": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.jxl/scruple-jxl-seed2001.jxl",
       "ingested_sha256": "ab4565cf0b69b6678ae9b2d36fc6f8e3d2aaf73298b3293e11541e176974688a",
       "signed_bytes": 13761,
-      "active_manifest": "urn:c2pa:2c2a8d38-20b3-42a0-b605-dbbb80acdac1"
+      "active_manifest": "urn:c2pa:86629e2e-440e-4410-b50b-7975c83a5b72"
     },
     "image/png": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.png/scruple-png-seed2002.png",
       "ingested_sha256": "03dfb1e77284eefbac732d69547fd95994f288a7d056b4ea41b041aa257a9c0e",
       "signed_bytes": 50000,
-      "active_manifest": "urn:c2pa:d122a663-414d-4cf6-a157-fde8915441ec"
+      "active_manifest": "urn:c2pa:6847b342-fa9e-4a00-acc0-e6c5d334dee6"
     },
     "image/svg+xml": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.svg+xml/scruple-svg-seed2003.svg",
       "ingested_sha256": "4a1b8adb5e7eab2542d8ae7a765cd6ca577ccaebb47c481a38c83a8eb21b578c",
       "signed_bytes": 18282,
-      "active_manifest": "urn:c2pa:0484e1c6-1b98-4e95-9b2e-d2674baa2836"
+      "active_manifest": "urn:c2pa:8e79620a-d9ca-4ba9-b6f1-e7e9b38c532b"
     },
     "image/gif": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.gif/scruple-gif-seed2004.gif",
       "ingested_sha256": "0b7655e853f6d7e336ac4b290bc6228262f2f8894b25c863bbf300d8a57e01e9",
       "signed_bytes": 83381,
-      "active_manifest": "urn:c2pa:f2adcb46-e8b8-494a-87e9-9dd8deff9567"
+      "active_manifest": "urn:c2pa:41601b46-e4d0-4be7-b349-ce2bb6479155"
     },
     "image/x-adobe-dng": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.x-adobe-dng/scruple-dng-seed2005.dng",
       "ingested_sha256": "56917b93c9b4daba79964536d7f8497ffe2c979bd5e0a9deba8a8460b6ecf1fd",
       "signed_bytes": 25972,
-      "active_manifest": "urn:c2pa:679f90b9-ea44-4d78-9488-1e53cf17149e"
+      "active_manifest": "urn:c2pa:d247006a-e068-4ed4-a244-d8d6ec5a22c1"
     },
     "image/tiff": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.tiff/scruple-tiff-seed2006.tiff",
       "ingested_sha256": "4b9f87aac97b8243a5fbc3f59d054209b9126de0870dc94d90a1ed6620a9406f",
       "signed_bytes": 61445,
-      "active_manifest": "urn:c2pa:bf3c97c2-51f8-4fbc-ad3b-8c30ae6a26a2"
+      "active_manifest": "urn:c2pa:21464ba6-9b8b-45e0-9218-cf1b8da8a0cb"
     },
     "image/webp": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.webp/scruple-webp-seed2007.webp",
       "ingested_sha256": "b4ed4b789b15a5fe7659edc262d989fa6f42550c9f36b0aea762f7d7bca02332",
       "signed_bytes": 392848,
-      "active_manifest": "urn:c2pa:ce3cf345-841b-4bb4-a721-b080f34d57a8"
+      "active_manifest": "urn:c2pa:e3e1d55e-1edc-4d7d-ab69-0c6ad4ea171b"
     },
     "image/heic": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.heic/scruple-heic-seed2008.heic",
       "ingested_sha256": "579d7fa72f1918c89c45503687e626eaa2448f8e6a7348c1db3224adf159143d",
       "signed_bytes": 14249,
-      "active_manifest": "urn:c2pa:371bdbed-e2ee-41e7-8735-e8958a8e9fa1"
+      "active_manifest": "urn:c2pa:c7b8ec97-ab60-4d3a-bdac-b972643a8fdd"
     },
     "image/heif": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.heif/scruple-heif-seed2009.heif",
       "ingested_sha256": "b4d2cc5bbf096f45696c862d13f91a5c0c9ab7fb6f82e77868f034b8e0bf01fd",
       "signed_bytes": 14701,
-      "active_manifest": "urn:c2pa:d0cf1abe-449c-4f34-84ca-388f97c5ecce"
+      "active_manifest": "urn:c2pa:112fabd7-e6a2-4d75-91e7-c7a0197aea07"
     },
     "image/avif": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.image.avif/scruple-avif-seed2010.avif",
       "ingested_sha256": "54d6f74eae4c2e762f4113a9042a103bccfd8a62f57f5acde14b105565493cb7",
       "signed_bytes": 14207,
-      "active_manifest": "urn:c2pa:c8e5125a-204c-4e5b-bf3d-195bea1a00ca"
+      "active_manifest": "urn:c2pa:fd5ec9d7-6a2c-46c1-8594-34e595d9c7ae"
     },
     "video/x-msvideo": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.video.x-msvideo/scruple-avi-seed2011.avi",
       "ingested_sha256": "0b80cb7bfa24697c8db656abdf96f83c37f7875b6c86d3348b2efcb0136a85fc",
       "signed_bytes": 20472,
-      "active_manifest": "urn:c2pa:d8dada02-5d23-4b5c-a2aa-14383c6c3e6b"
+      "active_manifest": "urn:c2pa:da799862-02a4-494b-854e-900e848e18b4"
     },
     "video/mp4": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.video.mp4/scruple-mp4-seed2012.mp4",
       "ingested_sha256": "ec1d4a0630ec48bebf1c392443593f30319fdecb736d6881a563fa74a4e9ef84",
       "signed_bytes": 15563,
-      "active_manifest": "urn:c2pa:3514af09-5a13-4a11-b295-63f13f1b188c"
+      "active_manifest": "urn:c2pa:89804ce6-fec1-4996-8f74-00d8c3a72126"
     },
     "video/quicktime": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.video.quicktime/scruple-mov-seed2013.mov",
       "ingested_sha256": "ad4699be44b285a5470d234680f34f11311ca2c0d53f196ed5ae82699b5dda03",
       "signed_bytes": 15532,
-      "active_manifest": "urn:c2pa:8df4b607-79e3-4fcb-a795-c505536ecf9a"
+      "active_manifest": "urn:c2pa:f47cf5ee-52c5-4be9-a118-f571c262d1fa"
     },
     "audio/flac": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.audio.flac/scruple-flac-seed2014.flac",
       "ingested_sha256": "65a97ab95d0f076d27364395783c4388cee54e6afeb6446694ee12ba1d7fe825",
       "signed_bytes": 18281,
-      "active_manifest": "urn:c2pa:505aafdd-2ee5-48ed-8e1f-1be154152d9b"
+      "active_manifest": "urn:c2pa:56ae49e0-8ca4-4763-9adc-b0c6e739516b"
     },
     "audio/mpeg": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.audio.mpeg/scruple-mp3-seed2015.mp3",
       "ingested_sha256": "48bebac3e11adf790919224239fbb54a2b77af525b03331cee3aad7348a360af",
       "signed_bytes": 18401,
-      "active_manifest": "urn:c2pa:45142053-f87b-42d1-aec9-5444e066f6aa"
+      "active_manifest": "urn:c2pa:1c1bece7-4700-48cd-b4d8-5ebe379a0d49"
     },
     "audio/wav": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.audio.wav/scruple-wav-seed2016.wav",
       "ingested_sha256": "01cfce2731c8daef0ae4ead5eae4f13f77556b7feb0eadf2bb657a32c79647c0",
       "signed_bytes": 29468,
-      "active_manifest": "urn:c2pa:beb0af1f-1806-402d-a613-b14aec5d0a0f"
+      "active_manifest": "urn:c2pa:caf4baca-67d7-410c-97e4-c1d1bbb0e659"
     },
     "audio/mp4": {
       "ok": true,
       "ingested_from": "/data/scruple-web/docs/c2pa-conformance-evidence/2026-07-18-reviewer-response/Part-1-Media-Samples/Raw.input.audio.mp4/scruple-m4a-seed2017.m4a",
       "ingested_sha256": "80d7b4b7f11bdbaebbc8980522b309703ac4967be01909b9fe24c48a6a0164ab",
       "signed_bytes": 17894,
-      "active_manifest": "urn:c2pa:98cc1f7c-9c13-44a1-a522-f3eb8bd49f16"
+      "active_manifest": "urn:c2pa:928480a2-cad3-4291-878a-d6d448752566"
     },
     "application/pdf": {
       "ok": false,
