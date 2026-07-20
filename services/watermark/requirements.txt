@@ -6,4 +6,4 @@
 numpy==1.26.4
 pillow==10.4.0
 reedsolo==1.7.0
-scipy==1.14.1
+scipy==1.18.0
