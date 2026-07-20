@@ -12,7 +12,7 @@
     "db:seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
-    "@stripe/react-stripe-js": "^6.3.0",
+    "@stripe/react-stripe-js": "^6.8.0",
     "@stripe/stripe-js": "^9.4.0",
     "archiver": "^7.0.1",
     "better-sqlite3": "^11.3.0",
@@ -22,8 +22,8 @@
     "next-auth": "5.0.0-beta.20",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "stripe": "^22.1.1",
-    "ws": "^8.21.0",
+    "stripe": "^22.3.2",
+    "ws": "^8.21.1",
     "zod": "^3.23.8",
     "zustand": "^4.5.5"
   },
