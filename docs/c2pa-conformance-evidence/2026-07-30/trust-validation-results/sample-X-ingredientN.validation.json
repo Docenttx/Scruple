@@ -1,0 +1,94 @@
+{
+  "sample": "sample-X-ingredientN.png",
+  "mime": "image/png",
+  "bytes": 8058608,
+  "integrity_check": {
+    "validation_state": "Valid",
+    "success_count": 9,
+    "informational_count": 1,
+    "failure_count": 0,
+    "failures": [],
+    "informational": [
+      {
+        "code": "timeStamp.untrusted",
+        "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T11"
+      }
+    ],
+    "signature": {
+      "issuer": "Google LLC",
+      "time": "2026-06-18T20:29:30+00:00",
+      "alg": "Es256",
+      "cert_serial_number": "3655090356939435118458746357446390718679319596"
+    },
+    "claim_generator": "Google C2PA Core Generator Library",
+    "claim_generator_version": "932454310:932454310",
+    "ingredient_count": 1,
+    "ingredient_relationships": [
+      "parentOf"
+    ],
+    "action_chain": [
+      {
+        "action": "c2pa.opened",
+        "digitalSourceType": null,
+        "softwareAgent": null
+      },
+      {
+        "action": "c2pa.edited",
+        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/composite",
+        "softwareAgent": null
+      },
+      {
+        "action": "c2pa.converted",
+        "digitalSourceType": null,
+        "softwareAgent": null
+      }
+    ]
+  },
+  "trust_check": {
+    "validation_state": "Valid",
+    "success_count": 9,
+    "informational_count": 1,
+    "failure_count": 1,
+    "failures": [
+      {
+        "code": "signingCredential.untrusted",
+        "explanation": "signing certificate untrusted"
+      }
+    ],
+    "informational": [
+      {
+        "code": "timeStamp.untrusted",
+        "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T11"
+      }
+    ],
+    "signature": {
+      "issuer": "Google LLC",
+      "time": "2026-06-18T20:29:30+00:00",
+      "alg": "Es256",
+      "cert_serial_number": "3655090356939435118458746357446390718679319596"
+    },
+    "claim_generator": "Google C2PA Core Generator Library",
+    "claim_generator_version": "932454310:932454310",
+    "ingredient_count": 1,
+    "ingredient_relationships": [
+      "parentOf"
+    ],
+    "action_chain": [
+      {
+        "action": "c2pa.opened",
+        "digitalSourceType": null,
+        "softwareAgent": null
+      },
+      {
+        "action": "c2pa.edited",
+        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/composite",
+        "softwareAgent": null
+      },
+      {
+        "action": "c2pa.converted",
+        "digitalSourceType": null,
+        "softwareAgent": null
+      }
+    ]
+  }
+}

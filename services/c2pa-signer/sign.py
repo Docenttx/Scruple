@@ -109,13 +109,14 @@ def main() -> int:
             sys.path.insert(0, str(HERE))
         from vault_sign import vault_sign_es256, signing_mode, signer_identity
         from signer_runtime import age_guard_verdict, runtime_assertion
+        from os_patch_check import patch_recency_verdict
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"vault_sign import failed: {e}"}))
         return 1
 
     # L2 age guard — refuse to sign if the running CVM has aged past the
-    # max-age policy. Secondary actuator per GPSA delta 2026-07-18; primary
-    # actuator is the OCI rotation Function that terminates aged instances.
+    # max-age policy. Defense-in-depth alongside the OCI rotation Function
+    # that terminates aged instances.
     # On dev/non-OCI hosts (IMDS unreachable), age_guard_verdict returns
     # refuse=False and signing proceeds normally.
     guard = age_guard_verdict()
@@ -124,6 +125,21 @@ def main() -> int:
             "ok": False,
             "error": "signer age guard refused sign",
             "guard": guard,
+        }))
+        return 1
+
+    # L2 OS patch recency guard — refuse to sign if the last package
+    # install/upgrade on the running OS is > 90 days old (SCRUPLE_OS_PATCH_MAX_AGE_DAYS).
+    # This satisfies C2PA GPSR §6.3.2 and §6.4.2 by extracting the actual OS
+    # patch-level date from dnf/apt history rather than relying on instance
+    # age as a proxy. Fail-closed in production; permissive on dev where
+    # detection may not be available.
+    patch_guard = patch_recency_verdict()
+    if patch_guard["refuse"]:
+        print(json.dumps({
+            "ok": False,
+            "error": "os patch recency guard refused sign",
+            "patch_guard": patch_guard,
         }))
         return 1
 
@@ -174,15 +190,47 @@ def main() -> int:
             tsa_url=ta_url,
         )
 
-        # Inject ai.scruple.signer-runtime.v1 assertion into the manifest
-        # so every signed asset carries the signing instance's identity +
-        # age. Verifiers can compute `now - signer_instance_born_at` to
-        # confirm the signer was within the max-age window at signing
-        # time (GPSA delta 2026-07-18, §3.4). Omitted on dev/non-OCI
-        # hosts where IMDS is unreachable.
+        # Assertion partition — enforce the TOE boundary per GPSA §C.2.4.
+        # The Client is authenticated but its manifest payload is treated
+        # as untrusted input: any label the Client submits that isn't on
+        # the CREATED_ALLOWLIST is moved to a `gathered_assertions` block
+        # (or rejected outright if unrecognized). This prevents an external
+        # caller from ever having assertions of external provenance land
+        # in `created_assertions`.
+        try:
+            from assertion_partition import partition_assertions
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": f"assertion_partition import failed: {e}"}))
+            return 1
+
+        partitioned, partition_audit = partition_assertions(
+            manifest.get("assertions") or []
+        )
+        manifest["assertions"] = partitioned["created"]
+        if partitioned["gathered"]:
+            manifest["gathered_assertions"] = (
+                (manifest.get("gathered_assertions") or []) + partitioned["gathered"]
+            )
+
+        # Inject ai.scruple.signer-runtime.v1 assertion into the manifest.
+        # This is a Scruple-authored assertion constructed inside the TOE
+        # from IMDS metadata — belongs in created_assertions per GPSA
+        # §C.2.4 (it describes the signing environment itself). Omitted on
+        # dev/non-OCI hosts where IMDS is unreachable.
         runtime_ass = runtime_assertion()
         if runtime_ass is not None:
-            manifest.setdefault("assertions", []).append(runtime_ass)
+            manifest["assertions"].append(runtime_ass)
+            partition_audit["scruple_runtime_added"] = True
+
+        # Emit the partition audit line for §C.2.6 audit surface.
+        try:
+            sys.stderr.write(
+                "[c2pa-signer] assertion_partition_audit=" +
+                json.dumps(partition_audit, sort_keys=True) + "\n"
+            )
+            sys.stderr.flush()
+        except Exception:
+            pass
 
         builder = c2pa.Builder(manifest)
 
@@ -222,6 +270,8 @@ def main() -> int:
             "signing_mode": signing_mode(),
             "signer_identity": signer_identity(),
             "signer_age_guard": guard,
+            "os_patch_guard": patch_guard,
+            "assertion_partition": partition_audit,
         }))
         return 0
     except Exception as e:

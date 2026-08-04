@@ -1,0 +1,515 @@
+[
+  {
+    "sample": "sample-X-ingredientM.mp4",
+    "mime": "video/mp4",
+    "bytes": 17342333,
+    "integrity_check": {
+      "validation_state": "Invalid",
+      "success_count": 6,
+      "informational_count": 1,
+      "failure_count": 1,
+      "failures": [
+        {
+          "code": "signingCredential.expired",
+          "explanation": "certificate expired"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Pixel TG4 TSA"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-05-14T18:31:43+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "4132629893819539518930564177597022651161961744"
+      },
+      "claim_generator": "Google C2PA SDK for Android",
+      "claim_generator_version": "895229577:901861295",
+      "ingredient_count": 0,
+      "ingredient_relationships": [],
+      "action_chain": [
+        {
+          "action": "c2pa.created",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture",
+          "softwareAgent": null
+        }
+      ]
+    },
+    "trust_check": {
+      "validation_state": "Invalid",
+      "success_count": 6,
+      "informational_count": 1,
+      "failure_count": 2,
+      "failures": [
+        {
+          "code": "signingCredential.expired",
+          "explanation": "certificate expired"
+        },
+        {
+          "code": "signingCredential.untrusted",
+          "explanation": "signing certificate untrusted"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Pixel TG4 TSA"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-05-14T18:31:43+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "4132629893819539518930564177597022651161961744"
+      },
+      "claim_generator": "Google C2PA SDK for Android",
+      "claim_generator_version": "895229577:901861295",
+      "ingredient_count": 0,
+      "ingredient_relationships": [],
+      "action_chain": [
+        {
+          "action": "c2pa.created",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture",
+          "softwareAgent": null
+        }
+      ]
+    }
+  },
+  {
+    "sample": "sample-X-ingredientN.jpg",
+    "mime": "image/jpeg",
+    "bytes": 1055641,
+    "integrity_check": {
+      "validation_state": "Invalid",
+      "success_count": 7,
+      "informational_count": 1,
+      "failure_count": 1,
+      "failures": [
+        {
+          "code": "signingCredential.expired",
+          "explanation": "certificate expired"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Pixel Time Stamping Authority"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2025-08-07T21:05:49+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "345655493155681534091703175194736482993879974"
+      },
+      "claim_generator": "Google C2PA SDK for Android",
+      "claim_generator_version": "790468618:790840964",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "parentOf"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.opened",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.edited",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia",
+          "softwareAgent": null
+        }
+      ]
+    },
+    "trust_check": {
+      "validation_state": "Invalid",
+      "success_count": 7,
+      "informational_count": 1,
+      "failure_count": 2,
+      "failures": [
+        {
+          "code": "signingCredential.expired",
+          "explanation": "certificate expired"
+        },
+        {
+          "code": "signingCredential.untrusted",
+          "explanation": "signing certificate untrusted"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Pixel Time Stamping Authority"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2025-08-07T21:05:49+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "345655493155681534091703175194736482993879974"
+      },
+      "claim_generator": "Google C2PA SDK for Android",
+      "claim_generator_version": "790468618:790840964",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "parentOf"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.opened",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.edited",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia",
+          "softwareAgent": null
+        }
+      ]
+    }
+  },
+  {
+    "sample": "sample-X-ingredientN.m4a",
+    "mime": "audio/mp4",
+    "bytes": 164294,
+    "integrity_check": {
+      "validation_state": "Invalid",
+      "success_count": 7,
+      "informational_count": 1,
+      "failure_count": 1,
+      "failures": [
+        {
+          "code": "signingCredential.expired",
+          "explanation": "certificate expired"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Pixel Time Stamping Authority"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-03-04T00:40:25+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "1578418943350143482826855572298386278596772149"
+      },
+      "claim_generator": "Google C2PA SDK for Android",
+      "claim_generator_version": "852130983:867906598",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "parentOf"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.opened",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.dubbed",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/compositeSynthetic",
+          "softwareAgent": null
+        }
+      ]
+    },
+    "trust_check": {
+      "validation_state": "Invalid",
+      "success_count": 7,
+      "informational_count": 1,
+      "failure_count": 2,
+      "failures": [
+        {
+          "code": "signingCredential.expired",
+          "explanation": "certificate expired"
+        },
+        {
+          "code": "signingCredential.untrusted",
+          "explanation": "signing certificate untrusted"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Pixel Time Stamping Authority"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-03-04T00:40:25+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "1578418943350143482826855572298386278596772149"
+      },
+      "claim_generator": "Google C2PA SDK for Android",
+      "claim_generator_version": "852130983:867906598",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "parentOf"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.opened",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.dubbed",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/compositeSynthetic",
+          "softwareAgent": null
+        }
+      ]
+    }
+  },
+  {
+    "sample": "sample-X-ingredientN.mp3",
+    "mime": "audio/mpeg",
+    "bytes": 744611,
+    "integrity_check": {
+      "validation_state": "Valid",
+      "success_count": 6,
+      "informational_count": 1,
+      "failure_count": 0,
+      "failures": [],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T12"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-03-04T00:20:43+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "3538769668273185232431161852199326737017347790"
+      },
+      "claim_generator": "Google C2PA Core Generator Library",
+      "claim_generator_version": "875320944:876458612",
+      "ingredient_count": 0,
+      "ingredient_relationships": [],
+      "action_chain": [
+        {
+          "action": "c2pa.created",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.edited",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+          "softwareAgent": null
+        }
+      ]
+    },
+    "trust_check": {
+      "validation_state": "Valid",
+      "success_count": 6,
+      "informational_count": 1,
+      "failure_count": 1,
+      "failures": [
+        {
+          "code": "signingCredential.untrusted",
+          "explanation": "signing certificate untrusted"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T12"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-03-04T00:20:43+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "3538769668273185232431161852199326737017347790"
+      },
+      "claim_generator": "Google C2PA Core Generator Library",
+      "claim_generator_version": "875320944:876458612",
+      "ingredient_count": 0,
+      "ingredient_relationships": [],
+      "action_chain": [
+        {
+          "action": "c2pa.created",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.edited",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+          "softwareAgent": null
+        }
+      ]
+    }
+  },
+  {
+    "sample": "sample-X-ingredientN.mp4",
+    "mime": "video/mp4",
+    "bytes": 4073795,
+    "integrity_check": {
+      "validation_state": "Valid",
+      "success_count": 7,
+      "informational_count": 1,
+      "failure_count": 0,
+      "failures": [],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T8"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2025-10-27T18:10:41+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "577753258235401352320643432677519988913335677"
+      },
+      "claim_generator": "Google C2PA Core Generator Library",
+      "claim_generator_version": "822815833:822815833",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "inputTo"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.created",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+          "softwareAgent": null
+        }
+      ]
+    },
+    "trust_check": {
+      "validation_state": "Valid",
+      "success_count": 7,
+      "informational_count": 1,
+      "failure_count": 1,
+      "failures": [
+        {
+          "code": "signingCredential.untrusted",
+          "explanation": "signing certificate untrusted"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T8"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2025-10-27T18:10:41+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "577753258235401352320643432677519988913335677"
+      },
+      "claim_generator": "Google C2PA Core Generator Library",
+      "claim_generator_version": "822815833:822815833",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "inputTo"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.created",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+          "softwareAgent": null
+        }
+      ]
+    }
+  },
+  {
+    "sample": "sample-X-ingredientN.png",
+    "mime": "image/png",
+    "bytes": 8058608,
+    "integrity_check": {
+      "validation_state": "Valid",
+      "success_count": 9,
+      "informational_count": 1,
+      "failure_count": 0,
+      "failures": [],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T11"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-06-18T20:29:30+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "3655090356939435118458746357446390718679319596"
+      },
+      "claim_generator": "Google C2PA Core Generator Library",
+      "claim_generator_version": "932454310:932454310",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "parentOf"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.opened",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.edited",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/composite",
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.converted",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        }
+      ]
+    },
+    "trust_check": {
+      "validation_state": "Valid",
+      "success_count": 9,
+      "informational_count": 1,
+      "failure_count": 1,
+      "failures": [
+        {
+          "code": "signingCredential.untrusted",
+          "explanation": "signing certificate untrusted"
+        }
+      ],
+      "informational": [
+        {
+          "code": "timeStamp.untrusted",
+          "explanation": "timestamp cert untrusted: Google Core Time Stamping Authority T11"
+        }
+      ],
+      "signature": {
+        "issuer": "Google LLC",
+        "time": "2026-06-18T20:29:30+00:00",
+        "alg": "Es256",
+        "cert_serial_number": "3655090356939435118458746357446390718679319596"
+      },
+      "claim_generator": "Google C2PA Core Generator Library",
+      "claim_generator_version": "932454310:932454310",
+      "ingredient_count": 1,
+      "ingredient_relationships": [
+        "parentOf"
+      ],
+      "action_chain": [
+        {
+          "action": "c2pa.opened",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.edited",
+          "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/composite",
+          "softwareAgent": null
+        },
+        {
+          "action": "c2pa.converted",
+          "digitalSourceType": null,
+          "softwareAgent": null
+        }
+      ]
+    }
+  }
+]

@@ -212,13 +212,38 @@ def runtime_assertion() -> Optional[Dict[str, Any]]:
       - signer_image_id          — OCID of the golden image
       - signer_instance_born_at  — RFC3339 of instance creation
       - signer_age_days_at_sign  — days between born_at and this call
-      - signer_max_age_days      — policy threshold
+      - signer_max_age_days      — policy threshold (CVM rotation)
       - signer_rotation_policy_version — policy revision tag
+      - os_security_patch_date   — RFC3339 of last OS package install/upgrade
+                                    (dnf/apt log extract, §6.3.2/6.4.2)
+      - os_security_patch_age_days — days between os_security_patch_date and this call
+      - os_security_patch_max_age_days — policy threshold (90 by spec)
+      - os_security_patch_source — which log source fired the extraction
     """
     info = signer_runtime_info()
     if info is None:
         return None
     age = signer_age_days()
+
+    # Pull the OS patch verdict so we bind the extracted patch date into
+    # every signed manifest. Verifiers can compute now - os_security_patch_date
+    # and cross-check that the Signer was patched within the required
+    # 90-day window at signing time. Import lazily so tests without the
+    # os_patch_check module (or dev hosts) still work.
+    patch_date_iso: Optional[str] = None
+    patch_age: Optional[float] = None
+    patch_max: Optional[float] = None
+    patch_source: Optional[str] = None
+    try:
+        from os_patch_check import patch_recency_verdict
+        pv = patch_recency_verdict()
+        patch_date_iso = pv.get("patch_date")
+        patch_age = pv.get("patch_age_days")
+        patch_max = pv.get("max_age_days")
+        patch_source = pv.get("source")
+    except Exception:
+        pass
+
     return {
         "label": "ai.scruple.signer-runtime.v1",
         "data": {
@@ -230,5 +255,9 @@ def runtime_assertion() -> Optional[Dict[str, Any]]:
             ),
             "signer_max_age_days": info["max_age_days"],
             "signer_rotation_policy_version": info["rotation_policy_version"],
+            "os_security_patch_date": patch_date_iso,
+            "os_security_patch_age_days": patch_age,
+            "os_security_patch_max_age_days": patch_max,
+            "os_security_patch_source": patch_source,
         },
     }

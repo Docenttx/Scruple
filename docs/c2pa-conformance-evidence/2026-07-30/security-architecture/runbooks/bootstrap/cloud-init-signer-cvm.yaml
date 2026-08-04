@@ -1,0 +1,147 @@
+#cloud-config
+#
+# Cloud-init user-data for the Scruple Signer CVM.
+#
+# Runs on first boot inside the OCI SEV-SNP Confidential VM. Fully
+# unattended SoftHSM ceremony:
+#
+#   1. Adds BOTH the user's admin key AND the Web-host driver key to
+#      ubuntu@authorized_keys (Web host can SSH in immediately after)
+#   2. Installs SoftHSM 2, opensc, Python 3.12, oci-cli, c2pa-python
+#   3. Creates the scruple-signer OS user with per-user token store
+#   4. Fetches the SoftHSM PIN from OCI Vault via Instance Principal
+#      (validates that the DG + IAM policy actually work)
+#   5. Initializes the SoftHSM token
+#   6. Generates the ES256 signing key with CKA_EXTRACTABLE=false
+#   7. Exports the pubkey (DER + PEM + sha256 for attestation binding)
+#   8. Writes a done-marker at /var/log/scruple-cvm-bootstrap.done
+#
+# After boot, Web host at 10.0.0.30 SSHes in via the driver key and
+# continues: SEV-SNP attestation ceremony + CSR + Signer systemd unit.
+#
+# Attach at CVM launch time: OCI Console → Create Instance → Advanced
+# options → "Initialization script" → Paste the entire content of this
+# file (starting with #cloud-config).
+
+users:
+  - default
+  - name: ubuntu
+    ssh_authorized_keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDHoC48piyzOvWr7wnGJoDRHE1eLg64lOyHu4whm+JCm8fa/eKJQtgCT0Hf3oJEsk4PMz/ywrhRAbvADvfck84aqEDWIC6gfV27dsaxS1lUNYHZcDT/ON9gr1rc57cHt444QB3MDAi+RmVbG6dNXAyrxCMWXJbjJmNt/f/7QIyKGFbbSCx9Utb97cjFLJdwWDqukoKCxCIfUpGx0aEgICAqlEXrF8NnShIz1atLcFRc/jj0RZsgVYqfwdcYruIaxveSfT2mpGJyZbxxvhi+NIejDZ9wJ4oi/oNdg6zpRW1YT+8ApgWuQxg/nZoryC34Y2DZXFItRC67mDlq5pR1gBq9 ssh-key-2026-03-16
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK6ru5WZfxML6qHvfBGYss9lNfh/u0kNTymyPrb9kk3U scruple-signer-drive 20260715
+
+package_update: true
+package_upgrade: false  # skip full upgrade to keep first-boot fast
+
+packages:
+  - softhsm2
+  - opensc-pkcs11
+  - python3
+  - python3-full
+  - python3-pip
+  - python3-venv
+  - python3.12-venv
+  - openssl
+  - jq
+  - curl
+
+write_files:
+  # Ship the SoftHSM config that points to the per-user token store
+  - path: /etc/softhsm/softhsm2.conf
+    permissions: '0644'
+    content: |
+      directories.tokendir = /var/lib/scruple-signer/softhsm/tokens
+      objectstore.backend = file
+      log.level = INFO
+      slots.removable = false
+      slots.mechanisms = ALL
+      library.reset_on_fork = false
+
+  # First-boot bootstrap script
+  - path: /usr/local/sbin/scruple-signer-bootstrap.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      exec > >(tee -a /var/log/scruple-cvm-bootstrap.log) 2>&1
+      echo "=== Scruple Signer bootstrap starting at $(date -u -Iseconds) ==="
+
+      PIN_OCID='ocid1.vaultsecret.oc1.iad.amaaaaaazjtltxiafzm4lv7lczdeq4zewjpsddhlpmee6xm5z7fnedgf2jma'
+      export OCI_CLI_AUTH=instance_principal
+      export SOFTHSM2_CONF=/etc/softhsm/softhsm2.conf
+
+      echo "--- Creating scruple-signer OS user ---"
+      if ! id scruple-signer &>/dev/null; then
+        useradd --system --shell /usr/sbin/nologin \
+            --home-dir /var/lib/scruple-signer --create-home scruple-signer
+      fi
+      install -d -o scruple-signer -g scruple-signer -m 0700 \
+          /var/lib/scruple-signer/softhsm \
+          /var/lib/scruple-signer/softhsm/tokens
+
+      echo "--- Installing OCI CLI + c2pa-python in a venv ---"
+      python3 -m venv /opt/scruple-venv
+      /opt/scruple-venv/bin/pip install --upgrade pip
+      /opt/scruple-venv/bin/pip install 'oci-cli' \
+          'c2pa==0.36.0' 'cryptography==42.0.5' 'oci==2.129.1'
+      ln -sf /opt/scruple-venv/bin/oci /usr/local/bin/oci
+
+      echo "--- Fetching SoftHSM PIN from OCI Vault via Instance Principal ---"
+      # Retry a few times — Instance Principal cert can take a moment to be usable
+      for attempt in 1 2 3 4 5; do
+        if PIN=$(oci secrets secret-bundle get --secret-id "$PIN_OCID" \
+              --raw-output --query 'data."secret-bundle-content".content' 2>/dev/null | base64 -d); then
+          break
+        fi
+        echo "  PIN fetch attempt $attempt failed; retrying in 15s"
+        sleep 15
+      done
+      if [ -z "${PIN:-}" ]; then
+        echo "FATAL: could not fetch PIN from OCI Vault after 5 attempts"
+        exit 1
+      fi
+      echo "  PIN retrieved (${#PIN} chars)"
+
+      echo "--- Initializing SoftHSM token ---"
+      sudo -u scruple-signer -E env SOFTHSM2_CONF=$SOFTHSM2_CONF \
+          softhsm2-util --init-token --slot 0 \
+              --label 'scruple-c2pa' \
+              --pin "$PIN" --so-pin "$PIN"
+
+      echo "--- Generating ES256 signing key (non-extractable) ---"
+      sudo -u scruple-signer -E env SOFTHSM2_CONF=$SOFTHSM2_CONF \
+          pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so \
+              --slot-index 0 --login --pin "$PIN" \
+              --keypairgen \
+              --key-type EC:prime256v1 \
+              --label 'scruple-c2pa-key' --id 01 \
+              --usage-sign \
+              --sensitive --extractable=false
+
+      echo "--- Exporting pubkey for attestation binding ---"
+      sudo -u scruple-signer -E env SOFTHSM2_CONF=$SOFTHSM2_CONF \
+          pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so \
+              --slot-index 0 --login --pin "$PIN" \
+              --read-object --type pubkey \
+              --label 'scruple-c2pa-key' \
+              --output-file /var/lib/scruple-signer/scruple-c2pa-pubkey.der
+      openssl ec -inform DER -pubin \
+          -in /var/lib/scruple-signer/scruple-c2pa-pubkey.der \
+          -pubout -out /var/lib/scruple-signer/scruple-c2pa-pubkey.pem
+      sha256sum /var/lib/scruple-signer/scruple-c2pa-pubkey.der \
+          | awk '{print $1}' > /var/lib/scruple-signer/scruple-c2pa-pubkey.sha256
+      chown scruple-signer:scruple-signer /var/lib/scruple-signer/scruple-c2pa-pubkey.*
+
+      # Zero the PIN from memory / env
+      unset PIN
+
+      echo "--- Verifying key generated correctly ---"
+      sudo -u scruple-signer -E env SOFTHSM2_CONF=$SOFTHSM2_CONF \
+          pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so \
+              --slot-index 0 --list-objects || true
+
+      echo "=== Scruple Signer bootstrap COMPLETE at $(date -u -Iseconds) ==="
+      touch /var/log/scruple-cvm-bootstrap.done
+
+runcmd:
+  - bash /usr/local/sbin/scruple-signer-bootstrap.sh
