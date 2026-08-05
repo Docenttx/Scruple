@@ -87,11 +87,24 @@ def _is_production_signer() -> bool:
     emit a runtime assertion (would misidentify the signing host) nor
     trip the age guard (would refuse legitimate dev signing).
 
-    Signal: SCRUPLE_C2PA_VAULT_KEY_OCID is set. That env var is only
-    populated on the production Signer CVM (systemd unit sets it from
-    the Vault-provisioned key OCID). Dev + non-signer hosts leave it
-    unset. See services/c2pa-signer/vault_sign.py."""
-    return bool(os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID"))
+    Production signals (any one is sufficient):
+      1. SCRUPLE_C2PA_VAULT_KEY_OCID is set — populated on the production
+         Signer CVM when signing routes through OCI Vault (see vault_sign.py).
+      2. /dev/sev-guest exists — the SEV-SNP guest attestation device is only
+         present inside an AMD SEV-SNP Confidential VM. Its presence is proof
+         the runtime is a CVM regardless of which signing key path is in use
+         (Vault or in-CVM SoftHSM or local dev key preserved for cert-chain
+         continuity during resubmission signing).
+
+    Escape hatch: SCRUPLE_C2PA_FORCE_DEV=1 unconditionally forces dev mode
+    (turns off runtime assertion + age guard). Use only when signing
+    reference material on a CVM but explicitly want to omit the assertion.
+    """
+    if os.environ.get("SCRUPLE_C2PA_FORCE_DEV") == "1":
+        return False
+    if os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID"):
+        return True
+    return os.path.exists("/dev/sev-guest")
 
 
 def signer_runtime_info() -> Optional[Dict[str, Any]]:

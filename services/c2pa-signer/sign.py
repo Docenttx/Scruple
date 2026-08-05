@@ -260,7 +260,15 @@ def main() -> int:
         if output_path.exists():
             output_path.unlink()
 
-        builder.sign_file(str(asset_path), str(output_path), signer)
+        # Stream-sign with the caller-declared MIME (from manifest["format"]).
+        # sign_file() infers the MIME from the file extension, which mis-maps
+        # .flac to audio/x-flac (unsupported by c2pa-rs; audio/flac is the
+        # supported form) and fails MIME detection entirely for .jxl. Passing
+        # the MIME explicitly avoids both bugs — the caller already declared
+        # it in the manifest, so we're not guessing.
+        asset_mime = manifest.get("format") or ""
+        with open(asset_path, "rb") as src, open(output_path, "wb") as dst:
+            builder.sign(signer, asset_mime, src, dst)
 
         bytes_out = output_path.stat().st_size
         print(json.dumps({

@@ -94,13 +94,20 @@ products that delegate signing to Scruple") risked signing over
 
 ### Samples bundle — restructured per your specification
 
-- **`Part-1-Media-Samples/generate/`** — signed C2PA outputs, one file
-  per asserted generate media type (16 MIMEs supported today; 2 gaps
-  documented below).
+- **`Part-1-Media-Samples/generate/`** — 15 signed C2PA outputs, one
+  file per asserted generate media type (16 total; 1 documented gap
+  below).
 - **`Part-1-Media-Samples/validate/raw/`** — 20 raw input files
   covering every asserted ingest media type.
-- **`Part-1-Media-Samples/validate/ingested/`** — 20 post-ingest
-  signed derivatives, one per asserted validate media type.
+- **`Part-1-Media-Samples/validate/ingested/`** — 18 signed post-ingest
+  derivatives, one file per asserted validate media type (20 total;
+  2 documented gaps below).
+- **Every one of the 33 signed samples was signed on the production
+  Signer CVM** (OCI SEV-SNP; instance
+  `ocid1.instance.oc1.iad.anuwcljszjtltxic7snqeilexyighz2fahrbx7nnyj7bfx642b5444qqxrnq`)
+  and carries the `ai.scruple.signer-runtime.v1` assertion with real
+  IMDS-derived instance identity, image OCID, instance-creation
+  timestamp, and extracted OS security patch date.
 - **All `.json` sidecars removed** from `Part-1-Media-Samples/`.
 - **`Part-2-Runtime-Assertion-Sample/` removed** as redundant — the
   runtime assertion is now embedded in every `Part-1` signed asset
@@ -115,8 +122,8 @@ products that delegate signing to Scruple") risked signing over
 ## Documented gaps
 
 Two MIMEs (`application/pdf`, `application/x-pytorch`) cannot yet be
-signed by the `c2pa-python 0.89` wrapper we use in our sample
-producer. Raw samples are provided at
+signed by the `c2pa-python` wrapper we use in our sample producer
+(same gap as the prior submission). Raw samples are provided at
 `Part-1-Media-Samples/validate/raw/`. Signed samples will follow when
 the wrapper exposes those features. The underlying `c2pa-rs` supports
 both.
