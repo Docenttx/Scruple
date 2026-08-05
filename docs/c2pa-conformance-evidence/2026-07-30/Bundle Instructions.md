@@ -119,7 +119,7 @@ scruple-c2pa-conformance-2026-07-30.zip
 
 ## Documented gaps
 
-Two MIMEs cannot currently be signed by the `c2pa-python 0.89`
+Two MIMEs cannot currently be signed by the `c2pa-python`
 wrapper used by our sample producer (`application/pdf`,
 `application/x-pytorch`). Raw samples are provided in
 `Part-1-Media-Samples/validate/raw/`. Signed samples will follow
