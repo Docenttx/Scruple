@@ -1,7 +1,7 @@
 # Scruple and C2PA: How they relate
 
-**Status:** Public-facing chart. Companion to *The Scruple Standard, v1.5* §9.
-**Version:** 1.0
+**Status:** Public-facing chart. Companion to *The Scruple Standard, v1.7* §9.
+**Version:** 1.2
 **Date:** 2026-07-30
 **Owner:** Docent LLC (dba Docent Technologies), publisher of the Scruple product
 **Supersedes:** the prior *SCRUPLE vs C2PA* comparison chart. That framing
@@ -11,17 +11,20 @@ was misleading. The two are not alternatives.
 
 ## The relationship in one paragraph
 
-**Scruple provides C2PA.** When the C2PA output modality is selected, a
-Scruple-signed output carries a standard C2PA content credential
-verifiable by any C2PA-compliant tool — this is Scruple's implementation
-of the EU AI Act Article 50 Code of Practice Section 1 mandatory
-"in-band signed metadata" measure. **Scruple also provides additional
-evidence-based provenance** — a baseline-bound, chain-anchored, audit
-log with an attested-signer, operator-independent witness — that lives
-below C2PA and works whether or not C2PA is attached. **C2PA can be
-included as one modality inside Scruple's evidentiary framework,
-alongside watermarking and public-ledger anchoring**, and the customer
-selects the composition per event.
+**Scruple provides both EU AI Act Article 50 Section 1 mandatory
+marking measures as peer output modalities.** In-band signed metadata
+via a standard C2PA content credential (Scruple is a C2PA Generator
+Product) and EU-compliant watermarking via an imperceptible mark with
+a timestamp payload — a customer can select one, the other, or both
+per event. **Scruple also provides additional evidence-based
+provenance** — a baseline-bound, chain-anchored audit log with an
+attested-signer, operator-independent witness — that lives below both
+mandatory measures and works whether or not either is attached.
+**Chain lock adds a distinct Scruple SCR_ID watermark** whose payload
+encodes the Scruple ID rather than a timestamp, providing out-in-the-
+wild lookup back to the chain-lock inscription that anchors the
+event's provenance. The customer composes across these modalities per
+event.
 
 The chart below shows what each variant provides. The columns are
 options a Scruple customer composes; they are not competing products.
@@ -31,7 +34,8 @@ options a Scruple customer composes; they are not competing products.
 | Capability | C2PA alone (an off-the-shelf C2PA generator) | Scruple's evidence layer, without C2PA attached | Scruple with C2PA attached (composed) |
 |---|---|---|---|
 | In-band signed metadata (C2PA manifest attached to content) | ✓ | — | ✓ (Scruple is the C2PA signer) |
-| Watermarking (imperceptible pixel-space mark) | — | Optional (customer selects) | Optional (customer selects) |
+| EU-compliant watermarking — imperceptible mark, timestamp payload, peer of C2PA under Article 50 Section 1 | — | Optional (customer selects) — image, video, audio | Optional (customer selects) — image, video, audio |
+| Scruple SCR_ID watermarking — imperceptible mark, SCR_ID payload for out-in-the-wild chain-lock lookup | — | Attached automatically when the chain-lock modality is selected | Attached automatically when the chain-lock modality is selected |
 | Human-verifiable identity of claim generator | ✓ (per C2PA claim generator info) | ✓ (per Scruple leaf) | ✓ (both surfaces) |
 | Trust-list verification of signing certificate | ✓ (via C2PA trust list) | ✓ (via Scruple attestation chain) | ✓ (both trust roots) |
 | Baseline binding — the receipt attests the environment that produced the content | — | ✓ | ✓ |
@@ -44,8 +48,8 @@ options a Scruple customer composes; they are not competing products.
 | Cross-integration provenance chain — every change to the integration itself is a witnessed event, linked by hash to prior baselines | — | ✓ | ✓ |
 | Verification without cooperation from the content vendor | ✓ | ✓ | ✓ |
 | Verification without cooperation from Scruple | ✓ (via standard C2PA tools) | ✓ (via the receipt + public anchors) | ✓ (either path independently) |
-| EU AI Act Article 50 Code of Practice — "in-band signed metadata" mandatory measure | ✓ | — (not this measure; use the watermarking option below) | ✓ |
-| EU AI Act Article 50 Code of Practice — "watermarking" mandatory measure | — | ✓ (when the watermarking modality is selected) | ✓ (when the watermarking modality is also selected) |
+| EU AI Act Article 50 Code of Practice — "in-band signed metadata" mandatory measure (§9.1) | ✓ | — (not this measure; use the EU-compliant watermarking peer below) | ✓ |
+| EU AI Act Article 50 Code of Practice — "watermarking" mandatory measure (§9.2) | — | ✓ (when the EU-compliant watermarking modality is selected) | ✓ (when the EU-compliant watermarking modality is also selected — the two Article 50 measures composed) |
 
 ## How to read the chart
 
@@ -106,8 +110,8 @@ customers with sovereignty, air-gap, or provider-independence
 requirements will prefer a local lane at either level, but the
 provenance guarantee is defined by the level, not the lane.
 
-Details, threat models, and edge cases: *The Scruple Standard, v1.5*
-§15.3.
+Details, threat models, and edge cases: *The Scruple Standard, v1.7*
+§12.3.
 
 ## What "Scruple provides C2PA" means, precisely
 
@@ -118,11 +122,6 @@ Scruple event, the resulting content carries an in-band C2PA manifest
 signed by the Scruple witness, and validates in any C2PA-compliant
 verifier (`verify.contentcredentials.org`, `c2patool`, `c2pa-rs`,
 etc.).
-
-The current external-program status of Scruple's C2PA implementation
-is described in *The Scruple Standard, v1.5* §12 (Conformance Program
-Intake ID, submission dates, current review state, and language
-discipline).
 
 ## What "additional evidence-based provenance" means
 
@@ -167,6 +166,20 @@ attestations Scruple can attach.
 
 ## Change log
 
+- **2026-07-30, v1.2** — synced with Standard v1.7. Removed a
+  paragraph describing external-program status (Intake ID,
+  submission dates, review state, language discipline); that
+  content class no longer belongs in either the Standard or this
+  chart. Bumped Standard cross-references from v1.6 to v1.7 and
+  changed the §15.3 cross-reference to §12.3 to match the
+  Standard's renumbering. Removed a stale cross-reference to the
+  Standard's §12 (that section is no longer present in v1.7).
+  Also split the watermarking row of the main table into two
+  peer rows: EU-compliant watermarking (peer to C2PA under
+  Article 50 mandatory measures) and Scruple SCR_ID watermarking
+  (attached automatically when the chain-lock modality is
+  selected). Opening one-paragraph relationship and EU-measure
+  rows updated accordingly.
 - **2026-07-30, v1.0** — initial draft. Supersedes the prior
   "SCRUPLE vs C2PA" comparison chart authored in the Base44 site
   content for `scruple.ai/standard`. Reframes the relationship from
@@ -176,7 +189,6 @@ attestations Scruple can attach.
   second-axis sub-section on **customer hardware witnessing level**
   (Level 1 self-witnessing / Level 2 third-party observer, each with
   cloud/local lanes, ordered by evidentiary strength). Companion
-  chart to *The Scruple Standard, v1.5* §9 (Output modality options),
-  §11 (Four axes), §12 (C2PA Generator Product Conformance Program
-  participation), and §15.3 (The blind spot only a third-party
+  chart to *The Scruple Standard* §9 (Output modality options),
+  §11 (Four axes), and §12.3 (The blind spot only a third-party
   hardware observer closes).

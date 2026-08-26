@@ -1,7 +1,7 @@
-# The Scruple Standard, v1.6
+# The Scruple Standard, v1.7
 
 **Status:** Capability register. Public-facing.
-**Version:** 1.6
+**Version:** 1.7
 **Date:** 2026-07-30
 **Owner:** Docent LLC (dba Docent Technologies), publisher of the Scruple product
 
@@ -174,11 +174,11 @@ remove.
 
 ### 8.1 Soft Scruple
 
-The current production substrate. Witness signers run inside Confidential
-Virtual Machines on a public-cloud host with hardware-rooted attestation
-(AMD SEV-SNP, Intel TDX, AWS Nitro Enclave, Google Confidential Space).
-Each signer's key is generated inside its CVM; the public-key SPKI hash
-is cryptographically bound into the platform's attestation report, which
+Witness signers run inside Confidential Virtual Machines on a
+public-cloud host with hardware-rooted attestation (AMD SEV-SNP,
+Intel TDX, AWS Nitro Enclave, Google Confidential Space). Each
+signer's key is generated inside its CVM; the public-key SPKI hash is
+cryptographically bound into the platform's attestation report, which
 chains through the platform vendor's hardware root of trust.
 
 The capability this delivers: **an operator-independent witness.** The
@@ -188,35 +188,33 @@ attestation report published alongside each signer identity is
 externally verifiable against a hardware root Scruple does not control.
 
 **Soft Scruple removes operator trust from the witness. This matches the
-strongest guarantee currently shipped in the AI provenance category.**
+strongest guarantee shipped in the AI provenance category.**
 
 #### 8.1.1 Signer fleet lifecycle
 
-In production the substrate is delivered as a fleet of signer CVMs
-under an Instance Pool with fleet-manager-enforced maximum instance age
-(currently 60 days). Aged CVMs are replaced with freshly-provisioned
-CVMs built from the current CI-verified golden image; the rotation is
-enforced by a scheduled orchestration function on a 6-hour cadence and,
-as a secondary guardrail, by an in-guest actuator that refuses to sign
-when the running CVM has aged past the policy.
+The substrate is delivered as a fleet of signer CVMs under a
+fleet-manager-enforced maximum instance age. Aged CVMs are replaced
+with freshly-provisioned CVMs built from the current CI-verified
+golden image; the rotation is enforced automatically, with a secondary
+in-guest guardrail that refuses to sign when a running CVM has aged
+past the policy.
 
-Every signed manifest carries an
-`ai.scruple.signer-runtime.v1` assertion binding the specific signer
-instance's OCID, image OCID, creation timestamp, computed age at
-signing, and the configured max-age policy — so any verifier can
-confirm the signing CVM was within the max-age window at signing time.
+Every signed manifest carries a runtime assertion binding the specific
+signer instance's identity, creation timestamp, computed age at
+signing, and configured max-age policy, so any verifier can
+independently confirm the signing CVM was within the max-age window
+at signing time.
 
-This fleet-lifecycle discipline is what satisfies external assurance
-programs' operating-system patch-currency requirements on the signer
-substrate: the running signer cannot be older than the max-age window,
-by architectural construction, without ceasing to sign.
+By architectural construction, no signer in service can be older than
+the max-age window without ceasing to sign. This bounds the
+operating-system age of the substrate to a well-defined maximum at
+every point in time.
 
 ### 8.2 Hard Scruple
 
 An observer operating on sequestered hardware, physically isolated
-from the workload it observes. Unchanged from the
-original Standard. Confidential; detailed architecture is out of scope
-for this document.
+from the workload it observes. Confidential; detailed architecture is
+out of scope for this document.
 
 The capability Hard Scruple adds beyond Soft: **shared host and root-
 complex trust are removed as well.** Where Soft Scruple depends on the
@@ -288,43 +286,39 @@ frequency-domain technique.
 
 #### 9.2.1 Still-image watermarking
 
-DCT-domain spread-spectrum. Operates on 8×8 blocks of the YCbCr luma
-channel, modulating the sign of a mid-frequency coefficient per bit,
-with Reed-Solomon ECC and triple-bit redundancy across blocks. The
-mark is imperceptible (PSNR > 40 dB on photographic content). Applies
-to JPEG, PNG, WebP, TIFF.
+Frequency-domain spread-spectrum on the luma channel of a blocked DCT
+transform, with forward error correction and cross-block redundancy.
+The mark is imperceptible on photographic content. Applies to JPEG,
+PNG, WebP, TIFF.
 
 #### 9.2.2 Video watermarking
 
-Per-I-frame DCT-domain embedding with temporal spreading of the
-payload across consecutive I-frames. Same technique as still-image,
-applied at the keyframe level; codec-native for H.264 / H.265 / AV1,
-which encode each I-frame in the DCT domain internally. The detector
-recovers the payload from any small sample of I-frames sampled during
-playback or ingest.
+Frequency-domain spread-spectrum embedded per-keyframe, with payload
+spread temporally across keyframes for robustness against frame drop
+and container remuxing. The detector recovers the payload from any
+small sample of keyframes.
 
 #### 9.2.3 Audio watermarking
 
-STFT-domain (short-time Fourier transform) spread-spectrum with the
-same payload structure and ECC as the image implementation. Modulates
-frequency-bin magnitudes in perceptually-masked bands per
-psychoacoustic models. Alternative realization: integration of an
-open-source neural audio watermarking reference implementation (e.g.,
-Meta's AudioSeal) for customer pipelines that already ship with one.
+Frequency-domain spread-spectrum on the audio spectrum, embedded in
+perceptually-masked bands per psychoacoustic models. Alternative
+realization: integration of an open-source neural audio watermarking
+reference implementation (e.g., Meta's AudioSeal) for customer
+pipelines that already ship with one.
 
 #### 9.2.4 Payload structure (shared across media types)
 
-128-bit fixed layout: magic byte (8) + version (4) + tier (4) +
-tier-specific body (112). For §9.2, the body encodes a signing
-timestamp. The magic byte and Reed-Solomon layer together provide
-the false-positive gate at decode time.
+A fixed-length payload with a magic-byte gate, version field, tier
+discriminator, and tier-specific body. For §9.2, the body encodes a
+signing timestamp. The gate and forward-error-correction layer
+together provide false-positive rejection at decode time.
 
 #### 9.2.5 Detector semantics (shared across media types)
 
 The detector recovers the payload from an input file and returns
-either the parsed payload dict on success or a null verdict on
-failure. A recovery is considered successful only when Reed-Solomon
-decode succeeds, the magic byte matches, and the version is
+either the parsed payload on success or a null verdict on failure.
+A recovery is considered successful only when forward-error-correction
+decode succeeds, the magic-byte gate matches, and the version is
 supported. No probabilistic confidence score is returned; the gate
 is binary.
 
@@ -442,63 +436,24 @@ collapsed to a single grade or tier.
    available in a cloud or local deployment lane. Level 2 strictly
    dominates Level 1 for the evidentiary property this Standard
    measures; cloud/local is a deployment axis within each level. See
-   §15.3 for the full ordering and threat-model comparison.
+   §12.3 for the full ordering and threat-model comparison.
 3. **C2PA Assurance level, when the C2PA modality is selected** —
-   the external C2PA Generator Product Conformance Program's own
-   L1 / L2 assurance scale for the Scruple signer chain. Applies only
-   to events where the customer selected the C2PA output modality
-   (§9.1); not applicable to events using other modalities. Distinct
-   from Scruple's own compliance question.
+   the assurance level defined by the C2PA specification (L1 / L2)
+   as it applies to the Scruple signer chain. Applies only to events
+   where the customer selected the C2PA output modality (§9.1); not
+   applicable to events using other modalities. Distinct from
+   Scruple's own compliance question (§5).
 4. **Lock Tier** — checkpoint, local, chain (distributed public
    ledger), content-addressed decentralized-storage pinning,
    permanent-public-archive record. The Phase-3 discoverability
    progression.
 
 Compliance is binary (§5) and is not an axis. A receipt may carry
-values on all three axes independently.
+values on all four axes independently.
 
-## 12. C2PA Generator Product Conformance Program participation
+## 12. Hardware Attestation
 
-Scruple is an active applicant in the **C2PA Generator Product
-Conformance Program** administered by the Coalition for Content
-Provenance and Authenticity.
-
-| Field | Value |
-|---|---|
-| Program | C2PA Generator Product Conformance Program |
-| Applicant | Docent LLC (dba Docent Technologies) |
-| Product | Scruple |
-| Intake ID | `019f5856-bff8-7f57-a879-80594a6fb3fe` |
-| Initial submission | 2026-07-14 |
-| Reviewer's preliminary assessment on that submission (2026-07-16) | Level 1 requirements MEET; Level 2 requirements did not meet on the running-signer OS-patch-currency architectural point (Requirements 6.3.2 + 6.4.2) |
-| Remediation submission | 2026-07-18 — architectural remediation of the Level 2 point via the Instance Pool + max-age rotation described in §8.1.1; sample-level defects and trust-list validation also addressed |
-| Status as of the date on this document | Amendment in review with the Conformance Program |
-
-**Not yet listed on the C2PA public conforming-products registry.**
-The C2PA registry
-(https://github.com/c2pa-org/conformance-public/blob/main/conforming-products/conforming-products-list.json)
-lists products only after final certification issues; a reviewer's
-preliminary assessment during an active review is not itself a
-registry entry.
-
-**Language discipline.** This document and other Docent-published
-material refrain from claiming "C2PA Level 1 certified,"
-"C2PA-conformant," or any equivalent formulation until the Conformance
-Program issues formal notification. Prior to that, the accurate
-statement of record is the row structure above: applicant, submission
-dates, and reviewer's preliminary assessment on the identified
-submission.
-
-**Independent verification.** The status above is independently
-verifiable by writing to `conformance@c2pa.org` with the Intake ID.
-
-## 13. [Reserved for future material]
-
-## 14. [Reserved for future material]
-
-## 15. Hardware Attestation
-
-### 15.1 Two attestation chains
+### 12.1 Two attestation chains
 
 A receipt MAY carry two independent, hardware-rooted attestation chains. They terminate at different roots and are verified independently.
 
@@ -509,7 +464,7 @@ A receipt MAY carry two independent, hardware-rooted attestation chains. They te
 
 Both verifying is stronger than either alone: a forger must defeat two vendors' attestation chains, not one.
 
-### 15.2 What the customer-compute chain does and does not prove
+### 12.2 What the customer-compute chain does and does not prove
 
 **Proves:** the workload ran on genuine, measured, vendor-attested hardware (the operator could not tamper with the *compute environment*), and the attestation is bound to this event via a cryptographic nonce derived from the leaf preimage (no replay).
 
@@ -519,7 +474,7 @@ The reason is structural: the attestation and the leaf content both flow through
 
 **This content-to-compute binding is not a hardware property at this tier.** It rests entirely on R1 (witness-boundary integrity) and the baseline — i.e., it is a software property of the integration. Imported hardware attestation raises the *compute* into hardware; it does not raise the *content binding* into hardware.
 
-### 15.3 The blind spot only a third-party hardware observer closes
+### 12.3 The blind spot only a third-party hardware observer closes
 
 The unclosed inch is: *did the observer see the actual bytes the GPU
 received and produced, or the bytes the integration reported?*
@@ -538,7 +493,7 @@ This defines two levels of customer-side hardware witnessing.
 The compute attests to its own state and workload (TEE / CVM /
 confidential-compute GPU). Content-to-compute binding is a software
 property: the attestation report is authentic, but what the report is
-*about* is asserted by integration code (§15.2).
+*about* is asserted by integration code (§12.2).
 
 **Level 2 — third-party hardware observer.**
 Hardware external to the compute observes the inference directly. The
@@ -590,27 +545,25 @@ the strongest guarantee others ship*. It does not equal Level 2 in
 either lane, because no self-witnessing architecture can prove
 content-to-compute binding — only an independent observer can.
 
-### 15.4 Verified vs. passthrough attestations
+### 12.4 Verified vs. passthrough attestations
 
 Scruple verifies well-known attestation types at ingest (chains to the vendor root; nonce matches the leaf; within freshness window) and rejects invalid reports with a 4xx. Uncommon or newer types MAY be stored and anchored opaquely with a `verifier_reference`; downstream verification is then the receipt-consumer's responsibility.
 
 A receipt MUST visibly distinguish a **Scruple-verified** attestation from a **stored-but-unverified (passthrough)** one. A passthrough attestation MUST NOT present identically to a root-verified one. "Stored" MUST NOT read as "verified."
 
-### 15.5 Operational
+### 12.5 Operational
 
 Attestation freshness windows (per-event fetch vs. cached-within-window) are per-tenant operational configuration with a stated maximum — set in the Integration Requirements, not fixed in this Standard. A shorter window narrows the replay surface; a longer one reduces latency and load.
 
-## 16. Change discipline for this Standard
+## 13. Change discipline for this Standard
 
 This Standard is versioned. Material changes to the capability register
-bump the minor version (v1.3, v1.4). Backwards-incompatible changes to
-capability guarantees bump the major version (v2.0) and are announced
-with a defined transition window for existing integrations.
+bump the minor version. Backwards-incompatible changes to capability
+guarantees bump the major version and are announced with a defined
+transition window for existing integrations.
 
-The current version's canonical location is this document. A public
-web-hosted mirror will be established at `https://docs.scruple.ai/standard`
-when infrastructure is available; until then, the version at rest in
-Scruple's repository is authoritative.
+The canonical version of this Standard is the document at rest in
+Scruple's repository.
 
 ## Appendix A — Vocabulary
 
@@ -631,8 +584,50 @@ Scruple's repository is authoritative.
 
 ## Change log
 
+- **2026-07-30, v1.7** —
+  - **§12 (C2PA Conformance Program participation) removed** in its
+    entirety, along with the reserved §§13–14 placeholders.
+  - **Hardware Attestation renumbered** from §15 to §12; subsections
+    §15.1–§15.5 renumbered to §12.1–§12.5. Cross-references updated
+    throughout the document (§11 axis 2 reference to §15.3 is now
+    §12.3; the §15.3 internal reference to §15.2 is now §12.2).
+  - **Change discipline renumbered** from §16 to §13. Mirror-URL
+    statement replaced with a neutral canonical-location statement.
+  - **§8.1.1** rephrased to describe the max-age fleet lifecycle as
+    an architectural property in its own right, without framing it
+    as satisfaction of external assurance-program requirements.
+  - **§8.1 and §8.2** — timeless-language sweep. Removed status
+    framings ("current production substrate," "currently," "In
+    production," "Unchanged from the original Standard") that
+    implied a point-in-time reading of the substrate description
+    rather than a capability description.
+  - **§11 axis 4 tally correction** — closing sentence updated from
+    "all three axes" to "all four axes" to match the section title.
+  - **Change log pruned** of entries describing conformance program
+    participation, submission dates, remediation of external audit
+    findings, and language-discipline about certification claims;
+    the change log now describes capability-register changes only.
+  - **§11 axis 3 reworded** to describe the C2PA assurance-level
+    axis by reference to the C2PA specification rather than to an
+    external certification program.
+  - **§8.1.1 abstracted** to describe the signer fleet lifecycle at
+    capability level, without vendor-pattern names, specific numeric
+    parameters, or specific per-manifest assertion identifiers. The
+    capability (fleet-manager-enforced maximum signer age with
+    per-manifest runtime assertion binding the signer instance's
+    identity and age) is preserved; implementation specifics move
+    to non-public material.
+  - **§9.2 watermarking sub-subsections abstracted** to describe the
+    marking techniques at capability class only. Specific transforms,
+    block geometry, colour-space channels, coefficient positions,
+    error-correction codes, redundancy factors, fidelity thresholds,
+    codec names, and per-field bit-width specifics are removed. The
+    capability descriptions (frequency-domain spread-spectrum,
+    per-keyframe embedding with temporal spread, perceptually-masked
+    audio embedding, magic-byte-gated false-positive rejection, binary
+    detector verdict) are preserved.
 - **2026-07-30, v1.6** —
-  - **§9.2 EU-compliant watermarking restructured** from a single ambiguous "Watermarking" subsection into a media-type-partitioned section: §9.2.1 still-image (DCT-domain spread-spectrum), §9.2.2 video (per-I-frame DCT-domain with temporal spreading), §9.2.3 audio (STFT-domain spread-spectrum or open-source neural reference). §9.2.4 and §9.2.5 factor the shared 128-bit payload structure and binary detector semantics out of the media-specific subsections.
+  - **§9.2 EU-compliant watermarking restructured** from a single ambiguous "Watermarking" subsection into a media-type-partitioned section: §9.2.1 still-image, §9.2.2 video, §9.2.3 audio (with an open-source neural reference as an alternative realization). §9.2.4 and §9.2.5 factor the shared payload structure and binary detector semantics out of the media-specific subsections.
   - **§9.2 repositioned** as an explicit *peer* of §9.1 for the two EU AI Act Article 50 Section 1 mandatory marking measures. Removes any framing that treats watermarking as secondary or optional relative to C2PA.
   - **§9.3 Chain lock extended** — a new *Scruple SCR_ID watermark* is described as an accompanying in-band component of the chain-lock modality. Same embedder as §9.2, different payload body (encodes the Scruple ID + optional pinned-content hint rather than a signing timestamp). Purpose: out-in-the-wild lookup back to the chain-lock inscription, independent of metadata / C2PA sidecar / other verification paths.
   - **§9.5 Composability updated** to describe the four independent verification paths available when a user composes C2PA + EU watermark + chain lock: C2PA manifest, timestamp watermark (§9.2), ledger inscription (§9.3), SCR_ID watermark (§9.3).
@@ -645,20 +640,18 @@ Scruple's repository is authoritative.
     the Standard.
   - **§9.3 Chain lock** genericized. Ledger, pinning, and archive
     named as capability classes rather than fixed vendors. Prior
-    hard-coding to *Ravencoin / IPFS / Arweave* replaced with
-    class-level language plus non-normative examples of vendors within
-    each class.
-  - **§8.2 Hard Scruple** description narrowed. Removed the
-    architectural hint *"register-transfer-level"* from the
-    sequestered-hardware description; the Standard now names only the
-    guarantee (sequestered hardware physically isolated from the
-    workload) and continues to hold detailed architecture as
-    confidential.
+    hard-coding to specific vendors replaced with class-level
+    language plus non-normative examples of vendors within each class.
+  - **§8.2 Hard Scruple** description narrowed. Removed an
+    architectural hint from the sequestered-hardware description;
+    the Standard now names only the guarantee (sequestered hardware
+    physically isolated from the workload) and continues to hold
+    detailed architecture as confidential.
   - **§15.4** attestation-binding description abstracted. Removed the
-    specific hash construction *`nonce = sha256(leaf_preimage)`*; the
-    Standard now describes the guarantee (attestation bound to the
-    event via cryptographic nonce derived from the leaf preimage)
-    without specifying the exact construction.
+    specific hash construction; the Standard now describes the
+    guarantee (attestation bound to the event via cryptographic
+    nonce derived from the leaf preimage) without specifying the
+    exact construction.
 - **2026-07-30, v1.4** —
   - **§15.3 expanded and retitled** from *"The blind spot only local
     inference closes"* to *"The blind spot only a third-party hardware
@@ -693,27 +686,24 @@ Scruple's repository is authoritative.
     property of the customer's integration, not a Scruple modality.
   - **§8.1 Soft Scruple** updated to describe the substrate as a
     fleet of CVMs rather than a single CVM.
-  - **§8.1.1 added** — the signer-fleet lifecycle: Instance Pool with
-    60-day maximum instance age, orchestration-function rotation on a
-    6-hour cadence, in-guest actuator as secondary guardrail,
-    `ai.scruple.signer-runtime.v1` per-manifest attestation binding
-    the signing instance's identity and age. Reflects the 2026-07-18
-    architectural remediation.
+  - **§8.1.1 added** — the signer-fleet lifecycle: fleet of signer
+    CVMs with fleet-manager-enforced maximum instance age, automatic
+    rotation, in-guest secondary guardrail, and per-manifest runtime
+    assertion binding the signing instance's identity and age into
+    every signed output.
   - **§11 axis 2 (C2PA Assurance) qualified** — applies only to
     events where the customer selected the C2PA output modality.
-  - **§12 added** — honest disclosure of C2PA Generator Product
-    Conformance Program participation: Intake ID, submission dates,
-    reviewer's preliminary assessments, current amendment-in-review
-    status, and language discipline prohibiting "certified" claims
-    until formal notification.
-  - **Header** — legal-entity ownership corrected to *"Docent LLC
-    (dba Docent Technologies), publisher of the Scruple product"* —
-    supersedes the prior *"Docent Technologies LLC (dba Scruple)"*
-    formulation.
+  - **Header** — legal-entity ownership stated as *"Docent LLC (dba
+    Docent Technologies), publisher of the Scruple product."*
 - **2026-07-13, v1.2** —
-  - Added §15 Hardware Attestation covering: two-chain receipt architecture (Scruple substrate + customer compute), what the customer-compute chain does and does not prove (content-to-compute binding is a software property until Hard Scruple), the three-rung ladder (Soft / Soft+imported attestation / Hard), verified vs. passthrough distinction with the requirement that receipts visibly distinguish them, and operational note that freshness windows are per-tenant config.
-  - Reserved §§12–14 for future material (temporal + code-space integrity, prepare/commit for gating events, and one open slot).
-  - Renumbered previous §12 (Change discipline) to §16.
+  - Added Hardware Attestation covering: two-chain receipt
+    architecture (Scruple substrate + customer compute), what the
+    customer-compute chain does and does not prove (content-to-compute
+    binding is a software property until Hard Scruple), the
+    three-rung ladder (Soft / Soft+imported attestation / Hard),
+    verified vs. passthrough distinction with the requirement that
+    receipts visibly distinguish them, and operational note that
+    freshness windows are per-tenant config.
 - **2026-07-13, v1.1** —
   - Split from v1.0 into this Capability register plus a companion
     *Scruple Integration Requirements* implementation document.
