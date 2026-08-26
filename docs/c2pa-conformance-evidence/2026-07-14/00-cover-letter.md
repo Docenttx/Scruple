@@ -1,6 +1,6 @@
 # Response to the C2PA Conformance Program reviewer
 
-**From:** Shaun Hargadine, on behalf of Docent LLC (dba Scruple)
+**From:** Shaun Hargadine, on behalf of Docent LLC (dba Docent Technologies)
 **Date:** 2026-07-15
 **Re:** Evidence samples + Generator Product Security Architecture Document
 **Intake record ID:** `019f5856-bff8-7f57-a879-80594a6fb3fe`
@@ -84,7 +84,7 @@ Key points for your first-pass review:
   customer availability is Trust List CA processing of our CSR.
 - **Vulnerability disclosure.** `SECURITY.md` at repo root documents
   the coordinated-disclosure process, contact address
-  (`security@scruple.ai`), triage SLA (48 hours), and remediation
+  (`scruple@docentechs.com`), triage SLA (48 hours), and remediation
   timeline per the GPSR §6.6 footnote (30/90/180 days for
   high/medium/low CVSS).
 
@@ -124,10 +124,8 @@ Thank you again for the review.
 Best regards,
 
 **Shaun Hargadine**
-Docent LLC (dba Scruple)
+Docent LLC (dba Docent Technologies)
 
-- Technical: `partners@scruple.ai`
-- Conformance: `compliance@scruple.ai`
-- Security: `security@scruple.ai`
+- Contact: `scruple@docentechs.com`
 - Public product: `scruple.ai`
 - Public source + evidence: `github.com/Docenttx/Scruple`

@@ -236,8 +236,7 @@ If all five steps return 2xx and the verifier CLI exits 0, the integration is li
 
 ## 7. Support and escalation
 
-- **Primary contact:** `partners@scruple.ai` — integration questions, credential issues, quota bumps.
-- **Security / compliance:** `compliance@scruple.ai` — Rider questions, incident response, key rotation notifications, audit-log requests.
+- **Contact:** `scruple@docentechs.com` — all integration, security, compliance, credential, quota, Rider, incident, and audit questions.
 - **On-call SLA:** per the MSA. Default response commitments during a Rider-active engagement:
   - P0 (witness ingest unavailable > 5 min): 15 min ack, 1h workaround.
   - P1 (auth failures blocking integrator writes): 1h ack, 4h fix.

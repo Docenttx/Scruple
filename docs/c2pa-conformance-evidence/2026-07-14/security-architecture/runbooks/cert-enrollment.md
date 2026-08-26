@@ -22,7 +22,7 @@ Both CAs are on the C2PA Trust List. Either one produces a cert whose chain term
 
 ## 1. Prerequisites
 
-- **Docent LLC account** at the chosen CA. Subscriber agreement signed. Payment method on file. MFA enabled on the account. The account owner (`compliance@scruple.ai`) is the only human who can submit the CSR.
+- **Docent LLC account** at the chosen CA. Subscriber agreement signed. Payment method on file. MFA enabled on the account. The account owner (`scruple@docentechs.com`) is the only human who can submit the CSR.
 - **Signer CVM provisioned per `cvm-provision.md`** — the SoftHSM token has an ES256 key labeled `scruple-c2pa-key` at `CKA_EXTRACTABLE=CK_FALSE`, and the SEV-SNP report already binds that pubkey to the CVM's measurement.
 - **Distinguished Name locked** per `01-GPSA.md` §C.1.2:
   - `CN = Scruple`
@@ -104,7 +104,7 @@ shred -u /tmp/scruple-c2pa.csr
 
 ### 3a. DigiCert — Content Credentials product
 
-1. Sign in at `https://www.digicert.com/account/` with MFA. Use the `compliance@scruple.ai` account.
+1. Sign in at `https://www.digicert.com/account/` with MFA. Use the `scruple@docentechs.com` account.
 2. Navigate to `CertCentral → Request a certificate → Content Credentials`.
 3. Select **Content Credentials Signing certificate**, validity **1 year**, algorithm **ECDSA P-256**.
 4. Upload `scruple-c2pa.csr`.
