@@ -3,11 +3,16 @@
 // Public. Someone holding a file, with no relationship to Scruple and no
 // credential, hashes it and asks whether it is on the record.
 //
-// ASSURANCE CAVEAT (D-0, L2_FLOOR.md). A `found: true` here currently
-// rests on Scruple's own database and an HMAC seal Scruple holds the key
-// to. It is not independently verifiable the way a C2PA manifest is, and
-// this response says so rather than implying parity. Harmonizing that is
-// H-1 and it is not done.
+// ASSURANCE (D-0, L2_FLOOR.md). This used to hardcode
+// `independently_verifiable: false`, because a leaf's only seal was an
+// HMAC over a secret Scruple holds — forgeable by us, checkable by
+// nobody else.
+//
+// H-1 changed that: leaves are now ECDSA-signed via the same KMS the
+// C2PA signer uses, and the verifying key is published. So this reports
+// the truth per leaf rather than a constant. A leaf signed while the KMS
+// was unreachable is still recorded and still says false, which is the
+// honest answer for that leaf.
 
 import { conn } from '@/lib/db/sqlite';
 import { v2Error, v2Ok } from '@/lib/v2/http';
@@ -21,6 +26,7 @@ interface Row {
   leaf_scheme: string | null;
   baseline_hash: string | null;
   timestamp: string;
+  witness_signature: string | null;
 }
 
 export async function GET(
@@ -34,7 +40,8 @@ export async function GET(
 
   const row = conn()
     .prepare(
-      `SELECT id, leaf_hash, witnessed, leaf_scheme, baseline_hash, timestamp
+      `SELECT id, leaf_hash, witnessed, leaf_scheme, baseline_hash, timestamp,
+              witness_signature
          FROM iterations
         WHERE output_hash = ?
         ORDER BY id DESC LIMIT 1`,
@@ -52,9 +59,14 @@ export async function GET(
     });
   }
 
+  // An ECDSA leaf signature is stored in witness_signature. Its presence
+  // is what makes this leaf checkable by someone who does not trust us.
+  const independentlyVerifiable = Boolean(row.witness_signature);
+
   return v2Ok({
     found: true,
     witnessed: row.witnessed === 1,
+    independently_verifiable: independentlyVerifiable,
     leaf: {
       leaf_id: String(row.id),
       leaf_hash: row.leaf_hash,
@@ -62,13 +74,20 @@ export async function GET(
       baseline_ref: row.baseline_hash,
       witnessed_at: row.timestamp,
     },
-    verification_basis: {
-      // Named plainly so nothing downstream mistakes this for the
-      // independent verifiability a C2PA manifest carries.
-      kind: 'scruple_record',
-      independently_verifiable: false,
-      note: 'This answer rests on Scruple\'s audit record. A C2PA manifest on the same asset is verifiable without Scruple; this is not, until leaf signing moves into the attested signer.',
-    },
+    verification_basis: independentlyVerifiable
+      ? {
+          kind: 'asymmetric_leaf_signature',
+          independently_verifiable: true,
+          algorithm: 'ECDSA_SHA_256',
+          note:
+            'This leaf is ECDSA-signed. Fetch the verifying key from the witness at /api/signer/pubkey and check the signature over leaf_hash yourself — no Scruple cooperation and no OCI credentials required.',
+        }
+      : {
+          kind: 'scruple_record',
+          independently_verifiable: false,
+          note:
+            'This leaf carries no asymmetric signature — it was witnessed before H-1, or while the signing service was unreachable. It rests on Scruple\'s audit record alone and cannot be checked by a third party.',
+        },
     receipt_url: `/api/v2/receipt/${row.id}`,
   });
 }

@@ -76,10 +76,52 @@ about that are worth knowing:
 `node_modules/`, `witness.db*` (the actual signed leaves),
 `arweave-key.json`, `arlocal-data/`. See `.gitignore`.
 
-## The assurance gap this does not close
+## H-1 — leaves are now independently verifiable
 
-This service seals leaves with a **symmetric HMAC**, on the same host as
-the web application. The C2PA signer, by contrast, uses an ECDSA key in a
-PKCS#11 HSM inside an attested SEV-SNP CVM. Tracking the code makes it
-measurable; it does not make the seal any stronger. Moving leaf signing
-into the attested signer is **H-1**, and it is the load-bearing item.
+Until 2026-08-27 a leaf's only seal was an HMAC over `SCRUPLE_WITNESS_SECRET`.
+Two properties, fine for a transport check and disqualifying for evidence:
+Scruple could forge any leaf, and nobody but Scruple could verify one.
+
+`leaf_signer.js` now ECDSA-signs the leaf hash through the same OCI Vault
+KMS Sign API the C2PA signer uses, and the verifying key is published at
+`/api/signer/pubkey`. A third party can check a leaf with no Scruple
+cooperation and no OCI credentials.
+
+**The HMAC stays, demoted to what it always was** — a transport seal
+between the application tier and this service (H-2). Nothing in a receipt
+derives its trustworthiness from it any more.
+
+```
+SCRUPLE_WITNESS_KMS_ENDPOINT=http://127.0.0.1:8799       # or the OCI crypto endpoint
+SCRUPLE_WITNESS_KMS_KEY_OCID=ocid1.key...
+SCRUPLE_WITNESS_KMS_PUBKEY_URL=http://127.0.0.1:8799/testnet/pubkey.pem
+```
+
+Unset either of the first two and signing is **disabled** — leaves carry
+the HMAC alone and every response says `independently_verifiable: false`.
+Disabled is the default on purpose: enabling H-1 should be a deliberate
+act, not something that happens because a variable was set somewhere.
+
+`GET /api/signer` reports the current mode, the key, whether it is a
+surrogate key, and whether leaves are independently verifiable.
+
+### When the signing service is unreachable
+
+The leaf is still recorded, with its signature fields null and
+`independently_verifiable: false`. Losing the event entirely would be
+worse than recording one whose independent verifiability is pending — and
+the failure is reported, never hidden.
+
+### The gap that remains
+
+Real OCI KMS requires request signing (draft-cavage HTTP signatures) with
+instance-principal credentials, which `leaf_signer.js` does **not**
+implement. Two options, neither chosen yet: add the `oci-sdk` npm package
+and use `KmsCryptoClient`, mirroring `services/c2pa-signer/vault_sign.py`;
+or shell out to `vault_sign.py`, which already does instance-principal
+auth correctly, at a subprocess per leaf.
+
+Until one lands, this works against `services/cvm-surrogate` and against
+any endpoint that does not demand OCI request signing. **The interface is
+the same either way** — that is what the surrogate exists to get right
+before the real machine is switched on.

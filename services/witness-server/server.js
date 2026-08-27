@@ -215,6 +215,26 @@ db.exec(`
       db.exec("ALTER TABLE witnesses ADD COLUMN model_fingerprints_hash TEXT");
       console.log('[DB] Migrated: witnesses.model_fingerprints_hash');
     }
+    // H-1 — asymmetric leaf signature. The HMAC `signature` column stays
+    // as the transport seal; these carry the evidence.
+    if (!cols.includes('leaf_signature')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN leaf_signature TEXT");
+      console.log('[DB] Migrated: witnesses.leaf_signature');
+    }
+    if (!cols.includes('leaf_signer_key_id')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN leaf_signer_key_id TEXT");
+      console.log('[DB] Migrated: witnesses.leaf_signer_key_id');
+    }
+    if (!cols.includes('leaf_signature_alg')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN leaf_signature_alg TEXT");
+      console.log('[DB] Migrated: witnesses.leaf_signature_alg');
+    }
+    // A surrogate-signed leaf must be distinguishable at rest, not only
+    // at the moment of signing.
+    if (!cols.includes('leaf_signer_surrogate')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN leaf_signer_surrogate INTEGER");
+      console.log('[DB] Migrated: witnesses.leaf_signer_surrogate');
+    }
   } catch (e) {
     console.log('[DB] Migration warning (v2.2): ' + e.message);
   }
@@ -224,6 +244,12 @@ db.exec(`
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+const leafSigner = require('./leaf_signer');
+
+// The HMAC. H-2 demotes this to a TRANSPORT SEAL between the application
+// tier and this service — it is no longer an evidence claim. Evidence is
+// the ECDSA signature from leaf_signer, which a third party can verify
+// without Scruple. See docs/canon/L2_FLOOR.md.
 function sign(data) {
   return crypto
     .createHmac('sha256', SECRET)
@@ -399,6 +425,12 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // Health check
+    if (pathname === '/api/signer' && method === 'GET') {
+      return handleSignerInfo(res);
+    }
+    if (pathname === '/api/signer/pubkey' && method === 'GET') {
+      return handleSignerPubkey(res);
+    }
     if (pathname === '/health' && method === 'GET') {
       return send(res, 200, { status: 'ok', version: '1.0', timestamp: new Date().toISOString() });
     }
@@ -540,13 +572,22 @@ async function handleWitness(req, res) {
   const leaf_hash = recordHash(record, leaf_scheme);
   const signature = sign(leaf_hash);
 
+  // H-1 — the evidence signature. Returns null when signing is disabled
+  // or the KMS is unreachable; the leaf is still recorded, with its
+  // signature fields null so anything reading it can tell that this leaf
+  // is verifiable only by Scruple. Losing the event entirely would be
+  // worse than recording one whose independent verifiability is pending.
+  const leafSig = await leafSigner.signLeaf(leaf_hash);
+
   db.prepare(`
     INSERT OR IGNORE INTO witnesses
       (witness_id, project_id, project_name, run_sequence, content_hash,
        visual_hash, client_timestamp, server_timestamp, signature,
        input_hash, workflow_hash, prev_record_hash, leaf_hash, leaf_scheme,
-       model_fingerprints_hash, machine_manifest_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       model_fingerprints_hash, machine_manifest_hash,
+       leaf_signature, leaf_signer_key_id, leaf_signature_alg,
+       leaf_signer_surrogate)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     witness_id, String(project_id), project_name, run_sequence, content_hash,
     visual_hash, client_timestamp, server_timestamp, signature,
@@ -554,6 +595,10 @@ async function handleWitness(req, res) {
     leaf_hash, leaf_scheme,
     model_fingerprints_hash || null,
     machine_manifest_hash || null,
+    leafSig ? leafSig.signature : null,
+    leafSig ? leafSig.key_id : null,
+    leafSig ? leafSig.alg : null,
+    leafSig ? (leafSig.surrogate ? 1 : 0) : null,
   );
 
   // Log line is the audit trail: project identity, sequence, witness id,
@@ -569,7 +614,44 @@ async function handleWitness(req, res) {
   send(res, 200, {
     witness_id, server_timestamp, signature,
     leaf_hash, prev_record_hash, leaf_scheme,
+    // H-1 — the evidence signature, and an honest statement of what it
+    // is worth. `independently_verifiable: false` means this leaf can be
+    // checked by Scruple and nobody else, which anything presenting it
+    // to a user must say rather than imply parity with a C2PA manifest.
+    leaf_signature: leafSig ? leafSig.signature : null,
+    leaf_signer_key_id: leafSig ? leafSig.key_id : null,
+    leaf_signature_alg: leafSig ? leafSig.alg : null,
+    signer_surrogate: leafSig ? Boolean(leafSig.surrogate) : false,
+    independently_verifiable: Boolean(leafSig),
   });
+}
+
+// GET /api/signer — what is sealing leaves right now, and what that is
+// worth. Unauthenticated: a verifier must be able to ask without a
+// relationship to Scruple.
+function handleSignerInfo(res) {
+  send(res, 200, leafSigner.info());
+}
+
+// GET /api/signer/pubkey — the verifying key.
+//
+// This is the endpoint that makes a Scruple leaf checkable without
+// Scruple. Until H-1 there was no such endpoint, because there was no
+// such possibility: an HMAC has no public half.
+async function handleSignerPubkey(res) {
+  const pem = await leafSigner.publicKeyPem();
+  if (!pem) {
+    send(res, 404, {
+      error: 'no public key',
+      detail: leafSigner.mode() === 'disabled'
+        ? 'Leaf signing is disabled. Leaves carry an HMAC only and are verifiable by Scruple alone.'
+        : 'Leaf signing is enabled but no public key URL is configured (SCRUPLE_WITNESS_KMS_PUBKEY_URL).',
+      mode: leafSigner.mode(),
+    });
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'application/x-pem-file' });
+  res.end(pem);
 }
 
 function handleGetWitnesses(projectId, res) {

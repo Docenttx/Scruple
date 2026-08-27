@@ -146,7 +146,7 @@ jobs:
       - name: syntax
         run: node --check server.js
         working-directory: services/witness-server
-      - name: tamper surface
+      - name: tamper surface + H-1 leaf signing
         run: node --test tests/
         working-directory: services/witness-server
 
