@@ -1,0 +1,113 @@
+# Test CI for scruple-web.
+#
+# Why this file exists
+# --------------------
+# Until 2026-08-26 no CI job ran any test suite. security.yml covered SCA,
+# SAST, SBOM and typecheck — all valuable, none of which execute a single
+# assertion. The cost of that was measured: the GPSA v3 assertion-partition
+# remediation landed on 2026-08-04 with an allowlist that rejected every
+# label the Application tier emits, so C2PA signing was broken for three
+# weeks. The tests that would have caught it already existed and passed
+# locally; nothing ran them. The Signer CVM was also powered down for cost
+# reasons, so no end-to-end sign could surface it either.
+#
+# Following security.yml's convention: every job says what breaks if it
+# triggers.
+#
+# Suites deliberately NOT run here, with reasons:
+#   - Host shells (Blender, Fusion, ToonBoom, Meshroom, Adobe, CAD) live in
+#     separate repos and need their host application. Out of scope.
+#   - End-to-end C2PA signing needs the Signer CVM, which is deliberately
+#     powered down pre-launch. The partition boundary is covered; the
+#     c2pa-rs path beyond it is not, and this workflow does not pretend
+#     otherwise.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    # What breaks if this triggers: the C2PA Signer, the witness leaf
+    # format, or the Python SDK has a behavioural regression. The
+    # assertion-contract suite in particular is the drift guard between
+    # lib/c2pa/signAsset.ts and the Signer's fail-closed allowlist — if it
+    # fails, signing is broken for every asset, not some.
+    name: python suites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install test deps
+        run: python -m pip install --upgrade pip pytest
+
+      - name: c2pa-signer
+        run: python -m pytest tests/ -v
+        working-directory: services/c2pa-signer
+
+      - name: scruple-sdk-python
+        run: python -m pytest tests/ -v
+        working-directory: packages/scruple-sdk-python
+
+      # These two are standalone scripts, not pytest-collectable: they have
+      # no test_* functions, so `pytest tests/` collects zero and exits 0 —
+      # a green tick over nothing. Invoke them the documented way instead.
+      - name: witness canonical-leaf parity (v2.3 + v2.4)
+        run: |
+          python3 tests/test_canonical_leaf_v23.py
+          python3 tests/test_canonical_leaf_v24.py
+        working-directory: services/witness
+
+  node:
+    # What breaks if this triggers: hardware-attestation verification or
+    # the verify package. Note the suite below is run with a RECURSIVE
+    # glob on purpose — the package's own `npm test` uses `dist/*.test.js`,
+    # which silently skips every plugin test under dist/plugins/.
+    name: node suites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install
+        run: npm ci
+
+      - name: Build attestation verifiers
+        run: npm run build
+        working-directory: packages/scruple-attestation-verifiers
+
+      - name: Attestation verifiers
+        run: node --test dist/
+        working-directory: packages/scruple-attestation-verifiers
+
+  typecheck:
+    # What breaks if this triggers: a type error reaches main. Duplicated
+    # from security.yml deliberately — this workflow should be able to gate
+    # a merge on its own without depending on that one's job graph.
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run typecheck

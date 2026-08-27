@@ -13,10 +13,15 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test dist/*.test.js",
+    "test": "node --test dist/",
     "clean": "rm -rf dist"
   },
-  "keywords": ["scruple", "attestation", "provenance", "witness"],
+  "keywords": [
+    "scruple",
+    "attestation",
+    "provenance",
+    "witness"
+  ],
   "author": "Docent Technologies LLC",
   "license": "UNLICENSED",
   "private": true,

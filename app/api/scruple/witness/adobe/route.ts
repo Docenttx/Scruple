@@ -172,6 +172,11 @@ export async function POST(req: NextRequest) {
     console.warn('[adobe-witness] witness server unreachable', e);
   }
 
+  // `witnessed` and `leaf_scheme` were literals here — the row claimed a
+  // witness whether or not the witness server ever answered, while the
+  // projects.witnessed_count update below correctly used `leafHash ? 1 : 0`.
+  // The row and the counter disagreed. Standard §5 makes compliance binary;
+  // a fabricated 1 is the one thing that cannot reach the database.
   conn()
     .prepare(
       `INSERT INTO iterations
@@ -182,9 +187,9 @@ export async function POST(req: NextRequest) {
           source_file, leaf_scheme, input_artifacts)
        VALUES (?, ?, ?,
                ?, ?, 'image', ?,
-               ?, ?, ?, 1,
+               ?, ?, ?, ?,
                ?, ?, ?,
-               ?, 'v2.2', ?)`,
+               ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -196,10 +201,12 @@ export async function POST(req: NextRequest) {
       body.file_size,
       body.filename,
       `${body.host_app} save · ${body.filename}`,
+      leafHash ? 1 : 0,
       witnessId,
       witnessSig,
       leafHash ? now : null,
       HOST_SOURCE_FILE[body.host_app] ?? body.host_app,
+      leafHash ? 'v2.2' : 'v1',
       structuralSummary,
     );
 

@@ -113,6 +113,20 @@ export interface IngestResult {
   runSequence: number;
   storagePointer: StoragePointer | null;
   inputArtifacts: InputArtifactRecord[];
+  /**
+   * Whether the witness server actually witnessed this iteration.
+   *
+   * Capture is deliberately non-blocking: if the witness server is
+   * unreachable the iteration still lands, with leaf_scheme='v1' and
+   * witnessed=0. That is a design choice, not a bug. What WAS a bug is
+   * that the result said nothing about it, so every caller reported
+   * success identically either way — and Standard §5 makes compliance
+   * binary. Callers must surface a false here rather than imply a
+   * witness that never happened.
+   */
+  witnessed: boolean;
+  /** 'v1' means the witness server was unreachable and leafHash is the raw output hash. */
+  leafScheme: 'v1' | 'v2' | 'v2.2';
 }
 
 /** File extension for an output/input by kind + content-type. */
@@ -386,5 +400,13 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     console.error('[telemetry] insert failed', e);
   }
 
-  return { iteration, leafHash, runSequence, storagePointer, inputArtifacts };
+  return {
+    iteration,
+    leafHash,
+    runSequence,
+    storagePointer,
+    inputArtifacts,
+    witnessed: witnessResult !== null,
+    leafScheme,
+  };
 }

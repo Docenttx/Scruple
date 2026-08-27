@@ -122,6 +122,13 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    // `ok` means the iteration was captured. It does NOT mean it was
+    // witnessed — capture is non-blocking by design. Clients must read
+    // `witnessed` and say so plainly in the UI; per Standard §5 there is
+    // no partial credit, and a client that renders capture as witnessing
+    // is making a claim the server did not make.
+    witnessed: result.witnessed,
+    leafScheme: result.leafScheme,
     iteration: result.iteration,
     leafHash: result.leafHash,
     runSequence: result.runSequence,
