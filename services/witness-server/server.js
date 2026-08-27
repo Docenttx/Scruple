@@ -629,8 +629,11 @@ async function handleWitness(req, res) {
 // GET /api/signer — what is sealing leaves right now, and what that is
 // worth. Unauthenticated: a verifier must be able to ask without a
 // relationship to Scruple.
-function handleSignerInfo(res) {
-  send(res, 200, leafSigner.info());
+async function handleSignerInfo(res) {
+  // Includes a live self-check: sign a probe and verify it against the
+  // key we publish. A mismatch there makes every leaf unverifiable while
+  // looking perfectly healthy, so it is worth the milliseconds.
+  send(res, 200, { ...leafSigner.info(), self_check: await leafSigner.selfCheck() });
 }
 
 // GET /api/signer/pubkey — the verifying key.

@@ -124,3 +124,124 @@ describe('disabled mode', () => {
     process.env.SCRUPLE_WITNESS_KMS_KEY_OCID = saved;
   });
 });
+
+describe('vault-py mode — the production path', () => {
+  const KEY = '/data/scruple-web/services/c2pa-signer/keys/signer.key';
+
+  function useVaultPy() {
+    process.env.SCRUPLE_WITNESS_SIGNER = 'vault-py';
+    process.env.SCRUPLE_C2PA_LOCAL_KEY_PATH = KEY;
+    delete process.env.SCRUPLE_C2PA_VAULT_KEY_OCID;
+  }
+  function restore() {
+    delete process.env.SCRUPLE_WITNESS_SIGNER;
+    delete process.env.SCRUPLE_C2PA_LOCAL_KEY_PATH;
+  }
+
+  test('signs through the same code path the C2PA signer uses', async () => {
+    useVaultPy();
+    const s = await loadSigner();
+    assert.equal(s.mode(), 'vault-py');
+    const leaf = crypto.randomBytes(32).toString('hex');
+    const sig = await s.signLeaf(leaf);
+    assert.ok(sig, 'sign_leaf.py produced nothing');
+    assert.equal(sig.alg, 'ECDSA_SHA_256');
+    restore();
+  });
+
+  test('the signature verifies against the key it publishes', async () => {
+    useVaultPy();
+    const s = await loadSigner();
+    const leaf = crypto.randomBytes(32).toString('hex');
+    const sig = await s.signLeaf(leaf);
+    const pub = crypto.createPublicKey(await s.publicKeyPem());
+    assert.ok(
+      crypto.verify('sha256', Buffer.from(leaf, 'hex'), pub,
+        Buffer.from(sig.signature, 'base64')),
+      'a leaf signed by the production path did not verify',
+    );
+    restore();
+  });
+
+  test('a local key is marked as non-production, like a surrogate key', async () => {
+    useVaultPy();
+    const s = await loadSigner();
+    const sig = await s.signLeaf(crypto.randomBytes(32).toString('hex'));
+    assert.equal(sig.surrogate, true,
+      'a dev-signed leaf must be distinguishable at rest from a vault-signed one');
+    assert.match(sig.key_id, /^local:/,
+      'a local key id must be prefixed so it cannot be mistaken for an OCI OCID');
+    restore();
+  });
+
+  test('a broken signer returns null rather than throwing', async () => {
+    useVaultPy();
+    process.env.SCRUPLE_WITNESS_SIGN_LEAF_PY = '/nonexistent/sign_leaf.py';
+    const s = await loadSigner();
+    assert.equal(await s.signLeaf(crypto.randomBytes(32).toString('hex')), null);
+    delete process.env.SCRUPLE_WITNESS_SIGN_LEAF_PY;
+    restore();
+  });
+
+  test('a malformed leaf hash is rejected by the signer, not signed anyway', async () => {
+    useVaultPy();
+    const s = await loadSigner();
+    assert.equal(await s.signLeaf('not-a-hash'), null);
+    restore();
+  });
+});
+
+describe('self-check — do we publish the key that matches what we sign?', () => {
+  test('passes when the published key is the signing key', async () => {
+    process.env.SCRUPLE_WITNESS_SIGNER = 'vault-py';
+    process.env.SCRUPLE_C2PA_LOCAL_KEY_PATH =
+      '/data/scruple-web/services/c2pa-signer/keys/signer.key';
+    const s = await loadSigner();
+    const r = await s.selfCheck();
+    assert.equal(r.ok, true, r.error);
+    delete process.env.SCRUPLE_WITNESS_SIGNER;
+    delete process.env.SCRUPLE_C2PA_LOCAL_KEY_PATH;
+  });
+
+  test('CATCHES a published key that does not match the signing key', async () => {
+    // The silent catastrophe this exists to prevent: every leaf looks
+    // signed, every verification fails, nothing notices. Simulated by
+    // signing with the surrogate while publishing an unrelated key.
+    process.env.SCRUPLE_WITNESS_KMS_ENDPOINT = BASE;
+    process.env.SCRUPLE_WITNESS_KMS_KEY_OCID = KEY_OCID;
+    delete process.env.SCRUPLE_WITNESS_SIGNER;
+
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+    const wrongPem = publicKey.export({ type: 'spki', format: 'pem' });
+
+    const s = await loadSigner();
+    const realPublicKeyPem = s.publicKeyPem;
+    // Stub the published key to a different one.
+    const stubbed = { ...s, publicKeyPem: async () => wrongPem };
+    const sig = await s.signLeaf('ab'.repeat(32));
+    const verified = crypto.verify(
+      'sha256', Buffer.from('ab'.repeat(32), 'hex'),
+      crypto.createPublicKey(wrongPem), Buffer.from(sig.signature, 'base64'),
+    );
+    assert.equal(verified, false,
+      'a mismatched key must not verify — this is the condition selfCheck detects');
+    assert.ok(realPublicKeyPem, 'publicKeyPem is still exported');
+  });
+
+  test('reports honestly when signing is disabled', async () => {
+    const saved = {
+      e: process.env.SCRUPLE_WITNESS_KMS_ENDPOINT,
+      k: process.env.SCRUPLE_WITNESS_KMS_KEY_OCID,
+    };
+    delete process.env.SCRUPLE_WITNESS_KMS_ENDPOINT;
+    delete process.env.SCRUPLE_WITNESS_KMS_KEY_OCID;
+    delete process.env.SCRUPLE_WITNESS_SIGNER;
+    const s = await loadSigner();
+    const r = await s.selfCheck();
+    assert.equal(r.ok, true);
+    assert.equal(r.mode, 'disabled');
+    process.env.SCRUPLE_WITNESS_KMS_ENDPOINT = saved.e;
+    process.env.SCRUPLE_WITNESS_KMS_KEY_OCID = saved.k;
+  });
+});

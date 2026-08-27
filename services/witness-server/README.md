@@ -112,16 +112,41 @@ The leaf is still recorded, with its signature fields null and
 worse than recording one whose independent verifiability is pending — and
 the failure is reported, never hidden.
 
-### The gap that remains
+### Three modes
 
-Real OCI KMS requires request signing (draft-cavage HTTP signatures) with
-instance-principal credentials, which `leaf_signer.js` does **not**
-implement. Two options, neither chosen yet: add the `oci-sdk` npm package
-and use `KmsCryptoClient`, mirroring `services/c2pa-signer/vault_sign.py`;
-or shell out to `vault_sign.py`, which already does instance-principal
-auth correctly, at a subprocess per leaf.
+| `SCRUPLE_WITNESS_SIGNER` | Path | Use |
+|---|---|---|
+| `vault-py` | shells to `services/c2pa-signer/sign_leaf.py` | **production** |
+| *(unset, with KMS env vars)* | plain HTTP to the crypto endpoint | surrogate / wire testing |
+| *(unset, no env vars)* | disabled | default |
 
-Until one lands, this works against `services/cvm-surrogate` and against
-any endpoint that does not demand OCI request signing. **The interface is
-the same either way** — that is what the surrogate exists to get right
-before the real machine is switched on.
+**`vault-py` shells out rather than reimplementing, on purpose.**
+`vault_sign.py` already does draft-cavage request signing with
+instance-principal credentials — and not theoretically: it signed the 33
+conformance samples on the production Signer CVM for the GPSA v3
+resubmission. A second implementation in Node would be a second thing to
+get right, a second thing to keep right, and almost certainly a second
+key.
+
+That last point decides it. **Standard §2 says Scruple witnesses events
+and the integration "through the SAME signing key."** Signing leaves
+through the same `SCRUPLE_C2PA_VAULT_KEY_OCID` the C2PA signer uses makes
+that sentence literally true. A separate client would leave it
+aspirational.
+
+The cost is a subprocess per leaf. Accepted: correctness and a true §2
+claim are worth more than the latency, and if it becomes a bottleneck the
+answer is a persistent local signing sidecar, not a reimplementation.
+
+### Self-check
+
+`GET /api/signer` signs a probe and verifies it against the key it
+publishes.
+
+Publishing a public key that does not match the signing key is a silent
+catastrophe — every leaf looks signed, every verification fails, nothing
+notices. It is the same shape as the assertion-allowlist bug: two places
+that must agree, with nothing checking that they do. A test caught
+exactly this during development, where a stale `PUBKEY_URL` won over the
+derived key. In local `vault-py` mode that URL is now ignored and the key
+is derived from the signing key itself.
