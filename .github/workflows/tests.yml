@@ -73,6 +73,21 @@ jobs:
           python3 tests/test_canonical_leaf_v24.py
         working-directory: services/witness
 
+  v2:
+    # What breaks if this triggers: the canon /v2 surface. Scope
+    # enforcement (D-2) and modality applicability (D-7) are both places
+    # where the previous generation's behaviour was "silently permissive",
+    # which is exactly the failure mode tests catch and review does not.
+    name: v2 surface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run test:v2
+
   node:
     # What breaks if this triggers: hardware-attestation verification or
     # the verify package. Note the suite below is run with a RECURSIVE

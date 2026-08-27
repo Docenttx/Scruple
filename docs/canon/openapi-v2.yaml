@@ -4,9 +4,17 @@ info:
   title: Scruple Canon API
   version: "2.0.0-draft.1"
   x-status: >-
-    DESIGN ONLY. No route below is implemented. This document is the
-    contract the /v2 implementation and the client SDK are both written
-    against; it is not a description of running code.
+    PARTIALLY IMPLEMENTED as of 2026-08-26. Built and typechecked:
+    /capabilities, /baseline, /baseline/current, /baseline/rebaseline,
+    /witness, /mark, /receipt/{leaf_id}, /verify/{content_hash}.
+    NOT built: /session/handoff, /session/heartbeat — the desktop handoff
+    mechanism is its own piece of work and the Adobe-side route has never
+    existed at all.
+    Marking is wired end to end but every non-local modality currently
+    reports as outstanding rather than applied: the Signer CVM is down,
+    services/watermark has no HTTP server, and /v2 chain anchoring is not
+    wired to the locker. That is §7 behaviour, not a stub — a failed
+    Phase-3 operation is surfaced, never silently dropped.
   description: |
     The single surface every Scruple integration speaks. It replaces four
     coexisting generations:
@@ -22,7 +30,10 @@ info:
     STANDARD_v1.7_FULFILMENT.md.
 
 servers:
-  - url: https://scruple.ai/v2
+  # Routes live under /api/v2 — everything else API-ish in this repo is
+  # under /api, and a bare /v2 sibling tree would surprise. Paths below
+  # are relative to this base.
+  - url: https://scruple.ai/api/v2
 
 security:
   - bearerKey: []
