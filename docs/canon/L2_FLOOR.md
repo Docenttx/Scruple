@@ -115,12 +115,58 @@ of the thing it sits beside.
 
 ---
 
-## 5. What this costs, stated plainly
+## 5. What this costs — priced 2026-08-26
 
-**The CVM stops being optional.** Today it is powered down to save money
-and only C2PA needs it. Under H-1 every witnessed event needs it, so it
-becomes always-on infrastructure with a running cost. That is a real
-commercial input and it should be decided as one, not discovered later.
+**About $135 a month.** That is the whole decision.
+
+| Scenario | Monthly |
+|---|---|
+| Today: pool of 2, both stopped | ~$2–11 (boot volumes only) |
+| **Pool of 2, 24/7, Default vault** | **~$137–145** |
+| Pool of 1, 24/7, Default vault | ~$68–76 |
+| Pool of 2, 24/7, Virtual Private Vault | ~$2,855 |
+
+List price, us-ashburn-1, from Oracle's Global Price List PDF dated
+2026-08-06. VM.Standard.E5.Flex, 2 OCPU / 16 GB, pool target size 2
+(`deploy/oci-signer-rotation/terraform/instance-pool.tf:10`).
+
+Three things this settles:
+
+- **Confidential Computing carries no premium.** Oracle's CC
+  documentation says "no additional cost", and the price list has a
+  single E5 OCPU SKU with no separate CC line. SEV-SNP is free.
+
+- **The Default vault is effectively $0** — the first 20 key versions are
+  free and the signer uses about one. A Virtual Private Vault is
+  $3.724/hr, $2,718/month, and is the only place real money hides.
+  Oracle documents **both** vault types as FIPS 140-2 Level 3 HSMs; the
+  difference is dedicated versus shared HSM partition tenancy, not
+  certification level. Whether GPSR C.2.2 requires the dedicated
+  partition is an interpretive call Oracle does not settle — but the
+  GPSA's "key held in a PKCS#11 HSM" claim appears to hold on the cheap
+  tier. **This is worth a determination, because it is a 20x cost
+  difference resting on a reading.**
+
+- **Preemptible instances are incompatible with Confidential Computing**,
+  confirmed in Oracle's docs. That saving does not exist.
+
+**So H-1 was never blocked by cost.** Standing the CVM down saved roughly
+$135/month, and it cost three weeks of undetected signing outage — the
+allowlist bug could not be found because no end-to-end sign was possible.
+The saving and the damage are not the same order of magnitude.
+
+Two corrections to our own material: the runbook's VPV estimate is about
+9x too low, and it should be fixed before anyone budgets from it.
+
+### The risk that is not about money
+
+The cloud-init that binds the signer's public key to the SEV-SNP
+attestation measurement is **first-boot-only** in the YAML. Whether
+attestation survives a stop/start of the same instance is UNVERIFIED. If
+it does not, then restarting the stopped CVM may not restore a valid
+attestation binding, and "bring it up per signing batch" is not viable
+either. Test this before relying on either behaviour — it is a
+correctness question wearing a cost question's clothes.
 
 There is a cheaper middle path that should be considered and rejected on
 its merits rather than ignored: sign leaves asymmetrically with a key
