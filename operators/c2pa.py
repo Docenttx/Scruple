@@ -1,4 +1,21 @@
-"""C2PA sign operator — permanent local finalize with a C2PA sidecar."""
+"""Local Lock operator — permanent local finalize with a user receipt.
+
+This operator was labelled "C2PA sign" and reported "C2PA signed." on
+success. It has never signed anything: submit_lock calls
+client.lock_local(), which is Standard §9.4 (finalize + user receipt),
+not §9.1 (C2PA content credentials). The paid action itself is real and
+works; only the name was wrong.
+
+Renaming rather than disabling, because a local lock is a genuine
+modality a user may want. Real C2PA signing arrives with the canon
+client SDK, at which point this file gains a sibling that actually calls
+the signer.
+
+The bl_idname stays `scruple.c2pa_sign` for now — changing it breaks
+saved keymaps and the smoke test, and that rename rides along with the
+SDK migration. The identifier is internal; nothing a user reads says
+C2PA any more.
+"""
 
 from __future__ import annotations
 
@@ -17,8 +34,8 @@ if bpy is not None:
 
     class SCRUPLE_OT_c2pa_sign(bpy.types.Operator):
         bl_idname = "scruple.c2pa_sign"
-        bl_label = "C2PA sign"
-        bl_description = "Paid. Permanent local finalize with a C2PA-signed export."
+        bl_label = "Local Lock"
+        bl_description = "Paid. Permanent local finalize with a user receipt (Standard \u00a79.4). Does not attach a C2PA content credential."
 
         def invoke(self, context, event):
             client = _client_mod.from_preferences()
@@ -59,10 +76,10 @@ if bpy is not None:
             if not result.ok:
                 if result.cancelled:
                     return {"CANCELLED"}
-                self.report({"ERROR"}, result.error or "C2PA sign failed.")
+                self.report({"ERROR"}, result.error or "Local lock failed.")
                 return {"CANCELLED"}
             scr = (result.lock_response or {}).get("scrId") or ""
-            self.report({"INFO"}, f"C2PA signed. scr={scr[:12]}...")
+            self.report({"INFO"}, f"Locked locally. scr={scr[:12]}...")
             return {"FINISHED"}
 
     _CLASSES = (SCRUPLE_OT_c2pa_sign,)

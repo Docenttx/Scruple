@@ -93,7 +93,8 @@ if bpy is not None:
                 )
                 box.operator(
                     "scruple.c2pa_sign",
-                    text=self._button_label("C2PA sign", _payment.ACTION_C2PA),
+                    # Calls lock_local(), not the C2PA signer — see operators/c2pa.py.
+                    text=self._button_label("Local Lock", _payment.ACTION_C2PA),
                 )
                 op = box.operator(
                     "scruple.chain_lock",
