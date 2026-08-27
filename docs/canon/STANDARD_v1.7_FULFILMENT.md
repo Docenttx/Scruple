@@ -170,6 +170,41 @@ them. Everything in this matrix grades against the v1_7 file.
 
 ---
 
+## The L2 floor (cross-cutting)
+
+Added 2026-08-26 on the founder's principle: *"we can't have an evidence
+standard below a simple compliance standard."* Full analysis in
+`L2_FLOOR.md`.
+
+Clause conformance is necessary and not sufficient. A clause can be met
+by a mechanism whose assurance is below the C2PA Level 2 bar the GPSA is
+filed at — and several are.
+
+| Path | Clause status | L2 floor |
+|---|---|---|
+| C2PA manifest (§9.1) | ABSENT (never produced) | **MEETS** — ECDSA, PKCS#11 HSM, SEV-SNP CVM |
+| Witness leaf (§2) | PARTIAL | **BELOW** — HMAC secret in a systemd env var on the app host |
+| Baseline (§3) + rebaseline (§4) | ABSENT | **BELOW** — same witness path |
+| Local lock (§9.4) | PARTIAL | **BELOW** — HMAC `server_signature` |
+| Chain lock (§9.3) | PARTIAL | **PARTIAL** — the on-chain mint is an asymmetric public verifier; the seal beneath it is not |
+| Watermark (§9.2) | ABSENT | **INHERITS** — payload integrity derives from the leaf |
+| Attestation (§12.4) | VIOLATION | **BELOW** — structural-only, never chains to a vendor root |
+| Client key custody | N/A | **BELOW** — plaintext keys in `%APPDATA%`; one global Kohya HMAC |
+
+**The inversion this exposes.** The relationship chart says C2PA is one
+modality *inside* Scruple's evidentiary framework. The assurance runs the
+other way: the modality is at L2 and the framework containing it is not.
+Every row marked BELOW is an evidence claim weaker than the compliance
+artifact sitting beside it.
+
+**Consequence for §2.** The Standard says Scruple witnesses workflow
+events and the integration itself "through the same signing key." They
+are different keys, of different kinds, in different places, at different
+assurance levels. Whether that sentence is intent or a claim already made
+to a counterparty is a founder question, recorded in `L2_FLOOR.md` §6.
+
+---
+
 ## Summary
 
 | | Today | Canon |

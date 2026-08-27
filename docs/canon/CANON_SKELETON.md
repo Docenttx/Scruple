@@ -4,7 +4,8 @@
 **Version:** 0.1 · 2026-08-26
 **Grades against:** `SCRUPLE_STANDARD_v1_7.md`, GPSA v3 (2026-07-30 bundle)
 **Companion documents:** `openapi-v2.yaml` (machine-readable surface),
-`STANDARD_v1.7_FULFILMENT.md` (clause-by-clause coverage)
+`STANDARD_v1.7_FULFILMENT.md` (clause-by-clause coverage),
+`L2_FLOOR.md` (the assurance floor every decision below is bound by)
 
 ---
 
@@ -64,6 +65,29 @@ and the services largely function; the estate has no waist.
 
 Numbered so review can accept or reject them individually. Each cites the
 clause that forces it, or says plainly that it is a judgment call.
+
+### D-0 · Every signed artifact clears the C2PA L2 bar. **This binds all others.**
+
+Founder, 2026-08-26: *"we can't have an evidence standard below a simple
+compliance standard."*
+
+Scruple upgraded from C2PA Level 1 to Level 2 for the Conformance
+Program. That upgrade landed on the C2PA signing path only. The witness
+leaf — the substrate the Standard sells as sitting *beneath* C2PA — is
+HMAC-sealed by a secret in a systemd env var on the application host,
+from a service that is not in git and therefore cannot be measured.
+
+Any artifact Scruple offers as evidence must be signed by a key held to
+at least GPSR C.2.2 custody, inside the attested TOE, and be verifiable
+by a third party without Scruple's cooperation.
+
+No decision below may be satisfied by a mechanism that fails this. In
+particular D-3 (baseline-or-refuse) is worth little if the baseline is
+sealed by a key Scruple can forge and nobody else can check.
+
+Analysis, per-family grading and the cost this implies: `L2_FLOOR.md`.
+
+*Founder-set constraint, and the reason the CVM stops being optional.*
 
 ### D-1 · `/v2` is the only surface. `/api/v1/*` is deleted, not deprecated.
 

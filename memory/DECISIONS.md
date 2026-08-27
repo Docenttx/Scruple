@@ -326,3 +326,24 @@ calls unbaselined code not-Scruple-witnessed.
 **Implication:** the largest behavioural change in the skeleton, and the
 one most likely to be argued with. Softening it softens §3, §4 and §5
 together — which would belong in the Standard, not in the implementation.
+
+## D-030 · The C2PA L2 bar is the floor for every Scruple evidence artifact
+**Decision:** anything Scruple offers as evidence is signed by a key held
+to at least GPSR C.2.2 custody, inside the attested TOE, and is verifiable
+by a third party without Scruple's cooperation. The witness stops signing
+and becomes a client of the Signer CVM.
+**Rationale:** founder, 2026-08-26 — "we can't have an evidence standard
+below a simple compliance standard." The L1→L2 upgrade landed on the C2PA
+path only. The witness leaf is HMAC-sealed by `SCRUPLE_WITNESS_SECRET` in
+a systemd env var, on the same host as the web app, from a service not in
+git. Symmetric: no non-repudiation, no third-party verification, forgeable
+by Scruple. The relationship chart says C2PA is one modality inside
+Scruple's framework; the assurance runs the other way.
+**Implication:** the Signer CVM becomes always-on infrastructure with a
+running cost, not a C2PA-only dependency — a commercial decision that
+should be made deliberately. HMAC survives as a transport seal, never as
+an evidence claim. The witness server enters git and the TOE, because
+un-measured code cannot compute a baseline. Standard §2's "same signing
+key" becomes true rather than aspirational — whether that sentence has
+already been shown to a counterparty is an open founder question.
+See docs/canon/L2_FLOOR.md.
