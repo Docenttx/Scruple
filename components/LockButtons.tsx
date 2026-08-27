@@ -40,6 +40,13 @@ type ButtonSpec = {
   desc: string;
   icon: string;
   hoverBorder: string;
+  /**
+   * Set when the modality cannot actually be performed yet. The button
+   * renders disabled and says why. A control that looks live and then
+   * explains itself in an alert() is worse than one that is plainly off:
+   * the user has already decided they signed something.
+   */
+  unavailable?: string;
 };
 
 const BUTTONS: ButtonSpec[] = [
@@ -70,6 +77,14 @@ const BUTTONS: ButtonSpec[] = [
     desc: 'Industry-standard signed asset',
     icon: '✍',
     hoverBorder: 'hover:enabled:border-[#e53935]',
+    // Nothing is wired behind this. It previously opened an alert()
+    // describing a tier picker as landing "in the next iteration"; the
+    // button read as functional and Fusion has never produced a content
+    // credential. Two things must land before it can be enabled:
+    // /api/scruple/c2pa/sign takes bytes or a handle rather than an
+    // asset_path on the signer host (a desktop client cannot supply one),
+    // and the Signer CVM is running.
+    unavailable: 'C2PA signing is not available yet — this build cannot attach a content credential.',
   },
 ];
 
@@ -181,13 +196,7 @@ export default function LockButtons({
             spec={spec}
             disabled={disabled}
             onClick={() => {
-              if (spec.kind === 'c2pa') {
-                // Stub picker for now — surface a coming-soon note.
-                // Full tier picker + POST /api/scruple/c2pa/sign wires in a
-                // follow-up commit; button is functional as a demo signal.
-                alert('C2PA signing pipeline: pick tier (bare / witnessed / local / chain) — full picker lands in the next iteration.');
-                return;
-              }
+              if (spec.unavailable) return;
               setConfirmKind(spec.kind as LockKind);
             }}
           />
@@ -240,7 +249,9 @@ function LockButton({
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || Boolean(spec.unavailable)}
+      title={spec.unavailable}
+      aria-disabled={disabled || Boolean(spec.unavailable)}
       className={
         'flex flex-col items-center rounded-lg border-2 border-scruple-border-color ' +
         'bg-scruple-bg-secondary px-4 py-6 text-center transition-colors duration-fast ' +
@@ -250,7 +261,9 @@ function LockButton({
     >
       <span className="mb-3 text-3xl">{spec.icon}</span>
       <span className="text-sm font-semibold text-scruple-text-primary">{spec.title}</span>
-      <span className="mt-1 text-2xs text-scruple-text-secondary">{spec.desc}</span>
+      <span className="mt-1 text-2xs text-scruple-text-secondary">
+        {spec.unavailable ? 'Not available yet' : spec.desc}
+      </span>
     </button>
   );
 }
