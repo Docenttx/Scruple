@@ -1,5 +1,29 @@
 # Scruple Web — Current State
-_Last updated: 2026-05-12T10:30:00Z_
+_Last updated: 2026-08-26T23:55:00Z_
+
+## Branch: `feat/canon-skeleton` (6 commits, NOT PUSHED)
+
+Overnight WO-1..WO-4 executed, WO-5 planned. See docs/canon/.
+
+**Signing was down from 2026-08-04 to 2026-08-26.** GPSA v3's fail-closed
+assertion allowlist contained none of the four labels the Application tier
+emits, so every sign call raised. Invisible because the Signer CVM was
+powered down for cost and no CI ran any test suite. Both causes addressed.
+
+Nothing is in a customer's hands. That is the free-change window: /v1 can
+be deleted rather than deprecated and five auth mechanisms can collapse
+into one without breaking anyone. It closes at first install.
+
+Suites green: c2pa-signer 32 · sdk-python 19 · witness parity 2 ·
+attestation-verifiers 44 · meshroom 99 · blender 81 · toonboom 128 ·
+typecheck clean.
+
+Open for review: D-029 (baseline-or-refuse), the two Standard files
+disagreeing (v1.md=1.6 vs v1_7.md=1.7), and whether Studio or Blender
+merges first.
+
+---
+
 
 ## Phase: Pivot + UI clone phase 2 + non-Drive/Modal items + train-1
 

@@ -271,3 +271,58 @@ Merkle-based, same cryptographic strength) revisitable once we have
 multi-TB model libraries. Per-tensor Merkle for forensic analysis
 documented in lib/scruple/model-fingerprint.ts comments as a
 deferred enhancement.
+
+## D-024 · Application tier is inside the TOE, so its assertions are `created`
+**Decision:** `ai.scruple.*` and `cawg.training-mining` go on
+CREATED_ALLOWLIST, not GATHERED.
+**Rationale:** GPSA v3 §C.1.4 names three TOE roles — Client, Application
+tier, Signer — and says the Application tier "constructs the C2PA manifest
+structure." `lib/c2pa/signAsset.ts` is that tier. Reading
+`manifest['assertions']` as "Client-supplied" is what broke signing on
+2026-08-04.
+**Implication:** only assertions whose CONTENT originated outside the TOE
+are gathered. If the TOE boundary in the GPSA is ever redrawn, this
+allowlist moves with it.
+
+## D-025 · `config/c2pa-assertions.json` is the single source of assertion labels
+**Decision:** Both the TS emitter and the Python enforcer read one JSON
+contract. Missing contract = refuse to start.
+**Rationale:** the two drifted apart silently and no CI caught it.
+**Implication:** adding an assertion label is a contract edit, and
+`test_assertion_contract.py` fails if anyone hardcodes one instead.
+
+## D-026 · `ok` never implies `witnessed`
+**Decision:** every response touching a leaf carries `witnessed` and
+`leaf_scheme` explicitly. Capture stays non-blocking.
+**Rationale:** Standard §5 — compliance is binary. The server could not
+express the difference and one client fabricated it.
+**Implication:** clients must render `witnessed:false` honestly. A client
+that shows capture as witnessing is making a claim the server did not.
+
+## D-027 · Mislabelled controls are renamed, not removed, where the action is real
+**Decision:** Blender's and ToonBoom's "C2PA sign" become "Local Lock" —
+they perform a real §9.4 lock. Fusion's becomes a disabled button with a
+reason, because nothing is wired behind it. Meshroom refuses before
+charging.
+**Rationale:** removing a working feature to fix a labelling error costs
+a capability; leaving a live-looking control that does something else
+costs the user's belief about what they hold.
+**Implication:** internal identifiers (`ACTION_C2PA`, `scruple.c2pa_sign`)
+keep their names for wire and keymap compatibility. That rename rides
+with the SDK migration.
+
+## D-028 · One `/v2/mark` call, not per-modality endpoints
+**Decision:** modalities are a set on one request.
+**Rationale:** Standard §9.5 requires the user's selection to be recorded
+IN the leaf. Separate calls make that a multi-step transaction with no
+commit point.
+**Implication:** `modalities_requested` and `modalities_applied` are both
+leaf fields; their difference is a §7 outstanding operation.
+
+## D-029 · `POST /v2/witness` refuses a leaf with no `baseline_ref`
+**Decision:** no baseline, no witness.
+**Rationale:** §3 says every workflow leaf references the baseline; §5
+calls unbaselined code not-Scruple-witnessed.
+**Implication:** the largest behavioural change in the skeleton, and the
+one most likely to be argued with. Softening it softens §3, §4 and §5
+together — which would belong in the Standard, not in the implementation.

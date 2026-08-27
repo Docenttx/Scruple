@@ -81,3 +81,13 @@
 [2026-05-15T11:40:00Z] pt | /api/generate prompt-mode branch removed (workspace observes; only workflow mode survives for Canvas)
 [2026-05-15T11:45:00Z] pt | deleted GeneratePanel, WorkflowField, WorkflowUploader (all dispatched from project page)
 [2026-05-15T11:50:00Z] pt | WorkspaceView 3-way branch — image/video/training, video shows placeholder card
+[2026-08-26T22:00:00Z] WO-1 | config/c2pa-assertions.json + assertion_partition.py + signAsset.ts | signing unbroken; allowlist rejected all 4 Application-tier labels since 2026-08-04
+[2026-08-26T22:00:00Z] WO-1 | services/c2pa-signer/tests/test_assertion_contract.py | drift guard, 9 tests; verified it fails on the pre-fix allowlist
+[2026-08-26T22:00:00Z] WO-1 | sign.py | claim_generator stamped real c2pa-python 0.36.0; "0.89" never existed
+[2026-08-26T22:15:00Z] WO-2 | .github/workflows/tests.yml | first CI job to run any test suite; witness parity tests invoked as scripts (pytest collects 0)
+[2026-08-26T22:15:00Z] WO-2 | packages/scruple-attestation-verifiers/package.json | `dist/*.test.js` ran 21 of 44; now `dist/`
+[2026-08-26T22:20:00Z] WO-1 | lib/iterations/ingest.ts + app/api/witness/cad | IngestResult carries witnessed + leafScheme
+[2026-08-26T22:20:00Z] WO-1 | app/api/scruple/witness/{adobe,photoshop} | removed hardcoded witnessed=1 / leaf_scheme='v2.2'
+[2026-08-26T22:40:00Z] WO-3 | components/LockButtons.tsx | Fusion C2PA button disabled with a reason; alert() removed
+[2026-08-26T23:30:00Z] WO-4 | docs/canon/{CANON_SKELETON,openapi-v2.yaml,STANDARD_v1.7_FULFILMENT} | skeleton specified; 11 decisions, 10 paths, clause matrix
+[2026-08-26T23:50:00Z] WO-5 | docs/canon/WO-05-studio-comfyui-kohya.md | plan only; Studio may deserve to go first — Scruple owns the substrate
