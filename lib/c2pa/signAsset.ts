@@ -8,6 +8,7 @@
 // change here.
 
 import { spawn } from 'child_process';
+import assertionContract from '@/config/c2pa-assertions.json';
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -189,6 +190,45 @@ function mimeFromPath(p: string): string {
 }
 
 /**
+ * Assertion labels this module emits.
+ *
+ * The Signer enforces a fail-closed allowlist (services/c2pa-signer/
+ * assertion_partition.py). If a label here is absent from the shared
+ * contract, the Signer refuses to sign EVERY asset — which is what
+ * happened on 2026-08-04. The check below turns that runtime outage
+ * into a module-load failure with a name attached.
+ */
+const SCRUPLE_LABELS = {
+  trainingMining: 'cawg.training-mining',
+  provenance: 'ai.scruple.provenance.v1',
+  workflow: 'ai.scruple.workflow.v1',
+  cad: 'ai.scruple.cad.v1',
+} as const;
+
+/** Strip a trailing `.vN`, matching _base_label() in assertion_partition.py. */
+function baseLabel(label: string): string {
+  return label.replace(/\.v\d+$/, '');
+}
+
+{
+  const allowed = new Set<string>([
+    ...assertionContract.created.c2pa_sdk,
+    ...assertionContract.created.signer,
+    ...assertionContract.created.application_tier,
+  ]);
+  const missing = Object.values(SCRUPLE_LABELS).filter(
+    (l) => !allowed.has(baseLabel(l)),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `signAsset: labels absent from config/c2pa-assertions.json — the Signer ` +
+        `will refuse to sign every asset. Add them to created.application_tier: ` +
+        missing.join(', '),
+    );
+  }
+}
+
+/**
  * Build the c2pa manifest dict passed to sign.py. The `c2pa.actions.v2`
  * assertion is NOT constructed here — actions go through the sign.py
  * job spec's `intent` + `digital_source_type` + `actions` fields, which
@@ -203,27 +243,32 @@ function buildManifest(input: SignAssetInput): Record<string, unknown> {
   // Training-mining opt-out (CAWG namespace; c2pa.training_mining was
   // removed in C2PA 2.0).
   assertions.push({
-    label: 'cawg.training-mining',
+    label: SCRUPLE_LABELS.trainingMining,
     data: { entries: [{ use: 'notAllowed' }] },
   });
 
   // Scruple provenance — omitted for `bare` tier per design.
   if (input.tier !== 'bare' && input.scruple) {
     assertions.push({
-      label: 'ai.scruple.provenance.v1',
+      label: SCRUPLE_LABELS.provenance,
       data: input.scruple,
     });
   }
 
   if (input.product === 'studio' && input.workflow) {
-    assertions.push({ label: 'ai.scruple.workflow.v1', data: input.workflow });
+    assertions.push({ label: SCRUPLE_LABELS.workflow, data: input.workflow });
   }
   if (input.product === 'fusion' && input.cad) {
-    assertions.push({ label: 'ai.scruple.cad.v1', data: input.cad });
+    assertions.push({ label: SCRUPLE_LABELS.cad, data: input.cad });
   }
 
   return {
-    claim_generator: 'Scruple/0.1 (c2pa-python 0.89)',
+    // c2pa-python's version is NOT hardcoded here. The string previously
+    // read "c2pa-python 0.89", a version that has never been published;
+    // the same fictional version was removed from the Bundle Instructions
+    // on 2026-08-05 but survived here, where it is stamped into every
+    // signed manifest. sign.py substitutes the real installed version.
+    claim_generator: 'Scruple/0.1',
     title: input.title ?? path.basename(input.assetPath),
     format: input.format ?? mimeFromPath(input.assetPath),
     assertions,

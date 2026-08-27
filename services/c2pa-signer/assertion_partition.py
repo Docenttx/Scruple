@@ -1,10 +1,19 @@
 """Scruple Signer — assertion partition (TOE boundary enforcement).
 
 Per GPSA §C.2.4, every entry in `created_assertions` on a Scruple-signed
-manifest must be authored by code executing inside the attested Signer
-TOE. Client-supplied assertion payloads reach the Signer as part of the
-job spec's `manifest['assertions']` list; this module partitions that
-list into:
+manifest must be authored by code executing inside the TOE. Note that the
+TOE has three roles per §C.1.4 — Client, Application tier, Signer — and
+the Application tier, which "constructs the C2PA manifest structure", is
+INSIDE it. So an assertion arriving in `manifest['assertions']` is not
+automatically of external provenance: Application-tier-authored labels
+(ai.scruple.*, cawg.training-mining) are created, and only assertions
+whose CONTENT originated outside the TOE are gathered.
+
+Reading that list as "Client-supplied" is what broke signing on
+2026-08-04: the allowlist omitted every label the Application tier
+emits, so the fail-closed branch fired on every call.
+
+This module partitions the list into:
 
   - created:  assertions the Signer will place in `created_assertions`
               (label matches CREATED_ALLOWLIST; SDK will treat them
@@ -25,6 +34,8 @@ picked up by HIDS per §C.2.6.
 
 from __future__ import annotations
 
+import json as _json
+import os as _os
 from typing import Any, Dict, List, Tuple
 
 
@@ -33,29 +44,40 @@ from typing import Any, Dict, List, Tuple
 # (see services/c2pa-signer/sign.py:_settings.builder.created_assertion_labels)
 # plus the Scruple-namespaced runtime assertion which is added by
 # signer_runtime.runtime_assertion() and is Scruple-authored inside the TOE.
-CREATED_ALLOWLIST = frozenset({
-    # C2PA-standard, SDK-authored
-    "c2pa.actions",
-    "c2pa.thumbnail.claim",
-    "c2pa.thumbnail.ingredient",
-    "c2pa.ingredient",
-    "c2pa.hash.data",
-    "c2pa.hash.boxes",
-    # Scruple-authored inside TOE (base label; matches .vN suffix at runtime)
-    "ai.scruple.signer-runtime",
-})
+_CONTRACT_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)),
+    "..", "..", "config", "c2pa-assertions.json",
+)
 
-# Labels the Client may legitimately want to preserve alongside the asset
-# even though their content originated outside the TOE. These land in
-# `gathered_assertions` where the C2PA v2.x block semantics honestly
-# label the provenance as external. Add labels here only after
-# reviewing the Client-supplied schema.
-GATHERED_ALLOWLIST = frozenset({
-    # Explicitly external provenance markers the caller may pass through
-    "stds.schema-org.CreativeWork",
-    "stds.iptc",
-    "stds.exif",
-})
+
+def _load_contract() -> Dict[str, Any]:
+    """Load the shared assertion-label contract.
+
+    Fail-closed: if the contract is missing or malformed the Signer must
+    refuse to start rather than fall back to a permissive default. An
+    empty allowlist would reject every assertion, which is safe but
+    useless; a hardcoded default would silently re-open the drift this
+    file exists to close.
+    """
+    with open(_CONTRACT_PATH, "r", encoding="utf-8") as fh:
+        return _json.load(fh)
+
+
+_CONTRACT = _load_contract()
+
+# Labels authored inside the TOE (§C.1.4 roles: Application tier + Signer,
+# plus the labels the c2pa SDK itself emits). Base labels — a trailing
+# `.vN` is stripped before matching, per _base_label().
+CREATED_ALLOWLIST = frozenset(
+    _CONTRACT["created"]["c2pa_sdk"]
+    + _CONTRACT["created"]["signer"]
+    + _CONTRACT["created"]["application_tier"]
+)
+
+# Labels whose CONTENT originated outside the TOE. Placed in
+# `gathered_assertions`, where C2PA v2.x semantics label the provenance
+# as external.
+GATHERED_ALLOWLIST = frozenset(_CONTRACT["gathered"]["labels"])
 
 
 def _label_of(assertion: Any) -> str:

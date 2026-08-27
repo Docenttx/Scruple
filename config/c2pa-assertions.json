@@ -1,0 +1,53 @@
+{
+  "$comment": [
+    "SINGLE SOURCE OF TRUTH for C2PA assertion labels. Read by BOTH",
+    "lib/c2pa/signAsset.ts (the emitter, Application tier) and",
+    "services/c2pa-signer/assertion_partition.py (the enforcer, Signer).",
+    "",
+    "These two drifted apart once already: the Signer's fail-closed",
+    "allowlist did not contain the labels the emitter produced, and every",
+    "sign call raised ValueError. Nothing caught it because no CI runs the",
+    "tests. If you add a label to the emitter, add it here, or the Signer",
+    "will refuse to sign — which is the correct failure, but a preventable",
+    "one.",
+    "",
+    "TOE placement follows GPSA v3 §C.1.4, which names three TOE roles:",
+    "Client, Application tier, Signer. The Application tier 'constructs",
+    "the C2PA manifest structure' and is INSIDE the TOE, so assertions it",
+    "authors are created_assertions. Only assertions whose CONTENT",
+    "originated outside the TOE are gathered."
+  ],
+
+  "created": {
+    "$comment": "Authored inside the TOE. Base labels; a trailing .vN is matched version-insensitively.",
+
+    "c2pa_sdk": [
+      "c2pa.actions",
+      "c2pa.thumbnail.claim",
+      "c2pa.thumbnail.ingredient",
+      "c2pa.ingredient",
+      "c2pa.hash.data",
+      "c2pa.hash.boxes"
+    ],
+
+    "signer": [
+      "ai.scruple.signer-runtime"
+    ],
+
+    "application_tier": [
+      "cawg.training-mining",
+      "ai.scruple.provenance",
+      "ai.scruple.workflow",
+      "ai.scruple.cad"
+    ]
+  },
+
+  "gathered": {
+    "$comment": "Content originated outside the TOE. Preserved with the asset, honestly labelled external. Add only after reviewing the Client-supplied schema.",
+    "labels": [
+      "stds.schema-org.CreativeWork",
+      "stds.iptc",
+      "stds.exif"
+    ]
+  }
+}

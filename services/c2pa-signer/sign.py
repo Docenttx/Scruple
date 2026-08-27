@@ -13,7 +13,8 @@ Job spec:
                                                # in Vault mode. Kept for
                                                # backward-compat.
         "manifest": {
-            "claim_generator": "Scruple/0.1 (c2pa-python 0.89)",
+            "claim_generator": "Scruple/0.1",   # Signer appends the
+                                                 # real c2pa-python version
             "format": "image/png",
             "title": "MyDesign",
             "assertions": [...]           # non-c2pa assertions only
@@ -189,6 +190,24 @@ def main() -> int:
             certs=cert_str,
             tsa_url=ta_url,
         )
+
+        # Stamp the REAL installed c2pa-python version into claim_generator.
+        # The Application tier sends a bare "Scruple/0.1"; only the Signer
+        # knows which SDK build actually produced the manifest, and a
+        # reviewer inspecting a signed asset is entitled to the true
+        # version. The previous hardcoded "c2pa-python 0.89" names a
+        # version that has never been published — it was scrubbed from the
+        # Bundle Instructions on 2026-08-05 but survived in the manifest
+        # builder, where it reached every signed asset.
+        try:
+            import c2pa as _c2pa_mod
+            _sdk_ver = getattr(_c2pa_mod, "__version__", None)
+        except Exception:
+            _sdk_ver = None
+        if _sdk_ver:
+            _cg = str(manifest.get("claim_generator") or "Scruple/0.1")
+            if "c2pa-python" not in _cg:
+                manifest["claim_generator"] = f"{_cg} (c2pa-python {_sdk_ver})"
 
         # Assertion partition — enforce the TOE boundary per GPSA §C.2.4.
         # The Client is authenticated but its manifest payload is treated
