@@ -1,0 +1,574 @@
+openapi: 3.1.0
+
+info:
+  title: Scruple Canon API
+  version: "2.0.0-draft.1"
+  x-status: >-
+    DESIGN ONLY. No route below is implemented. This document is the
+    contract the /v2 implementation and the client SDK are both written
+    against; it is not a description of running code.
+  description: |
+    The single surface every Scruple integration speaks. It replaces four
+    coexisting generations:
+
+      /api/v1/*                          best documented, zero callers
+      /api/scruple/* + /witness/cad
+        + /lock/*                        what all eight integrations use
+      /api/scruple/witness/{adobe,photoshop}   bespoke, third scheme
+      /api/apps/kohya/witness            fourth scheme, static shared secret
+
+    Design rationale, including which clause of the Standard forces each
+    decision, is in CANON_SKELETON.md. Clause coverage is in
+    STANDARD_v1.7_FULFILMENT.md.
+
+servers:
+  - url: https://scruple.ai/v2
+
+security:
+  - bearerKey: []
+
+tags:
+  - name: session
+  - name: baseline
+    description: Standard §3, §4. A baseline is the tenant's genesis leaf.
+  - name: witness
+    description: Standard §2. Both workflow events and the integration itself.
+  - name: mark
+    description: Standard §9. Output modalities, composed per event.
+  - name: read
+    description: Public. No credential.
+
+paths:
+
+  /session/handoff:
+    post:
+      tags: [session]
+      summary: Exchange a desktop handoff code for a scoped API key
+      description: >-
+        Only Fusion has an equivalent today. Adobe's was never built,
+        which is why no Adobe plugin has ever authenticated — the account
+        was a secondary blocker, not the primary one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [handoff_code, host]
+              properties:
+                handoff_code: { type: string }
+                host:
+                  $ref: '#/components/schemas/HostId'
+                integration_version: { type: string }
+      responses:
+        '200':
+          description: Key issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_key, scopes, expires_at]
+                properties:
+                  api_key: { type: string, examples: ["sk_live_..."] }
+                  scopes:
+                    type: array
+                    items: { $ref: '#/components/schemas/Scope' }
+                  expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /session/heartbeat:
+    post:
+      tags: [session]
+      summary: Liveness and scope refresh
+      responses:
+        '200':
+          description: Session live
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, scopes]
+                properties:
+                  ok: { type: boolean }
+                  scopes:
+                    type: array
+                    items: { $ref: '#/components/schemas/Scope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /baseline:
+    post:
+      tags: [baseline]
+      summary: Establish the tenant's genesis baseline
+      description: >-
+        Standard §3. Called on `attach`. No integration does this today;
+        the server's existing baseline API has no callers at all.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [host, integration_version, tamper_surface_hash]
+              properties:
+                host: { $ref: '#/components/schemas/HostId' }
+                integration_version: { type: string }
+                tamper_surface_hash:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+                  description: >-
+                    Hash over the integration's code, configuration and
+                    capture points — the surface §4 says must not change
+                    silently.
+                host_version: { type: string }
+                attestation:
+                  $ref: '#/components/schemas/AttestationInput'
+                anchor_publicly:
+                  type: boolean
+                  default: false
+                  description: >-
+                    §4 — inscribing the baseline on the public ledger makes
+                    the vendor's integration lifecycle a transparency
+                    artifact. A first-class product option, off by default.
+      responses:
+        '201':
+          description: Baseline established
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Baseline' }
+
+  /baseline/current:
+    get:
+      tags: [baseline]
+      summary: What the server believes is installed
+      responses:
+        '200':
+          description: Current baseline
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Baseline' }
+        '404':
+          description: No baseline — the integration is not Scruple-witnessed (§5)
+
+  /baseline/rebaseline:
+    post:
+      tags: [baseline]
+      summary: Transition to a new baseline, as a witnessed leaf
+      description: >-
+        Standard §4 — re-baselining "is itself a Scruple-signed leaf" linked
+        to prior baselines by hash. Today the existing implementation leaves
+        `witness_leaf_id` permanently null, so §4 is unimplemented.
+        `witness_leaf_id` is REQUIRED in this response for that reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tamper_surface_hash, reason]
+              properties:
+                tamper_surface_hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+                reason:
+                  type: string
+                  enum: [sdk_upgrade, config_change, host_upgrade, capture_point_change, other]
+                detail: { type: string }
+      responses:
+        '201':
+          description: Transitioned
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Baseline'
+                  - type: object
+                    required: [previous_baseline_hash, witness_leaf_id]
+                    properties:
+                      previous_baseline_hash: { type: string }
+                      witness_leaf_id:
+                        type: string
+                        description: NEVER null. §4 requires the transition to be a leaf.
+
+  /witness:
+    post:
+      tags: [witness]
+      summary: Witness one event
+      description: |
+        Supersedes /witness/cad, /scruple/witness/{adobe,photoshop} and
+        /apps/kohya/witness.
+
+        Capture is deliberately non-blocking: if the witness service is
+        unreachable the event still lands, with `witnessed:false` and
+        `leaf_scheme:"v1"`. That is a design choice and it stays. What
+        callers must never do is render capture as witnessing — §5 admits
+        no partial credit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [baseline_ref, kind, content_hash, mime]
+              properties:
+                baseline_ref:
+                  type: string
+                  description: >-
+                    REQUIRED. §3 — every workflow leaf references the
+                    baseline. A leaf without one is the "running unbaselined
+                    code" case §5 calls not-Scruple-witnessed, so it is
+                    rejected rather than accepted unbaselined.
+                kind:
+                  type: string
+                  enum: [document_save, artifact, graph_execute, model_write]
+                  description: Mirrors the host-hook contract.
+                content_hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+                mime:
+                  type: string
+                  description: >-
+                    REQUIRED and caller-declared. Never inferred server-side.
+                    Extension-based guessing broke .flac and .jxl (GPSA v3),
+                    and four integrations send application/octet-stream
+                    unconditionally, which silently gates the watermarker shut.
+                graph:
+                  type: object
+                  description: workflow graph — kind=graph_execute
+                training:
+                  type: object
+                  description: dataset root, hyperparameters, base model — kind=model_write
+                machine_manifest_hash: { type: string }
+                attestation: { $ref: '#/components/schemas/AttestationInput' }
+                continuity:
+                  type: object
+                  description: >-
+                    §9.6. An event produced OUTSIDE Scruple's witness path
+                    during an outage, using the customer's own C2PA
+                    credentials, being recorded now that connectivity is
+                    back. Distinct from the SDK retry queue, which retries
+                    Scruple witnessing. Such a leaf is explicitly not
+                    Scruple-witnessed.
+                  properties:
+                    produced_at: { type: string, format: date-time }
+                    external_manifest_hash: { type: string }
+      responses:
+        '201':
+          description: Captured. Read `witnessed` — it is not implied by 201.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaf' }
+        '409':
+          description: baseline_ref unknown or superseded — re-baseline first (§4)
+
+  /mark:
+    post:
+      tags: [mark]
+      summary: Attach output modalities to a witnessed event
+      description: |
+        One call, one leaf, one atomically recorded selection.
+
+        Per-modality endpoints were in an earlier draft and were dropped:
+        §9.5 requires the user's selection to be recorded IN the leaf, and
+        separate calls make that a multi-step transaction with no commit
+        point.
+
+        A local lock is always performed. §9.4: "Every Scruple event
+        produces a local lock; the other modalities are attached alongside
+        it, not instead of it." There is no request here that produces no
+        local lock.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [leaf_id, modalities]
+              properties:
+                leaf_id: { type: string }
+                modalities:
+                  type: array
+                  description: >-
+                    Attached ALONGSIDE the always-present local lock.
+                    An empty array is valid and means local lock only.
+                  items:
+                    type: string
+                    enum: [c2pa, watermark, chain]
+                asset:
+                  $ref: '#/components/schemas/AssetRef'
+                chain_tier:
+                  type: string
+                  enum: [basic, pinned]
+                payment_intent_id:
+                  type: string
+                  description: Required for priced modalities.
+      responses:
+        '200':
+          description: >-
+            Applied. `modalities_applied` may be shorter than
+            `modalities_requested`; the difference is a §7 outstanding
+            Phase-3 operation, queued and surfaced, never dropped.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarkResult' }
+        '422':
+          description: >-
+            A requested modality does not apply to this asset — ask
+            /capabilities first. Fails closed rather than downgrading
+            silently to something cheaper that looks similar.
+
+  /capabilities:
+    get:
+      tags: [read]
+      summary: Which modalities apply to this host and MIME
+      description: >-
+        Lets a client stop hiding buttons by hand. C2PA and §9.2
+        watermarking are genuinely inapplicable to parametric CAD files —
+        the GPSA's claim-generation MIME list excludes them and §9.2 is a
+        pixel/audio-sample transform. Applicability becomes a server fact
+        with one place to correct it.
+      security: []
+      parameters:
+        - name: host
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/HostId' }
+        - name: mime
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Applicability
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [modalities]
+                properties:
+                  modalities:
+                    type: array
+                    items:
+                      type: object
+                      required: [modality, available, reason]
+                      properties:
+                        modality:
+                          type: string
+                          enum: [c2pa, watermark, chain, local]
+                        available: { type: boolean }
+                        reason:
+                          type: string
+                          description: >-
+                            Present whether available or not. When false it
+                            is shown to the user, so it must read as an
+                            explanation, not an error code.
+                        price_cents: { type: integer }
+
+  /receipt/{leaf_id}:
+    get:
+      tags: [read]
+      summary: What the user was actually given
+      security: []
+      parameters:
+        - name: leaf_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Receipt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarkResult' }
+
+  /verify/{content_hash}:
+    get:
+      tags: [read]
+      summary: Third-party verification
+      security: []
+      parameters:
+        - name: content_hash
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[0-9a-f]{64}$' }
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [found, witnessed]
+                properties:
+                  found: { type: boolean }
+                  witnessed: { type: boolean }
+                  leaf: { $ref: '#/components/schemas/Leaf' }
+
+components:
+
+  securitySchemes:
+    bearerKey:
+      type: http
+      scheme: bearer
+      description: >-
+        The ONLY plugin auth mechanism. Session cookies authenticate the
+        browser UI and are never an alternative here — today `lock/local`
+        accepts cookies only while Blender's and Fusion's clients both
+        assume bearer works everywhere, so a bearer-only caller silently
+        401s. Scopes are enforced; `auth/keys` currently stores and
+        returns scopes it never checks.
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid, or insufficiently scoped key
+
+  schemas:
+
+    HostId:
+      type: string
+      enum: [blender, fusion360, inventor, solidworks, meshroom, toonboom,
+             photoshop, illustrator, indesign, comfyui, kohya]
+      description: >-
+        Fusion means Autodesk Fusion 360, not Blackmagic Fusion. The
+        distinction has been got wrong before. `signAsset.ts`'s current
+        `product` enum is 'studio'|'fusion' and has no value for Inventor
+        or SolidWorks at all.
+
+    Scope:
+      type: string
+      enum: [baseline:write, witness:write, mark:write, read]
+
+    Baseline:
+      type: object
+      required: [baseline_ref, tamper_surface_hash, established_at, anchored]
+      properties:
+        baseline_ref: { type: string }
+        tamper_surface_hash: { type: string }
+        established_at: { type: string, format: date-time }
+        anchored:
+          type: boolean
+          description: §4 public-ledger anchoring of the baseline itself.
+        anchor_txid: { type: string }
+
+    AttestationInput:
+      type: object
+      properties:
+        type: { type: string, examples: ["sev-snp", "tdx"] }
+        report: { type: string, contentEncoding: base64 }
+
+    Attestation:
+      type: object
+      required: [status]
+      description: >-
+        §12.4 — "A passthrough attestation MUST NOT present identically to
+        a root-verified one. 'Stored' MUST NOT read as 'verified.'" All six
+        verifier plugins are structural-only today and present as verified,
+        which is a direct MUST violation. There is no shape here that omits
+        status.
+      properties:
+        status:
+          type: string
+          enum: [verified, passthrough]
+        verifier_reference:
+          type: string
+          description: >-
+            Present for passthrough. Downstream verification is the
+            receipt-consumer's responsibility and the receipt says so.
+
+    AssetRef:
+      type: object
+      description: >-
+        Bytes or a storage handle. NOT a filesystem path: today
+        /api/scruple/c2pa/sign requires an `asset_path` on the signer host,
+        which no desktop client can supply — a structural blocker, not a
+        payload-shape mismatch.
+      oneOf:
+        - type: object
+          required: [inline_base64, mime]
+          properties:
+            inline_base64: { type: string }
+            mime: { type: string }
+        - type: object
+          required: [storage_pointer]
+          properties:
+            storage_pointer: { type: string }
+
+    Leaf:
+      type: object
+      required: [leaf_id, leaf_hash, witnessed, leaf_scheme, baseline_ref]
+      properties:
+        leaf_id: { type: string }
+        leaf_hash: { type: string }
+        witnessed:
+          type: boolean
+          description: >-
+            §5 — compliance is binary. Always present, never inferred from
+            the status code.
+        leaf_scheme:
+          type: string
+          enum: [v1, v2, v2.2, v2.3, v2.4]
+          description: v1 means the witness service was unreachable.
+        baseline_ref: { type: string }
+        run_sequence: { type: integer }
+        attestation: { $ref: '#/components/schemas/Attestation' }
+        continuity_marked:
+          type: boolean
+          description: §9.6 — produced outside the witness path.
+
+    MarkResult:
+      type: object
+      required: [leaf_id, modalities_requested, modalities_applied, local_lock]
+      properties:
+        leaf_id: { type: string }
+        modalities_requested:
+          type: array
+          items: { type: string }
+          description: >-
+            §9.5 — recorded in the leaf so a verifier can distinguish "the
+            user chose not to attach C2PA" from "C2PA was attached and
+            later stripped." Cannot be reconstructed after the fact.
+        modalities_applied:
+          type: array
+          items: { type: string }
+        outstanding:
+          type: array
+          description: >-
+            §7 — requested but not yet published. Queued and surfaced.
+            "Under no circumstances is a failed Phase-3 operation silently
+            dropped."
+          items:
+            type: object
+            properties:
+              modality: { type: string }
+              reason: { type: string }
+              retry_after: { type: string, format: date-time }
+        local_lock:
+          type: object
+          description: Always present (§9.4).
+          required: [scr_id, receipt_url]
+          properties:
+            scr_id: { type: string }
+            receipt_url: { type: string }
+        c2pa:
+          type: object
+          properties:
+            manifest_hash: { type: string }
+            signed_asset: { $ref: '#/components/schemas/AssetRef' }
+        watermark:
+          type: object
+          properties:
+            payload_kind:
+              type: string
+              enum: [timestamp, scr_id]
+              description: >-
+                §9.2 carries a timestamp. §9.3's SCR_ID watermark is the
+                in-band component of chain lock and is attached
+                automatically with it on image/video/audio — it is coded
+                today and never invoked.
+        chain:
+          type: object
+          properties:
+            network:
+              type: string
+              description: >-
+                REQUIRED when chain lock is applied. Chain-lock currently
+                mints on Ravencoin testnet while presenting as production;
+                nothing downstream should be able to mistake a testnet
+                anchor for a real one.
+            txid: { type: string }
+            tier: { type: string, enum: [basic, pinned] }
