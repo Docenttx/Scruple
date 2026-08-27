@@ -11,7 +11,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "test:v2": "SCRUPLE_DB_PATH=$(mktemp -d)/v2-test.db node --import tsx --test test/v2/*.test.ts",
-    "test": "npm run test:v2"
+    "test": "npm run test:v2",
+    "test:sdk": "cd packages/scruple-host-sdk && python3 -m pytest -q"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.3.0",

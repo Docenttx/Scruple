@@ -60,6 +60,15 @@ jobs:
         run: python -m pytest tests/ -v
         working-directory: services/c2pa-signer
 
+      - name: scruple-host-sdk
+        # What breaks if this triggers: the canon client SDK every shell
+        # will depend on. test_queue_construction.py is the one to watch —
+        # it AST-scans the package to prove no module but http.py can
+        # reach the network, which is the guarantee six forks failed to
+        # keep by discipline alone.
+        run: python -m pytest tests/ -v
+        working-directory: packages/scruple-host-sdk
+
       - name: scruple-sdk-python
         run: python -m pytest tests/ -v
         working-directory: packages/scruple-sdk-python
