@@ -10,7 +10,7 @@ import {
   getRegisteredTypes,
 } from './dispatch.js';
 import type { VerifierPlugin } from './verifier.js';
-import { verifySuccess, verifyFailure } from './verifier.js';
+import { verifyRootVerified, verifyFailure } from './verifier.js';
 
 const VALID_NONCE = 'a'.repeat(64);
 
@@ -47,7 +47,7 @@ test('dispatch routes to registered plugin', async () => {
   const fake: VerifierPlugin = {
     attestation_type: 'amd-sev-snp',
     async verify(env, expected, fresh) {
-      return verifySuccess('amd-sev-snp', { chip_id: 'aabbcc' });
+      return verifyRootVerified('amd-sev-snp', { root_subject: 'CN=ARK-Genoa', chain_length: 3 }, { chip_id: 'aabbcc' });
     },
   };
   registerPlugin(fake);
@@ -86,7 +86,7 @@ test('registerPlugin throws on duplicate registration', () => {
   const fake: VerifierPlugin = {
     attestation_type: 'amd-sev-snp',
     async verify() {
-      return verifySuccess('amd-sev-snp');
+      return verifyRootVerified('amd-sev-snp', { root_subject: 'CN=ARK-Genoa', chain_length: 3 });
     },
   };
   registerPlugin(fake);
@@ -97,13 +97,13 @@ test('getRegisteredTypes returns sorted list', () => {
   const p1: VerifierPlugin = {
     attestation_type: 'nvidia-h100-cc',
     async verify() {
-      return verifySuccess('nvidia-h100-cc');
+      return verifyRootVerified('nvidia-h100-cc', { root_subject: 'CN=NVIDIA Device Identity CA', chain_length: 3 });
     },
   };
   const p2: VerifierPlugin = {
     attestation_type: 'amd-sev-snp',
     async verify() {
-      return verifySuccess('amd-sev-snp');
+      return verifyRootVerified('amd-sev-snp', { root_subject: 'CN=ARK-Genoa', chain_length: 3 });
     },
   };
   registerPlugin(p1);

@@ -15,6 +15,7 @@
 // posture explicit; downstream verifiers (scruple-verify CLI) can and
 // will re-verify with full crypto.
 
+import { verifyPassthrough } from '../verifier.js';
 import type { AttestationEnvelope } from '../envelope.js';
 import type { VerifierPlugin, VerifyResult } from '../verifier.js';
 import { registerPlugin } from '../dispatch.js';
@@ -134,13 +135,20 @@ export const sevSnpVerifier: VerifierPlugin = {
 
     // 5. Return structural-verify result. Signature chain verification is
     //    marked as benign here — production hardening is a follow-up.
-    return {
-      ok: true,
-      provider: 'amd-sev-snp',
-      cvm_measurement_hex: toHex(parsed.measurement),
-      chip_id: toHex(parsed.chip_id),
-      benign_codes: ['sev-snp-signature-chain-not-yet-verified'],
-    };
+    // §12.4 — this is a PASSTHROUGH, not a verification. The report
+    // parsed, the nonce matched and the cert subjects were inspected, but
+    // no signature was chained to the AMD root. Under the Standard's own
+    // definition that is indistinguishable from stored, so it must not
+    // present as verified.
+    return verifyPassthrough(
+      'amd-sev-snp',
+      'AMD SEV-SNP report parsed and nonce matched, but the VCEK -> ASK -> ARK signature chain was not verified to the AMD root.',
+      {
+        cvm_measurement_hex: toHex(parsed.measurement),
+        chip_id: toHex(parsed.chip_id),
+        benign_codes: ['sev-snp-signature-chain-not-yet-verified'],
+      },
+    );
   },
 };
 

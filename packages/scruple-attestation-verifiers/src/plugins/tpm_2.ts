@@ -6,6 +6,7 @@
 // V1 scope: STRUCTURAL. Full TPMS_ATTEST parsing + AIK sig verify +
 // EK cert chain checks are a follow-up.
 
+import { verifyPassthrough } from '../verifier.js';
 import type { AttestationEnvelope } from '../envelope.js';
 import type { VerifierPlugin, VerifyResult } from '../verifier.js';
 import { registerPlugin } from '../dispatch.js';
@@ -49,11 +50,13 @@ export const tpm2Verifier: VerifierPlugin = {
       return { ok: false, provider: 'tpm-2.0-quote', error: 'certificate_chain is empty (AIK cert missing)' };
     }
 
-    return {
-      ok: true,
-      provider: 'tpm-2.0-quote',
-      benign_codes: ['tpm-2.0-aik-signature-not-yet-verified'],
-    };
+    // §12.4 passthrough — quote parsed and PCRs read, AIK signature not
+    // chained to a manufacturer EK root.
+    return verifyPassthrough(
+      'tpm-2.0-quote',
+      'TPM 2.0 quote parsed and PCRs read, but the AIK signature was not verified to a manufacturer EK root.',
+      { benign_codes: ['tpm-2.0-aik-signature-not-yet-verified'] },
+    );
   },
 };
 

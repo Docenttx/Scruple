@@ -22,6 +22,7 @@
 //   - cert chain contains at least one PEM
 // and returns benign_code 'nvidia-h100-signature-chain-not-yet-verified'.
 
+import { verifyPassthrough } from '../verifier.js';
 import type { AttestationEnvelope } from '../envelope.js';
 import type { VerifierPlugin, VerifyResult } from '../verifier.js';
 import { registerPlugin } from '../dispatch.js';
@@ -85,14 +86,22 @@ export const nvidiaH100Verifier: VerifierPlugin = {
       return { ok: false, provider: 'nvidia-h100-cc', error: 'certificate_chain is empty' };
     }
 
-    return {
-      ok: true,
-      provider: 'nvidia-h100-cc',
-      gpu_id: typeof payload.gpu_id === 'string' ? payload.gpu_id : undefined,
-      driver_version: typeof payload.driver_version === 'string' ? payload.driver_version : undefined,
-      vbios_version: typeof payload.vbios_version === 'string' ? payload.vbios_version : undefined,
-      benign_codes: ['nvidia-h100-signature-chain-not-yet-verified'],
-    };
+    // §12.4 passthrough. Two separate gaps, both worth naming: the JWS
+    // was not verified against a pinned NVIDIA root, AND a GPU
+    // attestation binds the DEVICE and its firmware, never the workload
+    // that ran on it. Even fully root-verified this would not say "this
+    // output came from this GPU" — that binding has to be built into the
+    // nonce by the application, and is not.
+    return verifyPassthrough(
+      'nvidia-h100-cc',
+      'NVIDIA H100 CC report parsed and nonce matched, but the signature was not verified against a pinned NVIDIA root CA. Note also that a GPU attestation binds the device and its firmware, not the workload that ran on it.',
+      {
+        gpu_id: typeof payload.gpu_id === 'string' ? payload.gpu_id : undefined,
+        driver_version: typeof payload.driver_version === 'string' ? payload.driver_version : undefined,
+        vbios_version: typeof payload.vbios_version === 'string' ? payload.vbios_version : undefined,
+        benign_codes: ['nvidia-h100-signature-chain-not-yet-verified'],
+      },
+    );
   },
 };
 

@@ -7,6 +7,7 @@
 // V1 scope: STRUCTURAL. Full DCAP quote verification (TCB fetch,
 // signature chain) is a follow-up.
 
+import { verifyPassthrough } from '../verifier.js';
 import type { AttestationEnvelope } from '../envelope.js';
 import type { VerifierPlugin, VerifyResult } from '../verifier.js';
 import { registerPlugin } from '../dispatch.js';
@@ -55,11 +56,13 @@ export const intelTdxVerifier: VerifierPlugin = {
       return { ok: false, provider: 'intel-tdx', error: 'certificate_chain is empty' };
     }
 
-    return {
-      ok: true,
-      provider: 'intel-tdx',
-      benign_codes: ['tdx-quote-signature-chain-not-yet-verified'],
-    };
+    // §12.4 passthrough — quote parsed, nonce matched, signature not
+    // chained to the Intel provisioning root.
+    return verifyPassthrough(
+      'intel-tdx',
+      'Intel TDX quote parsed and nonce matched, but the quote signature was not verified to the Intel provisioning root.',
+      { benign_codes: ['tdx-quote-signature-chain-not-yet-verified'] },
+    );
   },
 };
 

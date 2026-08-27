@@ -4,25 +4,60 @@
 
 import type { AttestationEnvelope } from './envelope.js';
 
+/**
+ * The two states Standard §12.4 makes receipt-visible.
+ *
+ *   'verified'    — chained to the VENDOR ROOT, nonce matched the leaf,
+ *                   within the freshness window. All three, or it is not
+ *                   this.
+ *   'passthrough' — stored and anchored opaquely. Downstream verification
+ *                   is the receipt-consumer's responsibility, and the
+ *                   receipt must say so.
+ *
+ * There is no third value, and deliberately no default. §12.4: "A
+ * passthrough attestation MUST NOT present identically to a root-verified
+ * one. 'Stored' MUST NOT read as 'verified.'"
+ *
+ * A structural check that parses a report, matches the nonce and reads
+ * the cert subjects — but never chains a signature to the vendor root —
+ * is NOT 'verified'. By the Standard's own definition it is
+ * indistinguishable from stored, so it is 'passthrough'. Every built-in
+ * plugin in this package is in that position today.
+ */
+export type AttestationStatus = 'verified' | 'passthrough';
+
 export interface VerifyResult {
   /**
-   * True if the attestation verified end-to-end (built-in types) OR the
-   * envelope is a valid passthrough with `verifier_reference`. False
+   * True if the attestation was accepted (either state above). False
    * indicates a hard verification failure — the leaf MUST be rejected.
+   *
+   * `ok` ALONE IS NOT A VERIFICATION CLAIM. Read `status`. This field
+   * previously carried the whole answer, with the caveat tucked into an
+   * optional `benign_codes` array, so every consumer that checked `ok`
+   * saw a root-verified attestation where none existed.
    */
   ok: boolean;
+
+  /** Required whenever ok is true. See AttestationStatus. */
+  status?: AttestationStatus;
 
   /** The attestation type this result covers. Copied from envelope for convenience. */
   provider: string;
 
   /**
-   * True when the envelope was accepted as a passthrough (stored, not
-   * verified server-side). Distinct from `ok: true` after a full verify.
+   * @deprecated Read `status === 'passthrough'` instead. Kept so existing
+   * consumers do not silently change meaning; it is set consistently with
+   * `status`.
    */
   passthrough?: boolean;
 
-  /** Present on passthrough results. */
+  /** Present on passthrough results — the reason, shown on the receipt. */
   verifier_reference?: string;
+
+  /** Present ONLY on status:'verified'. The root actually chained to. */
+  root_subject?: string;
+  /** Present ONLY on status:'verified'. */
+  chain_length?: number;
 
   /** Extracted from the attestation body when available. */
   cvm_measurement_hex?: string;
@@ -72,9 +107,48 @@ export function verifyFailure(provider: string, error: string): VerifyResult {
   return { ok: false, provider, error };
 }
 
-export function verifySuccess(
+/**
+ * A root-verified attestation.
+ *
+ * Call this ONLY when the signature chain has been verified to the
+ * vendor root. No plugin in this package can call it yet — none
+ * implements root chaining — and that is why it takes a `rootProof`
+ * argument it cannot be fudged into: whoever wires up real chaining has
+ * to produce evidence of what they chained to.
+ */
+export function verifyRootVerified(
   provider: string,
-  extra: Omit<VerifyResult, 'ok' | 'provider'> = {},
+  rootProof: { root_subject: string; chain_length: number },
+  extra: Omit<VerifyResult, 'ok' | 'provider' | 'status' | 'passthrough'> = {},
 ): VerifyResult {
-  return { ok: true, provider, ...extra };
+  return {
+    ok: true,
+    status: 'verified',
+    passthrough: false,
+    provider,
+    root_subject: rootProof.root_subject,
+    chain_length: rootProof.chain_length,
+    ...extra,
+  };
+}
+
+/**
+ * An attestation that was accepted but NOT verified to a vendor root.
+ *
+ * `reason` is not decoration. It reaches the receipt, where §12.4
+ * requires a reader to be able to tell this from a real verification.
+ */
+export function verifyPassthrough(
+  provider: string,
+  reason: string,
+  extra: Omit<VerifyResult, 'ok' | 'provider' | 'status' | 'passthrough'> = {},
+): VerifyResult {
+  return {
+    ok: true,
+    status: 'passthrough',
+    passthrough: true,
+    provider,
+    verifier_reference: reason,
+    ...extra,
+  };
 }

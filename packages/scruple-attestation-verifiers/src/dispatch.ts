@@ -60,6 +60,7 @@ export async function dispatch(
     }
     return {
       ok: true,
+      status: 'passthrough',
       provider: env.attestation_type,
       passthrough: true,
       verifier_reference: env.verifier_reference,

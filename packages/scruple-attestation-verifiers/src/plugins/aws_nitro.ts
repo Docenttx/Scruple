@@ -8,6 +8,7 @@
 // decodes the top-level CBOR, extracts nonce + timestamp + module_id
 // from the payload map, and returns structural verify.
 
+import { verifyPassthrough } from '../verifier.js';
 import type { AttestationEnvelope } from '../envelope.js';
 import type { VerifierPlugin, VerifyResult } from '../verifier.js';
 import { registerPlugin } from '../dispatch.js';
@@ -151,13 +152,13 @@ export const awsNitroVerifier: VerifierPlugin = {
       if (p0 instanceof Uint8Array) pcr_0 = Buffer.from(p0).toString('hex');
     }
 
-    return {
-      ok: true,
-      provider: 'aws-nitro-enclave',
-      module_id,
-      pcr_0,
-      benign_codes: ['aws-nitro-cose-signature-not-yet-verified'],
-    };
+    // §12.4 passthrough — document parsed and PCRs read, COSE signature
+    // not chained to the AWS Nitro root.
+    return verifyPassthrough(
+      'aws-nitro-enclave',
+      'AWS Nitro attestation document parsed and nonce matched, but the COSE signature was not verified to the AWS Nitro root.',
+      { module_id, pcr_0, benign_codes: ['aws-nitro-cose-signature-not-yet-verified'] },
+    );
   },
 };
 

@@ -11,6 +11,7 @@
 // V1 scope: STRUCTURAL. Full JWS signature verify against MAA JWKS is
 // a follow-up (requires JWKS caching + jose library).
 
+import { verifyPassthrough } from '../verifier.js';
 import type { AttestationEnvelope } from '../envelope.js';
 import type { VerifierPlugin, VerifyResult } from '../verifier.js';
 import { registerPlugin } from '../dispatch.js';
@@ -49,11 +50,13 @@ export const azureMaaVerifier: VerifierPlugin = {
       return { ok: false, provider: 'azure-attestation-service', error: `iat is ${Math.floor(ageSec)}s old` };
     }
 
-    return {
-      ok: true,
-      provider: 'azure-attestation-service',
-      benign_codes: ['maa-jws-signature-not-yet-verified'],
-    };
+    // §12.4 passthrough — token parsed, JWS not verified against MAA's
+    // signing keys.
+    return verifyPassthrough(
+      'azure-attestation-service',
+      "Azure MAA token parsed and nonce matched, but the JWS was not verified against Microsoft Azure Attestation's signing keys.",
+      { benign_codes: ['maa-jws-signature-not-yet-verified'] },
+    );
   },
 };
 
