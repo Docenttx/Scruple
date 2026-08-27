@@ -1,0 +1,539 @@
+/**
+ * server.js - SCRUPLE Witness Server V1 (Oracle)
+ *
+ * SQLite-backed tamper-proof witness server.
+ * Deployed at /opt/scruple-witness/server.js on Oracle VM (129.80.132.5).
+ * Runs on port 5799 as a systemd service.
+ *
+ * Endpoints:
+ *   GET  /health
+ *   POST /api/witness
+ *   GET  /api/witness/:projectId
+ *   POST /api/lock/:projectId
+ *   POST /api/verify
+ *   GET  /api/tsd/balance/:installationId
+ *   POST /api/tsd/fund
+ *   POST /api/tsd/pay
+ *   POST /api/tsd/verify
+ *   POST /api/clone-project
+ *
+ * SCRUPLE Studio — Patent Pending
+ */
+
+'use strict';
+
+const http = require('http');
+const crypto = require('crypto');
+const url = require('url');
+const path = require('path');
+const fs = require('fs');
+
+const Database = require('better-sqlite3');
+
+// Configuration
+const PORT = process.env.PORT || 5799;
+const SECRET = process.env.SCRUPLE_WITNESS_SECRET || 'dev-secret-replace-in-production';
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'witness.db');
+
+// TSD token TTL: 5 minutes
+const TSD_TOKEN_TTL_MS = 5 * 60 * 1000;
+
+// Auto-fund amount for new beta installations
+const BETA_AUTO_FUND = 1000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Database setup
+// ─────────────────────────────────────────────────────────────────────────────
+
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS witnesses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    witness_id TEXT UNIQUE NOT NULL,
+    project_id TEXT NOT NULL,
+    project_name TEXT,
+    run_sequence INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    visual_hash TEXT,
+    client_timestamp TEXT,
+    server_timestamp TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    cloned_from TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS locked_projects (
+    project_id TEXT PRIMARY KEY,
+    merkle_root TEXT NOT NULL,
+    witnessed_count INTEGER NOT NULL,
+    server_signature TEXT NOT NULL,
+    locked_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pre_scr_id TEXT UNIQUE NOT NULL,
+    project_name TEXT NOT NULL,
+    installation_id TEXT,
+    cloned_from TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS tsd_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    installation_id TEXT UNIQUE NOT NULL,
+    balance INTEGER DEFAULT 0,
+    updated_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS tsd_auth_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT UNIQUE NOT NULL,
+    installation_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    used INTEGER DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    created_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_witnesses_project ON witnesses(project_id);
+  CREATE INDEX IF NOT EXISTS idx_tsd_tokens_token ON tsd_auth_tokens(token);
+  CREATE INDEX IF NOT EXISTS idx_tsd_ledger_install ON tsd_ledger(installation_id);
+`);
+
+// Run schema migrations for existing DBs
+(function runMigrations() {
+  try {
+    const cols = db.prepare("PRAGMA table_info(witnesses)").all().map(c => c.name);
+    if (!cols.includes('cloned_from')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN cloned_from TEXT");
+      console.log('[DB] Migrated: witnesses.cloned_from');
+    }
+  } catch (e) {
+    console.log('[DB] Migration warning: ' + e.message);
+  }
+  try {
+    const cols = db.prepare("PRAGMA table_info(projects)").all().map(c => c.name);
+    if (!cols.includes('cloned_from')) {
+      db.exec("ALTER TABLE projects ADD COLUMN cloned_from TEXT");
+      console.log('[DB] Migrated: projects.cloned_from');
+    }
+  } catch (e) {
+    console.log('[DB] Migration warning: ' + e.message);
+  }
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function sign(data) {
+  return crypto
+    .createHmac('sha256', SECRET)
+    .update(JSON.stringify(data))
+    .digest('hex');
+}
+
+function generateWitnessId() {
+  return 'wit_' + crypto.randomBytes(8).toString('hex');
+}
+
+function generateTsdToken() {
+  return 'TSD_AUTH_' + crypto.randomBytes(16).toString('hex');
+}
+
+function calculateMerkleRoot(hashes) {
+  if (hashes.length === 0) return null;
+  if (hashes.length === 1) return hashes[0];
+  const nextLevel = [];
+  for (let i = 0; i < hashes.length; i += 2) {
+    if (i + 1 < hashes.length) {
+      const combined = hashes[i] + hashes[i + 1];
+      nextLevel.push(crypto.createHash('sha256').update(combined).digest('hex'));
+    } else {
+      nextLevel.push(hashes[i]);
+    }
+  }
+  return calculateMerkleRoot(nextLevel);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try { resolve(JSON.parse(body || '{}')); }
+      catch (e) { reject(new Error('Invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function send(res, statusCode, data) {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Request handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+const server = http.createServer(async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  const parsed = url.parse(req.url, true);
+  const pathname = parsed.pathname;
+  const method = req.method;
+
+  try {
+    // Health check
+    if (pathname === '/health' && method === 'GET') {
+      return send(res, 200, { status: 'ok', version: '1.0', timestamp: new Date().toISOString() });
+    }
+
+    // ─── Witness endpoints ────────────────────────────────────────────────
+
+    if (pathname === '/api/witness' && method === 'POST') {
+      return handleWitness(req, res);
+    }
+
+    if (pathname.startsWith('/api/witness/') && method === 'GET') {
+      const projectId = pathname.split('/')[3];
+      return handleGetWitnesses(projectId, res);
+    }
+
+    if (pathname.startsWith('/api/lock/') && method === 'POST') {
+      const projectId = pathname.split('/')[3];
+      return handleLock(projectId, res);
+    }
+
+    if (pathname === '/api/verify' && method === 'POST') {
+      return handleVerify(req, res);
+    }
+
+    // ─── TSD endpoints ────────────────────────────────────────────────────
+
+    if (pathname.startsWith('/api/tsd/balance/') && method === 'GET') {
+      const installationId = decodeURIComponent(pathname.split('/')[4]);
+      return handleTsdBalance(installationId, res);
+    }
+
+    if (pathname === '/api/tsd/fund' && method === 'POST') {
+      return handleTsdFund(req, res);
+    }
+
+    if (pathname === '/api/tsd/pay' && method === 'POST') {
+      return handleTsdPay(req, res);
+    }
+
+    if (pathname === '/api/tsd/verify' && method === 'POST') {
+      return handleTsdVerify(req, res);
+    }
+
+    // ─── Clone endpoint ───────────────────────────────────────────────────
+
+    if (pathname === '/api/clone-project' && method === 'POST') {
+      return handleCloneProject(req, res);
+    }
+
+    send(res, 404, { error: 'Not found' });
+  } catch (err) {
+    console.error('[SERVER] Unhandled error:', err.message);
+    send(res, 500, { error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Witness handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleWitness(req, res) {
+  const data = await readBody(req);
+  const { project_id, project_name, run_sequence, content_hash, visual_hash, client_timestamp } = data;
+
+  if (!project_id || !content_hash || run_sequence === undefined) {
+    return send(res, 400, { error: 'Missing required fields' });
+  }
+
+  // Check if project is locked
+  const locked = db.prepare('SELECT 1 FROM locked_projects WHERE project_id = ?').get(String(project_id));
+  if (locked) {
+    return send(res, 403, { error: 'Project is locked, no new iterations allowed' });
+  }
+
+  const witness_id = generateWitnessId();
+  const server_timestamp = new Date().toISOString();
+
+  const signature = sign({ witness_id, project_id: String(project_id), run_sequence, content_hash, server_timestamp });
+
+  db.prepare(`
+    INSERT OR IGNORE INTO witnesses
+      (witness_id, project_id, project_name, run_sequence, content_hash, visual_hash, client_timestamp, server_timestamp, signature)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(witness_id, String(project_id), project_name, run_sequence, content_hash, visual_hash, client_timestamp, server_timestamp, signature);
+
+  console.log(`[WITNESS] ${project_name || project_id} #${run_sequence} → ${witness_id}`);
+
+  send(res, 200, { witness_id, server_timestamp, signature });
+}
+
+function handleGetWitnesses(projectId, res) {
+  const rows = db.prepare(`
+    SELECT witness_id, run_sequence, content_hash, server_timestamp, signature
+    FROM witnesses WHERE project_id = ?
+    ORDER BY run_sequence ASC
+  `).all(String(projectId));
+
+  send(res, 200, { project_id: projectId, iterations: rows, count: rows.length });
+}
+
+function handleLock(projectId, res) {
+  const rows = db.prepare(`
+    SELECT * FROM witnesses WHERE project_id = ?
+    ORDER BY run_sequence ASC
+  `).all(String(projectId));
+
+  if (rows.length === 0) {
+    return send(res, 400, { error: 'No witnessed iterations to lock' });
+  }
+
+  const hashes = rows.map(r => r.content_hash);
+  const merkle_root = calculateMerkleRoot(hashes);
+  const locked_at = new Date().toISOString();
+
+  const lockData = { project_id: projectId, merkle_root, witnessed_count: rows.length, locked_at };
+  const server_signature = sign(lockData);
+
+  db.prepare(`
+    INSERT OR REPLACE INTO locked_projects (project_id, merkle_root, witnessed_count, server_signature, locked_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(String(projectId), merkle_root, rows.length, server_signature, locked_at);
+
+  console.log(`[WITNESS] Project ${projectId} LOCKED. Root: ${merkle_root.substring(0, 16)}...`);
+
+  send(res, 200, {
+    project_id: projectId,
+    iterations: rows.map(r => ({
+      run_sequence: r.run_sequence,
+      content_hash: r.content_hash,
+      visual_hash: r.visual_hash,
+      witnessed_at: r.server_timestamp,
+      witnessed: true
+    })),
+    witnessed_count: rows.length,
+    merkle_root,
+    server_signature,
+    locked_at
+  });
+}
+
+async function handleVerify(req, res) {
+  const { project_id, local_chain } = await readBody(req);
+  const serverChain = db.prepare(
+    'SELECT * FROM witnesses WHERE project_id = ? ORDER BY run_sequence ASC'
+  ).all(String(project_id));
+
+  const mismatches = [];
+  let valid = true;
+
+  for (const local of (local_chain || [])) {
+    const serverRecord = serverChain.find(s => s.run_sequence === local.run_sequence);
+    if (!serverRecord) {
+      mismatches.push({ run_sequence: local.run_sequence, issue: 'not_witnessed', local_hash: local.content_hash });
+    } else if (serverRecord.content_hash !== local.content_hash) {
+      valid = false;
+      mismatches.push({ run_sequence: local.run_sequence, issue: 'hash_mismatch', local_hash: local.content_hash, server_hash: serverRecord.content_hash });
+    }
+  }
+
+  send(res, 200, { valid, total_local: (local_chain || []).length, total_witnessed: serverChain.length, mismatches });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TSD handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getTsdLedger(installationId) {
+  let row = db.prepare('SELECT * FROM tsd_ledger WHERE installation_id = ?').get(installationId);
+  if (!row) {
+    // Auto-fund new beta installation
+    db.prepare(`
+      INSERT INTO tsd_ledger (installation_id, balance, updated_at)
+      VALUES (?, ?, ?)
+    `).run(installationId, BETA_AUTO_FUND, new Date().toISOString());
+    row = db.prepare('SELECT * FROM tsd_ledger WHERE installation_id = ?').get(installationId);
+    console.log(`[TSD] Auto-funded new installation ${installationId} with ${BETA_AUTO_FUND} TSD`);
+  }
+  return row;
+}
+
+function handleTsdBalance(installationId, res) {
+  const row = getTsdLedger(installationId);
+  send(res, 200, { installationId, balance: row.balance });
+}
+
+async function handleTsdFund(req, res) {
+  const { installationId, amount } = await readBody(req);
+  if (!installationId || !amount || amount <= 0) {
+    return send(res, 400, { error: 'installationId and positive amount required' });
+  }
+
+  getTsdLedger(installationId); // ensure row exists
+  db.prepare(`
+    UPDATE tsd_ledger SET balance = balance + ?, updated_at = ? WHERE installation_id = ?
+  `).run(amount, new Date().toISOString(), installationId);
+
+  const updated = db.prepare('SELECT balance FROM tsd_ledger WHERE installation_id = ?').get(installationId);
+  console.log(`[TSD] Funded ${installationId} +${amount} → ${updated.balance}`);
+  send(res, 200, { success: true, newBalance: updated.balance });
+}
+
+async function handleTsdPay(req, res) {
+  const { installationId, action, amount } = await readBody(req);
+  if (!installationId || !action || !amount || amount <= 0) {
+    return send(res, 400, { error: 'installationId, action, and positive amount required' });
+  }
+
+  const ledger = getTsdLedger(installationId);
+  if (ledger.balance < amount) {
+    return send(res, 200, { success: false, error: 'Insufficient TSD balance' });
+  }
+
+  // Deduct balance
+  db.prepare(`
+    UPDATE tsd_ledger SET balance = balance - ?, updated_at = ? WHERE installation_id = ?
+  `).run(amount, new Date().toISOString(), installationId);
+
+  // Issue auth token
+  const authToken = generateTsdToken();
+  const expiresAt = new Date(Date.now() + TSD_TOKEN_TTL_MS).toISOString();
+  const createdAt = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO tsd_auth_tokens (token, installation_id, action, amount, used, expires_at, created_at)
+    VALUES (?, ?, ?, ?, 0, ?, ?)
+  `).run(authToken, installationId, action, amount, expiresAt, createdAt);
+
+  const newBalance = db.prepare('SELECT balance FROM tsd_ledger WHERE installation_id = ?').get(installationId).balance;
+  console.log(`[TSD] Paid ${amount} TSD for "${action}" — ${installationId} → balance ${newBalance}`);
+
+  send(res, 200, { success: true, authToken, expiresAt, newBalance });
+}
+
+async function handleTsdVerify(req, res) {
+  const { authToken, action } = await readBody(req);
+  if (!authToken) {
+    return send(res, 400, { error: 'authToken required' });
+  }
+
+  const tokenRow = db.prepare('SELECT * FROM tsd_auth_tokens WHERE token = ?').get(authToken);
+  if (!tokenRow) {
+    return send(res, 200, { valid: false, error: 'Token not found' });
+  }
+  if (tokenRow.used) {
+    return send(res, 200, { valid: false, error: 'Token already used' });
+  }
+  if (new Date() > new Date(tokenRow.expires_at)) {
+    return send(res, 200, { valid: false, error: 'Token expired' });
+  }
+  if (action && tokenRow.action !== action) {
+    return send(res, 200, { valid: false, error: `Token action mismatch: expected "${tokenRow.action}", got "${action}"` });
+  }
+
+  // Consume token (one-time use)
+  db.prepare('UPDATE tsd_auth_tokens SET used = 1 WHERE token = ?').run(authToken);
+
+  console.log(`[TSD] Token verified and consumed: ${authToken.substring(0, 20)}... action="${tokenRow.action}"`);
+  send(res, 200, { valid: true, action: tokenRow.action, installationId: tokenRow.installation_id });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Clone-project handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleCloneProject(req, res) {
+  const { source_project_id, new_pre_scr_id, new_project_name, installation_id } = await readBody(req);
+
+  if (!source_project_id || !new_pre_scr_id || !new_project_name) {
+    return send(res, 400, { error: 'source_project_id, new_pre_scr_id, and new_project_name required' });
+  }
+
+  // Pull all witness records for source project
+  const sourceWitnesses = db.prepare(`
+    SELECT * FROM witnesses WHERE project_id = ?
+    ORDER BY run_sequence ASC
+  `).all(String(source_project_id));
+
+  // Insert cloned witness copies under new_pre_scr_id
+  const insertWitness = db.prepare(`
+    INSERT OR IGNORE INTO witnesses
+      (witness_id, project_id, project_name, run_sequence, content_hash, visual_hash, client_timestamp, server_timestamp, signature, cloned_from)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  let clonedCount = 0;
+  for (const w of sourceWitnesses) {
+    const newWitnessId = generateWitnessId();
+    insertWitness.run(
+      newWitnessId,
+      new_pre_scr_id,
+      new_project_name,
+      w.run_sequence,
+      w.content_hash,
+      w.visual_hash,
+      w.client_timestamp,
+      new Date().toISOString(),
+      w.signature,
+      String(source_project_id)
+    );
+    clonedCount++;
+  }
+
+  // Register new project in Oracle projects table
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO projects (pre_scr_id, project_name, installation_id, cloned_from, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(new_pre_scr_id, new_project_name, installation_id || null, String(source_project_id), new Date().toISOString());
+  } catch (e) {
+    console.log('[CLONE] Project registration warning: ' + e.message);
+  }
+
+  console.log(`[CLONE] ${source_project_id} → ${new_pre_scr_id} (${new_project_name}), ${clonedCount} witnesses cloned`);
+  send(res, 200, { success: true, clonedCount, newPreScrId: new_pre_scr_id });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Start server
+// ─────────────────────────────────────────────────────────────────────────────
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[SCRUPLE WITNESS] Server running on port ${PORT}`);
+  console.log(`[SCRUPLE WITNESS] DB: ${DB_PATH}`);
+  console.log(`[SCRUPLE WITNESS] TSD auto-fund: ${BETA_AUTO_FUND} on first balance check`);
+});
+
+server.on('error', (err) => {
+  console.error('[SERVER] Fatal:', err.message);
+  process.exit(1);
+});
+
+process.on('SIGTERM', () => {
+  console.log('[SERVER] SIGTERM — closing');
+  server.close(() => { db.close(); process.exit(0); });
+});
+
+process.on('SIGINT', () => {
+  server.close(() => { db.close(); process.exit(0); });
+});

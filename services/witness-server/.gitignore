@@ -1,0 +1,16 @@
+# Never commit from this directory:
+node_modules/
+
+# Live evidence data. witness.db holds the actual signed leaves.
+witness.db
+witness.db-shm
+witness.db-wal
+
+# A live Arweave wallet key. It sits in the deployed directory at
+# /opt/scruple-witness/arweave-key.json with mode 0664 — world-readable
+# on a shared host. That wants fixing where it lives; it must never be
+# fixed by copying it here.
+arweave-key.json
+
+# Local arlocal test chain state.
+arlocal-data/

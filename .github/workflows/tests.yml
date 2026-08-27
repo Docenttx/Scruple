@@ -122,6 +122,25 @@ jobs:
         run: node --test dist/
         working-directory: packages/scruple-attestation-verifiers
 
+  witness-server:
+    # What breaks if this triggers: the witness server's tamper surface —
+    # the measurement Standard §3 requires of the component that computes
+    # everyone else's baseline. Until 2026-08-26 this code was not in git
+    # at all and could not be measured.
+    name: witness server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: syntax
+        run: node --check server.js
+        working-directory: services/witness-server
+      - name: tamper surface
+        run: node --test tests/
+        working-directory: services/witness-server
+
   typecheck:
     # What breaks if this triggers: a type error reaches main. Duplicated
     # from security.yml deliberately — this workflow should be able to gate

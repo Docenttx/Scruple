@@ -1,0 +1,590 @@
+/**
+ * server.js - SCRUPLE V2 Witness Server
+ *
+ * Persistent witness server for Oracle VM deployment.
+ * Stores witnessed iterations in SQLite.
+ *
+ * V2 additions:
+ *   POST /api/checkpoint/:projectId  - Seal current Merkle root as checkpoint
+ *   POST /api/resume/:projectId      - Verify integrity against checkpoint
+ *   POST /api/testnet-lock           - Auto-RVN: Oracle mints asset + posts Arweave record
+ *   POST /api/upload-proof           - User-RVN: Oracle posts Arweave record after client mint
+ *   GET  /api/treasury/status        - AR balance + stats
+ *   GET  /api/verify-scr/:scrId      - Confirm RVN asset exists on testnet
+ *
+ * SCRUPLE Studio V3
+ * Patent Pending - All Rights Reserved
+ */
+
+const http = require('http');
+const crypto = require('crypto');
+const url = require('url');
+const Database = require('better-sqlite3');
+const path = require('path');
+const fs = require('fs');
+
+const treasury = require('./arweave-treasury');
+const locker = require('./testnet-locker');
+
+const PORT = process.env.PORT || 5799;
+const SECRET = process.env.SCRUPLE_WITNESS_SECRET || 'dev-secret-replace-in-production';
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'witness.db');
+
+// ── Database setup ────────────────────────────────────────────────────────────
+
+const db = new Database(DB_PATH);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS witnesses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    witness_id TEXT UNIQUE NOT NULL,
+    project_id TEXT NOT NULL,
+    project_name TEXT,
+    run_sequence INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    visual_hash TEXT,
+    client_timestamp TEXT,
+    server_timestamp TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    pre_scr_id TEXT,
+    installation_id TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS locked_projects (
+    project_id TEXT PRIMARY KEY,
+    merkle_root TEXT NOT NULL,
+    witnessed_count INTEGER NOT NULL,
+    server_signature TEXT NOT NULL,
+    locked_at TEXT NOT NULL,
+    checkpoint_root TEXT,
+    checkpointed_at TEXT,
+    resumed_at TEXT,
+    arweave_txid TEXT,
+    ipfs_cid TEXT,
+    rvn_txid TEXT,
+    pre_scr_id TEXT,
+    installation_id TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_witnesses_project ON witnesses(project_id);
+`);
+
+// ── Migrations ────────────────────────────────────────────────────────────────
+
+(function runMigrations() {
+  const witCols = db.prepare("PRAGMA table_info(witnesses)").all().map(c => c.name);
+  if (!witCols.includes('pre_scr_id')) {
+    db.exec("ALTER TABLE witnesses ADD COLUMN pre_scr_id TEXT");
+    console.log('[WITNESS] Migrated: added pre_scr_id to witnesses');
+  }
+  if (!witCols.includes('installation_id')) {
+    db.exec("ALTER TABLE witnesses ADD COLUMN installation_id TEXT");
+    console.log('[WITNESS] Migrated: added installation_id to witnesses');
+  }
+
+  const lockCols = db.prepare("PRAGMA table_info(locked_projects)").all().map(c => c.name);
+  const lockMigrations = [
+    ['checkpoint_root', 'TEXT'],
+    ['checkpointed_at', 'TEXT'],
+    ['resumed_at', 'TEXT'],
+    ['arweave_txid', 'TEXT'],
+    ['ipfs_cid', 'TEXT'],
+    ['rvn_txid', 'TEXT'],
+    ['pre_scr_id', 'TEXT'],
+    ['installation_id', 'TEXT']
+  ];
+  for (const [col, type] of lockMigrations) {
+    if (!lockCols.includes(col)) {
+      db.exec('ALTER TABLE locked_projects ADD COLUMN ' + col + ' ' + type);
+      console.log('[WITNESS] Migrated: added ' + col + ' to locked_projects');
+    }
+  }
+})();
+
+console.log('[WITNESS] Database ready:', DB_PATH);
+
+// ── Initialize treasury ───────────────────────────────────────────────────────
+
+let treasuryReady = false;
+treasury.initialize()
+  .then(() => { treasuryReady = true; console.log('[WITNESS] Treasury ready'); })
+  .catch(e => console.warn('[WITNESS] Treasury init failed (non-fatal):', e.message));
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function sign(data) {
+  return crypto
+    .createHmac('sha256', SECRET)
+    .update(JSON.stringify(data))
+    .digest('hex');
+}
+
+function generateWitnessId() {
+  return 'wit_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+}
+
+function calculateMerkleRoot(hashes) {
+  if (hashes.length === 0) return null;
+  if (hashes.length === 1) return hashes[0];
+  const nextLevel = [];
+  for (let i = 0; i < hashes.length; i += 2) {
+    if (i + 1 < hashes.length) {
+      const combined = hashes[i] + hashes[i + 1];
+      nextLevel.push(crypto.createHash('sha256').update(combined).digest('hex'));
+    } else {
+      nextLevel.push(hashes[i]);
+    }
+  }
+  return calculateMerkleRoot(nextLevel);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); }
+      catch (e) { reject(new Error('Invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function send(res, status, data) {
+  res.writeHead(status);
+  res.end(JSON.stringify(data));
+}
+
+// ── Prepared statements ───────────────────────────────────────────────────────
+
+const stmts = {
+  insertWitness: db.prepare(`
+    INSERT INTO witnesses
+      (witness_id, project_id, project_name, run_sequence, content_hash,
+       visual_hash, client_timestamp, server_timestamp, signature,
+       pre_scr_id, installation_id)
+    VALUES
+      (@witness_id, @project_id, @project_name, @run_sequence, @content_hash,
+       @visual_hash, @client_timestamp, @server_timestamp, @signature,
+       @pre_scr_id, @installation_id)
+  `),
+  getWitnesses: db.prepare(`
+    SELECT * FROM witnesses WHERE project_id = ? ORDER BY run_sequence ASC
+  `),
+  isLocked: db.prepare(`
+    SELECT project_id FROM locked_projects WHERE project_id = ?
+  `),
+  getLock: db.prepare(`
+    SELECT * FROM locked_projects WHERE project_id = ?
+  `),
+  lockProject: db.prepare(`
+    INSERT OR REPLACE INTO locked_projects
+      (project_id, merkle_root, witnessed_count, server_signature, locked_at,
+       pre_scr_id, installation_id)
+    VALUES
+      (@project_id, @merkle_root, @witnessed_count, @server_signature, @locked_at,
+       @pre_scr_id, @installation_id)
+  `),
+  updateLock: db.prepare(`
+    UPDATE locked_projects SET
+      checkpoint_root = @checkpoint_root,
+      checkpointed_at = @checkpointed_at
+    WHERE project_id = @project_id
+  `),
+  updateLockProof: db.prepare(`
+    UPDATE locked_projects SET
+      rvn_txid = @rvn_txid,
+      arweave_txid = @arweave_txid,
+      ipfs_cid = @ipfs_cid
+    WHERE project_id = @project_id
+  `)
+};
+
+// ── Route handlers ────────────────────────────────────────────────────────────
+
+function handleHealth(req, res) {
+  send(res, 200, {
+    status: 'ok',
+    mock: false,
+    version: '2.0',
+    timestamp: new Date().toISOString(),
+    db: DB_PATH,
+    treasury: treasuryReady
+  });
+}
+
+async function handleWitness(req, res) {
+  try {
+    const data = await readBody(req);
+    const {
+      project_id, project_name, run_sequence, content_hash,
+      visual_hash, client_timestamp, pre_scr_id, installation_id
+    } = data;
+
+    if (!project_id || !content_hash || run_sequence === undefined) {
+      return send(res, 400, { error: 'Missing required fields' });
+    }
+
+    if (stmts.isLocked.get(project_id)) {
+      return send(res, 403, { error: 'Project is locked, no new iterations allowed' });
+    }
+
+    const witness_id = generateWitnessId();
+    const server_timestamp = new Date().toISOString();
+    const signature = sign({ witness_id, project_id, run_sequence, content_hash, server_timestamp });
+
+    stmts.insertWitness.run({
+      witness_id, project_id, project_name: project_name || null,
+      run_sequence, content_hash, visual_hash: visual_hash || null,
+      client_timestamp: client_timestamp || null, server_timestamp, signature,
+      pre_scr_id: pre_scr_id || null, installation_id: installation_id || null
+    });
+
+    console.log(`[WITNESS] ${project_name || project_id} #${run_sequence} → ${witness_id}${pre_scr_id ? ' (' + pre_scr_id + ')' : ''}`);
+
+    send(res, 200, { witness_id, server_timestamp, signature });
+
+  } catch (error) {
+    send(res, 500, { error: error.message });
+  }
+}
+
+function handleGetWitnesses(projectId, res) {
+  const iterations = stmts.getWitnesses.all(projectId);
+  send(res, 200, {
+    project_id: projectId,
+    iterations: iterations.map(i => ({
+      witness_id: i.witness_id,
+      run_sequence: i.run_sequence,
+      content_hash: i.content_hash,
+      server_timestamp: i.server_timestamp,
+      signature: i.signature
+    })),
+    count: iterations.length
+  });
+}
+
+function handleLock(projectId, res) {
+  const iterations = stmts.getWitnesses.all(projectId);
+
+  if (iterations.length === 0) {
+    return send(res, 400, { error: 'No witnessed iterations to lock' });
+  }
+
+  if (stmts.isLocked.get(projectId)) {
+    return send(res, 403, { error: 'Project already locked' });
+  }
+
+  const hashes = iterations.map(i => i.content_hash);
+  const merkle_root = calculateMerkleRoot(hashes);
+  const locked_at = new Date().toISOString();
+  const lockData = { project_id: projectId, merkle_root, witnessed_count: iterations.length, locked_at };
+  const server_signature = sign(lockData);
+
+  // Grab pre_scr_id and installation_id from most recent witness record
+  const lastWitness = iterations[iterations.length - 1];
+
+  stmts.lockProject.run({
+    project_id: projectId,
+    merkle_root,
+    witnessed_count: iterations.length,
+    server_signature,
+    locked_at,
+    pre_scr_id: lastWitness.pre_scr_id || null,
+    installation_id: lastWitness.installation_id || null
+  });
+
+  console.log(`[WITNESS] Project ${projectId} LOCKED. Root: ${merkle_root.substring(0, 16)}...`);
+
+  send(res, 200, {
+    project_id: projectId,
+    iterations: iterations.map(i => ({
+      run_sequence: i.run_sequence,
+      content_hash: i.content_hash,
+      visual_hash: i.visual_hash,
+      witnessed_at: i.server_timestamp,
+      witnessed: true
+    })),
+    witnessed_count: iterations.length,
+    merkle_root,
+    server_signature,
+    locked_at
+  });
+}
+
+async function handleCheckpoint(projectId, req, res) {
+  try {
+    const data = await readBody(req);
+    const iterations = stmts.getWitnesses.all(projectId);
+
+    if (iterations.length === 0) {
+      return send(res, 400, { error: 'No witnessed iterations to checkpoint' });
+    }
+
+    const hashes = iterations.map(i => i.content_hash);
+    const checkpoint_root = calculateMerkleRoot(hashes);
+    const checkpointed_at = new Date().toISOString();
+    const server_signature = sign({ project_id: projectId, checkpoint_root, checkpointed_at });
+
+    // Store checkpoint in locked_projects (upsert)
+    const existing = stmts.getLock.get(projectId);
+    if (!existing) {
+      // Create a checkpoint-only record (not fully locked yet)
+      db.prepare(`
+        INSERT OR IGNORE INTO locked_projects
+          (project_id, merkle_root, witnessed_count, server_signature, locked_at,
+           checkpoint_root, checkpointed_at, pre_scr_id, installation_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        projectId, checkpoint_root, iterations.length, server_signature, checkpointed_at,
+        checkpoint_root, checkpointed_at,
+        data.pre_scr_id || null, data.installation_id || null
+      );
+    } else {
+      stmts.updateLock.run({ project_id: projectId, checkpoint_root, checkpointed_at });
+    }
+
+    console.log(`[WITNESS] Project ${projectId} CHECKPOINTED. Root: ${checkpoint_root.substring(0, 16)}...`);
+
+    send(res, 200, { success: true, checkpoint_root, server_signature, checkpointed_at });
+
+  } catch (error) {
+    send(res, 500, { error: error.message });
+  }
+}
+
+async function handleResume(projectId, req, res) {
+  try {
+    const { current_hashes } = await readBody(req);
+    const lock = stmts.getLock.get(projectId);
+
+    if (!lock || !lock.checkpoint_root) {
+      return send(res, 404, { error: 'No checkpoint found for project' });
+    }
+
+    const current_root = calculateMerkleRoot(current_hashes || []);
+    const authorized = current_root === lock.checkpoint_root;
+
+    if (authorized) {
+      db.prepare(`UPDATE locked_projects SET resumed_at = ? WHERE project_id = ?`)
+        .run(new Date().toISOString(), projectId);
+      console.log(`[WITNESS] Project ${projectId} RESUMED. Integrity verified.`);
+    } else {
+      console.warn(`[WITNESS] Project ${projectId} RESUME FAILED. Root mismatch.`);
+    }
+
+    send(res, 200, { authorized, checkpoint_root: lock.checkpoint_root, current_root });
+
+  } catch (error) {
+    send(res, 500, { error: error.message });
+  }
+}
+
+async function handleTestnetLock(req, res) {
+  try {
+    const data = await readBody(req);
+    const { project_id, scr_id, merkle_root, pre_scr_id, installation_id, lock_tier, project_name } = data;
+
+    if (!project_id || !scr_id || !merkle_root) {
+      return send(res, 400, { error: 'Missing required fields: project_id, scr_id, merkle_root' });
+    }
+
+    console.log(`[LOCKER] Testnet lock requested for ${scr_id} (tier: ${lock_tier || 'basic'})`);
+
+    // Step 1: Issue RVN asset
+    let rvn_txid = null;
+    let ipfs_cid = null;
+
+    const rvnResult = await locker.issueAsset(scr_id, null);
+    rvn_txid = rvnResult.txid;
+
+    // Step 2: Post Arweave token record
+    const lock = stmts.getLock.get(project_id);
+    const witness_signature = lock ? lock.server_signature : null;
+    const witnessed_count = lock ? lock.witnessed_count : 0;
+
+    const arweave_txid = await treasury.postTokenRecord({
+      scr_id,
+      pre_scr_id: pre_scr_id || null,
+      installation_id: installation_id || null,
+      project_name: project_name || project_id,
+      merkle_root,
+      rvn_txid,
+      witness_signature,
+      witnessed_count,
+      locked_at: new Date().toISOString(),
+      ipfs_cid: null
+    });
+
+    // Step 3: Update database
+    stmts.updateLockProof.run({ project_id, rvn_txid, arweave_txid, ipfs_cid: null });
+
+    console.log(`[LOCKER] Testnet lock complete. SCR: ${scr_id} | RVN: ${rvn_txid} | AR: ${arweave_txid}`);
+
+    send(res, 200, { success: true, rvn_txid, arweave_txid, ipfs_cid: null, scr_id });
+
+  } catch (error) {
+    console.error('[LOCKER] Testnet lock failed:', error.message);
+    send(res, 500, { error: error.message });
+  }
+}
+
+async function handleUploadProof(req, res) {
+  try {
+    const data = await readBody(req);
+    const { scr_id, rvn_txid, merkle_root, pre_scr_id, installation_id, ipfs_cid, project_id, project_name } = data;
+
+    if (!scr_id || !rvn_txid || !merkle_root) {
+      return send(res, 400, { error: 'Missing required fields: scr_id, rvn_txid, merkle_root' });
+    }
+
+    const lock = project_id ? stmts.getLock.get(project_id) : null;
+    const witness_signature = lock ? lock.server_signature : null;
+    const witnessed_count = lock ? lock.witnessed_count : 0;
+
+    const arweave_txid = await treasury.postTokenRecord({
+      scr_id,
+      pre_scr_id: pre_scr_id || null,
+      installation_id: installation_id || null,
+      project_name: project_name || project_id || null,
+      merkle_root,
+      rvn_txid,
+      witness_signature,
+      witnessed_count,
+      locked_at: new Date().toISOString(),
+      ipfs_cid: ipfs_cid || null
+    });
+
+    if (project_id) {
+      stmts.updateLockProof.run({ project_id, rvn_txid, arweave_txid, ipfs_cid: ipfs_cid || null });
+    }
+
+    console.log(`[TREASURY] Upload proof complete. SCR: ${scr_id} | AR: ${arweave_txid}`);
+
+    send(res, 200, { success: true, arweave_txid });
+
+  } catch (error) {
+    console.error('[TREASURY] Upload proof failed:', error.message);
+    send(res, 500, { error: error.message });
+  }
+}
+
+async function handleTreasuryStatus(req, res) {
+  try {
+    const balance = treasuryReady ? await treasury.getBalance() : 'unavailable';
+    const witness_count = db.prepare('SELECT COUNT(*) as c FROM witnesses').get().c;
+    const lock_count = db.prepare('SELECT COUNT(*) as c FROM locked_projects').get().c;
+
+    send(res, 200, {
+      ar_balance: balance,
+      ar_address: treasuryReady ? (await treasury.initialize()) : null,
+      witness_count,
+      lock_count
+    });
+  } catch (error) {
+    send(res, 500, { error: error.message });
+  }
+}
+
+async function handleVerifyScr(scrId, res) {
+  try {
+    const result = await locker.verifyAsset(scrId);
+    send(res, 200, result);
+  } catch (error) {
+    send(res, 500, { error: error.message });
+  }
+}
+
+async function handleVerify(req, res) {
+  try {
+    const { project_id, local_chain } = await readBody(req);
+    const serverChain = stmts.getWitnesses.all(project_id);
+
+    const mismatches = [];
+    let valid = true;
+
+    for (const local of local_chain) {
+      const serverRecord = serverChain.find(s => s.run_sequence === local.run_sequence);
+      if (!serverRecord) {
+        mismatches.push({ run_sequence: local.run_sequence, issue: 'not_witnessed', local_hash: local.content_hash });
+      } else if (serverRecord.content_hash !== local.content_hash) {
+        valid = false;
+        mismatches.push({
+          run_sequence: local.run_sequence,
+          issue: 'hash_mismatch',
+          local_hash: local.content_hash,
+          server_hash: serverRecord.content_hash
+        });
+      }
+    }
+
+    send(res, 200, { valid, total_local: local_chain.length, total_witnessed: serverChain.length, mismatches });
+
+  } catch (error) {
+    send(res, 500, { error: error.message });
+  }
+}
+
+// ── Request router ────────────────────────────────────────────────────────────
+
+function handleRequest(req, res) {
+  const parsedUrl = url.parse(req.url, true);
+  const pathname = parsedUrl.pathname;
+  const method = req.method;
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Content-Type', 'application/json');
+
+  if (method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+
+  if (pathname === '/health' && method === 'GET')
+    return handleHealth(req, res);
+
+  if (pathname === '/api/witness' && method === 'POST')
+    return handleWitness(req, res);
+
+  if (pathname.startsWith('/api/witness/') && method === 'GET')
+    return handleGetWitnesses(pathname.split('/')[3], res);
+
+  if (pathname.startsWith('/api/lock/') && method === 'POST')
+    return handleLock(pathname.split('/')[3], res);
+
+  if (pathname.startsWith('/api/checkpoint/') && method === 'POST')
+    return handleCheckpoint(pathname.split('/')[3], req, res);
+
+  if (pathname.startsWith('/api/resume/') && method === 'POST')
+    return handleResume(pathname.split('/')[3], req, res);
+
+  if (pathname === '/api/testnet-lock' && method === 'POST')
+    return handleTestnetLock(req, res);
+
+  if (pathname === '/api/upload-proof' && method === 'POST')
+    return handleUploadProof(req, res);
+
+  if (pathname === '/api/treasury/status' && method === 'GET')
+    return handleTreasuryStatus(req, res);
+
+  if (pathname.startsWith('/api/verify-scr/') && method === 'GET')
+    return handleVerifyScr(pathname.split('/')[3], res);
+
+  if (pathname === '/api/verify' && method === 'POST')
+    return handleVerify(req, res);
+
+  send(res, 404, { error: 'Not found' });
+}
+
+// ── Start server ──────────────────────────────────────────────────────────────
+
+const server = http.createServer(handleRequest);
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[WITNESS] SCRUPLE Witness Server V2 running on port ${PORT}`);
+  console.log(`[WITNESS] Secret: ${SECRET === 'dev-secret-replace-in-production' ? 'WARNING - using dev secret!' : 'configured'}`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('[WITNESS] Shutting down...');
+  server.close(() => { db.close(); process.exit(0); });
+});
