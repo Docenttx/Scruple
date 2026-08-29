@@ -150,6 +150,28 @@ jobs:
         run: node --test tests/
         working-directory: services/witness-server
 
+  integration:
+    # What breaks if this triggers: the /v2 surface over real HTTP against
+    # a real schema. Added after an hour of live testing found two bugs
+    # that 28 unit tests and a clean typecheck had both missed — a NOT
+    # NULL violation, and a UNIQUE collision that only appeared on the
+    # SECOND witness call. Unit tests here exercise pure logic and never
+    # touch a schema; this job is the one that does.
+    name: v2 integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: integration suite
+        # Pointed away from any real witness. The harness enforces this
+        # too, but stating it here means a reader of the workflow sees it.
+        env:
+          WITNESS_SERVER_URL: http://127.0.0.1:1
+        run: npm run test:integration
+
   typecheck:
     # What breaks if this triggers: a type error reaches main. Duplicated
     # from security.yml deliberately — this workflow should be able to gate
