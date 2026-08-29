@@ -130,6 +130,43 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString();
 
+  // `iterations` is project-scoped — the table predates the canon surface,
+  // which is tenant-scoped. Rather than push project management into every
+  // adapter (the §4 hook contract goes attach -> baseline -> save ->
+  // witness, with no project step), resolve or create one per tenant and
+  // host. Found live: without this the route 500s on a NOT NULL
+  // constraint, which no unit test could have caught.
+  let projectId = body.project_id ?? null;
+  if (projectId === null) {
+    const holderName = `scruple:${body.kind === 'model_write' ? 'training' : 'workflow'}`;
+    const existing = conn()
+      .prepare(`SELECT id FROM projects WHERE user_id = ? AND name = ? LIMIT 1`)
+      .get(principal.userId, holderName) as { id: number } | undefined;
+    if (existing) {
+      projectId = existing.id;
+    } else {
+      const created = conn()
+        .prepare(
+          `INSERT INTO projects
+             (user_id, name, type, status, created_at,
+              iteration_count, is_active, witnessed_count, is_archived)
+           VALUES (?, ?, 'image', 'unlocked', ?, 0, 0, 0, 0)`,
+        )
+        .run(principal.userId, holderName, now);
+      projectId = Number(created.lastInsertRowid);
+    }
+  }
+
+  // run_sequence was hardcoded to 0, which collided with the UNIQUE
+  // (project_id, run_sequence) index on the SECOND witness for any tenant.
+  // The first call always worked, so nothing short of witnessing twice
+  // would have found it — which is precisely what a unit test with a
+  // mocked database does not do.
+  const seqRow = conn()
+    .prepare(`SELECT COALESCE(MAX(run_sequence), 0) + 1 AS next FROM iterations WHERE project_id = ?`)
+    .get(projectId) as { next: number };
+  const runSequence = seqRow?.next ?? 1;
+
   const info = conn()
     .prepare(
       `INSERT INTO iterations
@@ -142,8 +179,8 @@ export async function POST(req: NextRequest) {
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
-      body.project_id ?? null,
-      0,
+      projectId,
+      runSequence,
       now,
       leafHash,
       body.content_hash,
@@ -171,6 +208,7 @@ export async function POST(req: NextRequest) {
       // not make (§5).
       witnessed,
       leaf_scheme: leafScheme,
+      run_sequence: runSequence,
       baseline_ref: body.baseline_ref,
       attestation: attestationStatus ? { status: attestationStatus } : null,
       continuity_marked: Boolean(body.continuity),
