@@ -16,8 +16,25 @@ import path from 'path';
 const SIGNER_DIR = path.join(process.cwd(), 'services', 'c2pa-signer');
 const SIGNER_SCRIPT = path.join(SIGNER_DIR, 'sign.py');
 const KEYS_DIR = path.join(SIGNER_DIR, 'keys');
-const DEV_CERT = path.join(KEYS_DIR, 'es256.pub');
-const DEV_KEY = path.join(KEYS_DIR, 'es256.pem');
+// The dev cert chain and key.
+//
+// These named es256.pub / es256.pem, and es256.pem HAS NEVER EXISTED.
+// keys/regen-dev-cert.sh — the script that actually produces the dev
+// material — emits signer.key (the ES256 private key) and signer.pem
+// (leaf + root chain in the order c2pa-rs expects). Both sat beside the
+// wrong names, unused.
+//
+// The effect: signAsset() returned {ok:false} at the fs.access guard
+// below, BEFORE spawning the signer, for every caller. So C2PA signing
+// had two independent breaks, not one. The assertion-allowlist mismatch
+// fixed in bff1fd8 was real, and it was the SECOND thing in the way —
+// nothing ever reached it, because this guard failed first.
+//
+// Invisible to CI because services/c2pa-signer's suite tests the
+// assertion partition and never signs anything; tests.yml says so in
+// terms.
+const DEV_CERT = path.join(KEYS_DIR, 'signer.pem');
+const DEV_KEY = path.join(KEYS_DIR, 'signer.key');
 const PYTHON_BIN = process.env.SCRUPLE_C2PA_PYTHON ?? 'python3';
 
 export type LockTier = 'bare' | 'witnessed' | 'local' | 'chain';
