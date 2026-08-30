@@ -1,6 +1,6 @@
 # Conformance — the seven probes, the self-grade, and the submission
 
-_2026-08-30. WO-9, extended by WO-14. Implementation:
+_2026-08-30. WO-9, extended by WO-14, **P2 re-cut by WO-23**. Implementation:
 `packages/scruple-conformance/`, `services/scruple-capture/probes/`,
 `scripts/probe-harness/`, `test/v2/conformance.test.ts`._
 
@@ -25,8 +25,12 @@ Three things came out of building it that are worth more than the code:
    **Closed by WO-14.** `CaptureConfig.watchedVolumes` declares the three roots
    with their types, one watcher per root, and the type reaches the leaf. See
    §1.2.
-3. **P2 cannot be satisfied by a declaration, and one hole remains that it
-   can.** See "DEFECT-2, and the hole that is left" below.
+3. ~~**P2 cannot be satisfied by a declaration, and one hole remains that it
+   can.**~~ **Re-cut by WO-23.** P2 was implemented as a runtime completeness
+   proof and that was measuring the wrong thing: it made canvas look
+   unfixable and it made §10 C-7's route enumeration a rotting denylist. P2 is
+   now **seal currency** — is the running pipeline sealed against an approved
+   measurement of the *whole pipeline*, and is that seal current. See §3.
 
 WO-14 added a fourth, and it is the one worth reading twice:
 
@@ -259,81 +263,187 @@ whether a leaf is created at all, whether prior rows are mutated. Every one
 carries a `cite`, because a grade whose inputs are unsourced booleans is a
 survey.
 
-### DEFECT-2, and the hole that is left
+### P2 is seal currency (WO-23)
 
-WO-5's DEFECT-2 is open: nothing in the hook/surface/placement model can say
-that a set of surfaces *covers* every egress path of a host. A profile naming
-only `filesystem-watch` is a well-formed sentence about coverage that carries
-no coverage claim.
+`docs/canon/INTEGRATION_LIFECYCLE.md` is the founder direction and it corrects
+what P2 was measuring:
 
-So **P2 is never satisfied by a declaration.** It requires all three of:
+> **Define the boundary, measure the whole thing, and make any change to it
+> require re-approval.**
 
-1. a baseline covering **every** file the integrator names on the capture path
-   — nothing declared, everything compared;
-2. an admissible run in which the coverage probes (4, 5, 7) were attempted from
-   an occupied tenant position and blocked;
-3. ratchet gap accounting — without it, a run that captured nothing and a run
-   that captured everything produce the same report.
+The approved artefact is **the entire pipeline**, not the capture files. The
+routes that exist are the routes in the measured image; a new upstream release
+is a new measurement and a new approval. **Nobody enumerates routes, so nothing
+rots.**
 
-**The residual hole, named rather than papered over.** A coverage probe can
-come back `not-attempted` because the surface it probes does not exist in this
-integration. The grader accepts that **only** when the integrator declares the
-absence in `surfaceAbsences` with a citation, and it says so in the P2 reason.
-A vendor who falsely declares "no filesystem surface" gets a P2 pass they did
-not earn. Closing that needs a coverage axis — which is DEFECT-2 itself.
+**P2 now asks:** is the running pipeline sealed against an approved
+measurement, and is the seal current? Concretely, in `p2SealedPipeline`:
 
-### A fourth conjunct, added by watching the third one be borrowed (WO-14)
+0. **the attached probe run is of THIS deployment** — WO-14's finding,
+   unchanged and checked first (below);
+1. **a seal state exists at all** — the registry's `undeclared` is a FAIL and
+   an ordinary place to be. Every integration starts there;
+2. **the deployment is registered** — `unregistered` is a claim about somebody
+   else's seal, and is not the same fact as (1);
+3. **the fold says `sealed`** — `lib/seal/registry.ts#sealStatus().claims_standard`.
+   `integrating`, `verifying` and `resealing` **cannot claim the standard**;
+4. **the seal row agrees with itself** — the recorded measurement is
+   recomputed from the stored manifest, never trusted;
+5. **the pipeline running now is the approved one** — see below; and
+6. **the declared capture path lies inside the measured boundary.**
 
-The harness produced a real, admissible, seven-of-seven run from an occupied
-tenant position — against the **`scruple-capture` ComfyUI deployment**. Attached
-to **canvas's** grade it carried canvas straight past P2's coverage conjunct.
+**Three roles, separated, each previously doing part of another's job:**
 
-Every fact in that run was true. The conclusion was false. `GradeInput.probes`
-was "a `ProbeRun`", with nothing tying a run to the deployment it ran against,
-so **a run with no subject is a run anybody can borrow** — the same shape the
-leaf oracle's `surfaces` already closes one level down ("some leaf covers these
-bytes" is not "the path the tenant used produced a leaf").
+| mechanism | proves | where |
+|---|---|---|
+| pipeline measurement | this is the approved configuration | **P2** |
+| attestation | the running thing *is* that measurement | **P7/P8** — `verified` vs `passthrough` |
+| counter (ratchet) | this deployment has not gone dark or been suppressed | **liveness**, not a P-item |
 
-So `DeploymentUnderTest.integration` names the subject, `runProbes` copies it
-onto `ProbeRun.subject`, and `gradePath` fails P2 when the attached run is of
-another deployment. Certification is per configuration (§7); a run is evidence
-about the configuration it occupied and about no other.
+No new tier was required and none was introduced.
 
-This is also why the harness's own clean run was the least trustworthy artifact
-in WO-14. It was read anyway, and that is where two of the three defects came
-from.
+### The counter is liveness, and it reaches compliance nowhere
 
-### Canvas's P2, on evidence rather than on paperwork
+The old third conjunct — ratchet gap accounting — is still computed and is
+reported on every grade as `PathGrade.liveness`: `live`, `gaps-accounted`,
+`unaccounted`, or `not-applicable`. It does not enter `compliant`.
 
-**FAIL, and now for the right reasons.** The published grade's P2 FAIL was
-originally "no baseline covers the capture path". The canvas retrofit landed
-`lib/canvas/baseline.ts`, which covers it — so the paperwork half is now
-*satisfied*, and P2 still fails on three independent counts:
+That single change is what unstuck canvas. The old rule said canvas could not
+satisfy P2 **"at any level of effort"** because it has no ratchet. That
+sentence was a fact about the grader, not about canvas — and the harness now
+distinguishes *"there is a counter chain and nobody accounted for its gaps"*
+(a real operational finding) from *"there is no counter chain here"* (nothing
+to be silent with), which the old model could not express and therefore
+reported as the same failure.
 
-1. **No probe run has ever occupied canvas's tenant position, and this harness
-   cannot construct one.** Canvas's tenant is a browser against scruple-web,
-   with ComfyUI on a Modal-hosted machine. The workload is not on this host, so
-   no namespace on this host is that position. What it needs is a probe run
-   from inside the Modal container plus a browser-side run against the proxy —
-   real infrastructure, not more code.
-2. **P-04 is satisfied only by a declared absence.** Canvas has no filesystem
-   surface, which is true, and the grader accepts it because the integrator
-   said so with a citation. That is the DEFECT-2 hole above, load-bearing here.
-3. **Ratchet gap accounting is structurally unavailable.** `lib/canvas/
-   witness.ts` says it outright: *"Canvas has no ratchet."* There is no
-   component, therefore no counter chain, therefore no gaps to account for —
-   so P2's third conjunct cannot be satisfied by canvas **at any level of
-   effort**, as the grader is written. Canvas either grows a ratcheted capture
-   component, or P2 grows an alternative completeness test for componentless
-   paths and says which one it applied. **That choice is not made here, and it
-   should not be made by leaving it implicit.**
+### Containment, not enumeration — and the asymmetry is the whole point
 
-**P7 followed canvas's P2 into a false sentence, and that is fixed too.** P7's
-"fails for free" branch printed *"no baseline manifest exists"* whenever P2
-failed and no provider was declared — true while the only way to fail P2 was to
-have no baseline, and false the moment P2 could fail for other reasons. It now
-splits on whether a baseline is actually present, and says so. A derived reason
-has to be derived from the same inputs as the thing it derives from.
+The capture-path file list is still an input, and it is now checked **only for
+containment inside the measured boundary**. A declared capture file outside the
+measurement is a finding, because the seal does not cover it. **The converse is
+deliberately not checked**: a route inside the boundary that nobody declared is
+covered anyway, the way a measured image covers a route nobody wrote down.
+
+Make that a two-way check and the declaration is a denylist again, which is
+exactly the shape §10 C-7 rots into.
+
+### The check the fold cannot make
+
+`sealStatus()` is a fold over lifecycle events the vendor **declared** —
+material changes they told us about, drift they recorded. It is a correct
+answer to *"what has this deployment said about itself"*.
+
+P2 asks a different question, and the gap between them is the change nobody
+declared. So the grader takes an **observed** manifest measured at grade time
+and classifies it against the approved one with the estate's own materiality
+rule (`lib/seal/materiality.ts`, consumed rather than restated — a second copy
+of a materiality rule is a second rule). A seal state that can only be moved by
+the sealed party's own honesty checks paperwork.
+
+When nothing measured the running pipeline at grade time, P2 is a **conditional
+pass** that says so, rather than a pass that does not mention it.
+
+### WO-14's borrowed run survives the re-cut, and is checked first
+
+The harness once produced a real, admissible, seven-of-seven run from an
+occupied tenant position — against the **`scruple-capture` ComfyUI
+deployment** — and attaching it to **canvas's** grade carried canvas past P2.
+Every fact in that run was true. The conclusion was false.
+
+That finding was never about which conjunct the run fed. A run is evidence
+about the deployment it occupied and about no other (§7: certification is per
+configuration), and **a deployment cannot reach a seal on somebody else's
+step-2 evidence.** So `ProbeRun.subject` still names the subject, and a
+borrowed run still fails P2 — now checked *before* anything else, because
+nothing computed downstream of inadmissible evidence is worth reporting.
+
+### DEFECT-2 is still open and is no longer P2's problem
+
+WO-5's DEFECT-2 — nothing in the hook/surface/placement model can say that a
+set of surfaces *covers* every egress path of a host — has not closed. A
+profile naming only `filesystem-watch` is still a well-formed sentence about
+coverage that carries no coverage claim.
+
+Under the old rule that defect had to be carried by P2, which is why P2 grew
+three conjuncts and a named hole (`surfaceAbsences`: a coverage probe coming
+back `not-attempted` was accepted on a cited declaration the model could not
+check). Under the new rule **coverage is not established by enumerating
+surfaces at all** — it is established by measuring the whole boundary the
+surfaces live in. The declaration hole is gone from P2 with it.
+
+`surfaceAbsences` remains in the evidence type, still read by the frozen
+profile and still reported by probe 4 as its third outcome. It is no longer
+load-bearing for anyone's compliance.
+
+### The old rule is kept executable, deliberately
+
+`STUDIO_P1-P8_GRADE.md` was issued under the old rule, and a suite that cannot
+re-derive a published failure is not evidence of anything. So the old rule is
+not deleted: it is `RUNTIME_COMPLETENESS_PROFILE`, frozen, and it still grades
+exactly as it did — including the `surfaceAbsences` hole, which stays named
+rather than quietly repaired inside a frozen rule.
+
+**A grade therefore names its profile**, beside its source ref, in `GRADE.md`
+and in the submission manifest (`grade_profile`). A grade of a moving tree is a
+grade of nothing; a grade under an unnamed rule is an opinion about a moving
+standard.
+
+The acceptance test does both halves:
+
+1. the published grade is reproduced **cell for cell under the frozen rule**,
+   including both FAILs and the reasons the document gives; and
+2. the **same pinned evidence** is graded under the rule in force and compared
+   to the **same published table**. Every disposition is unchanged. The only
+   rendered difference is that both P2 cells gain a qualifier — `**FAIL**` →
+   `**FAIL** (never sealed)` — because the old rule had one way to fail P2 and
+   the new rule has several, and the test asserts that list of divergences
+   exactly rather than tolerating it.
+
+That second test is the one that matters. A re-cut that quietly turned a
+published FAIL into a PASS would otherwise be indistinguishable, from inside
+the suite, from a re-cut that fixed something.
+
+### Canvas's P2, re-graded — the problem was never architectural
+
+**Canvas at HEAD: `P1` conditional pass, `P2` FAIL (never sealed), `P3`–`P6`
+pass, `P7` FAIL, `P8` n/a. Lifecycle `integrating`. Liveness
+`not-applicable`.**
+
+The published grade said canvas's P2 could not be satisfied **at any level of
+effort** because it has no ratchet. That is withdrawn. Under the rule in force,
+graded with the same derivation and a measured, approved pipeline supplied,
+**canvas grades compliant** — P2 a conditional pass, P7 closing with
+`provider: none` declared in the approved configuration. Nothing architectural
+stands in the way.
+
+What actually remains for canvas, in order:
+
+1. **It carries no deployment.** Migration 046 says so in as many words:
+   canvas and the plugins carry no component and no deployment. Register one
+   and bind the path to it. Until then the honest grade is `undeclared`.
+2. **Step 2 still needs canvas's tenant position** — a browser against
+   scruple-web plus a Modal-hosted ComfyUI. No namespace on this host is that
+   position. This has not become easier; what changed is that it is now a
+   precondition of *sealing* rather than a standing P2 conjunct with no path
+   to satisfaction.
+3. **Measure the pipeline and approve it.** `lib/canvas/baseline.ts#TRACKED`
+   already names 22 files, which is the `capture`/`config` half of a boundary;
+   the missing entry is the **host** — the Modal machine's ComfyUI, as a
+   declared identity and version. Canvas already has the hash for it
+   (`manifest_hash`), which is also where P1's third declared condition — the
+   `user_id IS NULL` fallback — stops being a footnote and becomes a boundary
+   question.
+4. **Declare the attestation provider in the approved configuration.** `none`
+   is the correct value; P7 fails today only because there is nowhere durable
+   that says it.
+5. **P1 stays conditional**, on the three declared conditions the published
+   grade names plus the four §7 probe conditions `assuranceFor` attaches to
+   every `sidecar-gate`. WO-23 changed none of them.
+
+**Liveness for canvas is `not-applicable`, permanently and honestly.** There is
+no counter chain on the path, so there is nothing to be silent with. That is
+not a coverage failure, and reading it as one is what made a componentless path
+look permanently non-compliant.
 
 ### Anchors match code, not prose
 
@@ -449,6 +559,18 @@ everything P1 and P3 cannot prove in advance.
   deployment and therefore never says this. Without it a run satisfies any
   integration's P2, which it did. `ProbeRun.subject`, above.
 
+### Added by WO-23, from re-cutting P2
+
+- **§7 does not say when the probes run relative to the seal, and the order is
+  the whole point.** They are step 2: end-to-end testing, before anything is
+  measured. A probe run is a precondition of an approval, not a standing
+  conjunct of a compliance item — and §7 should say so, because reading it the
+  other way is how P2 came to be a runtime completeness proof.
+- **Probe 7 is load-bearing in a way §7 does not mark.** A pipeline measurement
+  says what the egress configuration IS; only probe 7 says whether the network
+  enforces it. §10 C-12 records that it must pass, with its negative control,
+  before a seal is granted.
+
 ---
 
 ## 6. The audit pass, and why the clean run did not close the WO
@@ -473,6 +595,12 @@ The observed result is a clean diagonal: **each break is caught by exactly the
 probe it targets and by no other.** That is the property worth having — a probe
 that fires on every break is not sensitive, it is noisy, and a suite of noisy
 probes cannot localise a fault.
+
+**Re-verified after WO-23's P2 re-cut, and it is still a perfect diagonal.**
+Nine profiles, `P-01`…`P-07`, each break caught by exactly its own probe and by
+no other. That the re-cut could not disturb it is the point: WO-23 changed what
+the GRADER does with a run, not what a probe attacks. The probes are the same
+seven, running the same attacks from the same occupied position.
 
 **The diagonal is what makes the green run mean something, and the green run on
 its own meant almost nothing.** The `none` profile passed 7/7 on the first

@@ -30,6 +30,7 @@ import crypto from 'node:crypto';
 
 import type { HostCaptureProfile } from '../../../lib/capture/surface';
 import type { Cited, DeclaredEvidence, GradeInput } from './grade';
+import type { SealEvidence } from './seal';
 
 export type ReadSource = (repoRelativePath: string) => string | null;
 
@@ -147,6 +148,70 @@ export function deriveBaselineCoverage(read: ReadSource): { ref: string; covers:
     );
   }
   return covers.length ? { ref: refs.join(' + '), covers } : null;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────────
+ * THE SEAL STATE IS NOT IN THE SOURCE, AND SAYING SO IS THE DERIVATION
+ *
+ * A deployment's lifecycle state is a fold over signed events in
+ * `deployment_lifecycle_events` (migration 046), not a fact any file states.
+ * A source-pinned derivation therefore CANNOT read it, and the honest return
+ * for canvas and Kohya is that nothing describes a seal state for them at all
+ * — which is the registry's `undeclared`, and which migration 046 says in as
+ * many words: "canvas and the plugins carry no component and no deployment".
+ *
+ * That is an ordinary place to be. It is step 1.
+ *
+ * THE TRIPWIRE. The moment a capture path names a deployment id, this
+ * derivation is looking at an integration whose seal state lives somewhere it
+ * cannot see, and returning `null` would report a pre-seal state for a
+ * deployment that may be sealed — the flattering direction, which is the one
+ * direction this file refuses to fail in. So it throws and asks to be wired to
+ * `sealStatus()` instead.
+ * ──────────────────────────────────────────────────────────────────────── */
+export function deriveSealEvidence(
+  read: ReadSource,
+  capturePathFiles: readonly string[],
+  injected: Cited<SealEvidence> | null = null,
+): Cited<SealEvidence> | null {
+  if (injected) return injected;
+  const src = capturePathFiles.map((f) => code(read(f) ?? '')).join('\n');
+  if (/\bdeployment_?[Ii]d\b/.test(src)) {
+    throw new DerivationError(
+      'The capture path names a deployment id, so this integration is bound to a deployment in ' +
+        'lib/seal/registry.ts and its seal state is a fold over signed lifecycle events — not ' +
+        'something source can answer. Pass sealStatus(deploymentId) in as evidence rather than ' +
+        'letting the grade report a pre-seal state for a deployment that may be sealed.',
+    );
+  }
+  return null;
+}
+
+/**
+ * A cited absence of any ratchet on this path — LIVENESS evidence, never P2.
+ *
+ * Without it the grader cannot tell "this deployment has a counter chain and
+ * nobody accounted for its gaps" from "there is no counter chain here", and
+ * reporting both as a missing completeness proof is what made canvas look
+ * unfixable. Property anchor over comment-stripped source: `lib/canvas/
+ * witness.ts` says "Canvas has no ratchet" in a COMMENT, and a comment is not
+ * evidence in this file (see the ANCHORS MATCH CODE note above). The absence
+ * of ratchet machinery in the code is.
+ */
+export function deriveRatchetAbsence(
+  read: ReadSource,
+  capturePathFiles: readonly string[],
+): Cited<string> | null {
+  const src = capturePathFiles.map((f) => code(read(f) ?? '')).join('\n');
+  if (/\bratchet|nextCounter|advanceRatchet|\bcounter\s*[:=]/i.test(src)) return null;
+  return {
+    value:
+      'no ratchet machinery appears anywhere on the declared capture path — no counter is ' +
+      'advanced, no chain key is used, and the sink is an ingest call rather than a ratcheted ' +
+      'component submission',
+    cite: `${capturePathFiles.join(' / ')} (comment-stripped: no counter chain)`,
+  };
 }
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -284,7 +349,12 @@ export function deriveCanvas(
     baseline: baseline && capturePathFiles.every((f) => baseline.covers.includes(f))
       ? { value: baseline, cite: baseline.ref }
       : null,
+    seal: deriveSealEvidence(read, capturePathFiles),
+    // LIVENESS, NOT P2. Canvas has no ratchet; that is a fact about liveness
+    // being unavailable here, and it stopped being a coverage failure when P2
+    // stopped being a completeness proof.
     ratchetGapAccounting: null,
+    ratchetAbsence: deriveRatchetAbsence(read, capturePathFiles),
     keyCustody: {
       value: {
         reachableByMeasuredParty: !secretServerSide,
@@ -450,7 +520,9 @@ export function deriveKohya(read: ReadSource, probesRun: GradeInput['probes'] = 
       baseline && KOHYA_CAPTURE_PATH.every((f) => baseline.covers.includes(f))
         ? { value: baseline, cite: baseline.ref }
         : null,
+    seal: deriveSealEvidence(read, KOHYA_CAPTURE_PATH),
     ratchetGapAccounting: null,
+    ratchetAbsence: deriveRatchetAbsence(read, KOHYA_CAPTURE_PATH),
     keyCustody: {
       value: {
         reachableByMeasuredParty: secretInPodEnv,

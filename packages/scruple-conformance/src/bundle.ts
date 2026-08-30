@@ -106,6 +106,18 @@ export interface BundleManifest extends Record<string, CanonicalValue> {
   noncompliant_paths: string[];
   /** The commit the grade's evidence came from. */
   source_ref: string;
+  /**
+   * WHICH P2 RULE THIS GRADE WAS ISSUED UNDER.
+   *
+   * Beside `source_ref` for the same reason it is: a grade of a moving tree is
+   * a grade of nothing, and a grade under an unnamed rule is an opinion about
+   * a moving standard. A reviewer holding two submissions six months apart has
+   * to be able to see that they were graded by different rules before they
+   * compare the tables.
+   */
+  grade_profile: string;
+  /** Lifecycle state per graded path. `sealed` is the only one that claims. */
+  lifecycle: Array<{ path: string; state: string }>;
   signature: {
     alg: 'ed25519';
     /** SPKI, base64. The verifier needs no key distribution to check integrity;
@@ -157,6 +169,8 @@ export function buildBundle(input: BundleInput): SignedBundle {
     compliant_paths: input.grade.paths.filter((p) => p.compliant).map((p) => p.path),
     noncompliant_paths: input.grade.paths.filter((p) => !p.compliant).map((p) => p.path),
     source_ref: input.grade.sourceRef,
+    grade_profile: input.grade.profile,
+    lifecycle: input.grade.paths.map((p) => ({ path: p.path, state: p.lifecycle })),
     signature: null,
   };
 

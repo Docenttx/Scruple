@@ -8,12 +8,16 @@
 // (`**PASS** (conditional)`, `**FAIL**`, `n/a`) and the same bottom-line
 // sentence.
 
-import type { Disposition, Grade, ItemGrade, PathGrade } from './grade';
+import { RUNTIME_COMPLETENESS_PROFILE, type Disposition, type Grade, type ItemGrade, type PathGrade } from './grade';
 import { P_ITEMS } from './types';
 
 const ITEM_TITLES: Record<string, string> = {
   P1: 'runtime boundary integrity',
-  P2: 'baseline coverage',
+  // P2 IS NAMED AFTER WHAT IT MEASURES, AND WHAT IT MEASURES CHANGED. A grade
+  // issued under the frozen profile keeps the old row heading, because a
+  // reader comparing it to the published document has to be able to line the
+  // rows up; a grade issued under the rule in force says what that rule asks.
+  P2: 'pipeline seal',
   P3: 'API key custody',
   P4: 'principal identity',
   P5: 'immutable event chain',
@@ -21,6 +25,12 @@ const ITEM_TITLES: Record<string, string> = {
   P7: 'attestation declaration',
   P8: 'attestation import',
 };
+
+function itemTitles(profile: string): Record<string, string> {
+  return profile === RUNTIME_COMPLETENESS_PROFILE.id
+    ? { ...ITEM_TITLES, P2: 'baseline coverage' }
+    : ITEM_TITLES;
+}
 
 export function renderCell(d: Disposition, qualifier?: string): string {
   const q = qualifier ? ` (${qualifier})` : '';
@@ -37,11 +47,12 @@ export function renderCell(d: Disposition, qualifier?: string): string {
 }
 
 export function renderGradeTable(g: Grade): string {
+  const titles = itemTitles(g.profile);
   const header = `| | ${g.paths.map((p) => p.path).join(' | ')} |`;
   const rule = `|---|${g.paths.map(() => '---').join('|')}|`;
   const rows = P_ITEMS.map(
     (item) =>
-      `| **${item}** ${ITEM_TITLES[item]} | ` +
+      `| **${item}** ${titles[item]} | ` +
       g.paths.map((p) => renderCell(p.items[item].disposition, p.items[item].qualifier)).join(' | ') +
       ' |',
   );
@@ -65,11 +76,33 @@ function renderPath(p: PathGrade): string {
   return [
     `## Path — ${p.path}`,
     '',
+    `Lifecycle: **${p.lifecycle}**. ` +
+      (p.lifecycle === 'sealed'
+        ? 'Sealed deployments may claim the standard.'
+        : 'A deployment that is not `sealed` cannot claim the standard. That is not a third ' +
+          'compliance state — compliance is binary (Standard §5) — it is which side of the ' +
+          'line this deployment is on.'),
+    '',
     `Placement resolved: **${p.assurance.resolution.effective}** ` +
       `(declared \`${p.assurance.resolution.declared}\`, enforcement \`${p.assurance.resolution.enforcement}\`). ` +
       p.assurance.resolution.reason,
     '',
     ...P_ITEMS.map((item) => renderItem(p.items[item])),
+    '',
+    // REPORTED BESIDE THE ITEMS AND NOT AS ONE. The counter says whether this
+    // deployment went dark or was suppressed; it never said whether capture
+    // was complete, and grading it as though it did made a componentless path
+    // look permanently non-compliant. It bears on no P-item and on `compliant`
+    // nowhere.
+    [
+      `### Liveness — ${p.liveness.verdict}`,
+      '',
+      p.liveness.reason,
+      '',
+      ...p.liveness.citations.map((c) => `> ${c}`),
+      '',
+      '_Operational, not a compliance item: it does not enter the binary._',
+    ].join('\n'),
   ].join('\n\n');
 }
 
@@ -78,8 +111,9 @@ export function renderGradeMarkdown(g: Grade): string {
   const out: string[] = [
     '# Formal grade against Integration Requirements P1–P8',
     '',
-    `_Graded ${g.gradedAt} against source ref \`${g.sourceRef}\`. Produced by ` +
-      '@scruple/conformance — the grading rules are code, not a careful reader._',
+    `_Graded ${g.gradedAt} against source ref \`${g.sourceRef}\`, under grading profile ` +
+      `\`${g.profile}\`. Produced by @scruple/conformance — the grading rules are code, not a ` +
+      'careful reader._',
     '',
     '## Bottom line',
     '',

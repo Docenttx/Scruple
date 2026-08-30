@@ -545,3 +545,80 @@ Five defects in §7, found by implementing it:
 **C-8 has no configuration to express it.** `CaptureConfig.outputVolume` is
 singular, so watching `output/`, `temp/` and `input/` is satisfiable today only
 by mounting all three under one root and relying on a recursive watch.
+
+### C-12 · What C-7 and C-9 become under a measured pipeline (WO-23)
+`docs/canon/INTEGRATION_LIFECYCLE.md` re-cut P2 from a runtime completeness
+proof to **seal currency**: the approved artefact is the entire pipeline, the
+routes that exist are the routes in the measured image, and a new upstream
+release is a new measurement and a new approval. That changes what C-7 and C-9
+are *for*. **Neither disappears.** Recorded here rather than edited into them
+above, for this section's standing reason: components in the field are bound by
+the original text.
+
+**Both stop bearing on P2.** Under the old rule they were part of the argument
+that P2 needed coverage probes over an enumerated set of files. P2 no longer
+asks that question; C-7 and C-9 attach to §2's obligations and to probes 4, 5
+and 7, which is where they belonged.
+
+#### C-7 — the enumeration stops being the boundary, and stays a review item
+
+**What dissolves.** §3's route table as a *completeness* claim, and with it the
+rot. Nobody has to re-read `app/user_manager.py` on every ComfyUI release to
+keep P2 true, because P2 is not a statement about a list of routes. A version
+bump is a `host`-class change in the pipeline manifest, which
+`lib/seal/materiality.ts` classifies as **material** — a new measurement and a
+new approval, which is the founder direction's sentence implemented rather than
+paraphrased.
+
+**What stands.**
+
+1. **The four routes are still four routes.** `GET /userdata/{file}` with its
+   `POST` writer, `/api/assets/{uuid}/content`, `/experiment/models/preview/…`
+   and `/internal/files/…` are still store-and-retrieve paths that touch
+   neither `output/` nor `/view`. A pipeline sealed with them ungated is a
+   sealed pipeline that leaks: the measurement makes the leak **attributable to
+   an approved configuration**, which is worth a great deal and is not the same
+   as making it not a leak. The enumeration moves from *being* the boundary to
+   being a **configuration review item at approval time** — which is where
+   PCI PTS and EMV L3 put the equivalent lists, and why theirs do not rot.
+2. **The tripwire gets stronger, and is the part to keep.** WO-7's rule — log
+   any other 2xx binary response as unenumerated egress — is what turns "the
+   routes are whatever is in the measured image" from a claim into an
+   observation. It is the mechanism by which a boundary that was *measured* is
+   also *watched*, and it is what notices a route the approval did not
+   anticipate. It should be a **required control on the approved
+   configuration**, not a supplement to a denylist.
+
+#### C-9 — the diagnosis is untouched; the enforcement moves into the approval
+
+**What dissolves.** Chasing `comfy_api_nodes/` pack by pack. Twenty-five in-tree
+packs, and any custom node can POST an image anywhere: enumerating them is the
+same rotting list one level down, and the seal model makes it unnecessary for
+the same reason it makes C-7's unnecessary.
+
+**What stands, and this is the half I would not write off.**
+
+1. **§2 obligation 4 is unchanged** — egress from the workload container is
+   denied except through the component. What changes is that the egress policy
+   becomes part of the **approved configuration** (a `config`-class manifest
+   entry), so changing it is a material change requiring re-approval rather
+   than a property someone asserts in prose and nobody re-checks.
+2. **Probe 7 still tests something real, and it is the only thing that does.**
+   A measurement says what the configuration **is**; it cannot say whether the
+   network **enforces** it. Probe 7 is the observation that the declared egress
+   policy is the policy in force — the same relationship attestation has to a
+   measurement, one layer down. A sealed pipeline whose probe 7 never ran is a
+   pipeline whose egress claim rests on a declaration. **Probe 7 is therefore a
+   required step-2 probe: it must pass from an occupied tenant position, with
+   its negative control, before a seal is granted.** Without the control,
+   "nothing got out" is indistinguishable from an air-gapped runner, and a seal
+   would be granted on the runner's isolation rather than the vendor's policy.
+3. **The narrower sentence still stands.** Until obligation 4 is enforced by
+   the vendor's topology, the correct claim remains *"every artifact retrieved
+   through the sanctioned path is witnessed"*. Sealing an unenforced egress
+   policy approves a configuration in which bytes can leave; it does not stop
+   them, and a seal must never be read as the stronger claim.
+4. **The underlying diagnosis is unaffected by anything in the seal model.**
+   §2's obligations constrain what can *reach* ComfyUI and say nothing about
+   what ComfyUI can *reach*. That is a fact about direction, and no measurement
+   changes it.

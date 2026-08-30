@@ -74,6 +74,7 @@ type Mod = {
   preimageOf: typeof import('../../services/scruple-capture/src/leaf').preimageOf;
   F: typeof import('../../services/scruple-capture/probes/fixtures');
   P: typeof import('../../services/scruple-capture/probes/index');
+  SEAL: typeof import('../../lib/seal/measure');
 };
 
 let M: Mod;
@@ -92,6 +93,7 @@ before(async () => {
     import('../../services/scruple-capture/src/config'),
     import('../../services/scruple-capture/src/leaf'),
   ]);
+  const SEAL = await import('../../lib/seal/measure');
   M = {
     runMigrations: migrate.runMigrations,
     issueProvisioningToken: prov.issueProvisioningToken,
@@ -104,6 +106,7 @@ before(async () => {
     P,
     CFG,
     preimageOf: LEAF.preimageOf,
+    SEAL,
   };
   M.runMigrations();
 });
@@ -694,7 +697,16 @@ describe('the submission bundle', () => {
 });
 
 // ===========================================================================
-describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
+describe('the self-grade harness — the FROZEN profile, WO-5 DEFECT-2 as it was graded', () => {
+  // EVERY TEST IN THIS BLOCK GRADES UNDER `RUNTIME_COMPLETENESS_PROFILE`.
+  //
+  // It is not the rule in force. It is the rule STUDIO_P1-P8_GRADE.md and
+  // every grade issued before 2026-08-30 was written under, and it is kept
+  // executable because a suite that cannot re-derive a published failure is
+  // not evidence of anything (WO-23). Deleting these would have been the
+  // cheap way to make the re-cut pass.
+  const FROZEN = () => M.C.RUNTIME_COMPLETENESS_PROFILE;
+
   const wellFormedButWrong = () => ({
     path: 'A vendor who watches output/ and says so',
     profile: {
@@ -716,6 +728,7 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
         cite: 'declared',
       },
       ratchetGapAccounting: { value: { accounted: true, gaps: 0 }, cite: 'declared' },
+      seal: null,
       keyCustody: { value: { reachableByMeasuredParty: false, where: 'sealed 0600' }, cite: 'declared' },
       principalIdentity: { value: { suppliedByMeasuredParty: false, source: 'server session' }, cite: 'declared' },
       eventChain: { value: { leavesCreated: true, mutatesPriorRows: false }, cite: 'declared' },
@@ -730,7 +743,7 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
   });
 
   test('a well-formed profile with a perfect baseline is NOT a P2 pass', () => {
-    const g = M.C.gradePath(wellFormedButWrong());
+    const g = M.C.gradePath(wellFormedButWrong(), FROZEN());
     assert.equal(g.items.P2.disposition, 'FAIL');
     assert.match(g.items.P2.reason, /DEFECT-2/);
     assert.match(g.items.P2.reason, /filesystem-watch/);
@@ -755,7 +768,7 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
       summary: { passed: 0, failed: 0, inconclusive: 3, line: '' },
       admissible: false,
     };
-    assert.equal(M.C.gradePath({ ...base, probes: inconclusiveRun }).items.P2.disposition, 'FAIL');
+    assert.equal(M.C.gradePath({ ...base, probes: inconclusiveRun }, FROZEN()).items.P2.disposition, 'FAIL');
 
     const passingRun = {
       ...inconclusiveRun,
@@ -764,14 +777,14 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
       summary: { passed: 3, failed: 0, inconclusive: 0, line: '' },
       admissible: true,
     };
-    assert.equal(M.C.gradePath({ ...base, probes: passingRun }).items.P2.disposition, 'PASS');
+    assert.equal(M.C.gradePath({ ...base, probes: passingRun }, FROZEN()).items.P2.disposition, 'PASS');
 
     // Drop the gap accounting and it goes back to FAIL: a coverage claim with
     // no account of missing counters cannot tell "captured nothing" from
     // "captured everything".
     const noGaps = { ...base, evidence: { ...base.evidence, ratchetGapAccounting: null }, probes: passingRun };
-    assert.equal(M.C.gradePath(noGaps).items.P2.disposition, 'FAIL');
-    assert.match(M.C.gradePath(noGaps).items.P2.reason, /gap accounting/);
+    assert.equal(M.C.gradePath(noGaps, FROZEN()).items.P2.disposition, 'FAIL');
+    assert.match(M.C.gradePath(noGaps, FROZEN()).items.P2.reason, /gap accounting/);
   });
 
   test("a probe run of ANOTHER deployment does not satisfy this one's P2", async () => {
@@ -796,10 +809,10 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
       summary: { passed: 3, failed: 0, inconclusive: 0, line: '' },
       admissible: true,
     };
-    assert.equal(M.C.gradePath({ ...base, probes: good }).items.P2.disposition, 'PASS');
+    assert.equal(M.C.gradePath({ ...base, probes: good }, FROZEN()).items.P2.disposition, 'PASS');
 
     const borrowed = { ...good, subject: 'somebody else entirely' };
-    const g = M.C.gradePath({ ...base, probes: borrowed });
+    const g = M.C.gradePath({ ...base, probes: borrowed }, FROZEN());
     assert.equal(g.items.P2.disposition, 'FAIL', 'a borrowed run must not satisfy P2');
     assert.match(g.items.P2.reason, /performed against 'somebody else entirely'/);
     assert.equal(g.items.P2.qualifier, 'probe run is of another deployment');
@@ -815,9 +828,302 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
         baseline: { value: { ref: 'baseline:abc', covers: ['a.ts'] }, cite: 'declared' },
       },
     };
-    const g = M.C.gradePath(short);
+    const g = M.C.gradePath(short, FROZEN());
     assert.equal(g.items.P2.disposition, 'FAIL');
     assert.match(g.items.P2.reason, /does not cover 1 of 2/);
+  });
+});
+
+// ===========================================================================
+describe('the self-grade harness — P2 as SEAL CURRENCY, the rule in force', () => {
+  // docs/canon/INTEGRATION_LIFECYCLE.md, 2026-08-30. P2 is "is the running
+  // pipeline sealed against an approved measurement, and is the seal current?"
+  // — not "does a counter show no gaps". The counter moved to liveness and
+  // bears on compliance nowhere, which is the assertion at the bottom of this
+  // block and the one that the whole WO exists to make true.
+
+  const CAPTURE = ['services/scruple-capture/src/component.ts'];
+
+  function manifest(entries: Array<{ class: string; id: string; sha256: string }>) {
+    return M.SEAL.normaliseManifest(
+      entries.map((e) => ({
+        class: e.class as 'capture' | 'config' | 'dependency' | 'host',
+        id: e.id,
+        source: 'content' as const,
+        sha256: e.sha256,
+      })),
+    );
+  }
+  const H = (n: string) => crypto.createHash('sha256').update(n).digest('hex');
+
+  const approvedManifest = () =>
+    manifest([
+      { class: 'capture', id: 'services/scruple-capture/src/component.ts', sha256: H('capture-v1') },
+      { class: 'config', id: 'etc/scruple/capture.json', sha256: H('config-v1') },
+      { class: 'dependency', id: 'services/scruple-capture/package-lock.json', sha256: H('lock-v1') },
+    ]);
+
+  function status(over: Record<string, unknown> = {}) {
+    const sealedAt = '2026-08-01T00:00:00.000Z';
+    return {
+      deployment_id: 'dep-1',
+      known: true,
+      state: 'sealed',
+      as_of: '2026-08-30T00:00:00.000Z',
+      seal_ref: 'sha256:' + H('seal'),
+      sealed_at: sealedAt,
+      // The registry's own term. Recomputed here rather than imported so the
+      // fixture cannot silently follow a change to SEAL_TERM_DAYS.
+      seal_expires_at: new Date(Date.parse(sealedAt) + 365 * 86_400_000).toISOString(),
+      reseal_cause: null,
+      drift_since_seal: 0,
+      drift_budget: 8,
+      claims_standard: true,
+      events: [],
+      ...over,
+    } as import('../../lib/seal/registry').SealStatusReport;
+  }
+
+  function sealed(over: Record<string, unknown> = {}) {
+    const m = approvedManifest();
+    return {
+      value: {
+        status: status(),
+        approvedManifest: m,
+        approvedMeasurement: M.SEAL.pipelineMeasurement(m),
+        observed: m,
+        ...over,
+      },
+      cite: 'lib/seal/registry.ts#sealStatus(dep-1)',
+    };
+  }
+
+  const base = (sealOver: Record<string, unknown> | null = {}) => ({
+    path: 'A vendor who sealed their pipeline',
+    profile: {
+      host: 'comfyui',
+      hooks: ['artifact.produced'] as const,
+      // STILL EXPRESSIBLE AND STILL WRONG (WO-5 DEFECT-2), and under this rule
+      // it is no longer P2's business: coverage is not established by
+      // enumerating surfaces, it is established by measuring the boundary the
+      // surfaces live in.
+      surfaces: ['filesystem-watch'] as const,
+      fidelity: 'as-written' as const,
+      declaredPlacement: 'sidecar-gate' as const,
+      enforcement: 'isolated-namespace' as const,
+      attestation: 'none' as const,
+    },
+    evidence: {
+      capturePathFiles: { value: [...CAPTURE], cite: 'declared' },
+      baseline: null as import('../../packages/scruple-conformance/src/grade').DeclaredEvidence['baseline'],
+      seal: sealOver === null ? null : sealed(sealOver),
+      ratchetGapAccounting:
+        null as import('../../packages/scruple-conformance/src/grade').DeclaredEvidence['ratchetGapAccounting'],
+      ratchetAbsence:
+        null as import('../../packages/scruple-conformance/src/grade').DeclaredEvidence['ratchetAbsence'],
+      keyCustody: { value: { reachableByMeasuredParty: false, where: 'sealed 0600' }, cite: 'declared' },
+      principalIdentity: { value: { suppliedByMeasuredParty: false, source: 'server session' }, cite: 'declared' },
+      eventChain: { value: { leavesCreated: true, mutatesPriorRows: false }, cite: 'declared' },
+      zeroContent: { value: { carriesPayloadBytes: false, fields: ['content_hash'] }, cite: 'declared' },
+      attestationDeclaration: {
+        value: { declaredIn: 'seal', provider: 'none' },
+        cite: 'declared',
+      } as import('../../packages/scruple-conformance/src/grade').DeclaredEvidence['attestationDeclaration'],
+      attestationImport: null,
+      surfaceAbsences: {},
+      declaredP1Conditions: [],
+      separateFindings: [],
+    },
+    probes: null,
+  });
+
+  test('a current seal over a boundary containing the capture path passes P2', () => {
+    const g = M.C.gradePath(base());
+    assert.equal(g.items.P2.disposition, 'PASS-CONDITIONAL', g.items.P2.reason);
+    assert.match(g.items.P2.reason, /is the configuration approved by seal/);
+    assert.equal(g.lifecycle, 'sealed');
+    // The conditions are about the evidence attached, never about the counter.
+    assert.ok(g.items.P2.conditions.some((c: string) => /step-2 conformance run/.test(c)));
+    assert.ok(!g.items.P2.conditions.some((c: string) => /counter|ratchet/i.test(c)));
+  });
+
+  test('THE CORRECTION: no ratchet, no gap accounting, and P2 still passes', () => {
+    // This is the assertion the whole WO exists to make true. Under the old
+    // rule this exact input failed P2 on its third conjunct, and canvas — which
+    // has no ratchet at all — was recorded as unable to satisfy it "at any
+    // level of effort". That was a fact about the grader.
+    const noCounter = base();
+    noCounter.evidence.ratchetGapAccounting = null;
+    const g = M.C.gradePath(noCounter);
+    assert.notEqual(g.items.P2.disposition, 'FAIL', g.items.P2.reason);
+    assert.doesNotMatch(g.items.P2.reason, /gap accounting/);
+
+    // And the same input under the FROZEN rule still fails, on the conjunct
+    // that was removed — which is how we know the two rules are different and
+    // that the old one has not been quietly repaired.
+    const old = M.C.gradePath(
+      { ...noCounter, evidence: { ...noCounter.evidence, baseline: { value: { ref: 'b', covers: [...CAPTURE] }, cite: 'declared' } } },
+      M.C.RUNTIME_COMPLETENESS_PROFILE,
+    );
+    assert.equal(old.items.P2.disposition, 'FAIL');
+  });
+
+  test('the counter is reported as liveness and reaches `compliant` nowhere', () => {
+    const withGaps = base();
+    withGaps.evidence.ratchetGapAccounting = { value: { accounted: true, gaps: 3 }, cite: 'declared' };
+    const g1 = M.C.gradePath(withGaps);
+    assert.equal(g1.liveness.verdict, 'gaps-accounted');
+    assert.equal(g1.liveness.gaps, 3);
+
+    const unaccounted = base();
+    unaccounted.evidence.ratchetGapAccounting = { value: { accounted: false, gaps: 0 }, cite: 'declared' };
+    const g2 = M.C.gradePath(unaccounted);
+    assert.equal(g2.liveness.verdict, 'unaccounted');
+
+    const noRatchet = base();
+    noRatchet.evidence.ratchetAbsence = { value: 'no counter chain on this path', cite: 'declared' };
+    const g3 = M.C.gradePath(noRatchet);
+    assert.equal(g3.liveness.verdict, 'not-applicable');
+
+    // Three different liveness answers, one compliance answer. If any of these
+    // diverged, the counter would still be gating compliance under a new name.
+    assert.equal(g1.compliant, g2.compliant);
+    assert.equal(g2.compliant, g3.compliant);
+    assert.equal(g1.items.P2.disposition, g2.items.P2.disposition);
+    assert.equal(g2.items.P2.disposition, g3.items.P2.disposition);
+  });
+
+  test('integrating and verifying cannot claim the standard, and say which side they are on', () => {
+    for (const state of ['integrating', 'verifying'] as const) {
+      const g = M.C.gradePath(base({ status: status({ state, claims_standard: false, seal_ref: null }) }));
+      assert.equal(g.items.P2.disposition, 'FAIL', state);
+      assert.equal(g.items.P2.qualifier, `${state}, not yet sealed`);
+      assert.equal(g.lifecycle, state);
+      assert.equal(g.compliant, false);
+      // Binary, not a third state: the reason says so rather than hedging.
+      assert.match(g.items.P2.reason, /not a third compliance state/);
+    }
+  });
+
+  test('resealing names its cause — material change, drift budget, or an expired term', () => {
+    const causes = {
+      material_change: /MATERIAL change/,
+      drift_budget: /accumulated drift/,
+      term_expired: /term ran out/,
+    } as const;
+    for (const [cause, re] of Object.entries(causes)) {
+      const g = M.C.gradePath(
+        base({
+          status: status({
+            state: 'resealing',
+            claims_standard: false,
+            seal_ref: null,
+            reseal_cause: cause,
+            drift_since_seal: cause === 'drift_budget' ? 8 : 0,
+          }),
+        }),
+      );
+      assert.equal(g.items.P2.disposition, 'FAIL', cause);
+      assert.match(g.items.P2.reason, re, cause);
+      assert.match(g.items.P2.qualifier!, /^resealing/);
+    }
+  });
+
+  test('a seal whose recorded measurement is not its own manifest is refused', () => {
+    // The `build-measurement.ts` trap, one level up: two sides of an approval
+    // measured by different code. Nothing downstream of that is worth asking.
+    const g = M.C.gradePath(base({ approvedMeasurement: 'sha256:' + '0'.repeat(64) }));
+    assert.equal(g.items.P2.disposition, 'FAIL');
+    assert.equal(g.items.P2.qualifier, 'seal record contradicts itself');
+  });
+
+  test('THE CHECK THE FOLD CANNOT MAKE: the pipeline moved and nobody declared it', () => {
+    // `sealStatus()` folds events the vendor declared. It is correct about
+    // what was said, and it cannot see a change nobody reported — so the
+    // grader measures the running pipeline itself and classifies the
+    // difference with the estate's own materiality rule.
+    const moved = manifest([
+      { class: 'capture', id: 'services/scruple-capture/src/component.ts', sha256: H('capture-v2') },
+      { class: 'config', id: 'etc/scruple/capture.json', sha256: H('config-v1') },
+      { class: 'dependency', id: 'services/scruple-capture/package-lock.json', sha256: H('lock-v1') },
+    ]);
+    const g = M.C.gradePath(base({ observed: moved }));
+    assert.equal(g.items.P2.disposition, 'FAIL');
+    assert.equal(g.items.P2.qualifier, 'running pipeline is not the approved one');
+    assert.match(g.items.P2.reason, /NOBODY DECLARED THIS/);
+
+    // A DEPENDENCY bump is consequential, not material: it passes, and the
+    // budget it spends is named as a condition rather than swallowed.
+    const bumped = manifest([
+      { class: 'capture', id: 'services/scruple-capture/src/component.ts', sha256: H('capture-v1') },
+      { class: 'config', id: 'etc/scruple/capture.json', sha256: H('config-v1') },
+      { class: 'dependency', id: 'services/scruple-capture/package-lock.json', sha256: H('lock-v2') },
+    ]);
+    const ok = M.C.gradePath(base({ observed: bumped }));
+    assert.equal(ok.items.P2.disposition, 'PASS-CONDITIONAL', ok.items.P2.reason);
+    assert.ok(ok.items.P2.conditions.some((c: string) => /consequential changes are spent/.test(c)));
+
+    // And past the budget it is refused, because the exemption is bounded.
+    const spent = M.C.gradePath(
+      base({ observed: bumped, status: status({ drift_since_seal: 8 }) }),
+    );
+    assert.equal(spent.items.P2.disposition, 'FAIL');
+  });
+
+  test('a capture-path file outside the measured boundary is not sealed', () => {
+    const g = M.C.gradePath({
+      ...base(),
+      evidence: {
+        ...base().evidence,
+        capturePathFiles: { value: [...CAPTURE, 'services/scruple-capture/src/ws-gate.ts'], cite: 'declared' },
+      },
+    });
+    assert.equal(g.items.P2.disposition, 'FAIL');
+    assert.equal(g.items.P2.qualifier, 'capture path outside the boundary');
+    assert.match(g.items.P2.reason, /ws-gate\.ts/);
+  });
+
+  test('the boundary covers what nobody declared, and that is the point', () => {
+    // The asymmetry that stops C-7 rotting: a route inside the measured image
+    // that no capture-path declaration names is covered anyway. If this ever
+    // became a two-way check, the declaration would be a denylist again.
+    const wide = base();
+    const g = M.C.gradePath(wide);
+    assert.notEqual(g.items.P2.disposition, 'FAIL');
+    assert.ok(
+      wide.evidence.seal!.value.approvedManifest!.entries.length > wide.evidence.capturePathFiles.value.length,
+      'the fixture must have more in the boundary than on the declared path, or this proves nothing',
+    );
+  });
+
+  test("WO-14 survives the re-cut: a borrowed run cannot carry a deployment into step 3", () => {
+    const run = {
+      runId: 'r', subject: 'somebody else entirely', startedAt: 'a', finishedAt: 'b', vantages: ['os'],
+      results: [], summary: { passed: 7, failed: 0, inconclusive: 0, line: '' }, admissible: true,
+    };
+    const g = M.C.gradePath({ ...base(), probes: run });
+    assert.equal(g.items.P2.disposition, 'FAIL');
+    assert.equal(g.items.P2.qualifier, 'probe run is of another deployment');
+    assert.match(g.items.P2.reason, /per configuration/);
+  });
+
+  test('an unregistered deployment is not the same fact as an unsealed one', () => {
+    const g = M.C.gradePath(base({ status: status({ known: false, claims_standard: false }) }));
+    assert.equal(g.items.P2.qualifier, 'deployment not registered');
+    const never = M.C.gradePath(base(null));
+    assert.equal(never.items.P2.qualifier, 'never sealed');
+  });
+
+  test('a sealed deployment can declare its attestation provider in the seal', () => {
+    // P7's vehicle is no longer only a baseline manifest. `none` is a correct
+    // VALUE; what P7 needs is somewhere durable that says so.
+    const g = M.C.gradePath(base());
+    assert.equal(g.items.P7.disposition, 'PASS');
+    const undeclared = base();
+    undeclared.evidence.attestationDeclaration = null;
+    const g2 = M.C.gradePath(undeclared);
+    assert.equal(g2.items.P7.disposition, 'FAIL');
+    assert.match(g2.items.P7.reason, /approved configuration/);
   });
 });
 
@@ -864,7 +1170,13 @@ describe(`THE ACCEPTANCE TEST — reproduce STUDIO_P1-P8_GRADE.md at ${GRADED_CO
     const expected = publishedTable(doc);
 
     const inputs = M.C.deriveStudio(readPinned);
-    const g = M.C.grade(GRADED_COMMIT, inputs);
+    // GRADED UNDER THE RULE THE PUBLISHED GRADE WAS ISSUED UNDER, and that is
+    // the deliberate choice WO-23 had to make rather than delete this test.
+    // STUDIO_P1-P8_GRADE.md's P2 cells were decided by the runtime-completeness
+    // rule; reproducing them under a rule that did not exist when they were
+    // written would prove nothing about either. The rule in force is checked
+    // against the same pinned evidence in the test below.
+    const g = M.C.grade(GRADED_COMMIT, inputs, M.C.RUNTIME_COMPLETENESS_PROFILE);
     const canvas = g.paths.find((p) => p.path === 'Canvas / ComfyUI')!;
     const kohya = g.paths.find((p) => p.path === 'Kohya')!;
 
@@ -887,7 +1199,7 @@ describe(`THE ACCEPTANCE TEST — reproduce STUDIO_P1-P8_GRADE.md at ${GRADED_CO
   });
 
   test('the two FAILs are reached for the reasons the document gives, not by coincidence', () => {
-    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned));
+    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned), M.C.RUNTIME_COMPLETENESS_PROFILE);
     const canvas = g.paths.find((p) => p.path === 'Canvas / ComfyUI')!;
     const kohya = g.paths.find((p) => p.path === 'Kohya')!;
 
@@ -1016,8 +1328,110 @@ describe(`THE ACCEPTANCE TEST — reproduce STUDIO_P1-P8_GRADE.md at ${GRADED_CO
     );
   });
 
+
+  test('THE RE-CUT DOES NOT LAUNDER THE PUBLISHED FAILURE — same eight cells, new rule', () => {
+    // The other half of the acceptance property, and the reason the frozen
+    // profile is not enough on its own. WO-23 re-cut P2 from a runtime
+    // completeness proof to seal currency. A re-cut that quietly turned a
+    // published FAIL into a PASS would be indistinguishable, from inside the
+    // suite, from a re-cut that fixed something — so the SAME pinned evidence
+    // is graded under the rule in force and compared to the SAME published
+    // table.
+    //
+    // The table is unchanged. What changed is the sentence under it, and the
+    // difference is worth stating precisely:
+    //
+    //   OLD: canvas fails P2 because no baseline covers its capture path.
+    //   NEW: canvas fails P2 because its pipeline has never been measured and
+    //        no configuration has ever been approved. Its ratchet — the thing
+    //        the old rule said it could not have "at any level of effort" — is
+    //        not mentioned, because it was never the question.
+    const doc = readPinned('docs/canon/STUDIO_P1-P8_GRADE.md');
+    assert.ok(doc);
+    const expected = publishedTable(doc!);
+    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned)); // DEFAULT profile
+    assert.equal(g.profile, M.C.SEALED_PIPELINE_PROFILE.id);
+
+    // EVERY DISPOSITION IS UNCHANGED. This is the load-bearing comparison: the
+    // dispositions are what compliance is computed from, and if the re-cut had
+    // moved one of them, the re-cut would have rewritten a published grade.
+    const divergences: string[] = [];
+    for (const path of ['Canvas / ComfyUI', 'Kohya'] as const) {
+      const p = g.paths.find((x) => x.path === path)!;
+      for (const item of M.C.P_ITEMS) {
+        const wasFail = /\*\*FAIL\*\*/.test(expected[item][path]);
+        const wasNa = expected[item][path] === 'n/a';
+        const nowFail = p.items[item].disposition === 'FAIL';
+        const nowNa = p.items[item].disposition === 'n/a';
+        assert.equal(nowFail, wasFail, `${path} ${item}: ${p.items[item].reason}`);
+        assert.equal(nowNa, wasNa, `${path} ${item}: ${p.items[item].reason}`);
+        const cell = M.C.renderCell(p.items[item].disposition, p.items[item].qualifier);
+        if (cell !== expected[item][path]) divergences.push(`${path} ${item}: ${expected[item][path]} → ${cell}`);
+      }
+      assert.equal(p.compliant, false);
+      // Both are pre-seal, which is where every integration starts.
+      assert.equal(p.lifecycle, 'integrating');
+    }
+
+    // AND THE ONE RENDERED DIFFERENCE, NAMED RATHER THAN TOLERATED. Both P2
+    // cells gain a qualifier they did not have, because under the old rule
+    // there was one way to fail P2 and under the new rule there are several —
+    // never sealed, still verifying, resealing on a material change, a stale
+    // seal, a boundary that does not contain the capture path. A reader
+    // scanning the row has to know which, exactly as they have to know that
+    // Kohya's P4 falls because P3 fell. Nothing else in the table moves.
+    assert.deepEqual(divergences, [
+      'Canvas / ComfyUI P2: **FAIL** → **FAIL** (never sealed)',
+      'Kohya P2: **FAIL** → **FAIL** (never sealed)',
+    ]);
+
+    const canvas = g.paths.find((p) => p.path === 'Canvas / ComfyUI')!;
+    assert.equal(canvas.items.P2.qualifier, 'never sealed');
+    assert.match(canvas.items.P2.reason, /never been measured/);
+    assert.doesNotMatch(canvas.items.P2.reason, /No baseline covers/);
+    // AND THE SENTENCE THAT WAS AN ARTEFACT IS GONE. The old grade said
+    // canvas could not satisfy P2 "at any level of effort" because it has no
+    // ratchet. The counter now reports as liveness and says the honest thing.
+    assert.doesNotMatch(canvas.items.P2.reason, /ratchet|counter/i);
+    assert.equal(canvas.liveness.verdict, 'not-applicable');
+    assert.match(canvas.liveness.reason, /no counter chain/i);
+
+    // P7 still falls out of P2 for free, and for the reason it always did.
+    assert.equal(canvas.items.P7.basis, 'derived-from-P2');
+    assert.match(canvas.items.P7.reason, /closes for free the moment P2 does/);
+  });
+
+  test('a grade says which rule issued it, in the document and in the manifest', () => {
+    // Beside the source ref, for the same reason. Two submissions six months
+    // apart can be graded by different rules, and a reviewer has to see that
+    // before they compare the tables.
+    const frozen = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned), M.C.RUNTIME_COMPLETENESS_PROFILE);
+    const current = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned));
+    assert.notEqual(frozen.profile, current.profile);
+    assert.match(M.C.renderGradeMarkdown(frozen), new RegExp(M.C.RUNTIME_COMPLETENESS_PROFILE.id));
+    assert.match(M.C.renderGradeMarkdown(current), new RegExp(M.C.SEALED_PIPELINE_PROFILE.id));
+    // The row heading follows the rule: `baseline coverage` is what the
+    // published document called P2 and is not what the rule in force measures.
+    assert.match(M.C.renderGradeTable(frozen), /\*\*P2\*\* baseline coverage/);
+    assert.match(M.C.renderGradeTable(current), /\*\*P2\*\* pipeline seal/);
+  });
+
+  test('the derivation refuses to guess a seal state it cannot see', () => {
+    // A lifecycle state is a fold over signed events, not a fact in a file.
+    // The derivation returns "nothing was said" for canvas and Kohya — which
+    // is true, and which migration 046 says in as many words — and THROWS the
+    // moment a capture path names a deployment id, because reporting a
+    // pre-seal state for a deployment that may be sealed is the flattering
+    // direction and the one direction this harness refuses to fail in.
+    assert.equal(M.C.deriveSealEvidence(readPinned, ['lib/canvas/witness.ts']), null);
+    assert.throws(
+      () => M.C.deriveSealEvidence(() => 'const x = { deploymentId: dep };', ['x.ts']),
+      /sealStatus/,
+    );
+  });
+
   test('the rendered grade is the document\'s shape, and says which commit it graded', () => {
-    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned));
+    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned), M.C.RUNTIME_COMPLETENESS_PROFILE);
     const md = M.C.renderGradeMarkdown(g);
     assert.match(md, /## Summary table/);
     assert.match(md, /\| \*\*P1\*\* runtime boundary integrity \|/);
