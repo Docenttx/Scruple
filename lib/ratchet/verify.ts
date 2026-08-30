@@ -55,6 +55,21 @@
 //      retry out of queue.py re-sends the same bytes; that is the
 //      designed behaviour, not a forgery.
 //
+//   4. THE CLAIMED BUILD IS CHECKED AGAINST THE PUBLISHED-BUILDS REGISTRY
+//      AND NEVER REJECTED ON IT (§10 C-4, WO-15). Before the registry
+//      existed, `build_changed` compared the leaf's measurement to the
+//      value the same component provisioned with — drift detection, not
+//      provenance. lib/builds/registry.ts is now the thing to compare
+//      against, and the outcome lands on `VerifyOk.build_status` and on
+//      `component_events.build_status` for every event.
+//
+//      An unrecognised build is RECORDED, for rule 2's reason exactly: if
+//      it were fatal, moving one byte in the component would make every
+//      subsequent leaf vanish with the server's cooperation, and the
+//      party best placed to move that byte is the tenant §1 already
+//      treats as the adversary. The full argument is in
+//      lib/builds/registry.ts's header.
+//
 // THE COST OF LOOKING BACKWARDS. The chain is one-way: there is no
 // un-ratchet. Verifying a counter below the high-water mark means
 // re-deriving K from a checkpoint at or before it, one HKDF-Expand per
@@ -71,6 +86,7 @@
 import crypto from 'node:crypto';
 import { conn } from '@/lib/db/sqlite';
 import { bdk, bdkFingerprint } from './bdk';
+import { checkClaimedBuild, type BuildCheck } from '@/lib/builds/registry';
 import {
   Ratchet,
   canonicalPreimage,
@@ -247,6 +263,32 @@ export interface VerifyOk {
    *  redeploys a new published build without re-provisioning. */
   build_changed: boolean;
   build_measurement: string | null;
+  /**
+   * §4.3 / §10 C-4, WO-15. What the PUBLISHED-BUILDS REGISTRY said about
+   * the claimed measurement at the moment this event was ingested.
+   *
+   * This is the field that turns `build_measurement` from drift detection
+   * into provenance: `build_changed` compares the leaf to what the same
+   * component provisioned with — it notices that a component changed and
+   * cannot tell a build we shipped from a string somebody typed — whereas
+   * this compares it to what Scruple published.
+   *
+   * NEVER FATAL, and lib/builds/registry.ts carries the five-point
+   * argument for that. In one line: refusing the leaf does not un-produce
+   * the artifact, it produces an artifact with no leaf, which hands a
+   * suppression primitive to anyone who can move a byte in the component.
+   * `unpublished` is recorded, returned, indexed and served at
+   * GET /api/v2/builds/unrecognised. It is visible; it is not fine.
+   *
+   * The honest limit is unchanged by any of this and is stated in the
+   * spec rather than discovered later: a modified build can claim a
+   * PUBLISHED measurement just as easily as an unpublished one. What it
+   * cannot do is produce a valid MAC without the IK, and where the vendor
+   * has attestable compute the IK is sealed to the measurement so a
+   * modified build cannot unseal it. Registry plus key, not registry
+   * alone.
+   */
+  build_status: BuildCheck;
 }
 
 export interface VerifyFail {
@@ -609,17 +651,39 @@ export function verifySubmission(
     // two HMACs is a bad trade in exactly one direction.
   }
 
+  // §10 C-4, WO-15 — the registry check, at ingest.
+  //
+  // The measurement checked is the one this EVENT declared, falling back
+  // to the one the component PROVISIONED with. The fallback is not a
+  // guess: both are declarations by the same component under the same IK,
+  // and the provisioned one is its standing statement about itself. It is
+  // the same resolution the returned `build_measurement` has always used,
+  // kept identical so a receipt and a status can never name two different
+  // builds for one event.
+  //
+  // Evaluated AS OF `ts`, not as of "now-at-read-time", and written down
+  // here rather than derived later. That is what makes withdrawal safe: a
+  // build withdrawn tomorrow does not reach backwards and restate what
+  // this event was ingested under. A late drain (§5) carries the ts at
+  // which it was VERIFIED, which is the only time the server can honestly
+  // claim to know — the component's capture time is the component's
+  // assertion and is not in the preimage.
+  const claimedBuild = input.buildMeasurement ?? row.build_measurement;
+  const buildStatus: BuildCheck = checkClaimedBuild(claimedBuild, ts);
+
   const tx = db.transaction(() => {
     db.prepare(
       `INSERT INTO component_events
-         (component_id, counter, mac, preimage_sha256, build_measurement, backfilled, verified_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (component_id, counter, mac, preimage_sha256, build_measurement, build_status,
+          backfilled, verified_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       componentId,
       counter,
       mac,
       preimageSha,
       input.buildMeasurement ?? null,
+      buildStatus,
       isBackfill ? 1 : 0,
       ts,
     );
@@ -711,6 +775,7 @@ export function verifySubmission(
     attestation_status: row.attestation_status,
     build_changed: buildChanged,
     build_measurement: input.buildMeasurement ?? row.build_measurement,
+    build_status: buildStatus,
   };
 }
 

@@ -193,8 +193,23 @@ Every submission carries, in the clear:
 
 `build_measurement` is the analogue of a terminal's firmware version riding in
 the transaction. Because we publish the component, the server can check the
-claimed build is one we shipped — **the first time P1 is checkable at ingest
-rather than attested.**
+claimed measurement against the **published-builds registry** at ingest and
+record the answer on the event — **the first time an unrecognised build is
+detectable at ingest rather than only assertable.**
+
+_Narrowed 2026-08-30 by WO-15; the sentence this replaces, and why, are in §10
+C-4._ What is checked is the **claimed string**, not the running build: a
+modified build can claim a published measurement exactly as easily as an
+unpublished one. So the registry detects **unrecognised** builds, not
+**modified** ones, and the paragraph below is what closes that gap.
+
+**An unrecognised build is RECORDED, NEVER REJECTED.** Refusing the leaf does
+not un-produce the artifact; it produces an artifact with no leaf, which hands
+a suppression primitive to anyone who can move a byte in the component — the
+same trade §4.2 already refused for counter gaps. The status lands on the
+verification result, on `component_events.build_status`, and on
+`GET /api/v2/builds/unrecognised`. Visible, never silently fine. The five-point
+argument is `docs/canon/PUBLISHED_BUILDS.md` §3.
 
 **The honest limit, stated in the spec rather than discovered later:** a
 modified build can claim any measurement string. What it cannot do is produce a
@@ -370,12 +385,50 @@ from the counter itself.
 Payments agrees: hosts derive any key from the KSN independently and detect
 duplicates by uniqueness rather than by enforcing arrival order.
 
-### C-4 · §4.3's build check is not yet checkable
-"The server can check the claimed build is one we shipped" presumes a
-**published-builds registry that does not exist**. Until it does, the claimed
-measurement is recorded per event and `build_changed` is flagged against the
-provisioned value — which is drift detection, not provenance. The registry is
-required before §4.3's claim can be made in customer material.
+### C-4 · §4.3's build check is not yet checkable — CLOSED, AND THE CLAIM NARROWED (2026-08-30, WO-15)
+"The server can check the claimed build is one we shipped" presumed a
+**published-builds registry that did not exist**. Until it did, the claimed
+measurement was recorded per event and `build_changed` was flagged against the
+provisioned value — which is drift detection, not provenance.
+
+**The registry now exists** (migration 045, `lib/builds/`,
+`docs/canon/PUBLISHED_BUILDS.md`) and `verifySubmission()` checks against it at
+ingest. §4.3 has been **rewritten rather than left standing**, because the
+registry does not make the original sentence true — it makes a narrower one
+true:
+
+- **True now:** an unrecognised build is *detectable at ingest* and recorded
+  per event, so a leaf from a build we never published is distinguishable from
+  one we did, and shows on the vendor's own report.
+- **Still not true, and removed from §4.3:** that the server can check the
+  *running* build is the one we shipped. The check is against the **claimed
+  string**, and a modified build can claim a published measurement. What it
+  cannot do is produce a valid MAC without the IK — and only where the IK is
+  sealed to an attested measurement is the pairing strong. **Registry plus key,
+  never registry alone**, and where there is no attestation the binding is
+  assertion and the leaf says `passthrough`.
+
+Two decisions worth carrying, both argued at length in
+`PUBLISHED_BUILDS.md`:
+
+- **Unknown builds are RECORDED, not REJECTED.** Rejecting would make moving
+  one byte in the component a way to delete every subsequent leaf with the
+  server's cooperation — the suppression primitive §4.2 already refused for
+  gaps — and would filter exactly one population, the honest and unrecognised,
+  while a forger simply claims a published string. `build_status` is on the
+  result, on the event row, and on a report route; NULL there means the
+  registry was not consulted, which is a different fact from `unpublished`.
+- **Withdrawal is an appended, signed, dated event, never a mutation.** A
+  withdrawn build must remain checkable for leaves already signed under it, so
+  status is a fold *as of a time*: a withdrawal effective at T+1 cannot change
+  what a leaf verified at T was ingested under. A mutable `withdrawn_at` on the
+  signed row would have forced a re-signature, destroying the one artifact that
+  proves the build was published on the day the leaf was signed.
+
+What this does **not** close: `build-measurement.ts` digests the component's
+source tree, which is not the container digest a vendor's registry publishes.
+`published_builds.measurement_kind` records which of the two an entry is,
+because they are incomparable strings for the same artifact.
 
 ### C-5 · §4.4 omitted authentication on provisioning
 The one-time token alone cannot enforce "this token belongs to another tenant."
