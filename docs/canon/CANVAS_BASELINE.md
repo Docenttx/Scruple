@@ -232,7 +232,32 @@ A baseline that lists only what it covers is half a document.
 
 ---
 
-## 8. One operational change
+## 8. What the re-platform found in the component
+
+WO-8's premise was that canvas "proves the component against a path we know
+works." It did, in the only way that counts: **trying to use the component
+found two bugs in it that reading it had not**, both fixed in `68c3327`.
+
+1. **`http.request({protocol: 'https:'})` throws `ERR_INVALID_PROTOCOL`.** It
+   does not fall back to TLS. Both of `http-gate.ts`'s proxy paths passed the
+   target's protocol straight through, so the component **could not proxy to
+   any https upstream** — which is every hosted ComfyUI that is not a bare
+   container on the same host, Modal included. Found by pointing canvas's
+   upstream at it and getting a throw instead of a connection.
+2. **`WsGate` had no keepalive.** Cloudflare and Modal close an idle tunnel at
+   ~100-125s and a generation is routinely quieter than that between progress
+   frames. Adopting the component's WS half verbatim would have **regressed**
+   canvas, which has carried a 30s bidirectional ping since canvas v2 — and
+   the regression would have presented as a missing leaf rather than as the
+   timeout it is.
+
+Both are the same class of finding: a defect that only appears when a second
+integration exists. Neither is visible from inside the reference deployment,
+where the upstream is loopback http and nothing sits between the gate and the
+tenant. That is the argument for migrating canvas onto the component **before**
+a vendor does, stated as an outcome rather than as a plan.
+
+## 9. One operational change
 
 The WS sidecar's run command changed:
 
@@ -249,7 +274,7 @@ maintains. `tsx` is already a devDependency and `scripts/gen-predicate-vectors`
 already runs `.mjs` under it, so this is an existing pattern rather than a new
 dependency. Whatever supervises the process (pm2 / systemd) needs the flag.
 
-## 9. Running it
+## 10. Running it
 
 ```
 # the tamper surface, printed
