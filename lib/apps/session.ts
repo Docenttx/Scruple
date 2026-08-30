@@ -44,12 +44,31 @@ export interface MintedAppSession {
   backendMessage?: string;
 }
 
-function signedTokenFor(id: string, userId: string, appId: string, expiresAt: string): string {
-  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || '';
-  if (!secret) throw new Error('AUTH_SECRET / NEXTAUTH_SECRET not set');
-  const h = crypto.createHmac('sha256', secret);
-  h.update(`${id}\n${userId}\n${appId}\n${expiresAt}`);
-  return h.digest('hex').slice(0, 32);
+/**
+ * The per-session credential — WO-12.
+ *
+ * WAS: HMAC(AUTH_SECRET, id | userId | appId | expiresAt), truncated to 128
+ * bits. Nothing ever recomputed it — every consumer compares against the
+ * stored column — so the derivation bought nothing and cost something: it made
+ * every session token a deterministic function of one global secret over four
+ * values an attacker mostly knows.
+ *
+ * NOW: 256 bits of CSPRNG, stored, compared. It is a capability, not a
+ * derivation, and it is what WO-12 hands the pod in place of
+ * SCRUPLE_APPS_WITNESS_SECRET.
+ *
+ * WHAT THIS CREDENTIAL IS AND IS NOT. It authenticates a SELF-DECLARATION by
+ * the party being measured, scoped to one session, expiring with it and
+ * revocable with it. It does not fix P3 and is not offered as a fix: P3 is
+ * about custody, not scope, and this key still lives in a shell the tenant
+ * controls (STUDIO_P1-P8_GRADE.md, Path B, P3; H4-DUKPT-CAPTURE-COMPONENT.md
+ * preamble). What it does is retire a credential that authenticated EVERY
+ * user's traffic in favour of one that authenticates one session's, so that a
+ * path which may never produce a leaf also cannot forge another tenant's
+ * records. The ceiling stays `witnessed: false`.
+ */
+function mintSessionToken(): string {
+  return crypto.randomBytes(32).toString('hex');
 }
 
 /** Mint a new app session for the user on the chosen machine.
@@ -83,15 +102,23 @@ export async function mintAppSession(
   const backend = getSessionBackend(app.backend);
   const id = `as_${nanoid(10)}`;
 
+  // Minted BEFORE the spawn, because the backend has to hand it to the
+  // workload — that is the whole of WO-12's custody change on this path. It
+  // is deliberately independent of `expiresAt`, which is only known after a
+  // spawn that can take minutes; the token is a random capability and the
+  // expiry lives in the row, where the route reads it.
+  const sessionToken = mintSessionToken();
+
   const spawned = await backend.spawnEndpoint({
     userId,
     machineId,
     appId,
     sessionId: id,
+    sessionToken,
   });
 
   const expiresAt = new Date(Date.now() + DEFAULT_APP_SESSION_MS).toISOString();
-  const signedToken = signedTokenFor(id, userId, appId, expiresAt);
+  const signedToken = sessionToken;
   const hourlyRateCents = backend.pricePerHourCents(machineId);
 
   conn()

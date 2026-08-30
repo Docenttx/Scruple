@@ -11,6 +11,9 @@ echo "[scruple] SCRUPLE_USER_ID=${SCRUPLE_USER_ID:-<unset>}"
 echo "[scruple] SCRUPLE_APP_ID=${SCRUPLE_APP_ID:-<unset>}"
 echo "[scruple] SCRUPLE_SESSION_ID=${SCRUPLE_SESSION_ID:-<unset>}"
 echo "[scruple] SCRUPLE_WITNESS_URL=${SCRUPLE_WITNESS_URL:-<unset>}"
+# Presence only. Never echo the token itself into a log the tenant reads.
+echo "[scruple] SCRUPLE_SESSION_TOKEN=${SCRUPLE_SESSION_TOKEN:+<set>}${SCRUPLE_SESSION_TOKEN:-<unset>}"
+echo "[scruple] SCRUPLE_PLACEMENT=${SCRUPLE_PLACEMENT:-unattested-client} SCRUPLE_CAN_WITNESS=${SCRUPLE_CAN_WITNESS:-0}"
 echo "[scruple] RUNPOD_POD_ID=${RUNPOD_POD_ID:-<unset>}"
 
 cd /workspace/kohya_ss

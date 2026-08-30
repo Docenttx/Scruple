@@ -38,6 +38,21 @@ export interface SpawnRequest {
   /** Optional caller-supplied session id — the backend records it in
    *  its own bookkeeping so a later terminate can find the pod. */
   sessionId?: string;
+  /**
+   * The session's own credential (WO-12), minted before the spawn so the
+   * backend can hand it to the workload.
+   *
+   * IT REPLACES A GLOBAL SECRET AND IS NOT A FIX FOR P3. The workload runs in
+   * a shell the tenant controls, so anything given to it is held by the party
+   * being measured; P3 is about custody, not scope
+   * (docs/canon/STUDIO_P1-P8_GRADE.md, Path B, P3). What changes is blast
+   * radius and forgeability across tenants: `SCRUPLE_APPS_WITNESS_SECRET` was
+   * one value injected into every pod, so any customer running `env` held the
+   * credential authenticating everyone else. This is one session's.
+   *
+   * A backend that has no workload to hand it to simply ignores it.
+   */
+  sessionToken?: string;
 }
 
 export interface SpawnedEndpoint {

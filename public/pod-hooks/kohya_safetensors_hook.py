@@ -1,9 +1,29 @@
-"""Scruple × Kohya-ss safetensors hook — WO-KOHYA Phase 4.
+"""Scruple × Kohya-ss safetensors hook — WO-KOHYA Phase 4,
+re-placed by WO-11b and re-keyed by WO-12.
 
 Installed as `sitecustomize.py` so Python auto-loads it before any
 user code. Monkey-patches `safetensors.torch.save_file` — the single
 call site Kohya-ss (via networks/lora.py::LoRANetwork.save_weights)
 uses to write every LoRA checkpoint.
+
+READ THIS FIRST, BECAUSE IT IS THE POINT OF THE FILE
+----------------------------------------------------
+THIS HOOK CANNOT WITNESS ANYTHING AND IS NOT TRYING TO. It runs inside
+a container the tenant has root in. You can delete it, set
+PYTHONNOUSERSITE, re-patch save_file, or unset one env var. That is not
+a bug to be hardened away — it is what the placement model calls
+`unattested-client`, where P1 and P3 fail and NO LEAF MAY BE ISSUED at
+all (docs/canon/PLACEMENT_AND_SURFACES.md §4.1, §5.1). Being server-side
+does not lift it; §7.2 classifies this file identically to browser
+JavaScript, and it is right to.
+
+So checkpoints saved through this hook are RECORDED, NOT WITNESSED, and
+`POST /api/apps/kohya/witness` says so in every response
+(`witnessed: false`, `placement: "unattested-client"`). See
+docs/canon/STUDIO_P1-P8_GRADE.md (Path B — Kohya) for the finding and
+docs/canon/KOHYA_REPLACEMENT.md for what a path that CAN produce a leaf
+looks like: a component outside the pod watching the checkpoint volume,
+holding a key this container cannot read.
 
 On every save:
   1. Original save_file runs (writes the safetensors file to disk).
@@ -11,22 +31,34 @@ On every save:
      the raw header bytes (header_hash), and POSTs both to scruple-web
      with the pod-side identity + session id.
   3. scruple-web RECORDS the checkpoint — it inserts an
-     app_kohya_progress row and a training_runs row — but does NOT
-     sign a witness leaf from this path. `POST /api/apps/kohya/witness`
-     says so honestly: its response carries `witnessed: false`.
-     Checkpoints trained through this hook are recorded, not
-     witnessed, until capture moves out of the pod. See
-     docs/canon/STUDIO_P1-P8_GRADE.md (Path B — Kohya) and
-     docs/canon/WO-05-studio-comfyui-kohya.md (T-4) for why and what
-     the fix looks like. Step 3 above must not be read as "a leaf gets
-     signed" — it does not, today.
+     app_kohya_progress row and a training_runs row. Nothing is signed.
+     Step 3 must not be read as a leaf being produced; it is not, and
+     under WO-11b it never will be from this side of the boundary.
+
+WO-12 — THE CREDENTIAL CHANGED
+------------------------------
+This hook used to authenticate with `SCRUPLE_WITNESS_SECRET`, which
+scruple-web injected into EVERY pod with the SAME value. Any customer
+running `env` in their own pod held the credential authenticating every
+other customer's traffic. That variable is retired: nothing sets it any
+more.
+
+It now signs with `SCRUPLE_SESSION_TOKEN` — this session's own token,
+which the tenant already holds in their browser. That narrows forgery
+from "any tenant's records" to "this session's own records" and it does
+NOT fix P3, which is about custody rather than scope. Nothing in a shell
+the measured party controls is custody. It is simply the smallest
+credential that still works for a declaration whose ceiling is
+`witnessed: false`.
 
 Env vars set by scruple-web when it spawned the pod:
   SCRUPLE_USER_ID          — user's account id
   SCRUPLE_APP_ID           — 'kohya'
   SCRUPLE_WITNESS_URL      — https://scruple.stooges.ai/api/apps/kohya/witness
-  SCRUPLE_WITNESS_SECRET   — HMAC shared secret (rotate per-deploy)
   SCRUPLE_SESSION_ID       — the app_sessions row id
+  SCRUPLE_SESSION_TOKEN    — this session's HMAC key (see above)
+  SCRUPLE_PLACEMENT        — 'unattested-client', printed at install
+  SCRUPLE_CAN_WITNESS      — '0'
   RUNPOD_POD_ID            — auto-injected by RunPod
 
 Two KNOWN EVIDENTIARY GAPS below are left unchanged on purpose —
@@ -38,6 +70,10 @@ docs/canon/STUDIO_P1-P8_GRADE.md (Path B — Kohya, P1/P5):
     nothing surfaces that to the operator beyond a one-time log line.
   - POST errors to scruple-web are swallowed: a checkpoint can go
     unrecorded with no surfaced failure if scruple-web is unreachable.
+Note what a component outside the pod does about the second one and
+this hook structurally cannot: a per-event counter travelling in the
+clear turns an undelivered event into a visible gap and a stopped hook
+into visible silence, instead of into nothing at all.
 
 CANONICAL COPY — there are two copies of this file in the repo and
 they must be kept byte-identical:
@@ -115,13 +151,24 @@ def _extract_safetensors_header(path: str) -> tuple[dict[str, Any] | None, str |
 def _post_witness(payload: dict[str, Any]) -> None:
     """Fire-and-forget POST to scruple-web. Ignores errors."""
     url = os.environ.get("SCRUPLE_WITNESS_URL")
-    secret = os.environ.get("SCRUPLE_WITNESS_SECRET", "")
+    # WO-12: this session's token, not a secret shared with every other
+    # pod. An unsigned POST is refused with 401, which is the correct
+    # outcome — a declaration nobody can attribute to a session is not
+    # worth recording against one.
+    secret = os.environ.get("SCRUPLE_SESSION_TOKEN", "")
     if not url:
         _log_once("no_url", "SCRUPLE_WITNESS_URL unset — hook is no-op")
         return
+    if not secret:
+        _log_once(
+            "no_token",
+            "SCRUPLE_SESSION_TOKEN unset — this checkpoint is neither recorded nor "
+            "witnessed. scruple-web will refuse an unsigned declaration (401).",
+        )
+        return
 
     body = json.dumps(payload, sort_keys=True).encode()
-    signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest() if secret else ""
+    signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
     try:
         # stdlib only — don't add a requests dep to Kohya's env
@@ -201,6 +248,18 @@ def _install() -> None:
 
     _st.save_file = scruple_save_file_hook  # type: ignore
     _log_once("installed", "safetensors.torch.save_file wrapped")
+    # Say the posture out loud, in the place an operator is actually
+    # looking: the pod's own log. The values are set by
+    # lib/apps/backends/runpod-session.ts and are a label, not a claim
+    # this process is in any position to make about itself.
+    _log_once(
+        "placement",
+        "placement={} can_witness={} — checkpoints from this pod are RECORDED, "
+        "NOT WITNESSED. docs/canon/KOHYA_REPLACEMENT.md".format(
+            os.environ.get("SCRUPLE_PLACEMENT", "unattested-client"),
+            os.environ.get("SCRUPLE_CAN_WITNESS", "0"),
+        ),
+    )
 
 
 _install()

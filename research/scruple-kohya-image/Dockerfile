@@ -14,7 +14,9 @@
 #   - Container disk: 40 GB
 #   - Volume mount: /workspace
 #   - Env: (RunPod injects SCRUPLE_USER_ID, SCRUPLE_APP_ID,
-#     SCRUPLE_WITNESS_URL, SCRUPLE_WITNESS_SECRET, SCRUPLE_SESSION_ID
+#     SCRUPLE_WITNESS_URL, SCRUPLE_SESSION_TOKEN, SCRUPLE_SESSION_ID,
+#     SCRUPLE_PLACEMENT, SCRUPLE_CAN_WITNESS
+#     — SCRUPLE_WITNESS_SECRET is retired, WO-12
 #     when scruple-web spawns the pod)
 #
 # Save the RunPod template id into .env.local as RUNPOD_KOHYA_TEMPLATE_ID.

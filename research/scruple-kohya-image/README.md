@@ -60,8 +60,16 @@ RUNPOD_API_KEY=<your-api-key>
 RUNPOD_KOHYA_TEMPLATE_ID=<template-id-from-step-above>
 NEXT_PUBLIC_KOHYA_ENABLED=1
 NEXT_PUBLIC_KOHYA_WS_ORIGIN=wss://scruple-kohya-ws.stooges.ai
-SCRUPLE_APPS_WITNESS_SECRET=<random-32-char-hex>
 ```
+
+**`SCRUPLE_APPS_WITNESS_SECRET` is retired (WO-12) — do not set it.** It was
+one HMAC key injected into every pod, so any customer running `env` held the
+credential that authenticated every other customer's traffic
+(`docs/canon/STUDIO_P1-P8_GRADE.md`, Path B, P3). Pods are now given
+`SCRUPLE_SESSION_TOKEN`, their own session's token, and nothing in the codebase
+writes the global value into a pod any more. If the variable is still set in a
+deployment, `/api/apps/kohya/witness` will still accept a declaration signed
+with it and will log an error naming it every time; unset it to close the path.
 
 Cloudflare tunnel entry (add to `/etc/cloudflared/config.yml`):
 
@@ -104,5 +112,11 @@ pm2 save
   scruple-web's `runpod-session.ts` failed to pass it. Check the pod
   spec that was submitted.
 - **Hook errors but training completes**: `pm2 logs scruple-web` for
-  the received POST body; check HMAC signature against
-  `SCRUPLE_APPS_WITNESS_SECRET`.
+  the received POST body; check the HMAC signature against the session's
+  `SCRUPLE_SESSION_TOKEN` (WO-12). A 401 with no other detail is deliberate —
+  the route does not distinguish "no such session" from "bad signature",
+  because doing so hands an unauthenticated caller a session-enumeration
+  oracle.
+- **`credential: "global-deprecated"` in the response**: the deployment still
+  has `SCRUPLE_APPS_WITNESS_SECRET` set and something is still signing with it.
+  Unset it.
