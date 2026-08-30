@@ -5,7 +5,8 @@
 **Grades against:** `SCRUPLE_STANDARD_v1_7.md`, GPSA v3 (2026-07-30 bundle)
 **Companion documents:** `openapi-v2.yaml` (machine-readable surface),
 `STANDARD_v1.7_FULFILMENT.md` (clause-by-clause coverage),
-`L2_FLOOR.md` (the assurance floor every decision below is bound by)
+`L2_FLOOR.md` (the assurance floor every decision below is bound by),
+`PLACEMENT_AND_SURFACES.md` (§4's surface and placement axes in full)
 
 ---
 
@@ -251,7 +252,19 @@ nobody has asked for — flagged for review as possible scope to defer.*
 
 ---
 
-## 4. Host hook contract
+## 4. Host hook contract — three axes
+
+An integration is described by three axes, not one. The hook table below
+says **when** capture fires; the two axes after it say **how the bytes
+are observed** and **where the observing code runs**, and those two are
+what decide whether P1 and P3 can hold at all.
+
+Full specification, the assurance function, the six-host mapping and
+three named abstraction defects: **`PLACEMENT_AND_SURFACES.md`**.
+Interfaces: `lib/capture/surface.ts`,
+`packages/scruple-host-sdk/scruple_host_sdk/surface.py`.
+
+### 4.1 Hook — when capture fires
 
 Every hook below was observed in at least two shells under a different
 name. An adapter's entire job is mapping its host's vocabulary onto these
@@ -274,6 +287,67 @@ single integration: `graph.execute` (the live ComfyUI proxy is the only
 thing that captures a workflow graph) and `model.write` (Kohya). They are
 in the contract because the shape of what they carry differs from
 `document.save` — a graph and a training config are not a file.
+
+### 4.2 Surface — how the bytes are observed
+
+| Surface | Bytes seen as | Structurally cannot see |
+|---|---|---|
+| `network-gate` | in transit through a proxy the measured party cannot route around — ComfyUI `POST /prompt`, `GET /view`, WS binary frames | anything produced and consumed without crossing the gate |
+| `filesystem-watch` | a completed file, hashed on `IN_CLOSE_WRITE` | anything that never becomes a file — ComfyUI's `SaveImageWebsocket` path |
+| `in-process-callback` | inside the producing process, via hook, patch, or direct SDK call | anything the process does not route through the patched call |
+| `host-api-callback` | handed over by the host across a published API — `save_post`, `documentSaved`, UXP `afterSave` | anything the host raises no event for — Blender has no `export_post` |
+
+**Surface does not affect assurance. It affects coverage.** A surface that
+misses an egress path does not produce a weaker leaf; it produces **no
+leaf, for events that happened**. That is the ComfyUI two-path finding
+(`H4-DUKPT-CAPTURE-COMPONENT.md` §2) as a general property, and it is why
+the assurance function takes no surface argument. Coverage is established
+by probes and by ratchet gap accounting, never by declaration.
+
+Each observation also declares a **fidelity** — `as-delivered`,
+`as-written`, or `induced` — saying whether the hashed bytes are the ones
+a third party could re-hash. `induced` means the surface *caused* a
+serialization and hashed that; it is Fusion's shape and it requires a
+retained, addressable artifact or the leaf is uncheckable.
+
+### 4.3 Placement — where the observing code runs
+
+Placement is **not** topology. It answers one question: *can the party
+being measured modify the code that measures it, or reach the key that
+seals the measurement?* Kohya's in-pod hook is server-side, on hardware
+the tenant does not own, and is `unattested-client`, because the tenant
+has root in that container.
+
+| Placement | Example | P1 | P3 |
+|---|---|---|---|
+| `server-library` | a vendor's own backend calling the SDK | holds, structurally | holds |
+| `sidecar-gate` | the H-4 capture component | holds by topology, checkable by probe | conditional unless the key is sealed to an attested measurement |
+| `attested-client` | a code-signed plugin the host verifies at load | conditional on the host enforcing it | conditional |
+| `unattested-client` | browser JS, an unsigned add-on, a patch in a container the tenant owns | **fails** | **fails** |
+
+The fourth value exists so the model can **refuse a shape**. Events there
+may be recorded as declared; they may never be reported as witnessed (D-8).
+
+A placement is a *claim about enforcement*, and it is resolved before it
+is trusted: a declared placement without its required enforcement
+(`no-tenant-code`, `isolated-namespace`, `host-enforced-signature`)
+degrades to `unattested-client` — never to an intermediate tier.
+
+### 4.4 Assurance is a pure function of placement and attestation
+
+Nothing else. Not surface, not hook, not host, not modality. A new host
+is onboarded by naming its hooks, its surfaces and its placement, and
+never by writing new evidence logic.
+
+The leaf is `verified` only when the attestation chained to a vendor root
+(H-5 vocabulary, `packages/scruple-attestation-verifiers/`); otherwise it
+is `passthrough` and the receipt reads as such (D-9, §12.4). Note the
+consequence: **`server-library` with no attestation still yields only a
+`passthrough` leaf** — a free P1 does not buy a verified attestation.
+
+**A surface is bound by §5's adapter rule** and by three additions: it may
+not compute a MAC, advance the ratchet counter, or decide whether a leaf
+is verified or passthrough.
 
 ---
 
