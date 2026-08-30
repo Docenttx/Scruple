@@ -343,3 +343,57 @@ wrong.
    **sign what you store** — and `verifySealMeasurement()` remains a
    separate check, because "the manifest was edited" and "the manifest
    does not produce the measurement it claims" are different incidents.
+
+---
+
+## Corrections to this document (2026-08-30, from WO-22 and WO-23)
+
+Five defects, found by implementing it. Recorded here rather than edited away,
+because two of them are the same mistake this document was written to fix.
+
+### 1. Four states exist; the document names three
+`resealing` is load-bearing — a material change, an exhausted drift budget, or
+an expired term all land there — and it appears nowhere above. So *"a deployment
+in `integrating` or `verifying` cannot claim the standard"* is **incomplete as
+written**: a sealed-then-changed deployment cannot claim either, and the
+sentence does not say so.
+
+### 2. Both "must not be left implicit" items are already closed
+`iterations.seal_state` (migration 046) marks pre-seal leaves, and
+`lib/seal/materiality.ts` carries the written definition — three classes, a
+365-day term, a drift budget of 8. **The text above still reads as though they
+are open.** Left standing so the reasoning survives; the items are done.
+
+### 3. Nobody is named as measuring the running pipeline, or when
+As written, *"is the seal current?"* is answerable **only by the sealed party**
+— a fold over events the vendor declared. That is paperwork checking paperwork,
+and it is the failure mode the whole standard exists to avoid.
+
+Closed in the grader by taking an **observed** manifest at grade time and
+classifying it with our own materiality rule; where nobody has measured the
+running pipeline, P2 is a **conditional pass that says so**. This direction
+should have said it.
+
+### 4. Probes are a PRECONDITION OF APPROVAL, and nothing said so
+Neither this document nor H-4 §7 states when probes run relative to sealing.
+
+**This is the same mistake, recurring.** Reading probes as a *standing conjunct*
+rather than a *gate at approval* is precisely how P2 became a runtime
+completeness proof — which is the error this document was written to correct.
+Step 2 of the sequence is where probes run; a seal is not granted without an
+admissible run, **probe 7 with its negative control included**.
+
+### 5. Liveness on a componentless path is unaddressed
+The counter row has no entry for *"there is no counter."* Canvas is permanently
+`not-applicable` — no ratchet, nothing to be silent with — and that must be
+stated as **not-a-finding**, or the same artefact returns: an unavailable
+signal read as a failing one, which is exactly how canvas came to be described
+as unfixable.
+
+### And one claim in this document was simply wrong
+*"Canvas… needs its pipeline measured and approved, which is available to it
+today."* **It is not.** Canvas ingests through `lib/iterations/ingest.ts`, not
+`/v2/witness`, so its leaves carry `seal_state = NULL`. Registering a deployment
+and binding that path is the outstanding work — and it is the same finding as
+`STUDIO_IS_AN_EXEMPLAR.md`: canvas is on a parallel path instead of consuming
+the shared one.
