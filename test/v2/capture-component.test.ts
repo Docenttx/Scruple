@@ -510,6 +510,26 @@ describe('§5 — derive, MAC, ratchet, then enqueue', () => {
       const bytes = Buffer.from('captured while the ingest was down');
       fs.writeFileSync(path.join(h.comfy.dirs.output, 'offline.png'), bytes);
       await waitFor(() => h.component.submitter.emitted.some((e) => e.contentHash === sha256(bytes)));
+      // ---------------------------------------------------------------------
+      // THE BARRIER, AND WHY IT IS NOT DECORATION.
+      //
+      // `emitted` is pushed at submitter.ts step 5 — AFTER the MAC and the
+      // enqueue, but BEFORE step 6's best-effort drain. Waiting on `emitted`
+      // therefore lands inside a window in which the component's OWN failed
+      // send may or may not have been recorded yet, and the two outcomes are
+      // not equivalent: a recorded failure sets attempts=1 and
+      // last_attempt_at=now, which makes the entry not due for
+      // BACKOFF_SCHEDULE[0] = 5s, so a bare drain() below returns sent=0.
+      //
+      // That is the flake — a race between the component's internal drain and
+      // the test's, not a watcher-timing problem. The watcher is the thing
+      // that HOLDS the promise: FsWatchSurface.open() keeps every in-flight
+      // onCloseWrite (which awaits sink.emit(), which awaits capture(), which
+      // awaits the internal drain) in `inflight`, and settled() is the
+      // deterministic point at which all of it has finished. Sleeping would
+      // only make the window wider, not closed.
+      await h.component.fsWatch.settled();
+      // ---------------------------------------------------------------------
 
       const ev = h.component.submitter.emitted.find((e) => e.contentHash === sha256(bytes))!;
       assert.equal(h.ingest.received.length, 0, 'nothing should have been accepted');
@@ -520,13 +540,26 @@ describe('§5 — derive, MAC, ratchet, then enqueue', () => {
       assert.equal(queued.length, 1);
       assert.equal(queued[0].counter, ev.counter);
       assert.equal((queued[0].body as { mac?: string }).mac, ev.mac);
+      // Past the barrier this is now an assertion rather than a coin toss:
+      // the component tried, was refused, and wrote the refusal down. An
+      // enqueue with attempts=0 here would mean the failure path never ran.
+      assert.equal(queued[0].attempts, 1);
+      assert.ok(queued[0].last_attempt_at !== null);
       // And the ratchet moved on regardless: the next event gets the next
       // number, so there is no head-of-line blocking (§10 C-3).
       assert.equal(h.component.identity.counter, ev.counter + 1);
 
-      // Recovery.
+      // Recovery. The entry is genuinely not due for backoffSeconds(1) after
+      // that recorded attempt, so the drain is asked for a clock past it
+      // rather than the suite being asked to wait five real seconds. The
+      // backoff is behaviour under test, not an obstacle to it: draining at
+      // `now` must still return nothing.
       h.ingest.fail = false;
-      const drained = await h.component.submitter.drain();
+      const tooSoon = await h.component.submitter.drain();
+      assert.equal(tooSoon.sent, 0, 'backoff must hold the entry, not release it');
+      assert.equal(h.component.queue.count(), 1);
+
+      const drained = await h.component.submitter.drain(Date.now() + M.backoffSeconds(1) * 1000);
       assert.equal(drained.sent, 1);
       assert.equal(h.component.queue.count(), 0);
 

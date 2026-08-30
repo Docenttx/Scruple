@@ -466,3 +466,29 @@ A native driver or `inotifywait(1)` closes this properly. The spec should say
 "on write completion, observed as precisely as the runtime permits, and the
 approximation named" rather than naming a syscall-level event as though every
 runtime exposes it.
+
+### C-11 · §7 says "each must fail" and stops — silence there is how a skip becomes a pass (WO-9)
+Five defects in §7, found by implementing it:
+
+- **Probe 6 is stale.** As written it predates C-3's acceptance window and would
+  now **fail a conformant server** for correctly accepting a draining queue.
+  Reimplemented as a replay-defence probe: forged submissions inside the window,
+  far below and far above, all refused.
+- **§7 never says what a probe that could not run means.** It must mean
+  `inconclusive`, and inconclusive must never be a pass.
+- **Probes 1, 2, 3 and 7 are topological** — they ask "can the tenant reach X?",
+  which a process in the same namespace cannot answer by observation and a
+  process outside answers about the wrong position. **The run must record which
+  position it occupied** (`probe_vantage`); §7 assumed the vantage and therefore
+  could not report it. This is `sonobuoy-conformance.md` §5.2's "P1 and P3 are
+  the irreducible cases" reached from the implementation end.
+- **Probe 7 needs a declared negative control** — an endpoint the position *is*
+  expected to reach. Without one, "nothing got out" is indistinguishable from an
+  air-gapped runner, and the probe reports a pass it did not earn.
+- **Probe 4 needs three outcomes**, not two: witnessed / unwitnessed / **surface
+  absent**. Canvas has no filesystem-watch surface at all, and scoring its
+  absence as a pass would score the absence of a surface as a success.
+
+**C-8 has no configuration to express it.** `CaptureConfig.outputVolume` is
+singular, so watching `output/`, `temp/` and `input/` is satisfiable today only
+by mounting all three under one root and relying on a recursive watch.
