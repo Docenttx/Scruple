@@ -257,5 +257,5 @@ export const CANVAS_BASELINE = {
    * To re-record after an intended change:
    *   npx tsx -e "import('./lib/canvas/baseline').then(m=>console.log(m.tamperSurface().tamper_surface_hash))"
    */
-  tamper_surface_hash: '3052283e41035597768fb40af65503c267e2b1ba5adb78efe85ff10b1db33933',
+  tamper_surface_hash: '63c242781e04018abbef8a72d19a7a78dd1cf0210562169425b0249d632a28d8',
 } as const;
