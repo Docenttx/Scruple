@@ -384,3 +384,22 @@ already a uniformly random 32-byte PRK, so re-extracting buys nothing and would
 need a salt the chain does not have. Both suites pin this, because "fixing" it
 to full HKDF later would be silent everywhere except in the field, where it
 would invalidate every provisioned component.
+
+### C-6 · The upward bound is the one that still needs work (2026-08-30, from WO-4)
+WO-4 measured a ratchet step at **~5.8 µs**, so `MAX_RATCHET_ADVANCE = 100_000`
+is **~584 ms of CPU before the MAC is checked** — roughly 40× the worst case the
+new downward acceptance window admits. C-2 bounded the primitive; it did not
+price it.
+
+**The structural fix is not a smaller number.** Require the submission to be
+authenticated (tenant API key, as C-5 already requires for provisioning)
+**before** any ratcheting occurs. Then the unauthenticated cost is zero and
+`MAX_RATCHET_ADVANCE` bounds only authenticated abuse, where a tenant burning
+their own quota is a billing question rather than a denial-of-service one.
+Lowering the cap without that just trades a DoS window for a legitimate-backlog
+ceiling — a component offline through the full §5 backoff can accumulate a deep
+queue, and refusing its drain destroys exactly the evidence the queue exists to
+preserve.
+
+Sequence: authenticate first, then reconsider the number with backlog depth as
+the only input.

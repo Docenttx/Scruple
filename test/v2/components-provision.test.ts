@@ -445,14 +445,24 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
 
   test('a LOWER counter is rejected even with a MAC that would otherwise verify', () => {
     // The strongest form: the attacker replays a genuine, correctly MACed
-    // event under a counter already consumed. Strict increase is the only
-    // thing that stops it, so it is checked before the MAC.
+    // event under a counter already consumed.
+    //
+    // AMENDED BY §10 C-3, and this is the exact case the amendment had to
+    // be careful about. Strict increase used to be what stopped this, and
+    // it is gone — a counter below the high-water mark is now acceptable
+    // if it is unseen and inside the acceptance window, because that is a
+    // queued event draining late (§5) rather than a replay. What stops
+    // THIS one is that no open gap claims counter 1: these four events
+    // were delivered consecutively, so nothing was ever outstanding. The
+    // DELETE below is the point of the test — even with the event row
+    // gone, the gap table is a second, independent record that says the
+    // counter was spent, and it is believed.
     const { componentId, sent } = running(4);
     M.conn().prepare(`DELETE FROM component_events WHERE component_id = ? AND counter = 1`).run(componentId);
     const r = M.verifySubmission({ componentId, ...sent[1] });
     assert.equal(r.ok, false);
     assert.equal((r as { reason: string }).reason, 'replay');
-    assert.match((r as { message: string }).message, /not greater/);
+    assert.match((r as { message: string }).message, /no open gap claims it/);
   });
 
   test('event 0 cannot be replayed on a component that has verified event 0', () => {
