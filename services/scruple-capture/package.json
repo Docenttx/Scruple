@@ -1,0 +1,12 @@
+{
+  "name": "scruple-capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The capture component a vendor deploys in front of ComfyUI and does not author. H-4 §2: owns BOTH output surfaces.",
+  "type": "commonjs",
+  "bin": { "scruple-capture": "./src/index.ts" },
+  "scripts": {
+    "start": "node --import tsx src/index.ts",
+    "measure": "node --import tsx src/build-measurement.ts"
+  }
+}

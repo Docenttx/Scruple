@@ -403,3 +403,62 @@ preserve.
 
 Sequence: authenticate first, then reconsider the number with backlog depth as
 the only input.
+
+### C-7 · §3's route table was an enumeration presented as a boundary (WO-7)
+Four further ComfyUI routes return retrievable artifact bytes and touch neither
+`output/` nor `/view`: `GET /userdata/{file}` (`app/user_manager.py:334`, with
+`POST` at `:342` writing arbitrary bytes there first — a complete
+store-and-retrieve path), `GET /api/assets/{uuid}/content`
+(`app/assets/api/routes.py:269`, behind `--enable-assets`, which a tenant picks
+in a BYO-container configuration), `GET /experiment/models/preview/...`
+(`app/model_manager.py:52`), and `GET /internal/files/...`
+(`internal_routes.py:54`, listing rather than bytes, but it enumerates all three
+directories for a tenant deciding what to fetch).
+
+Treat §3 as a **denylist that will rot with every ComfyUI release**, not a
+boundary. WO-7's gate covers all four plus a tripwire that logs any other 2xx
+binary response as unenumerated egress, so the next release surfaces as a log
+line rather than a silence.
+
+### C-8 · §2 obligation 3 is one directory short — two, actually
+`PreviewImage` (`nodes.py:1684-1690`) is a `SaveImage` subclass whose
+`output_dir` is `folder_paths.get_temp_directory()`. **It writes full images to
+`temp/`, not `output/`.** A watcher on `output/` alone misses every one, and a
+tenant with a shell reads `temp/` directly. `LoadImage` inputs live in `input/`.
+
+**Obligation 3 now reads: `output/`, `temp/` and `input/` are all mounted and
+all watched.**
+
+### C-9 · The two-surface claim is necessary, not sufficient — this component is an INGRESS gate
+§2 says owning both surfaces means a tenant "cannot produce a retrievable
+artifact with no leaf." **That is false as written**, and WO-7 found the
+counterexample: `comfy_api_nodes/` ships ~25 in-tree node packs that open
+`aiohttp` sessions to external services from **inside** the ComfyUI process
+(e.g. `nodes_topaz.py:421`), and any custom node can POST an image anywhere.
+Those bytes leave through neither the gate nor the output volume.
+
+§2's obligations constrain what can *reach* ComfyUI and say nothing about what
+ComfyUI can *reach*. My error was symmetrical-sounding language — "owns both
+surfaces" — for a component that only ever faced one direction.
+
+- **New §2 obligation 4:** egress from the workload container is denied except
+  through the component.
+- **New §7 probe 7:** from inside the tenant container, an outbound connection
+  to an arbitrary external host must fail.
+
+Until obligation 4 is enforced by the vendor's topology, the correct claim is
+*"every artifact retrieved through the sanctioned path is witnessed"* — which is
+still the P2PE posture of §6, but it is a narrower sentence than §2 was making.
+
+### C-10 · `IN_CLOSE_WRITE` is not reachable from Node
+§3 specifies hash-on-`IN_CLOSE_WRITE`. libuv's inotify mask registers
+`IN_ATTRIB|IN_CREATE|IN_MODIFY|IN_DELETE|IN_MOVED_*` and **no close event**, so
+a Node component cannot observe the trigger the spec names. WO-7 approximates it
+with a settle timer plus size-stability re-arm and documents both failure modes —
+notably that a writer stalling past the window hashes a partial file and then
+produces a second hash, **which reads exactly like the tamper case it is not.**
+
+A native driver or `inotifywait(1)` closes this properly. The spec should say
+"on write completion, observed as precisely as the runtime permits, and the
+approximation named" rather than naming a syscall-level event as though every
+runtime exposes it.
