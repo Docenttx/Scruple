@@ -76,20 +76,62 @@ export interface CadAssertionData {
 export type C2paIntent = 'CREATE' | 'EDIT' | 'UPDATE';
 
 /**
- * IPTC Digital Source Type — required on the inception action per
- * C2PA v2 spec. Values map 1:1 to c2pa-python's C2paDigitalSourceType
- * enum names. Defaults to TRAINED_ALGORITHMIC_MEDIA — the accurate
- * marker for Scruple's canonical use case (signing GenAI output).
+ * IPTC Digital Source Type — required on the inception action per the
+ * C2PA v2 spec, and REQUIRED on SignAssetInput. There is no default.
+ *
+ * There used to be one. `digitalSourceType` fell back to
+ * TRAINED_ALGORITHMIC_MEDIA and no plugin path ever overrode it. The
+ * plugin market exists to prove an artifact was made WITHOUT generative
+ * AI — Fusion, Blender, Meshroom and Toon Boom are CAD / 3D / animation
+ * hosts that run no inference — so that fallback wrote the exact
+ * opposite claim into a signed, third-party-verifiable manifest. That is
+ * a false signed claim, not a wrong-looking field. Latent on Fusion (no
+ * CAD MIME is C2PA-signable today), live on Blender, whose PNG and JPEG
+ * renders are.
+ *
+ * The fix is the posture the canon already takes everywhere else —
+ * CANON_SKELETON.md §5 property 2 (an unknown modality fails closed),
+ * capture()'s refusal without an explicit `mime`
+ * (packages/scruple-host-sdk/scruple_host_sdk/capture.py), and the
+ * Signer's fail-closed assertion allowlist. The caller wrote the asset
+ * and knows how it was made; this module does not guess. A caller that
+ * does not declare gets a refusal.
+ *
+ * Values are c2pa-python C2paDigitalSourceType enum names. The two that
+ * matter to Scruple, with the URIs c2pa 0.36.0 actually emits — verified
+ * by signing a PNG at each value and reading the manifest back through
+ * c2pa.Reader, not by reading the enum:
+ *
+ *   TRAINED_ALGORITHMIC_MEDIA
+ *     http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia
+ *     GenAI output. Correct for the canvas / ComfyUI / Modal flow.
+ *   DIGITAL_CREATION
+ *     http://cv.iptc.org/newscodes/digitalsourcetype/digitalCreation
+ *     IPTC term "Digital creation": "Media created by a human using
+ *     non-generative tools." Correct for every plugin host.
  */
-export type C2paDigitalSourceType =
-  | 'TRAINED_ALGORITHMIC_MEDIA'         // GenAI-produced (Scruple default)
-  | 'ALGORITHMIC_MEDIA'                 // deterministic algorithm, no ML
-  | 'ALGORITHMICALLY_ENHANCED'          // input enhanced by algorithm
-  | 'COMPOSITE_WITH_TRAINED_ALGORITHMIC_MEDIA'
-  | 'HUMAN_EDITS'                       // human-in-the-loop editing
-  | 'DIGITAL_CREATION'                  // digital artist creation
-  | 'DATA_DRIVEN_MEDIA'                 // data-driven synthesis
-  | 'EMPTY';                            // no explicit source type
+export const C2PA_DIGITAL_SOURCE_TYPES = [
+  'TRAINED_ALGORITHMIC_MEDIA',            // GenAI-produced
+  'ALGORITHMIC_MEDIA',                    // pure algorithm, no training data
+  'ALGORITHMICALLY_ENHANCED',             // input enhanced by algorithm
+  'COMPOSITE_WITH_TRAINED_ALGORITHMIC_MEDIA',
+  'HUMAN_EDITS',                          // human-in-the-loop editing
+  'DIGITAL_CREATION',                     // human, non-generative tools
+  'DATA_DRIVEN_MEDIA',                    // data-driven synthesis
+  'EMPTY',                                // declines to state — still a declaration
+] as const;
+
+export type C2paDigitalSourceType = (typeof C2PA_DIGITAL_SOURCE_TYPES)[number];
+
+/**
+ * Runtime twin of the union above. The union is erased at compile time,
+ * so a JS caller, an `as any`, or a JSON body could still push an
+ * undeclared value through. Derived from the same array so the two
+ * cannot drift.
+ */
+const DIGITAL_SOURCE_TYPE_SET: ReadonlySet<string> = new Set(
+  C2PA_DIGITAL_SOURCE_TYPES,
+);
 
 export interface SignAssetInput {
   assetPath: string;
@@ -103,8 +145,11 @@ export interface SignAssetInput {
   format?: string; // MIME type; defaults from asset extension
   /** C2PA v2 intent. Defaults to CREATE. */
   intent?: C2paIntent;
-  /** digitalSourceType on the inception action. Defaults to TRAINED_ALGORITHMIC_MEDIA. */
-  digitalSourceType?: C2paDigitalSourceType;
+  /**
+   * digitalSourceType on the inception action. REQUIRED — no default,
+   * no inference from `product`. See C2paDigitalSourceType above.
+   */
+  digitalSourceType: C2paDigitalSourceType;
 }
 
 export interface SignAssetResult {
@@ -308,6 +353,28 @@ function buildSupplementaryActions(_input: SignAssetInput): Array<Record<string,
 export async function signAsset(
   input: SignAssetInput,
 ): Promise<SignAssetResult | SignAssetError> {
+  // digitalSourceType is checked FIRST — before the asset even has to
+  // exist. An undeclared source type is not a missing convenience; it
+  // is the caller declining to say whether generative AI was involved,
+  // and the only honest thing to emit in that case is nothing.
+  if (
+    typeof input.digitalSourceType !== 'string' ||
+    !DIGITAL_SOURCE_TYPE_SET.has(input.digitalSourceType)
+  ) {
+    return {
+      ok: false,
+      error:
+        `signAsset() requires an explicit digitalSourceType and will not ` +
+        `guess one. There is no default: a default of ` +
+        `TRAINED_ALGORITHMIC_MEDIA signs a claim that generative AI made ` +
+        `this asset, which is the opposite of what the plugin hosts exist ` +
+        `to prove. Declare TRAINED_ALGORITHMIC_MEDIA for GenAI output, ` +
+        `DIGITAL_CREATION for a human working in a non-generative tool ` +
+        `(CAD, 3D, animation). Got: ${JSON.stringify(input.digitalSourceType)}. ` +
+        `Valid: ${C2PA_DIGITAL_SOURCE_TYPES.join(', ')}.`,
+    };
+  }
+
   try {
     await fs.access(input.assetPath);
   } catch {
@@ -329,7 +396,9 @@ export async function signAsset(
     key_path: process.env.SCRUPLE_C2PA_KEY ?? DEV_KEY,
     manifest: buildManifest(input),
     intent: input.intent ?? 'CREATE',
-    digital_source_type: input.digitalSourceType ?? 'TRAINED_ALGORITHMIC_MEDIA',
+    // No `??` fallback here, and none in sign.py either. Both ends
+    // refuse rather than guess.
+    digital_source_type: input.digitalSourceType,
     actions: buildSupplementaryActions(input),
   };
 

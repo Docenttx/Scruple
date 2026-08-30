@@ -99,6 +99,13 @@ async function main(): Promise<number> {
       asset_path: SOURCE_ASSET,
       product: 'studio',
       tier: 'bare',
+      // Declared, never defaulted. The default fixture is
+      // public/scruple_wordmark_crimson.png — a hand-drawn wordmark, not
+      // model output — so DIGITAL_CREATION is the true claim for these
+      // bytes. Declaring TRAINED_ALGORITHMIC_MEDIA here because the
+      // product is 'studio' is exactly the inference the route now
+      // refuses to make.
+      digital_source_type: 'DIGITAL_CREATION',
     }),
   });
   const signJson = (await signResp.json()) as {
@@ -176,6 +183,7 @@ async function main(): Promise<number> {
       asset_path: SOURCE_ASSET,   // same asset, but different sign event
       product: 'studio',
       tier: 'bare',
+      digital_source_type: 'DIGITAL_CREATION',
     }),
   });
   const secondJson = (await secondSign.json()) as {

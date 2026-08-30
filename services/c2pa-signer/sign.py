@@ -21,9 +21,9 @@ Job spec:
         },
         "intent": "CREATE",               # C2paBuilderIntent name;
                                           # defaults to CREATE
-        "digital_source_type":            # C2paDigitalSourceType name;
-            "TRAINED_ALGORITHMIC_MEDIA",  # defaults to
-                                          # TRAINED_ALGORITHMIC_MEDIA
+        "digital_source_type":            # C2paDigitalSourceType name.
+            "DIGITAL_CREATION",           # REQUIRED — no default. See
+                                          # the note below.
         "actions": [                      # supplementary actions, added
             {"action": "c2pa.published",  # AFTER SDK's inception c2pa.created
              "softwareAgent": "Scruple/0.1"}
@@ -44,6 +44,31 @@ Signing path:
 The callback dispatches to OCI Vault (Sign API) when
 SCRUPLE_C2PA_VAULT_KEY_OCID is set; otherwise loads the local PEM.
 Same output shape either way — c2pa-python doesn't need to know.
+
+digital_source_type is REQUIRED and has no default.
+
+It used to default to TRAINED_ALGORITHMIC_MEDIA, and lib/c2pa/signAsset.ts
+carried the same fallback, and no plugin path overrode either. The plugin
+market is proof that an artifact was made WITHOUT generative AI — Fusion,
+Blender, Meshroom and Toon Boom run no inference — so the default wrote
+the opposite claim into a signed, third-party-verifiable manifest. A
+false signed claim, not a cosmetic field. Latent on Fusion (no CAD MIME
+is C2PA-signable today), live on Blender's PNG/JPEG renders.
+
+So this file now refuses rather than guesses, the same posture as
+assertion_partition.py's fail-closed allowlist and capture()'s explicit
+`mime` in packages/scruple-host-sdk. The caller made the asset and knows
+how; the Signer does not. Correct values, with the URIs c2pa 0.36.0
+actually emits (verified by signing and reading back, not by reading the
+enum):
+
+    TRAINED_ALGORITHMIC_MEDIA
+      http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia
+      GenAI output — the canvas / ComfyUI / Modal flow.
+    DIGITAL_CREATION
+      http://cv.iptc.org/newscodes/digitalsourcetype/digitalCreation
+      IPTC "Digital creation": media created by a human using
+      non-generative tools. Every plugin host.
 
 Actions are constructed via Builder.set_intent() (inception action +
 digitalSourceType) and Builder.add_action() (supplementary actions) —
@@ -78,6 +103,31 @@ def main() -> int:
     except KeyError as e:
         print(json.dumps({"ok": False, "error": f"missing field {e}"}))
         return 1
+
+    # digital_source_type is checked HERE — at job-spec parse time,
+    # before the SDK loads, before the age and patch guards run, before
+    # anything touches the asset. It is not a signing detail that can be
+    # filled in later; it is the caller's declaration of whether
+    # generative AI made these bytes, and without it there is nothing
+    # honest to sign. The enum-name lookup happens further down, where
+    # c2pa is imported.
+    dst_name = job.get("digital_source_type")
+    if not isinstance(dst_name, str) or not dst_name.strip():
+        print(json.dumps({
+            "ok": False,
+            "error": (
+                "job spec requires an explicit digital_source_type and the "
+                "Signer will not guess one. There is no default: a default "
+                "of TRAINED_ALGORITHMIC_MEDIA signs a claim that generative "
+                "AI made this asset, which is the opposite of what the "
+                "plugin hosts exist to prove. Use TRAINED_ALGORITHMIC_MEDIA "
+                "for GenAI output, DIGITAL_CREATION for a human working in "
+                "a non-generative tool (CAD, 3D, animation). "
+                f"Got: {dst_name!r}."
+            ),
+        }))
+        return 1
+    dst_name = dst_name.strip()
 
     # key_path is honored only in LOCAL mode (i.e., when the Vault OCID
     # env var is unset). In Vault mode, key material is inside OCI Vault
@@ -257,7 +307,11 @@ def main() -> int:
         # (c2pa.created or c2pa.opened depending on intent) first, with
         # the required digitalSourceType field.
         intent_name = job.get("intent", "CREATE")
-        dst_name = job.get("digital_source_type", "TRAINED_ALGORITHMIC_MEDIA")
+        # Already validated as present and non-empty at job-spec parse
+        # time. No `job.get(..., default)` here or anywhere: an absent
+        # digital_source_type is the caller declining to say whether
+        # generative AI was involved, and the only honest manifest to
+        # emit in that case is none at all.
         try:
             intent = getattr(c2pa.C2paBuilderIntent, intent_name)
         except AttributeError:

@@ -10,8 +10,18 @@
 //     "asset_path": "/tmp/x.png", // absolute path on the signer host
 //     "product": "studio" | "fusion",
 //     "tier": "bare" | "witnessed" | "local" | "chain",
+//     "digital_source_type": "TRAINED_ALGORITHMIC_MEDIA",  // REQUIRED
 //     "title": "optional"
 //   }
+//
+// `digital_source_type` is required and the route will not infer it —
+// not from `product`, not from the file extension. It is the one field
+// that decides whether the signed manifest asserts "generative AI made
+// this" or "a human made this with non-generative tools", and only the
+// caller knows which. `product: 'studio'` is not a proxy: Studio spans
+// ComfyUI generation (TRAINED_ALGORITHMIC_MEDIA) and hand-authored
+// work. Absent or unrecognised → 400, never a guess. See the note on
+// C2paDigitalSourceType in lib/c2pa/signAsset.ts.
 //
 // The endpoint reads the project + iteration rows to fill the Scruple
 // assertion payload appropriate to `tier`, then invokes signAsset().
@@ -24,7 +34,12 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import { requireUser } from '@/lib/auth/apiKey';
 import { conn } from '@/lib/db/sqlite';
-import { signAsset, type LockTier, type ScrupleAssertionData } from '@/lib/c2pa/signAsset';
+import {
+  signAsset,
+  C2PA_DIGITAL_SOURCE_TYPES,
+  type LockTier,
+  type ScrupleAssertionData,
+} from '@/lib/c2pa/signAsset';
 import { ensurePrincipalForUser } from '@/lib/witness/principalForUser';
 import { emitC2paSignLeaf } from '@/lib/witness/scrupleInternalEmit';
 
@@ -36,6 +51,11 @@ const Body = z.object({
   asset_path: z.string().min(1),
   product: z.enum(['studio', 'fusion']),
   tier: z.enum(['bare', 'witnessed', 'local', 'chain']),
+  // Required. z.enum over the same const array signAsset exports, so the
+  // wire contract and the library contract cannot drift.
+  digital_source_type: z.enum(
+    C2PA_DIGITAL_SOURCE_TYPES as unknown as [string, ...string[]],
+  ),
   title: z.string().max(200).optional(),
 });
 
@@ -112,7 +132,18 @@ export async function POST(req: NextRequest) {
   try {
     body = Body.parse(await req.json());
   } catch (e) {
-    return NextResponse.json({ error: 'Invalid body', detail: (e as Error).message }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: 'Invalid body',
+        detail: (e as Error).message,
+        hint:
+          `digital_source_type is required and is not inferred. ` +
+          `TRAINED_ALGORITHMIC_MEDIA for generative-AI output; ` +
+          `DIGITAL_CREATION for a human working in a non-generative tool ` +
+          `(CAD, 3D, animation). One of: ${C2PA_DIGITAL_SOURCE_TYPES.join(', ')}.`,
+      },
+      { status: 400 },
+    );
   }
 
   const db = conn();
@@ -166,6 +197,7 @@ export async function POST(req: NextRequest) {
     product: body.product,
     tier: body.tier,
     title: body.title ?? project.name,
+    digitalSourceType: body.digital_source_type as (typeof C2PA_DIGITAL_SOURCE_TYPES)[number],
     scruple,
   });
 
