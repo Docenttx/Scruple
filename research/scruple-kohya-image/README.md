@@ -120,3 +120,46 @@ pm2 save
 - **`credential: "global-deprecated"` in the response**: the deployment still
   has `SCRUPLE_APPS_WITNESS_SECRET` set and something is still signing with it.
   Unset it.
+
+---
+
+## The job-API image — WO-19
+
+`Dockerfile.jobapi` + `start-jobapi.sh` are a **second, different image**, not
+a revision of the one above. Both are kept because they are two
+configurations with two tiers, and certification is per configuration
+(`docs/canon/PLACEMENT_AND_SURFACES.md` §4.2).
+
+| | `Dockerfile` (GUI) | `Dockerfile.jobapi` |
+|---|---|---|
+| Tenant surface | Kohya's Gradio launcher, port 7860 | the capture component's job API, port 8899 |
+| Installed | `bmaltais/kohya_ss` (GUI + sd-scripts) | `kohya-ss/sd-scripts` only |
+| PID 1 | Kohya | the capture component |
+| Capture | `sitecustomize.py` inside the boundary it measures | the component, watching the checkpoint volume |
+| Placement | `unattested-client` — no leaf may be issued | `server-library` — leaf `passthrough` |
+
+**Why the GUI is not installed rather than not exposed.** Gradio is a
+training-command launcher: `lora_gui.py` builds an `accelerate launch …` argv
+and runs it through `subprocess.Popen`, and `common_gui.py`'s
+`additional_parameters` box appends arbitrary flags to that argv — including
+`--network_module`, which is an import path. An image with that in it is one
+environment variable from being a second configuration with a worse tier, so
+it is not in the image.
+
+**Why `SD_SCRIPTS_REF` is pinned.** `lib/apps/kohya/arguments.ts` classifies
+181 of the 198 arguments on the `train_network.py` surface and denies the 17
+it could not classify. An argument added upstream after that table was written
+is unclassified and therefore denied — which is only true while the ref is
+pinned. **Bumping it is a review of that table, not a version bump.**
+
+**Selecting it.** `SCRUPLE_KOHYA_SURFACE=job-api` plus
+`RUNPOD_KOHYA_JOBAPI_TEMPLATE_ID`. The mode defaults to `gui` and the spawn
+**fails** rather than falling back if the template id is missing: a silent
+downgrade from `server-library` to `unattested-client` is the failure the
+placement axis exists to make impossible.
+
+**Still outstanding.** The image has not been built and no H-4 §7 probe has
+been run against it, so the two obligations `placement.ts` marks
+`basis: 'declaration'` — no code-executing surface exposed, component is
+PID 1 — are claims. They are reported in every job response as `needs_probe`
+for exactly that reason.

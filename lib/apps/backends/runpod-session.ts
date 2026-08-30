@@ -27,8 +27,15 @@ import {
 } from '../session-backends';
 import {
   getRunpodMachineById,
-  RUNPOD_KOHYA_GRADIO_PORT,
+  kohyaPortFor,
+  kohyaSurfaceMode,
+  type KohyaSurfaceMode,
 } from '../runpod-machines';
+import {
+  STUDIO_GUI_CONFIGURATION,
+  STUDIO_JOB_API_CONFIGURATION,
+  resolveStudioKohyaPlacement,
+} from '../kohya/placement';
 
 const RUNPOD_REST_BASE = 'https://rest.runpod.io/v1';
 
@@ -75,6 +82,9 @@ async function podCreate(opts: {
   containerDiskInGb: number;
   volumeInGb: number;
   cloudType: 'COMMUNITY' | 'SECURE' | 'ALL';
+  /** The ONE port the tenant can reach. WO-19: in 'job-api' mode this is the
+   *  component's, and the trainer has no port at all. */
+  exposedPort: number;
   env?: Record<string, string>;
 }): Promise<{ podId: string }> {
   const body = {
@@ -86,7 +96,7 @@ async function podCreate(opts: {
     containerDiskInGb: opts.containerDiskInGb,
     volumeInGb: opts.volumeInGb,
     cloudType: opts.cloudType,
-    ports: [`${RUNPOD_KOHYA_GRADIO_PORT}/http`],
+    ports: [`${opts.exposedPort}/http`],
     env: opts.env ?? {},
   };
   const res = await runpodRest<{ id: string }>('/pods', {
@@ -180,16 +190,28 @@ async function waitForPodPortHttp(
  * sealed IK in a container the tenant cannot reach, which is
  * services/scruple-capture/kohya/ and its refusal.
  */
-export function podEnvFor(req: SpawnRequest): Record<string, string> {
+export function podEnvFor(
+  req: SpawnRequest,
+  mode: KohyaSurfaceMode = 'gui',
+): Record<string, string> {
   const witnessUrl = process.env.NEXT_PUBLIC_APP_BASE_URL ?? 'https://scruple.stooges.ai';
+  // WO-19. The label is DERIVED from the configuration the pod will actually
+  // run, not written down beside it: `gui` exposes Kohya's command launcher
+  // and resolves to `unattested-client`; `job-api` exposes the component and
+  // resolves to `server-library`. If someone adds a free-form argument field
+  // to the whitelist, this string changes without anyone remembering to
+  // change it — see lib/apps/kohya/placement.ts.
+  const assurance = resolveStudioKohyaPlacement(
+    mode === 'job-api' ? STUDIO_JOB_API_CONFIGURATION : STUDIO_GUI_CONFIGURATION,
+  );
   const env: Record<string, string> = {
     SCRUPLE_USER_ID: req.userId,
     SCRUPLE_APP_ID: req.appId,
     SCRUPLE_WITNESS_URL: `${witnessUrl}/api/apps/${req.appId}/witness`,
     // Not a claim, a label. See PLACEMENT_AND_SURFACES.md §4 — placement is
     // not topology, and "server-side" does not lift it.
-    SCRUPLE_PLACEMENT: 'unattested-client',
-    SCRUPLE_CAN_WITNESS: '0',
+    SCRUPLE_PLACEMENT: assurance.placement,
+    SCRUPLE_CAN_WITNESS: assurance.mayIssueLeaf ? '1' : '0',
   };
   if (req.sessionId) env.SCRUPLE_SESSION_ID = req.sessionId;
   if (req.sessionToken) env.SCRUPLE_SESSION_TOKEN = req.sessionToken;
@@ -203,19 +225,37 @@ class RunpodSessionBackend implements SessionBackend {
     const machine = getRunpodMachineById(req.machineId);
     if (!machine) throw new Error(`Unknown RunPod machine id '${req.machineId}'`);
 
+    // WO-19. The surface mode picks the image AND the exposed port together,
+    // because they are one decision: an image whose component listens on 8899
+    // reached through a pod that exposes 7860 is a broken deployment, and an
+    // image with Gradio in it reached through a pod that exposes 8899 is a
+    // worse one — a GUI one env var from being exposed is a second
+    // configuration, and certification is per configuration.
+    const mode = req.appId === 'kohya' ? kohyaSurfaceMode() : 'gui';
     const templateId =
       req.appId === 'kohya'
-        ? process.env.RUNPOD_KOHYA_TEMPLATE_ID
+        ? mode === 'job-api'
+          ? process.env.RUNPOD_KOHYA_JOBAPI_TEMPLATE_ID
+          : process.env.RUNPOD_KOHYA_TEMPLATE_ID
         : req.appId === 'forge'
           ? process.env.RUNPOD_FORGE_TEMPLATE_ID
           : undefined;
     if (!templateId) {
+      // Named explicitly rather than falling back to the GUI template: a
+      // silent downgrade from `server-library` to `unattested-client` is
+      // exactly the failure the placement axis exists to make impossible.
       throw new Error(
-        `RUNPOD_${req.appId.toUpperCase()}_TEMPLATE_ID unset — cannot spawn '${req.appId}' pod.`,
+        mode === 'job-api'
+          ? 'RUNPOD_KOHYA_JOBAPI_TEMPLATE_ID unset. SCRUPLE_KOHYA_SURFACE=job-api asks for the ' +
+            'image in research/scruple-kohya-image/Dockerfile.jobapi, which exposes the ' +
+            'component on 8899 and no GUI. Refusing to fall back to the GUI template — that ' +
+            'would run at `unattested-client` while the configuration claims `server-library`.'
+          : `RUNPOD_${req.appId.toUpperCase()}_TEMPLATE_ID unset — cannot spawn '${req.appId}' pod.`,
       );
     }
 
-    const env = podEnvFor(req);
+    const port = kohyaPortFor(mode);
+    const env = podEnvFor(req, mode);
 
     const { podId } = await podCreate({
       templateId,
@@ -225,14 +265,11 @@ class RunpodSessionBackend implements SessionBackend {
       containerDiskInGb: 40,
       volumeInGb: 40,
       cloudType: machine.cloud === 'community' ? 'COMMUNITY' : 'SECURE',
+      exposedPort: port,
       env,
     });
 
-    const url = await waitForPodPortHttp(
-      podId,
-      RUNPOD_KOHYA_GRADIO_PORT,
-      5 * 60 * 1000,
-    );
+    const url = await waitForPodPortHttp(podId, port, 5 * 60 * 1000);
 
     return {
       endpointId: podId,

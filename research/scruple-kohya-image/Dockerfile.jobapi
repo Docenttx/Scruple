@@ -1,0 +1,114 @@
+# Scruple × Kohya, JOB-API image — WO-19.
+#
+# One container, the component as PID 1, the trainer as its child, and NO
+# tenant-facing surface that runs tenant-supplied code. That is what makes the
+# placement `server-library` rather than `unattested-client`, and it is a
+# property of THIS FILE plus lib/apps/kohya/job-spec.ts — not of RunPod.
+#
+# Read Dockerfile (the GUI image) beside this one. The differences are the WO:
+#
+#   * kohya_ss's GUI is NOT INSTALLED. Only sd-scripts is, because the GUI is
+#     a training-command launcher and sd-scripts is a trainer. Installing the
+#     GUI "but not exposing it" would be a second configuration one env var
+#     away, and certification is per configuration (PLACEMENT_AND_SURFACES.md
+#     §4.2).
+#   * NO `sitecustomize.py`. The in-pod hook measured a boundary from inside
+#     it, which is why P2 called it unfixable in place. Capture now runs in the
+#     component, watching the checkpoint volume.
+#   * NO port 7860. The only exposed port is the job API's.
+#   * The trainer runs as an unprivileged user that does not own the
+#     component's state directory.
+#
+# THE PIN IS PART OF THE SECURITY ARGUMENT, not hygiene. lib/apps/kohya/
+# arguments.ts classifies 181 of the 198 arguments on the train_network.py
+# surface and DENIES the 17 it could not classify. An argument added upstream
+# after that table was written is unclassified and therefore denied — which is
+# only true while the ref is pinned. Bumping SD_SCRIPTS_REF is a review of that
+# table, not a version bump.
+#
+# Build — FROM THE REPOSITORY ROOT, because the component is TypeScript run
+# through tsx (services/scruple-capture/package.json has no build step, by the
+# same convention src/index.ts already uses) and it imports lib/apps/kohya/ and
+# lib/capture/. There is no `dist/` to copy and inventing one here would be a
+# path that does not exist:
+#
+#   docker build -f research/scruple-kohya-image/Dockerfile.jobapi \
+#                -t <registry>/scruple-kohya-jobapi:latest .
+#
+# RunPod template:
+#   - Expose HTTP: 8899   (the job API; NOT 7860)
+#   - Volume mount: /workspace
+#   - Env: SCRUPLE_USER_ID, SCRUPLE_APP_ID, SCRUPLE_SESSION_ID,
+#          SCRUPLE_SESSION_TOKEN, SCRUPLE_WITNESS_URL, SCRUPLE_PLACEMENT,
+#          SCRUPLE_CAN_WITNESS, and the four *_ROOT paths below.
+#   Save the template id as RUNPOD_KOHYA_JOBAPI_TEMPLATE_ID.
+
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+
+ARG SD_SCRIPTS_REF=37a1cbbc5725ed2a3575506e7bd2001c9908ac92
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONNOUSERSITE=1 \
+    SCRUPLE_KOHYA_MODELS_ROOT=/workspace/models \
+    SCRUPLE_KOHYA_DATASETS_ROOT=/workspace/datasets \
+    SCRUPLE_KOHYA_OUTPUT_ROOT=/workspace/out \
+    SCRUPLE_KOHYA_LOGGING_ROOT=/workspace/logs
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git curl ca-certificates libgl1 libglib2.0-0 nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# sd-scripts ONLY. The GUI is the launcher; we are replacing it.
+RUN git clone https://github.com/kohya-ss/sd-scripts.git /opt/kohya/sd-scripts \
+    && cd /opt/kohya/sd-scripts \
+    && git checkout ${SD_SCRIPTS_REF} \
+    && pip install -r requirements.txt
+
+# The capture component: job API on 8899, trainer as its child, checkpoint
+# watcher on the output root.
+#
+# ONLY THE THREE TREES IT IMPORTS. Not the whole repository — an image that
+# carries app/, scripts/ and test/ is an image whose contents are not the
+# thing being measured, and P2's whole difficulty on the old path was a
+# measured artifact sitting inside the boundary it measured.
+WORKDIR /opt/scruple-capture
+COPY package.json package-lock.json ./
+COPY services/scruple-capture ./services/scruple-capture
+COPY lib/apps/kohya ./lib/apps/kohya
+COPY lib/capture ./lib/capture
+COPY tsconfig.json ./
+# tsx is a devDependency, and the component is run through it — so this is
+# `npm ci` and not `--omit=dev`. Said out loud because "prod image, dev deps"
+# looks like a mistake and is not one.
+RUN npm ci
+COPY research/scruple-kohya-image/start-jobapi.sh ./start-jobapi.sh
+RUN chmod +x ./start-jobapi.sh
+
+# The trainer is not root and does not own the component's state. This is the
+# same sentence H-4 §4.4 makes about the sealed key expressed as a file mode:
+# obligation 2 restated for a single-container topology.
+RUN useradd -m -u 10001 trainer \
+    && mkdir -p /workspace/models /workspace/datasets /workspace/out /workspace/logs \
+    && chown -R trainer:trainer /workspace \
+    && mkdir -p /var/lib/scruple-capture && chmod 0700 /var/lib/scruple-capture
+
+EXPOSE 8899
+
+# PID 1 IS OURS, AND THE BASE IMAGE IS NOT ASKED NICELY.
+#
+# `runpod/pytorch` ships its own /start.sh and RunPod's own worked examples
+# `rm` it before installing their own — which means an inherited ENTRYPOINT is
+# a real thing that has bitten people, not a hypothetical. Two defences:
+#
+#   ENTRYPOINT []   clears whatever the base declared, so CMD is exec'd
+#                   directly and becomes process 1.
+#   the RUN below   FAILS THE BUILD if an inherited launcher is still present.
+#                   A build that fails is a deployment that never claims
+#                   `server-library`; a build that quietly runs somebody
+#                   else's init is one that claims it wrongly.
+RUN for f in /start.sh /docker-entrypoint.sh /entrypoint.sh /post_start.sh; do       if [ -e "$f" ]; then         echo "FATAL: base image ships $f. The capture component must be PID 1" >&2;         echo "(lib/apps/kohya/placement.ts obligation 5). Remove it deliberately" >&2;         echo "and record why, or build FROM a base that does not ship one." >&2;         exit 1;       fi;     done
+
+ENTRYPOINT []
+CMD ["/opt/scruple-capture/start-jobapi.sh"]

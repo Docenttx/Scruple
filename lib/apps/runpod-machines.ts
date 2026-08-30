@@ -12,6 +12,48 @@
 
 export const RUNPOD_KOHYA_GRADIO_PORT = 3001;
 
+/**
+ * The job API's port — WO-19. The component listens here and nothing else
+ * does; a pod in this mode exposes no Gradio, no Jupyter and no shell.
+ * research/scruple-kohya-image/Dockerfile.jobapi.
+ */
+export const RUNPOD_KOHYA_JOB_API_PORT = 8899;
+
+/**
+ * Which tenant-facing surface a Kohya pod exposes. THIS IS NOT A PREFERENCE;
+ * IT IS THE CONFIGURATION THE TIER IS COMPUTED FROM.
+ *
+ *   'gui'      Kohya's Gradio launcher on RUNPOD_KOHYA_GRADIO_PORT. The GUI's
+ *              `additional_parameters` box appends arbitrary flags to the
+ *              training argv and runs it through subprocess.Popen, so the
+ *              tenant has code execution in the container and the placement
+ *              is `unattested-client`. Events may be recorded as declared and
+ *              never reported as witnessed.
+ *
+ *   'job-api'  The capture component as PID 1 on RUNPOD_KOHYA_JOB_API_PORT,
+ *              accepting data and hyperparameters through the whitelist in
+ *              lib/apps/kohya/job-spec.ts. Placement `server-library`.
+ *
+ * THE DEFAULT IS 'gui', AND THAT IS DELIBERATE. `job-api` requires an image
+ * that has been built and a RunPod template that exposes 8899 and not 7860.
+ * Defaulting to the better tier would mean a deployment could CLAIM
+ * `server-library` while running the GUI image, which is the precise shape
+ * PLACEMENT_AND_SURFACES.md §4.2 exists to refuse: a declaration is not a
+ * boundary. Setting this to 'job-api' without RUNPOD_KOHYA_JOBAPI_TEMPLATE_ID
+ * fails the spawn rather than downgrading it silently.
+ */
+export type KohyaSurfaceMode = 'gui' | 'job-api';
+
+export function kohyaSurfaceMode(
+  env: NodeJS.ProcessEnv = process.env,
+): KohyaSurfaceMode {
+  return env.SCRUPLE_KOHYA_SURFACE === 'job-api' ? 'job-api' : 'gui';
+}
+
+export function kohyaPortFor(mode: KohyaSurfaceMode): number {
+  return mode === 'job-api' ? RUNPOD_KOHYA_JOB_API_PORT : RUNPOD_KOHYA_GRADIO_PORT;
+}
+
 export interface RunpodMachine {
   id: string;
   name: string;
