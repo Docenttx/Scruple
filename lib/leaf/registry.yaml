@@ -95,6 +95,123 @@ leaf_schemes:
       - server_timestamp
       - prev_record_hash
 
+# ── Canonicalization profiles ───────────────────────────────────────────
+# A leaf scheme says WHICH FIELDS enter a preimage and in what order. It
+# says nothing about how a field's own document is turned into bytes, and
+# that omission is what WO-21 was sent to fix: `workflow_hash`'s preimage
+# said "recursive key sort, no whitespace" and left every scalar to the
+# host language's JSON number formatter. `1e-5` is `0.00001` under
+# JavaScript and `1e-05` under Python, so two conforming implementations
+# computed different hashes for one document and each one's leaves failed
+# verification against the other — indistinguishable from tampering.
+#
+# The two axes are orthogonal and are named separately so a future change
+# to either is a bump rather than an edit. A leaf's replay needs BOTH: the
+# scheme for the field order, the profile for the bytes.
+canonicalization_profiles:
+  insertion-order-1:
+    brief: >-
+      `JSON.stringify(doc)` in the object's own key order. What
+      `workflow_hash` was before ec188d6 (2026-07-13, "WO-A2 canonical
+      workflow_hash — sorted keys, whitespace-free").
+    status: superseded
+    replay_only: true
+    found_by: >-
+      WO-21, while looking for leaves the number-formatting bug had
+      damaged. It found an older break instead. `data/scruple.db` holds
+      seven rows with a workflow_hash; FOUR of them — ids 166..169,
+      written 2026-07-05 — are not reproducible under the preimage this
+      registry documents, in either language. Their `input_hash`
+      reproduces exactly from the same stored spec, which proves the
+      document is intact and the FORMULA is what changed.
+    the_actual_defect: >-
+      ec188d6 was the right change and it shipped WITHOUT a version
+      marker. Those four rows carry `leaf_scheme: 'v2.2'`, identical to
+      the rows written after it, so nothing in the record tells an
+      auditor which rule to replay — and replaying them under the
+      documented preimage produces a mismatch that reads as tampering.
+      This section exists because the estate has now demonstrated it will
+      change a preimage rule again.
+    replayability: >-
+      Both languages happen to reproduce all four, because these graphs
+      are keyed "3", "4", "5"… and numeric-like keys order the same way
+      under V8's object ordering and Python's insertion order. A
+      COINCIDENCE OF THIS CORPUS, not a property of the profile: a
+      pre-2026-07-13 graph with non-numeric top-level keys would be
+      reproducible only in the serializer that wrote it.
+    implementations:
+      - lib/leaf/canonicalJson.ts#canonicalizeInsertionOrder   # replay only
+    fixtures: >-
+      All four rows, with their graphs, are in
+      test/vectors/canonicalization-vectors.json under
+      `legacy_leaves[].profile = insertion-order-1`, and both suites
+      assert both halves: that the old rule reproduces them and that the
+      current rule does not.
+
+  legacy-1:
+    brief: >-
+      What shipped before WO-21. Recursive key sort by UTF-16 code unit,
+      arrays in order, no whitespace, scalars via JavaScript
+      `JSON.stringify`. Complete for structure and undefined for numbers,
+      because it delegated them to the host language.
+    status: superseded
+    replay_only: true
+    known_defects:
+      - >-
+        Number formatting was whatever the implementing language did. The
+        divergence is measured in docs/canon/CANONICALIZATION.md §2.
+      - >-
+        NaN and Infinity serialised to `null` — a false record, not a
+        refusal.
+      - >-
+        `undefined` produced the literal text `undefined` and a sparse
+        array produced `[1,,2]`, neither of which is JSON, so no verifier
+        in any language could reproduce the hash.
+      - >-
+        A Date, a Map or any class instance canonicalized to `{}` and the
+        hash committed to nothing.
+    implementations:
+      - lib/leaf/canonicalJson.ts#canonicalizeLegacy   # replay only
+
+  jcs-1:
+    brief: >-
+      RFC 8785, the JSON Canonicalization Scheme. Numbers per ECMA-262
+      §7.1.12.1 (§3.2.2.3), property names sorted as arrays of UTF-16 code
+      units (§3.2.3), string escaping per §3.2.2.2, NaN and Infinity
+      refused. Every JSON number is an IEEE-754 double, so `1` and `1.0`
+      are the same value and canonicalize identically.
+    status: current
+    spec: "RFC 8785 §3.2.2.2, §3.2.2.3, §3.2.3"
+    implementations:
+      - lib/leaf/canonicalJson.ts                       # TypeScript
+      - packages/scruple-api/scruple_api/canonical.py   # Python
+    vectors: test/vectors/canonicalization-vectors.json
+    why_no_leaf_scheme_bump: >-
+      RFC 8785 mandates ECMAScript's own Number::toString and a UTF-16
+      code-unit key sort, which is exactly what `JSON.stringify` and
+      `Array#sort` were already doing. jcs-1 and legacy-1 are therefore
+      BYTE-IDENTICAL over every document that is valid JSON, and no leaf
+      that exists changed value. The behaviour that changed is refusal:
+      four classes of non-JSON value that legacy-1 answered for, wrongly
+      and silently, now raise. The claim is not an argument — it is
+      pinned by `legacy_leaves` in the vector file, which carries hashes
+      captured from the pre-WO-21 implementation for eight real
+      documents, two of them witnessed rows.
+    known_limits:
+      - >-
+        An integer outside the exactly-representable double range cannot
+        be reconciled. Python sees `9007199254740993` exactly and REFUSES;
+        JavaScript's parser has already rounded it to ...992 before the
+        canonicalizer is called and cannot detect the loss. The asymmetry
+        is in the vectors as `python_refuses`, not smoothed over.
+      - >-
+        Applies to `workflow_hash` ONLY. `input_hash` and
+        `model_fingerprints_hash` are still in the host language's
+        formatter, and model_fingerprints carries a float `mtime` per
+        file. Correcting those IS a scheme bump, because unlike
+        workflow_hash their shipped preimage is not canonical JSON under
+        any spec. Recorded in docs/canon/CANONICALIZATION.md §7.
+
 groups:
   - id: registry.witness-leaf
     type: attribute_group
@@ -165,8 +282,12 @@ groups:
         preimage: >-
           sha256(JSON.stringify({provider, prompt, spec, inputs})) with
           the keys in that literal order and each input reduced to
-          {kind, hash}. NOT canonical (recursively key-sorted) JSON —
-          this is what shipped and existing leaves commit to it.
+          {kind, hash}. NOT canonical (recursively key-sorted) JSON, and
+          NOT canonicalization_profile jcs-1 — this is what shipped and
+          existing leaves commit to it. Every value in it is a string
+          today, so the number divergence WO-21 fixed in workflow_hash
+          cannot bite here; that is a property of the current field set,
+          not a guarantee of the formula.
           lib/leaf/hashes.ts#hashRunInputs is the only implementation.
           The /v2 surface passes null for provider/prompt/spec because
           it is zero-content and never receives them.
@@ -179,12 +300,18 @@ groups:
         introduced_in: v2
         surfaces: [submit, record, storage]
         preimage: >-
-          sha256(canonicalize(doc)) — recursive key sort, arrays keep
-          order, no whitespace (lib/scruple/canonicalWorkflow.ts). `doc`
-          is the ComfyUI workflow_api_json for kind=graph_execute, and
-          the training recipe for kind=model_write: on a training run the
-          recipe is what the graph is on a generation run. `kind` tells a
-          verifier which document to re-canonicalize.
+          sha256(canonicalize(doc)) under canonicalization profile
+          `jcs-1` — RFC 8785, implemented in lib/leaf/canonicalJson.ts and
+          packages/scruple-api/scruple_api/canonical.py, with shared
+          vectors in test/vectors/canonicalization-vectors.json. Recursive
+          key sort by UTF-16 code unit, arrays keep order (ComfyUI wiring
+          tuples are positional), no whitespace, numbers per ECMA-262
+          Number::toString. `doc` is the ComfyUI workflow_api_json for
+          kind=graph_execute, and the training recipe for kind=model_write:
+          on a training run the recipe is what the graph is on a generation
+          run. `kind` tells a verifier which document to re-canonicalize.
+          Leaves written before WO-21 carry the same bytes — see
+          canonicalization_profiles.jcs-1.why_no_leaf_scheme_bump.
         brief: "Binds the graph, or the training recipe, that produced the output."
 
       - id: model_fingerprints_hash
@@ -200,6 +327,17 @@ groups:
           Absent or empty manifest hashes to NULL, never to the hash of
           {} — "we looked and found none" is a claim, and an unpopulated
           field must not make it.
+
+          NOT canonicalization_profile jcs-1, and this is a live gap
+          rather than a settled choice. The formula is the host language's
+          own JSON serializer, and the manifest carries a float `mtime`
+          per file, so a Python verifier and this server can disagree on
+          an integral mtime exactly the way they disagreed on a learning
+          rate — measured in docs/canon/CANONICALIZATION.md §7. Every
+          fingerprint manifest in the current corpus reproduces in both
+          languages; the exposure is real and unrealised. Fixing it is a
+          leaf-scheme bump, because unlike workflow_hash the shipped
+          preimage is not canonical JSON under any spec.
         brief: "Binds the actual weights loaded, not the filenames asked for."
 
       - id: machine_manifest_hash

@@ -26,11 +26,39 @@
 // exist, and changing either silently invalidates every historical
 // input_hash / model_fingerprints_hash. If a better canonicalization is
 // wanted it needs a new leaf scheme, not an edit here.
+//
+// WO-21, AND WHY THE THIRD FORMULA COULD BE FIXED WITHOUT A SCHEME BUMP
+//
+// The third — `workflow_hash` — had the same class of defect and one
+// crucial difference. Its rule was "recursive key sort, no whitespace" plus
+// whatever the host language's JSON number formatter does, and the two
+// languages that must agree do not: `1e-5` is `0.00001` in JavaScript and
+// `1e-05` in Python. It is now RFC 8785, in `lib/leaf/canonicalJson.ts`.
+//
+// That was NOT a scheme bump, and the reason is specific rather than
+// convenient: RFC 8785 §3.2.2.3 mandates ECMA-262's own Number::toString and
+// §3.2.3 sorts keys by UTF-16 code unit, both of which are precisely what
+// `JSON.stringify` and `Array#sort` already did. The shipped bytes were
+// already the RFC's bytes for every document that is valid JSON, so no
+// existing leaf changed value. What changed is that four non-JSON values —
+// NaN, Infinity, undefined, and non-plain objects — are now REFUSED instead
+// of silently hashed as `null`, `undefined`, or `{}`.
+//
+// The other two formulas below are still in the language's own number
+// formatter, and `model_fingerprints` in particular carries floats (a
+// `mtime` per file). They are left alone because fixing them IS a scheme
+// bump: unlike workflow_hash their shipped preimage is not canonical JSON
+// under any spec, so a corrected version is a different hash for every leaf
+// that exists. Recorded in docs/canon/CANONICALIZATION.md §7, not hidden.
 
 import { sha256Hex } from '@/lib/scruple/hash';
-import { canonicalize, hashWorkflow } from '@/lib/scruple/canonicalWorkflow';
+import {
+  canonicalize,
+  hashWorkflow,
+  CanonicalizationError,
+} from '@/lib/leaf/canonicalJson';
 
-export { canonicalize, hashWorkflow };
+export { canonicalize, hashWorkflow, CanonicalizationError };
 
 /** One input artifact as it appears in the input_hash preimage. */
 export interface InputRef {
@@ -119,4 +147,36 @@ export function hashGraphOrTraining(
   const doc = graph ?? training;
   if (doc === undefined || doc === null) return null;
   return hashWorkflow(doc);
+}
+
+/**
+ * The disagreement check `/api/v2/witness` performs for
+ * `model_fingerprints` vs `model_fingerprints_hash`, generalised so the
+ * same argument can be applied to `workflow_hash` without a second
+ * implementation of it appearing in the route.
+ *
+ * WHY THIS EXISTS RATHER THAN A SECOND `if` IN THE ROUTE
+ *
+ * WO-20 §6.1 found the asymmetry: a component MACs `capture.workflow_hash`,
+ * the route independently recomputes the same hash from `body.training` (or
+ * `body.graph`), and NOTHING compares them. The route already refuses when
+ * the fingerprint manifest and its supplied hash disagree, with the right
+ * reason attached — "a caller that sent both is asserting they agree, and if
+ * they do not, one of the two is wrong." The identical argument applies to
+ * the workflow, with more force: the component's value is inside the MAC, so
+ * a silent mismatch means the MAC authenticates a hash the leaf does not
+ * carry, and the leaf carries a hash nothing authenticated.
+ *
+ * Both values may legitimately be ABSENT. A `/v2` submission is zero-content
+ * and may send the hash alone, or the document alone, or neither; only when
+ * both are present is agreement being asserted. `null` in either position is
+ * therefore not a disagreement.
+ */
+export function hashDisagreement(
+  computed: string | null | undefined,
+  supplied: string | null | undefined,
+): { computed: string; supplied: string } | null {
+  if (!computed || !supplied) return null;
+  if (computed === supplied) return null;
+  return { computed, supplied };
 }

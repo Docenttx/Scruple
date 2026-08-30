@@ -112,7 +112,7 @@ export const LEAF_FIELDS: readonly LeafField[] = [
     surfaces: ["submit","record","storage"],
     aliases: {},
     brief: "Binds every input artifact that fed the run.",
-    preimage: "sha256(JSON.stringify({provider, prompt, spec, inputs})) with the keys in that literal order and each input reduced to {kind, hash}. NOT canonical (recursively key-sorted) JSON — this is what shipped and existing leaves commit to it. lib/leaf/hashes.ts#hashRunInputs is the only implementation. The /v2 surface passes null for provider/prompt/spec because it is zero-content and never receives them.",
+    preimage: "sha256(JSON.stringify({provider, prompt, spec, inputs})) with the keys in that literal order and each input reduced to {kind, hash}. NOT canonical (recursively key-sorted) JSON, and NOT canonicalization_profile jcs-1 — this is what shipped and existing leaves commit to it. Every value in it is a string today, so the number divergence WO-21 fixed in workflow_hash cannot bite here; that is a property of the current field set, not a guarantee of the formula. lib/leaf/hashes.ts#hashRunInputs is the only implementation. The /v2 surface passes null for provider/prompt/spec because it is zero-content and never receives them.",
   },
   {
     id: "workflow_hash",
@@ -124,7 +124,7 @@ export const LEAF_FIELDS: readonly LeafField[] = [
     surfaces: ["submit","record","storage"],
     aliases: {},
     brief: "Binds the graph, or the training recipe, that produced the output.",
-    preimage: "sha256(canonicalize(doc)) — recursive key sort, arrays keep order, no whitespace (lib/scruple/canonicalWorkflow.ts). `doc` is the ComfyUI workflow_api_json for kind=graph_execute, and the training recipe for kind=model_write: on a training run the recipe is what the graph is on a generation run. `kind` tells a verifier which document to re-canonicalize.",
+    preimage: "sha256(canonicalize(doc)) under canonicalization profile `jcs-1` — RFC 8785, implemented in lib/leaf/canonicalJson.ts and packages/scruple-api/scruple_api/canonical.py, with shared vectors in test/vectors/canonicalization-vectors.json. Recursive key sort by UTF-16 code unit, arrays keep order (ComfyUI wiring tuples are positional), no whitespace, numbers per ECMA-262 Number::toString. `doc` is the ComfyUI workflow_api_json for kind=graph_execute, and the training recipe for kind=model_write: on a training run the recipe is what the graph is on a generation run. `kind` tells a verifier which document to re-canonicalize. Leaves written before WO-21 carry the same bytes — see canonicalization_profiles.jcs-1.why_no_leaf_scheme_bump.",
   },
   {
     id: "model_fingerprints_hash",
@@ -136,7 +136,7 @@ export const LEAF_FIELDS: readonly LeafField[] = [
     surfaces: ["submit","record","storage"],
     aliases: {},
     brief: "Binds the actual weights loaded, not the filenames asked for.",
-    preimage: "sha256(JSON.stringify(manifest)) with TOP-LEVEL keys sorted ascending and nested per-file objects left in their original key order. Deliberately not recursive; see lib/leaf/hashes.ts. Absent or empty manifest hashes to NULL, never to the hash of {} — \"we looked and found none\" is a claim, and an unpopulated field must not make it.",
+    preimage: "sha256(JSON.stringify(manifest)) with TOP-LEVEL keys sorted ascending and nested per-file objects left in their original key order. Deliberately not recursive; see lib/leaf/hashes.ts. Absent or empty manifest hashes to NULL, never to the hash of {} — \"we looked and found none\" is a claim, and an unpopulated field must not make it.\nNOT canonicalization_profile jcs-1, and this is a live gap rather than a settled choice. The formula is the host language's own JSON serializer, and the manifest carries a float `mtime` per file, so a Python verifier and this server can disagree on an integral mtime exactly the way they disagreed on a learning rate — measured in docs/canon/CANONICALIZATION.md §7. Every fingerprint manifest in the current corpus reproduces in both languages; the exposure is real and unrealised. Fixing it is a leaf-scheme bump, because unlike workflow_hash the shipped preimage is not canonical JSON under any spec.",
   },
   {
     id: "machine_manifest_hash",
