@@ -1,122 +1,99 @@
-// Canvas HTTP+WS proxy — THE provenance gate for canvas v2.
+// Canvas HTTP proxy — THE provenance gate for canvas v2, re-platformed onto
+// the capture component (WO-10).
 //
-// Every byte going to/from the user's per-user Modal ComfyUI container
-// passes through this route. The browser never learns the Modal URL;
-// only the proxy knows it, and only the proxy is server-side trusted
-// to call Modal with the shared-secret header.
+// Every byte going to and from the user's per-user Modal ComfyUI container
+// passes through this route. The browser never learns the Modal URL; only
+// the proxy knows it, and only the proxy is server-side trusted to call
+// Modal with the shared-secret header.
+//
+// ── WHAT THIS ROUTE STILL OWNS, AND WHAT MOVED ────────────────────────
+//
+// The component (`services/scruple-capture`) is deliberately single-upstream
+// and speaks raw `node:http`. A Next route handler has neither: it gets a
+// `NextRequest`, returns a `Response`, and resolves a different upstream per
+// request from `canvas_sessions.modal_url`. So the TRANSPORT stays here and
+// the DECISIONS move out, into modules the two legs of canvas share:
+//
+//   lib/canvas/gate.ts       per-session routing, ownership, `?t=` strip,
+//                            the shared-secret header, the keepalive constant
+//   lib/canvas/egress.ts     WHICH routes carry artifact bytes — the
+//                            component's own BYTE_EGRESS table (§10 C-7),
+//                            plus the tripwire for routes nobody enumerated
+//   lib/canvas/correlate.ts  the component's correlator, persisted, because
+//                            canvas's WS leg is a different process
+//   lib/canvas/witness.ts    what a capture MEANS, and what a failed one does
 //
 // Provenance side-effects on the hot path:
-//   - POST /prompt    — body teed; once Modal returns a prompt_id, pair
-//                       it with the workflow JSON and write a
-//                       canvas_pending_iterations row (lib/canvas/witness
-//                       :startWorkflow). Active project resolved
-//                       server-side from the user's session.
-//   - GET  /view      — response body teed (output bytes); paired with
-//                       the most recent pending row and pushed into
-//                       ingestIteration via captureOutput. Triggers the
-//                       leaf hash, witness signature, storage write.
-//   - everything else — pure passthrough.
+//   - POST /prompt        body teed; once Modal returns a prompt_id, pair it
+//                         with the workflow JSON and open the pending row
+//                         with its writing nodes pinned on it. Active project
+//                         resolved server-side from the user's session.
+//   - byte-egress routes  BUFFERED, never streamed, and the capture row is
+//                         written BEFORE a byte reaches the browser. `/view`
+//                         is one of five (H-4 §10 C-7); gating only `/view`
+//                         was the narrower gate the grade found.
+//   - everything else     passthrough, past the tripwire.
 //
 // WebSocket frames are handled by a separate Node sidecar
-// (scripts/canvas-ws-proxy.mjs at :8190 behind a CF tunnel), because
-// Next.js route handlers don't speak WS.
+// (scripts/canvas-ws-proxy.mjs at :8190 behind a CF tunnel), because Next.js
+// route handlers cannot upgrade to WS. That sidecar is no longer
+// pass-through; see lib/canvas/ws-capture.ts.
 //
-// See docs/architecture/canvas-v2.md decision 2.
+// See docs/architecture/canvas-v2.md decision 2 and docs/canon/
+// CANVAS_BASELINE.md.
 
 import { type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth/auth';
-import { conn } from '@/lib/db/sqlite';
 import {
-  startWorkflow,
-  captureOutput,
+  authorizeSession,
+  buildUpstreamUrl,
+  getSessionRow,
+  upstreamHeaders,
+  type CanvasSessionRow,
+} from '@/lib/canvas/gate';
+import { classifyRoute, tripwire, viewDirectory } from '@/lib/canvas/egress';
+import {
+  captureBytes,
+  mimeFromUpstream,
   resolveActiveProjectId,
+  startWorkflow,
 } from '@/lib/canvas/witness';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-interface CanvasSessionRow {
-  id: string;
-  user_id: string;
-  machine_id: string;
-  modal_url: string;
-  status: string;
-}
-
-function getSessionRow(sessionId: string): CanvasSessionRow | null {
-  return (
-    (conn()
-      .prepare(
-        `SELECT id, user_id, machine_id, modal_url, status
-           FROM canvas_sessions
-          WHERE id = ?
-            AND status = 'active'
-            AND expires_at > datetime('now')`,
-      )
-      .get(sessionId) as CanvasSessionRow | undefined) ?? null
-  );
-}
-
-/** Build the upstream URL on the Modal endpoint for a given sub-path +
- *  the incoming request's query string (less our internal `?t=` legacy
- *  token, which should never have been here in v2 anyway). */
-function buildUpstreamUrl(
-  sessionRow: CanvasSessionRow,
-  subPath: string,
-  search: URLSearchParams,
-): string {
-  const base = new URL(sessionRow.modal_url);
-  // Drop legacy session-token query var (was set by lib/canvas/session.ts
-  // mint helper in COM-4; v2 makes session-id path-positioned instead).
-  base.search = '';
-  const trimmedBase = base.toString().replace(/\/?$/, '/');
-  const upstream = new URL(subPath, trimmedBase);
-  for (const [k, v] of search) {
-    if (k === 't') continue;
-    upstream.searchParams.set(k, v);
-  }
-  return upstream.toString();
-}
 
 async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: string; path?: string[] }> }) {
   const params = await ctx.params;
   const sessionId = params.sessionId;
   const subPath = (params.path ?? []).join('/');
 
-  // ── Auth + session ownership ─────────────────────────────────────
+  // ── (3) Auth + session ownership ─────────────────────────────────
+  // P4: the end user supplies a session id and nothing else. userId comes
+  // from auth(); the project is resolved server-side. See gate.ts.
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!userId) {
-    return new Response('Unauthorized', { status: 401 });
-  }
   const row = getSessionRow(sessionId);
-  if (!row) {
-    return new Response('Canvas session not found / expired', { status: 404 });
+  switch (authorizeSession(row, userId)) {
+    case 'forbidden':
+      return new Response(userId ? 'Forbidden' : 'Unauthorized', { status: userId ? 403 : 401 });
+    case 'not-found':
+      return new Response('Canvas session not found / expired', { status: 404 });
+    case 'ok':
+      break;
   }
-  if (row.user_id !== userId) {
-    return new Response('Forbidden', { status: 403 });
-  }
+  const sessionRow = row as CanvasSessionRow;
 
-  // ── Build outbound request ───────────────────────────────────────
-  const upstreamUrl = buildUpstreamUrl(row, subPath, req.nextUrl.searchParams);
-  const outHeaders = new Headers(req.headers);
-  outHeaders.delete('host');
-  outHeaders.delete('cookie'); // don't leak scruple-web cookies to Modal
-  outHeaders.delete('authorization');
-  const sharedSecret = process.env.SCRUPLE_CANVAS_SHARED_SECRET;
-  if (sharedSecret) {
-    outHeaders.set('X-Scruple-Shared-Secret', sharedSecret);
-  }
+  // ── (1) per-session routing, (4) `?t=` strip, (2) shared secret ──
+  const upstreamUrl = buildUpstreamUrl(sessionRow.modal_url, subPath, req.nextUrl.searchParams);
+  const outHeaders = upstreamHeaders(req.headers);
 
-  // ── Capture POST /prompt body before forwarding ──────────────────
-  // Modern ComfyUI (0.18+) prefixes /api/ on both endpoints; older
-  // versions used /prompt and /view. Match both.
-  const isPromptPost =
-    req.method === 'POST' &&
-    (subPath === 'prompt' || subPath === 'api/prompt');
-  const isViewGet =
-    req.method === 'GET' &&
-    (subPath === 'view' || subPath === 'api/view');
+  // ── Which kind of route is this? ─────────────────────────────────
+  // The component's own table (§10 C-7), not the two-entry enumeration
+  // this route used to carry. `byte-egress` is five routes, not one.
+  const routeKind = classifyRoute(req.method, subPath);
+  const isPromptPost = routeKind === 'prompt';
+  const isByteEgress = routeKind === 'byte-egress';
+
   let promptBodyText: string | undefined;
   let bodyToForward: BodyInit | undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -154,7 +131,7 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
       } catch (e) {
         clearTimeout(t);
         if ((e as { name?: string }).name === 'AbortError') {
-          return coldStartShellResponse(row.machine_id);
+          return coldStartShellResponse(sessionRow.machine_id);
         }
         throw e;
       }
@@ -170,11 +147,15 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    // The upstream URL never appears in what the tenant sees.
     console.error(`[canvas-proxy] upstream fetch failed ${upstreamUrl}: ${message}`);
-    return new Response(`Bad gateway: ${message}`, { status: 502 });
+    return new Response('Bad gateway: upstream unavailable', { status: 502 });
   }
 
-  // ── Intercept hooks (fire-and-forget; never block the response) ──
+  // ── POST /prompt: open the pending record ────────────────────────
+  // Still fire-and-forget: nothing has been produced yet, so there is no
+  // artifact to hold back, and blocking the queue submission on a DB write
+  // would make a provenance bookkeeping error into an outage.
   if (isPromptPost && promptBodyText) {
     try {
       const parsedReq = JSON.parse(promptBodyText) as { prompt?: Record<string, unknown> };
@@ -184,51 +165,100 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
         .then((resBody: unknown) => {
           const promptId = (resBody as { prompt_id?: string } | null)?.prompt_id;
           if (!promptId || !parsedReq.prompt) return;
-          const projectId = resolveActiveProjectId(row.user_id);
+          const projectId = resolveActiveProjectId(sessionRow.user_id);
           if (projectId === null) {
-            console.warn(`[canvas-proxy] /prompt witnessed but no active project for ${row.user_id}; skipping`);
+            console.error(
+              `[canvas-proxy] /prompt accepted but no active project for ${sessionRow.user_id}; ` +
+                'every output of this workflow will be recorded as unwitnessed egress.',
+            );
             return;
           }
           startWorkflow({
-            sessionId: row.id,
-            userId: row.user_id,
+            sessionId: sessionRow.id,
+            userId: sessionRow.user_id,
             promptId,
             projectId,
             workflowApiJson: parsedReq.prompt,
           });
         })
-        .catch((e) => console.warn('[canvas-proxy] /prompt intercept parse failed', e));
+        .catch((e) => console.error('[canvas-proxy] /prompt intercept parse failed', e));
     } catch (e) {
-      console.warn('[canvas-proxy] /prompt intercept failed', e);
+      console.error('[canvas-proxy] /prompt intercept failed', e);
     }
   }
 
-  if (isViewGet && upstreamRes.ok) {
-    const filename = req.nextUrl.searchParams.get('filename');
-    if (filename) {
-      const cloned = upstreamRes.clone();
-      cloned
-        .arrayBuffer()
-        .then((ab) => {
-          const buf = Buffer.from(ab);
-          const contentType =
-            upstreamRes.headers.get('content-type') ?? 'application/octet-stream';
-          return captureOutput({
-            sessionId: row.id,
-            userId: row.user_id,
-            machineId: row.machine_id,
-            filename,
-            bytes: buf,
-            contentType,
-          });
-        })
-        .catch((e) => console.warn('[canvas-proxy] /view capture failed', e));
+  // ── Byte egress: BUFFER, CAPTURE, THEN DELIVER ───────────────────
+  //
+  // The order is the point, and it is the component's
+  // (surfaces/http-gate.ts): "A captured route is BUFFERED, never streamed.
+  // The client must not hold a byte before the counter is spent." Canvas has
+  // no counter; its equivalent local, cheap, must-succeed step is the capture
+  // row. The old code cloned the response and captured in a `.then()` that
+  // nobody awaited, so the browser held the image before — and often
+  // instead of — anything recording it.
+  //
+  // Buffering is not a new cost: the previous code already did
+  // `cloned.arrayBuffer()` on the whole body.
+  let captureHeader: string | null = null;
+  let bufferedBody: Buffer | null = null;
+  if (isByteEgress && upstreamRes.ok) {
+    bufferedBody = Buffer.from(await upstreamRes.arrayBuffer());
+    if (bufferedBody.length > 0) {
+      const contentType = upstreamRes.headers.get('content-type');
+      const filename =
+        req.nextUrl.searchParams.get('filename') ?? subPath.split('/').pop() ?? '';
+      try {
+        const outcome = await captureBytes({
+          sessionId: sessionRow.id,
+          userId: sessionRow.user_id,
+          machineId: sessionRow.machine_id,
+          egress: `/${subPath}`,
+          surface: 'network-gate-http',
+          filename,
+          bytes: bufferedBody,
+          mime: mimeFromUpstream(contentType, `/${subPath}`),
+        });
+        // C-8 is recorded, not acted on: `?type=` picks between output/,
+        // temp/ and input/, and PreviewImage writes to temp/. Canvas gates
+        // all three because it gates the ROUTE rather than a directory —
+        // which is the one advantage a network gate has over the watcher
+        // canvas cannot have.
+        const dir = viewDirectory(req.nextUrl.searchParams);
+        captureHeader = `${outcome.header}; dir=${dir ?? 'unknown'}`;
+      } catch (e) {
+        // FAIL CLOSED, and only here. Nothing recorded these bytes — not
+        // even that we failed to record them — so the bytes do not leave.
+        // This is the only place canvas is allowed to break the user's
+        // workflow, and it is the place where not breaking it would mean
+        // handing over an artifact nothing can attest to having seen.
+        console.error(
+          `[canvas-proxy] REFUSING ${subPath}: capture row could not be written`,
+          e,
+        );
+        return new Response(
+          'scruple: refusing to deliver bytes it could not record\n',
+          { status: 502, headers: { 'content-type': 'text/plain' } },
+        );
+      }
     }
   }
+
+  // ── The tripwire ─────────────────────────────────────────────────
+  // Any other 2xx leaving with a non-control-plane content type is a route
+  // nobody enumerated. Logged and counted, never captured: ComfyUI serves
+  // its own frontend through this proxy and every icon would otherwise
+  // become an iteration.
+  tripwire(subPath, upstreamRes.status, upstreamRes.headers.get('content-type'), isByteEgress);
 
   // ── Stream response back to the browser ──────────────────────────
   const respHeaders = new Headers(upstreamRes.headers);
   respHeaders.delete('access-control-allow-origin');
+  // `content-encoding` would be a lie: upstreamHeaders() asked Modal for
+  // identity, and undici has already decoded anything that arrived encoded.
+  respHeaders.delete('content-encoding');
+  // The failure is visible AT THE SURFACE THE ARTIFACT LEFT BY, not only in
+  // a log. `failed` here means the bytes below have no leaf.
+  if (captureHeader) respHeaders.set('X-Scruple-Capture', captureHeader);
 
   // Root HTML gets a <base href="/canvas-proxy/<sid>/"> injection so
   // that ComfyUI's relative URLs (href="user.css", src="assets/*.js")
@@ -325,6 +355,15 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
       : `${injection}${html}`;
     respHeaders.delete('content-length');
     return new Response(rewritten, {
+      status: upstreamRes.status,
+      statusText: upstreamRes.statusText,
+      headers: respHeaders,
+    });
+  }
+
+  if (bufferedBody !== null) {
+    respHeaders.set('content-length', String(bufferedBody.length));
+    return new Response(new Uint8Array(bufferedBody), {
       status: upstreamRes.status,
       statusText: upstreamRes.statusText,
       headers: respHeaders,
