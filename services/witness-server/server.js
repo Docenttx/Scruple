@@ -658,6 +658,25 @@ async function handleWitness(req, res) {
     leaf_signature: leafSig ? leafSig.signature : null,
     leaf_signer_key_id: leafSig ? leafSig.key_id : null,
     leaf_signature_alg: leafSig ? leafSig.alg : null,
+    // NAMING DRIFT, RECORDED RATHER THAN FIXED (WO-1).
+    //
+    // The column above is `leaf_signer_surrogate`; this wire field is
+    // `signer_surrogate`. They are the same value under two names, and a
+    // client that reads the column name off the wire gets `undefined`
+    // forever with no type error to warn it.
+    //
+    // Not reconciled, deliberately. A grep found no consumer of the wire
+    // field inside this repo, but the DEPLOYED witness is the 2026-07-16
+    // build, which predates H-1 entirely — so the population of clients
+    // written against this response is not something this repo can
+    // enumerate, and renaming a live wire field for tidiness trades a
+    // documented inconsistency for an undocumented break.
+    //
+    // Both spellings are now declared in lib/leaf/registry.yaml, the
+    // storage name as `deprecated: {reason: renamed, renamed_to:
+    // signer_surrogate}`, and test/v2/leaf-registry.test.ts fails if
+    // either side moves. If the rename is ever taken, it is a leaf
+    // scheme bump, not an edit to this line.
     signer_surrogate: leafSig ? Boolean(leafSig.surrogate) : false,
     independently_verifiable: Boolean(leafSig),
   });

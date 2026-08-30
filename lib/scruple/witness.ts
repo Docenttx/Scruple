@@ -35,6 +35,28 @@ export interface WitnessIterationResult {
   leaf_hash?: string;       // sha256(canonical(record)) — the Merkled leaf
   prev_record_hash?: string;
   leaf_scheme?: 'v1' | 'v2' | 'v2.2';
+  // H-1 — the asymmetric evidence signature. Declared here so reading it
+  // is ordinary typed code rather than an `unknown` cast; every field is
+  // defined in lib/leaf/registry.yaml on the `response` surface. Null
+  // when leaf signing is disabled or the KMS is unreachable, which the
+  // witness records rather than failing the event over.
+  leaf_signature?: string | null;
+  leaf_signer_key_id?: string | null;
+  leaf_signature_alg?: string | null;
+  /**
+   * NOTE THE NAME. The witness server's own COLUMN is
+   * `leaf_signer_surrogate` (server.js:234-236, 626); the field on the
+   * WIRE is `signer_surrogate` (server.js:661). Reading the column name
+   * off a response yields undefined forever, and the index signature
+   * below means the compiler will not say so.
+   *
+   * The registry records this as a rename rather than reconciling it —
+   * see lib/leaf/registry.yaml, group registry.witness-leaf.deprecated —
+   * because a live wire field is not renamed for tidiness, and
+   * `resolveField()` maps either spelling onto the same field.
+   */
+  signer_surrogate?: boolean;
+  independently_verifiable?: boolean;
   // Whatever else the server returns
   [k: string]: unknown;
 }

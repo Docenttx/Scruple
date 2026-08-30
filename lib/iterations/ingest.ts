@@ -13,7 +13,15 @@
 
 import { conn } from '@/lib/db/sqlite';
 import { sha256Hex } from '@/lib/scruple/hash';
-import { hashWorkflow } from '@/lib/scruple/canonicalWorkflow';
+// WO-1 — the three derived hashes moved to lib/leaf/hashes.ts so that
+// /api/v2/witness computes the SAME preimage rather than a second one
+// that merely resembles it. The formulas are byte-identical to what was
+// inline here; the module header says why they must not be tidied.
+import {
+  hashModelFingerprints,
+  hashRunInputs,
+  hashWorkflow,
+} from '@/lib/leaf/hashes';
 import { storeArtifact } from '@/lib/scruple/artifacts';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProvider } from '@/lib/storage/dispatch';
@@ -187,13 +195,12 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
 
   // input_hash binds the run's inputs: the request canonical + every input
   // artifact hash. Re-deriving it later proves the inputs are unchanged.
-  const inputCanonical = JSON.stringify({
+  const inputHash = hashRunInputs({
     provider: p.provider,
     prompt: p.prompt,
     spec: p.spec,
     inputs: inputArtifacts.map((a) => ({ kind: a.kind, hash: a.hash })),
   });
-  const inputHash = sha256Hex(inputCanonical);
 
   // workflow_hash binds the ComfyUI graph that produced the output. Sync
   // executeRun puts it under spec.providerExtras.workflowApiJson; async
@@ -210,15 +217,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   // Canonicalize the manifest (keys sorted ascending) so the hash is
   // reproducible by any verifier with the same manifest. NULL → ''  so the
   // canonical record always has a stable shape.
-  let modelFingerprintsHash: string | null = null;
-  let modelFingerprintsJson: string | null = null;
-  if (p.modelFingerprints && Object.keys(p.modelFingerprints).length > 0) {
-    const sortedKeys = Object.keys(p.modelFingerprints).sort();
-    const canonical: Record<string, unknown> = {};
-    for (const k of sortedKeys) canonical[k] = p.modelFingerprints[k];
-    modelFingerprintsJson = JSON.stringify(canonical);
-    modelFingerprintsHash = sha256Hex(modelFingerprintsJson);
-  }
+  const fingerprints = hashModelFingerprints(p.modelFingerprints);
+  const modelFingerprintsHash: string | null = fingerprints?.hash ?? null;
+  const modelFingerprintsJson: string | null = fingerprints?.json ?? null;
 
   // Pivot S8: write output to user's storage. Falls back to local FS if no
   // provider is connected (dev / pre-onboarding state). Storage paths are
