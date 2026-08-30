@@ -1,0 +1,171 @@
+{
+  "$schema_note": "Shared cross-language vectors for the H-4 §4.3 component MAC preimage — the FIELD SET, which §10 C-1 left open. Generated from lib/leaf/componentPreimage.ts and lib/ratchet/ratchet.ts; consumed by packages/scruple-host-sdk/tests/test_server_library.py and by test/v2/component-auth.test.ts. Regenerate with `npm run gen:preimage-vectors`.",
+  "spec": "docs/canon/H4-DUKPT-CAPTURE-COMPONENT.md §4.1, §4.3, §10 C-1",
+  "generated_by": "scripts/gen-component-preimage-vectors.mjs",
+  "bdk_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "bdk_note": "bytes(range(32)), the same obvious test key test/vectors/ratchet-vectors.json uses. Never a real BDK; production custody is the signer HSM.",
+  "cases": [
+    {
+      "name": "server-library, everything declared",
+      "submission": {
+        "baseline_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "kind": "artifact",
+        "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime": "image/png",
+        "input_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "model_fingerprints_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "machine_manifest_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "capture": {
+          "surface": "in-process-callback",
+          "hook": "artifact.produced",
+          "fidelity": "as-delivered",
+          "size_bytes": 17,
+          "mime_source": "caller-declared",
+          "correlation_id": null,
+          "correlation_method": null,
+          "egress": null,
+          "close_detection": null,
+          "workflow_hash": null,
+          "observed_at": "2026-08-30T00:00:00.000Z",
+          "attestation_status": "passthrough"
+        },
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab",
+          "counter": 0,
+          "attestation": {
+            "provider": "none",
+            "quote_ref": null
+          }
+        }
+      },
+      "preimage_fields": {
+        "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+        "counter": 0,
+        "build_measurement": "sha256:abababababababababababababababababababababababababababababababab",
+        "attestation_provider": "none",
+        "baseline_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "kind": "artifact",
+        "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime": "image/png",
+        "input_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "model_fingerprints_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "machine_manifest_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "surface": "in-process-callback",
+        "hook": "artifact.produced",
+        "fidelity": "as-delivered",
+        "size_bytes": 17,
+        "mime_source": "caller-declared",
+        "correlation_id": null,
+        "correlation_method": null,
+        "egress": null,
+        "close_detection": null,
+        "workflow_hash": null,
+        "observed_at": "2026-08-30T00:00:00.000Z",
+        "attestation_status": "passthrough"
+      },
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"passthrough\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"workflow_hash\":null}",
+      "mac_hex": "02adf24e97a5f6d7e7ba79357fc6fa8e0aa99b7bd7a507b6d962901d47411fc1"
+    },
+    {
+      "name": "no mime — H-4 §7 probe 4, an unattributed write",
+      "note": "The absence is IN the preimage as a null, so a proxy cannot add a type in flight without breaking the MAC. That is the property that makes accepting an undeclared MIME safe rather than merely permissive.",
+      "submission": {
+        "baseline_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "kind": "artifact",
+        "content_hash": "9999999999999999999999999999999999999999999999999999999999999999",
+        "capture": {
+          "surface": "filesystem-watch",
+          "hook": "artifact.produced",
+          "fidelity": "as-written",
+          "size_bytes": 4096,
+          "mime_source": null,
+          "correlation_id": null,
+          "correlation_method": null,
+          "egress": null,
+          "close_detection": "IN_CLOSE_WRITE",
+          "workflow_hash": null,
+          "observed_at": "2026-08-30T00:00:01.000Z",
+          "attestation_status": "passthrough"
+        },
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab",
+          "counter": 1,
+          "attestation": {
+            "provider": "none",
+            "quote_ref": null
+          }
+        }
+      },
+      "preimage_fields": {
+        "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+        "counter": 1,
+        "build_measurement": "sha256:abababababababababababababababababababababababababababababababab",
+        "attestation_provider": "none",
+        "baseline_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "kind": "artifact",
+        "content_hash": "9999999999999999999999999999999999999999999999999999999999999999",
+        "mime": null,
+        "input_hash": null,
+        "model_fingerprints_hash": null,
+        "machine_manifest_hash": null,
+        "surface": "filesystem-watch",
+        "hook": "artifact.produced",
+        "fidelity": "as-written",
+        "size_bytes": 4096,
+        "mime_source": null,
+        "correlation_id": null,
+        "correlation_method": null,
+        "egress": null,
+        "close_detection": "IN_CLOSE_WRITE",
+        "workflow_hash": null,
+        "observed_at": "2026-08-30T00:00:01.000Z",
+        "attestation_status": "passthrough"
+      },
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"passthrough\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":\"IN_CLOSE_WRITE\",\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"workflow_hash\":null}",
+      "mac_hex": "b8a06a89cf161006a412b5ec718643811910c8b1bc3bb3c309002d2e683bfb41"
+    },
+    {
+      "name": "no capture block — nulls in a stable shape, not a different shape",
+      "note": "A key dropped from the object changes the canonical JSON and therefore the MAC. This case and the ones above must produce the same KEY SET.",
+      "submission": {
+        "baseline_ref": null,
+        "kind": "graph_execute",
+        "content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "mime": "text/plain",
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "counter": 2
+        }
+      },
+      "preimage_fields": {
+        "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+        "counter": 2,
+        "build_measurement": null,
+        "attestation_provider": null,
+        "baseline_ref": null,
+        "kind": "graph_execute",
+        "content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "mime": "text/plain",
+        "input_hash": null,
+        "model_fingerprints_hash": null,
+        "machine_manifest_hash": null,
+        "surface": null,
+        "hook": null,
+        "fidelity": null,
+        "size_bytes": null,
+        "mime_source": null,
+        "correlation_id": null,
+        "correlation_method": null,
+        "egress": null,
+        "close_detection": null,
+        "workflow_hash": null,
+        "observed_at": null,
+        "attestation_status": null
+      },
+      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"size_bytes\":null,\"surface\":null,\"workflow_hash\":null}",
+      "mac_hex": "25584d18286ae6997699bc307c692c8f6fe35023b2e6802b88c26fee34ad4739"
+    }
+  ]
+}

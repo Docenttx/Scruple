@@ -147,6 +147,11 @@ function simulate(opts: { tenantId?: string; heartbeat?: number; window?: number
   }
   const ik = M.deriveIk(M.bdk(), componentId);
   const ratchet = new M.Ratchet(ik, 0);
+  // §10 C-6: verification takes an authenticated principal as its first
+  // argument, so the simulated component carries the tenant it was
+  // provisioned under. A principal from another tenant gets
+  // `unknown_component`, which is what the ownership check is for.
+  const principal = { userId: tenantId, keyId: `key-${tenantId}` };
 
   /** Capture one event. The counter is spent here — derive, MAC, ratchet,
    *  THEN enqueue (§5) — whether or not it is ever delivered. */
@@ -160,10 +165,10 @@ function simulate(opts: { tenantId?: string; heartbeat?: number; window?: number
     return { counter, mac, preimage };
   };
   const deliver = (e: Produced) =>
-    M.verifySubmission({ componentId, counter: e.counter, mac: e.mac, preimage: e.preimage, buildMeasurement: BUILD });
+    M.verifySubmission(principal, { componentId, counter: e.counter, mac: e.mac, preimage: e.preimage, buildMeasurement: BUILD });
   const send = () => deliver(produce());
 
-  return { componentId, produce, deliver, send };
+  return { componentId, tenantId, principal, produce, deliver, send };
 }
 
 function issueKey(userId: string, scopes: string[]): string {
@@ -405,7 +410,7 @@ describe('§10 C-3 — the bounded acceptance window', () => {
     assert.ok(c.send().ok);
     const held = c.produce();
     assert.ok(c.deliver(c.produce()).ok);
-    const r = M.verifySubmission({
+    const r = M.verifySubmission(c.principal, {
       componentId: c.componentId,
       counter: held.counter,
       mac: 'b'.repeat(64),
@@ -622,7 +627,7 @@ describe('GET /api/v2/components/status', () => {
     const other = 'sha256:' + 'cd'.repeat(32);
     const e = c.produce();
     assert.ok(
-      M.verifySubmission({
+      M.verifySubmission(c.principal, {
         componentId: c.componentId,
         counter: e.counter,
         mac: e.mac,

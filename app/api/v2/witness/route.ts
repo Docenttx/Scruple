@@ -30,12 +30,43 @@
 //    Every field is defined in lib/leaf/registry.yaml and
 //    test/v2/leaf-registry.test.ts fails if this file emits one that
 //    is not, or drops one that must be.
+//
+// 4. It VERIFIES THE COMPONENT ENVELOPE (WO-6). WO-3 built the
+//    server-side ratchet and WO-4 built reconciliation on top of it, and
+//    this route called neither: components were sending the §4.3
+//    envelope and its MAC, and nothing checked them. A ratchet nothing
+//    verifies is decoration — the gap accounting that makes suppression
+//    visible only exists if `verifySubmission()` runs. It runs here now,
+//    AFTER `requireScope`, which is §10 C-6's structural fix: the
+//    counter is attacker-supplied and ratcheting to it is work
+//    proportional to it, so no unauthenticated request may cause any.
+//
+//    A submission with NO component envelope is still accepted — canvas
+//    and the plugins have none — but it is recorded as unverified
+//    (`component_verified = 0`, migration 043) rather than silently
+//    treated as fine. A leaf whose producer could not be identified is
+//    weaker evidence than one whose producer MACed it, and the row now
+//    says which it is.
+//
+// 5. It accepts a submission with NO MIME. H-4 §7 probe 4 requires that a
+//    file written directly into a tenant's output volume produce a leaf,
+//    and nothing declares a type for such a write — there is no
+//    producing node and no host API to ask. CANON_SKELETON §5 property 1
+//    forbids guessing one, so the component sends none; `mime:
+//    z.string().min(1)` then rejected it and made probe 4 unsatisfiable
+//    by construction. The type is now optional and its absence is
+//    recorded as `mime_declared = 0`, which is a different fact from
+//    `application/octet-stream` — that placeholder silently gates the
+//    image-only watermarker shut while looking exactly like a
+//    declaration.
 
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { conn } from '@/lib/db/sqlite';
 import { requireScope } from '@/lib/v2/auth';
 import { v2Error, v2Ok } from '@/lib/v2/http';
+import { verifySubmission } from '@/lib/ratchet/verify';
+import { componentPreimage } from '@/lib/leaf/componentPreimage';
 import { witness } from '@/lib/scruple/witness';
 import {
   hashGraphOrTraining,
@@ -49,7 +80,12 @@ const Body = z.object({
   baseline_ref: z.string().regex(/^[0-9a-f]{64}$/, 'must be the 64-hex tamper_surface_hash'),
   kind: z.enum(['document_save', 'artifact', 'graph_execute', 'model_write']),
   content_hash: z.string().regex(/^[0-9a-f]{64}$/),
-  mime: z.string().min(1),
+  // OPTIONAL, AND NEVER DEFAULTED. See note 5 in the header: an
+  // unattributed write (H-4 §7 probe 4) has nobody entitled to declare a
+  // type, and the honest record of that is an absent field, not
+  // `application/octet-stream`. A caller that CAN declare one still must
+  // — nothing here infers it, and `mime_declared` tells the two apart.
+  mime: z.string().min(1).optional(),
   project_id: z.number().int().positive().optional(),
   graph: z.record(z.unknown()).optional(),
   training: z.record(z.unknown()).optional(),
@@ -83,6 +119,32 @@ const Body = z.object({
       external_manifest_hash: z.string().min(1),
     })
     .optional(),
+
+  // ---- the H-4 §4.3 component envelope, and its MAC ----------------
+  // Optional, because canvas and the plugins have no component. Present
+  // together or not at all: an envelope with no MAC is an unauthenticated
+  // claim of a counter, which is the one thing the ratchet exists to make
+  // impossible.
+  component: z
+    .object({
+      component_id: z.string().min(1),
+      build_measurement: z.string().nullable().optional(),
+      counter: z.number().int().nonnegative(),
+      attestation: z
+        .object({
+          provider: z.string().min(1).nullable().optional(),
+          quote_ref: z.string().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .optional(),
+  mac: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  // What the COMPONENT saw, as distinct from what the leaf commits to.
+  // Passed through to the preimage and not otherwise interpreted here —
+  // lib/leaf/componentPreimage.ts is the only thing that reads it, so a
+  // new capture field is one edit and not two.
+  capture: z.record(z.unknown()).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -96,7 +158,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return v2Error(
       'invalid_body',
-      'Witness request did not validate. Note `mime` is required and must be declared by the caller — it is never inferred here.',
+      'Witness request did not validate. `mime` is optional but never inferred: declare it when anything was entitled to declare it, and omit it when nothing was (H-4 §7 probe 4). A placeholder type is not the same as an absent one.',
       String(e),
     );
   }
@@ -124,14 +186,110 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ---- the component envelope (H-4 §4.3), verified — or its absence
+  // ---- recorded (WO-6, §10 C-6) -------------------------------------
+  //
+  // ORDER IS THE POINT. `requireScope` ran at the top of this function,
+  // so by the time control reaches here the caller is an authenticated
+  // tenant and `verifySubmission()` will not ratchet a single step for
+  // anyone else. C-6: `MAX_RATCHET_ADVANCE = 100_000` is ~584 ms of CPU
+  // before the MAC is checked, on a counter that travels in the clear —
+  // the fix is not a smaller cap (that trades a DoS window for a
+  // legitimate-backlog ceiling and destroys the evidence the queue
+  // exists to preserve), it is that the unauthenticated cost is zero.
+  if (body.component && !body.mac) {
+    return v2Error(
+      'invalid_body',
+      'A component envelope was sent with no `mac`. The counter travels in the clear; ' +
+        'without the MAC it is an unauthenticated claim about a component, which is the one ' +
+        'thing the ratchet exists to make impossible. Send both or neither.',
+    );
+  }
+  if (body.mac && !body.component) {
+    return v2Error(
+      'invalid_body',
+      'A `mac` was sent with no component envelope. There is nothing to verify it against.',
+    );
+  }
+
+  let componentVerified = false;
+  let componentGap = 0;
+  let componentAttestation: 'verified' | 'passthrough' | null = null;
+  let componentBuildChanged = false;
+
+  if (body.component && body.mac) {
+    // ONE function builds the preimage and both sides call it
+    // (lib/leaf/componentPreimage.ts). A server that reconstructed the
+    // field set by hand would have a MAC that verifies whatever the
+    // server happened to assemble.
+    const result = verifySubmission(
+      { userId: principal.userId, keyId: principal.keyId },
+      {
+        componentId: body.component.component_id,
+        counter: body.component.counter,
+        mac: body.mac,
+        preimage: componentPreimage({
+          baseline_ref: body.baseline_ref,
+          kind: body.kind,
+          content_hash: body.content_hash,
+          mime: body.mime,
+          input_hash: body.input_hash,
+          model_fingerprints_hash: body.model_fingerprints_hash,
+          machine_manifest_hash: body.machine_manifest_hash,
+          capture: body.capture as Record<string, never> | undefined,
+          component: body.component,
+        }),
+        buildMeasurement: body.component.build_measurement ?? null,
+      },
+    );
+
+    if (!result.ok) {
+      // A genuine queue retry (§5) re-sends the same bytes and must be
+      // dropped IDEMPOTENTLY rather than treated as an attack. It is the
+      // designed behaviour of queue.py's drain, so it answers 200 and
+      // writes nothing — a second leaf for one event would be worse than
+      // no answer.
+      if (result.reason === 'duplicate') {
+        return v2Ok(
+          {
+            deduplicated: true,
+            witnessed: false,
+            component: {
+              component_id: body.component.component_id,
+              counter: body.component.counter,
+              verified: true,
+            },
+            note: result.message,
+          },
+          200,
+        );
+      }
+      return v2Error(
+        'component_unverified',
+        result.message,
+        { reason: result.reason, ...(result.detail ?? {}) },
+      );
+    }
+
+    componentVerified = true;
+    componentGap = result.gap;
+    componentAttestation = result.attestation_status;
+    componentBuildChanged = result.build_changed;
+  }
+
   // ---- §12.4: verified or passthrough, never bare -------------------
   // Chain-to-vendor-root verification is not implemented; all six
   // verifier plugins are structural-only. Anything supplied is therefore
   // recorded honestly as passthrough. "Stored" must not read as
   // "verified".
-  const attestationStatus: 'verified' | 'passthrough' | null = body.attestation
-    ? 'passthrough'
-    : null;
+  //
+  // A verified component's posture WINS over a bare `attestation` block,
+  // because the component's was established at provisioning against the
+  // BDK and this one is whatever the caller sent. They agree today
+  // (nothing can produce 'verified'), and when something can, the one
+  // backed by a key must be the one that counts.
+  const attestationStatus: 'verified' | 'passthrough' | null =
+    componentAttestation ?? (body.attestation ? 'passthrough' : null);
 
   // ---- resolve the project BEFORE witnessing ------------------------
   //
@@ -291,8 +449,9 @@ export async function POST(req: NextRequest) {
           continuity_json,
           input_hash, workflow_hash,
           model_fingerprints, model_fingerprints_hash,
-          machine_manifest_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          machine_manifest_hash,
+          component_id, component_counter, component_verified, mime_declared)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -301,8 +460,11 @@ export async function POST(req: NextRequest) {
       leafHash,
       body.content_hash,
       body.kind === 'model_write' ? 'checkpoint' : 'image',
-      body.mime,
-      `${body.kind} · ${body.mime}`,
+      // NULL, not a placeholder. `output_content_type` has been nullable
+      // since migration 014 and this is the first caller that legitimately
+      // has nothing to put in it.
+      body.mime ?? null,
+      body.mime ? `${body.kind} · ${body.mime}` : `${body.kind} · (no declared type)`,
       witnessed ? 1 : 0,
       witnessId,
       witnessSig,
@@ -318,6 +480,10 @@ export async function POST(req: NextRequest) {
       modelFingerprintsJson,
       modelFingerprintsHash,
       body.machine_manifest_hash ?? null,
+      body.component?.component_id ?? null,
+      body.component?.counter ?? null,
+      componentVerified ? 1 : 0,
+      body.mime ? 1 : 0,
     );
 
   return v2Ok(
@@ -340,6 +506,33 @@ export async function POST(req: NextRequest) {
       model_fingerprints_hash: modelFingerprintsHash,
       machine_manifest_hash: body.machine_manifest_hash ?? null,
       continuity_marked: Boolean(body.continuity),
+      // Echoed so a caller can see the type it declared, and see NULL
+      // when it declared none. `mime_declared: false` is what a receipt
+      // renders as "observed without a declared type" — never as
+      // application/octet-stream.
+      mime: body.mime ?? null,
+      mime_declared: Boolean(body.mime),
+      // Present on every response, including when it is null, because
+      // "this leaf carries no component" is a fact a consumer needs and
+      // an absent key is a fact nobody reads.
+      component: body.component
+        ? {
+            component_id: body.component.component_id,
+            counter: body.component.counter,
+            verified: componentVerified,
+            // Counters this component produced and never delivered. 0 is
+            // the ordinary case; anything else says events happened that
+            // are not in the record, and it does NOT invalidate this leaf
+            // (§4.2) — a suppressed event must not be able to attack the
+            // vendor's whole chain.
+            gap: componentGap,
+            build_changed: componentBuildChanged,
+          }
+        : null,
+      // False for canvas and plugin traffic, which has no component. It
+      // is stated rather than omitted so that "we did not check" and "we
+      // checked and it passed" are never the same response.
+      component_verified: componentVerified,
     },
     201,
   );

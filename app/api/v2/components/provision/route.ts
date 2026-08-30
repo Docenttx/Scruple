@@ -14,17 +14,19 @@
 //
 // AUTH. Two credentials, both required:
 //
-//   * a bearer API key carrying `baseline:write`, which says WHO is
+//   * a bearer API key carrying `component:provision`, which says WHO is
 //     calling. §4.4 does not mention one; requiring it is stricter than
 //     the spec, and it is what makes "this token belongs to another
 //     tenant" a checkable statement rather than an unenforceable comment.
-//     `baseline:write` is used because provisioning a component is the
-//     same kind of act as establishing a baseline — registering an
-//     identity that later evidence hangs off — and because V2_SCOPES in
-//     lib/v2/auth.ts is owned by another work order this round. A
-//     dedicated `component:provision` scope belongs there and is the
-//     right follow-up; adding it here would mean editing a file this WO
-//     does not own.
+//
+//     THIS USED TO BE `baseline:write`, as a stand-in, because V2_SCOPES
+//     belonged to another work order. §10 C-5 called that out and WO-6
+//     closed it: `component:provision` is now a real scope, and it is a
+//     different act from declaring a baseline — this is the one route in
+//     the estate that hands back key material. Keys already carrying
+//     `baseline:write` keep working, because lib/v2/auth.ts grants
+//     `component:provision` from it (V2_SCOPE_GRANTS); that grant is a
+//     deprecation with a removal condition, not a permanent alias.
 //
 //   * the one-time provisioning token, which says WHICH component.
 //
@@ -56,7 +58,7 @@ const Body = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const gate = requireScope(req, 'baseline:write');
+  const gate = requireScope(req, 'component:provision');
   if ('response' in gate) return gate.response;
   const { principal } = gate;
 

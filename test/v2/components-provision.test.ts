@@ -62,6 +62,10 @@ type Mod = {
 let M: Mod;
 const TENANT = 'vendor-1';
 const OTHER_TENANT = 'vendor-2';
+// §10 C-6: verifySubmission() takes an authenticated principal FIRST, so a
+// caller with no API key cannot reach the ratchet at all. Every component
+// in this file is provisioned under TENANT.
+const PRINCIPAL = { userId: TENANT, keyId: 'key-vendor-1' };
 const BUILD = 'sha256:' + 'ab'.repeat(32);
 
 /** A component with a real IK, as the component itself would hold it. */
@@ -246,14 +250,38 @@ describe('POST /api/v2/components/provision', () => {
     assert.equal(res.status, 401);
   });
 
-  test('a key without baseline:write is 403 naming the scope', async () => {
+  test('a key without component:provision is 403 naming the scope', async () => {
     const key = issueKey(TENANT, ['read']);
     const { token } = M.issueProvisioningToken({ tenantId: TENANT });
     const res = await M.POST(provisionReq(key, { token, build_measurement: BUILD }));
     assert.equal(res.status, 403);
     const body = (await res.json()) as { error: { code: string; message: string } };
     assert.equal(body.error.code, 'forbidden_scope');
-    assert.match(body.error.message, /baseline:write/);
+    // §10 C-5: the scope this route requires is its own, and the 403 names
+    // the one that is missing rather than the one it used to borrow.
+    assert.match(body.error.message, /component:provision/);
+  });
+
+  test('a legacy baseline:write key still provisions — C-5 must not revoke a live capability', async () => {
+    // Every key issued before component:provision existed carried
+    // baseline:write and could provision. Enforcing the new scope bare
+    // would break those at the next component restart and the failure
+    // would look like a bug in the component. V2_SCOPE_GRANTS is where the
+    // grant is written down; this is the test that says it is load-bearing
+    // rather than tidy.
+    const key = issueKey(TENANT, ['baseline:write']);
+    const { componentId, token } = M.issueProvisioningToken({ tenantId: TENANT });
+    const res = await M.POST(provisionReq(key, { token, build_measurement: BUILD }));
+    assert.equal(res.status, 201);
+    assert.equal(((await res.json()) as { component_id: string }).component_id, componentId);
+  });
+
+  test('a key minted with component:provision alone provisions — the target state', async () => {
+    const key = issueKey(TENANT, ['component:provision']);
+    const { componentId, token } = M.issueProvisioningToken({ tenantId: TENANT });
+    const res = await M.POST(provisionReq(key, { token, build_measurement: BUILD }));
+    assert.equal(res.status, 201);
+    assert.equal(((await res.json()) as { component_id: string }).component_id, componentId);
   });
 
   test('a scoped key plus a valid token returns 201 with the IK and the key schedule', async () => {
@@ -319,7 +347,7 @@ describe('§4.2 — verification', () => {
     const { componentId, ratchet } = provisioned();
     const f = fields(componentId, 0);
     const { counter, mac } = ratchet.mac(f);
-    const r = M.verifySubmission({ componentId, counter, mac, preimage: f, buildMeasurement: BUILD });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, counter, mac, preimage: f, buildMeasurement: BUILD });
     assert.ok(r.ok);
     assert.equal(r.counter, 0);
     assert.equal(r.gap, 0);
@@ -331,7 +359,7 @@ describe('§4.2 — verification', () => {
     for (let n = 0; n < 25; n++) {
       const f = fields(componentId, n);
       const { counter, mac } = ratchet.mac(f);
-      const r = M.verifySubmission({ componentId, counter, mac, preimage: f });
+      const r = M.verifySubmission(PRINCIPAL, { componentId, counter, mac, preimage: f });
       assert.ok(r.ok, `n=${n}`);
       assert.equal(r.gap, 0);
     }
@@ -342,7 +370,7 @@ describe('§4.2 — verification', () => {
     const { componentId, ratchet } = provisioned();
     const f = fields(componentId, 0);
     ratchet.mac(f);
-    const r = M.verifySubmission({
+    const r = M.verifySubmission(PRINCIPAL, {
       componentId,
       counter: 0,
       mac: 'f'.repeat(64),
@@ -360,7 +388,7 @@ describe('§4.2 — verification', () => {
     const f = fields(componentId, 0);
     const { counter, mac } = ratchet.mac(f);
     const tampered = { ...f, content_hash: 'e'.repeat(64) };
-    const r = M.verifySubmission({ componentId, counter, mac, preimage: tampered });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, counter, mac, preimage: tampered });
     assert.equal(r.ok, false);
     assert.equal((r as { reason: string }).reason, 'bad_mac');
   });
@@ -370,7 +398,7 @@ describe('§4.2 — verification', () => {
     const b = provisioned('b');
     const f = fields(a.componentId, 0);
     const { counter, mac } = a.ratchet.mac(f);
-    const r = M.verifySubmission({ componentId: b.componentId, counter, mac, preimage: f });
+    const r = M.verifySubmission(PRINCIPAL, { componentId: b.componentId, counter, mac, preimage: f });
     assert.equal(r.ok, false);
     assert.equal((r as { reason: string }).reason, 'bad_mac');
   });
@@ -380,13 +408,13 @@ describe('§4.2 — verification', () => {
     const ratchet = component(componentId);
     const f = fields(componentId, 0);
     const { counter, mac } = ratchet.mac(f);
-    const r = M.verifySubmission({ componentId, counter, mac, preimage: f });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, counter, mac, preimage: f });
     assert.equal(r.ok, false);
     assert.equal((r as { reason: string }).reason, 'not_provisioned');
   });
 
   test('an unknown component is refused', () => {
-    const r = M.verifySubmission({
+    const r = M.verifySubmission(PRINCIPAL, {
       componentId: crypto.randomUUID(),
       counter: 0,
       mac: '0'.repeat(64),
@@ -411,7 +439,7 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
     for (let n = 0; n < events; n++) {
       const f = { component_id: componentId, counter: n };
       const { counter, mac } = ratchet.mac(f);
-      assert.ok(M.verifySubmission({ componentId, counter, mac, preimage: f }).ok);
+      assert.ok(M.verifySubmission(PRINCIPAL, { componentId, counter, mac, preimage: f }).ok);
       sent.push({ counter, mac, preimage: f });
     }
     return { componentId, ratchet, sent };
@@ -422,7 +450,7 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
     // designed behaviour, so it is distinguished from an attack — but it
     // is still not a second verification.
     const { componentId, sent } = running(3);
-    const again = M.verifySubmission({ componentId, ...sent[1] });
+    const again = M.verifySubmission(PRINCIPAL, { componentId, ...sent[1] });
     assert.equal(again.ok, false);
     assert.equal((again as { reason: string }).reason, 'duplicate');
     const rows = M.conn()
@@ -433,7 +461,7 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
 
   test('an EQUAL counter with a different MAC is rejected', () => {
     const { componentId, sent } = running(3);
-    const r = M.verifySubmission({
+    const r = M.verifySubmission(PRINCIPAL, {
       componentId,
       counter: sent[2].counter,
       mac: '1'.repeat(64),
@@ -459,7 +487,7 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
     // counter was spent, and it is believed.
     const { componentId, sent } = running(4);
     M.conn().prepare(`DELETE FROM component_events WHERE component_id = ? AND counter = 1`).run(componentId);
-    const r = M.verifySubmission({ componentId, ...sent[1] });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, ...sent[1] });
     assert.equal(r.ok, false);
     assert.equal((r as { reason: string }).reason, 'replay');
     assert.match((r as { message: string }).message, /no open gap claims it/);
@@ -470,7 +498,7 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
     // is replayable exactly once. This is that test.
     const { componentId, sent } = running(1);
     M.conn().prepare(`DELETE FROM component_events WHERE component_id = ?`).run(componentId);
-    const r = M.verifySubmission({ componentId, ...sent[0] });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, ...sent[0] });
     assert.equal(r.ok, false);
     assert.equal((r as { reason: string }).reason, 'replay');
   });
@@ -480,7 +508,7 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
     // attacker-chosen; "ratchet forward to the received counter" with no
     // bound is a free CPU-exhaustion primitive.
     const { componentId } = running(1);
-    const r = M.verifySubmission({
+    const r = M.verifySubmission(PRINCIPAL, {
       componentId,
       counter: M.MAX_RATCHET_ADVANCE + 10_000,
       mac: '0'.repeat(64),
@@ -493,7 +521,7 @@ describe('§4.2 — replay and reuse are REJECTED, not merely noticed', () => {
   test('a negative or fractional counter is refused', () => {
     const { componentId } = running(1);
     for (const counter of [-1, 1.5, NaN]) {
-      const r = M.verifySubmission({ componentId, counter, mac: '0'.repeat(64), preimage: { a: 'b' } });
+      const r = M.verifySubmission(PRINCIPAL, { componentId, counter, mac: '0'.repeat(64), preimage: { a: 'b' } });
       assert.equal(r.ok, false);
       assert.equal((r as { reason: string }).reason, 'invalid_counter');
     }
@@ -511,14 +539,14 @@ describe('§4.2 — a gap VERIFIES and is RECORDED', () => {
 
     const f0 = { component_id: componentId, counter: 0 };
     const e0 = ratchet.mac(f0);
-    assert.ok(M.verifySubmission({ componentId, counter: e0.counter, mac: e0.mac, preimage: f0 }).ok);
+    assert.ok(M.verifySubmission(PRINCIPAL, { componentId, counter: e0.counter, mac: e0.mac, preimage: f0 }).ok);
 
     // The component produces 1, 2, 3 — none of which are delivered.
     for (let n = 1; n <= 3; n++) ratchet.mac({ component_id: componentId, counter: n });
 
     const f4 = { component_id: componentId, counter: 4 };
     const e4 = ratchet.mac(f4);
-    const r = M.verifySubmission({ componentId, counter: e4.counter, mac: e4.mac, preimage: f4 });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, counter: e4.counter, mac: e4.mac, preimage: f4 });
 
     assert.ok(r.ok, 'the leaf must still VERIFY across a gap');
     assert.equal(r.counter, 4);
@@ -540,7 +568,7 @@ describe('§4.2 — a gap VERIFIES and is RECORDED', () => {
     for (let n = 0; n < 2; n++) ratchet.mac({ component_id: componentId, counter: n });
     const f = { component_id: componentId, counter: 2 };
     const e = ratchet.mac(f);
-    const r = M.verifySubmission({ componentId, counter: e.counter, mac: e.mac, preimage: f });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, counter: e.counter, mac: e.mac, preimage: f });
     assert.ok(r.ok);
     assert.equal(r.gap, 2);
     const gaps = M.openGaps(componentId);
@@ -555,7 +583,7 @@ describe('§4.2 — a gap VERIFIES and is RECORDED', () => {
     for (let n = 0; n < 500; n++) ratchet.mac({ component_id: componentId, counter: n });
     const f = { component_id: componentId, counter: 500 };
     const e = ratchet.mac(f);
-    const r = M.verifySubmission({ componentId, counter: 500, mac: e.mac, preimage: f });
+    const r = M.verifySubmission(PRINCIPAL, { componentId, counter: 500, mac: e.mac, preimage: f });
     assert.ok(r.ok);
     assert.equal(r.gap, 500);
   });
@@ -568,7 +596,7 @@ describe('§4.2 — a gap VERIFIES and is RECORDED', () => {
     const deliver = () => {
       const f = { component_id: componentId, counter: n };
       const e = ratchet.mac(f);
-      const r = M.verifySubmission({ componentId, counter: n, mac: e.mac, preimage: f });
+      const r = M.verifySubmission(PRINCIPAL, { componentId, counter: n, mac: e.mac, preimage: f });
       n++;
       return r;
     };
@@ -603,7 +631,7 @@ describe('§4.3 — the build measurement rides with the event', () => {
     const other = 'sha256:' + 'cd'.repeat(32);
     const f = { component_id: componentId, counter: 0, build_measurement: other };
     const e = ratchet.mac(f);
-    const r = M.verifySubmission({
+    const r = M.verifySubmission(PRINCIPAL, {
       componentId,
       counter: 0,
       mac: e.mac,
@@ -657,7 +685,7 @@ describe('Missing 2 — silence is visible', () => {
     const ratchet = component(componentId);
     const f = { component_id: componentId, counter: 0 };
     const e = ratchet.mac(f);
-    assert.ok(M.verifySubmission({ componentId, counter: 0, mac: e.mac, preimage: f }).ok);
+    assert.ok(M.verifySubmission(PRINCIPAL, { componentId, counter: 0, mac: e.mac, preimage: f }).ok);
     assert.ok(!M.silentComponents(TENANT).some((s) => s.component_id === componentId));
   });
 });
@@ -671,14 +699,14 @@ describe('the chain-key cache is a cache, not the source of truth', () => {
     for (let n = 0; n < 5; n++) {
       const f = { component_id: componentId, counter: n };
       const e = ratchet.mac(f);
-      assert.ok(M.verifySubmission({ componentId, counter: n, mac: e.mac, preimage: f }).ok);
+      assert.ok(M.verifySubmission(PRINCIPAL, { componentId, counter: n, mac: e.mac, preimage: f }).ok);
     }
     M.conn()
       .prepare(`UPDATE components SET chain_key_hex = NULL, chain_key_counter = NULL WHERE component_id = ?`)
       .run(componentId);
     const f = { component_id: componentId, counter: 5 };
     const e = ratchet.mac(f);
-    assert.ok(M.verifySubmission({ componentId, counter: 5, mac: e.mac, preimage: f }).ok);
+    assert.ok(M.verifySubmission(PRINCIPAL, { componentId, counter: 5, mac: e.mac, preimage: f }).ok);
   });
 
   test('a cache from a different BDK is ignored rather than trusted', () => {
@@ -695,7 +723,7 @@ describe('the chain-key cache is a cache, not the source of truth', () => {
     const ratchet = component(componentId);
     const f = { component_id: componentId, counter: 0 };
     const e = ratchet.mac(f);
-    assert.ok(M.verifySubmission({ componentId, counter: 0, mac: e.mac, preimage: f }).ok);
+    assert.ok(M.verifySubmission(PRINCIPAL, { componentId, counter: 0, mac: e.mac, preimage: f }).ok);
   });
 });
 

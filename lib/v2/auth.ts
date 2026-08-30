@@ -27,8 +27,54 @@ import type { NextRequest } from 'next/server';
 import { conn } from '@/lib/db/sqlite';
 import { v2Error } from './http';
 
-export const V2_SCOPES = ['baseline:write', 'witness:write', 'mark:write', 'read'] as const;
+export const V2_SCOPES = [
+  'baseline:write',
+  'witness:write',
+  'mark:write',
+  // H-4 §10 C-5. Provisioning a capture component is the one operation in
+  // the estate that returns key material in a response body, and it was
+  // gated on `baseline:write` as a stand-in because V2_SCOPES belonged to
+  // another work order at the time. It is its own act: `baseline:write`
+  // says "you may declare what your code is", this says "you may be handed
+  // an initial key". Those should not share a credential.
+  'component:provision',
+  'read',
+] as const;
 export type V2Scope = (typeof V2_SCOPES)[number];
+
+/**
+ * Scopes that are implied by a scope a key already carries.
+ *
+ * THE MIGRATION PATH FOR A SCOPE ADDED AFTER KEYS WERE ISSUED, and the
+ * only one in here today: every key that carries `baseline:write` could
+ * provision a component yesterday, because that is what the provisioning
+ * route required. Adding `component:provision` and enforcing it bare would
+ * revoke, retroactively and silently, a capability those keys have been
+ * exercising — a component restarting after a deploy would fail to
+ * provision and the failure would look like a bug in the component.
+ *
+ * So `baseline:write` GRANTS `component:provision`, and this table is
+ * where that grant is written down rather than being hidden in an `||` at
+ * the route. It is a deprecation, not a design: the grant exists so that
+ * no deployed key breaks on the day the scope lands, and it should be
+ * removed once keys have been reissued. A key minted with
+ * `component:provision` and not `baseline:write` is the target state and
+ * already works.
+ *
+ * This is the same shape as the `scopes_json IS NULL -> ['read']` rule
+ * below — a derivation applied at resolution time, in one place, rather
+ * than a per-route special case that some routes would forget.
+ */
+export const V2_SCOPE_GRANTS: Readonly<Partial<Record<V2Scope, readonly V2Scope[]>>> = {
+  'baseline:write': ['component:provision'],
+};
+
+/** Expand a stored scope list with everything those scopes imply. */
+function withGrants(scopes: V2Scope[]): V2Scope[] {
+  const out = new Set<V2Scope>(scopes);
+  for (const s of scopes) for (const g of V2_SCOPE_GRANTS[s] ?? []) out.add(g);
+  return [...out];
+}
 
 export interface V2Principal {
   userId: string;
@@ -97,6 +143,11 @@ export function principalFrom(req: NextRequest | Request): V2Principal | null {
       scopes = ['read'];
     }
   }
+
+  // Grants are applied AFTER the stored list is filtered against
+  // V2_SCOPES, so a grant can never be introduced by writing an unknown
+  // string into scopes_json.
+  scopes = withGrants(scopes);
 
   try {
     conn()

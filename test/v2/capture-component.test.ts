@@ -62,6 +62,10 @@ type Mod = {
 
 let M: Mod;
 const TENANT = 'vendor-capture';
+// §10 C-6 (WO-6): verifySubmission() takes an authenticated principal as
+// its first argument so that no ratcheting is reachable without one. This
+// file's components are all provisioned under TENANT.
+const PRINCIPAL = { userId: TENANT, keyId: 'key-vendor-capture' };
 const BASELINE = 'ab'.repeat(32);
 
 type StubComfy = Awaited<ReturnType<Mod['startStubComfyUI']>>;
@@ -596,7 +600,7 @@ describe('§4.2 — the MAC verifies on the server that holds the BDK', () => {
       // §4.1 wrote `HMAC(M_n, canonical_preimage)` and never said what the
       // preimage contained; a component that MACs fields the server cannot
       // reconstruct has a MAC that verifies nothing about the leaf.
-      const ok = M.verifySubmission({
+      const ok = M.verifySubmission(PRINCIPAL, {
         componentId,
         counter: sub.component.counter,
         mac: sub.mac!,
@@ -612,7 +616,7 @@ describe('§4.2 — the MAC verifies on the server that holds the BDK', () => {
       // Tamper with the content hash the leaf commits to. Same MAC, different
       // preimage, and the server must not accept it.
       const tampered = { ...sub, content_hash: 'ff'.repeat(32), component: { ...sub.component, counter: 1 } };
-      const bad = M.verifySubmission({
+      const bad = M.verifySubmission(PRINCIPAL, {
         componentId,
         counter: 1,
         mac: sub.mac!,

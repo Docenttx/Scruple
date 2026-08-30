@@ -14,6 +14,12 @@ export type V2ErrorCode =
   | 'baseline_required'
   | 'baseline_stale'
   | 'modality_unavailable'
+  // WO-6. A well-formed submission whose H-4 §4.3 component envelope did
+  // not verify: bad MAC, replayed or out-of-window counter, unknown or
+  // retired component. 422 rather than 401, because the CALLER
+  // authenticated fine — it is the component's claim about itself that
+  // failed, and a 401 would send a vendor to look at their API key.
+  | 'component_unverified'
   | 'signer_unavailable'
   | 'conflict'
   | 'internal';
@@ -26,6 +32,7 @@ const STATUS: Record<V2ErrorCode, number> = {
   baseline_required: 409,
   baseline_stale: 409,
   modality_unavailable: 422,
+  component_unverified: 422,
   signer_unavailable: 503,
   conflict: 409,
   internal: 500,

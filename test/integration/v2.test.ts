@@ -118,11 +118,36 @@ describe('witnessing', () => {
     assert.equal(r.status, 201);
   });
 
-  test('mime is required and never guessed', async () => {
+  test('mime is never guessed — and an absent one is recorded as absent', async () => {
+    // CHANGED BY WO-6, deliberately. This used to assert 400.
+    //
+    // H-4 §7 probe 4 requires that a file written directly into a tenant's
+    // output volume produce a leaf, and nothing declares a type for such a
+    // write: there is no producing node and no host API to ask.
+    // CANON_SKELETON §5 property 1 forbids guessing one, so the component
+    // correctly sends none — and a 400 made probe 4 unsatisfiable by
+    // construction.
+    //
+    // The property that actually matters survives and is asserted below:
+    // NOTHING INVENTS A TYPE. `mime` comes back null and `mime_declared`
+    // is false, which is a different fact from
+    // `application/octet-stream` — the placeholder five of the six shells
+    // sent, which silently gates the image-only watermarker shut while
+    // looking exactly like a declaration.
     const r = await call('POST', '/witness', {
       baseline_ref: SURFACE, kind: 'artifact', content_hash: sha256('nomime'),
     });
-    assert.equal(r.status, 400);
+    assert.equal(r.status, 201);
+    assert.equal(r.body.mime, null);
+    assert.equal(r.body.mime_declared, false);
+
+    // A declared type is still echoed as declared, so the two states can
+    // never be confused for one another downstream.
+    const declared = await call('POST', '/witness', {
+      baseline_ref: SURFACE, kind: 'artifact', content_hash: sha256('withmime'), mime: 'image/png',
+    });
+    assert.equal(declared.body.mime, 'image/png');
+    assert.equal(declared.body.mime_declared, true);
   });
 });
 

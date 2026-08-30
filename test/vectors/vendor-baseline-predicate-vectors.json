@@ -1,0 +1,1547 @@
+{
+  "$schema_note": "Shared cross-language vectors for the scruple-vendor-baseline predicate. Generated from lib/envelope/predicate.ts and lib/capture/surface.ts; consumed by test/v2/predicate-vectors.test.ts (which regenerates and asserts this file is current) and by packages/scruple-host-sdk/tests/test_server_library.py (which checks the Python implementation against it). Regenerate with `npm run gen:predicate-vectors`.",
+  "spec": "docs/canon/PREDICATE_scruple-vendor-baseline.md",
+  "generated_by": "scripts/gen-predicate-vectors.mjs",
+  "predicate_version": 1,
+  "predicate_type": "https://scruple.ai/attestation/vendor-baseline/v1",
+  "enums": {
+    "placements": [
+      "server-library",
+      "sidecar-gate",
+      "attested-client",
+      "unattested-client"
+    ],
+    "placement_enforcements": [
+      "host-enforced-signature",
+      "isolated-namespace",
+      "no-tenant-code",
+      "none"
+    ],
+    "capture_surfaces": [
+      "network-gate",
+      "filesystem-watch",
+      "in-process-callback",
+      "host-api-callback"
+    ],
+    "capture_hooks": [
+      "attach",
+      "detach",
+      "document.open",
+      "document.close",
+      "document.save",
+      "artifact.produced",
+      "graph.execute",
+      "model.write",
+      "idle.tick"
+    ],
+    "observation_fidelities": [
+      "as-delivered",
+      "as-written",
+      "induced"
+    ],
+    "attestation_outcomes": [
+      "verified",
+      "passthrough",
+      "none"
+    ],
+    "property_dispositions": [
+      "holds",
+      "conditional",
+      "fails"
+    ],
+    "builtin_attestation_providers": [
+      "none",
+      "amd-sev-snp",
+      "intel-tdx",
+      "aws-nitro-enclave",
+      "gcp-confidential-space",
+      "azure-attestation-service",
+      "nvidia-h100-cc",
+      "tpm-2.0-quote"
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://scruple.ai/attestation/vendor-baseline/v1",
+    "title": "scruple-vendor-baseline",
+    "description": "P1-P8 posture for one Scruple integration CONFIGURATION (not one vendor). Shape only: the cross-field rules — effective placement derived from (declared, enforcement), p1/p3/can_claim/leaf_status derived from (effective, outcome), and the P7/P8 provider-outcome agreement — are not expressible here and are enforced by validateVendorBaselinePredicate(). Schema-valid does not mean sound.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "predicate_version",
+      "component",
+      "placement",
+      "attestation",
+      "surfaces",
+      "properties",
+      "leaf_status",
+      "can_claim",
+      "conditions"
+    ],
+    "properties": {
+      "predicate_version": {
+        "type": "integer",
+        "const": 1
+      },
+      "component": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "component_id",
+          "tenant_id",
+          "build_measurement"
+        ],
+        "properties": {
+          "component_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "build_measurement": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "placement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "declared",
+          "enforcement",
+          "effective",
+          "honoured",
+          "reason"
+        ],
+        "properties": {
+          "declared": {
+            "type": "string",
+            "enum": [
+              "server-library",
+              "sidecar-gate",
+              "attested-client",
+              "unattested-client"
+            ]
+          },
+          "enforcement": {
+            "type": "string",
+            "enum": [
+              "host-enforced-signature",
+              "isolated-namespace",
+              "no-tenant-code",
+              "none"
+            ]
+          },
+          "effective": {
+            "type": "string",
+            "enum": [
+              "server-library",
+              "sidecar-gate",
+              "attested-client",
+              "unattested-client"
+            ]
+          },
+          "honoured": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "attestation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "quote_ref",
+          "outcome"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quote_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verifier_reference": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "passthrough",
+              "none"
+            ]
+          }
+        }
+      },
+      "surfaces": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "surface",
+            "fidelity",
+            "hooks"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "surface": {
+              "type": "string",
+              "enum": [
+                "network-gate",
+                "filesystem-watch",
+                "in-process-callback",
+                "host-api-callback"
+              ]
+            },
+            "fidelity": {
+              "type": "string",
+              "enum": [
+                "as-delivered",
+                "as-written",
+                "induced"
+              ]
+            },
+            "hooks": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "attach",
+                  "detach",
+                  "document.open",
+                  "document.close",
+                  "document.save",
+                  "artifact.produced",
+                  "graph.execute",
+                  "model.write",
+                  "idle.tick"
+                ]
+              }
+            },
+            "induced_artifact_ref": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "properties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "p1",
+          "p2",
+          "p3",
+          "p4",
+          "p5",
+          "p6",
+          "p7",
+          "p8"
+        ],
+        "properties": {
+          "p1": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          },
+          "p2": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          },
+          "p3": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          },
+          "p4": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          },
+          "p5": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          },
+          "p6": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          },
+          "p7": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          },
+          "p8": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "conditional",
+              "fails"
+            ]
+          }
+        }
+      },
+      "leaf_status": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "verified",
+          "passthrough",
+          null
+        ]
+      },
+      "can_claim": {
+        "type": "boolean"
+      },
+      "conditions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "placement_resolution": [
+    {
+      "declared": "server-library",
+      "enforcement": "host-enforced-signature",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "server-library",
+      "enforcement": "isolated-namespace",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "server-library",
+      "enforcement": "no-tenant-code",
+      "effective": "server-library",
+      "honoured": true
+    },
+    {
+      "declared": "server-library",
+      "enforcement": "none",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "sidecar-gate",
+      "enforcement": "host-enforced-signature",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "sidecar-gate",
+      "enforcement": "isolated-namespace",
+      "effective": "sidecar-gate",
+      "honoured": true
+    },
+    {
+      "declared": "sidecar-gate",
+      "enforcement": "no-tenant-code",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "sidecar-gate",
+      "enforcement": "none",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "attested-client",
+      "enforcement": "host-enforced-signature",
+      "effective": "attested-client",
+      "honoured": true
+    },
+    {
+      "declared": "attested-client",
+      "enforcement": "isolated-namespace",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "attested-client",
+      "enforcement": "no-tenant-code",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "attested-client",
+      "enforcement": "none",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "unattested-client",
+      "enforcement": "host-enforced-signature",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "unattested-client",
+      "enforcement": "isolated-namespace",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "unattested-client",
+      "enforcement": "no-tenant-code",
+      "effective": "unattested-client",
+      "honoured": false
+    },
+    {
+      "declared": "unattested-client",
+      "enforcement": "none",
+      "effective": "unattested-client",
+      "honoured": true
+    }
+  ],
+  "assurance_table": [
+    {
+      "placement": "server-library",
+      "attestation": "verified",
+      "p1": "holds",
+      "p3": "holds",
+      "leaf": "verified",
+      "can_claim": true,
+      "conditions": []
+    },
+    {
+      "placement": "server-library",
+      "attestation": "passthrough",
+      "p1": "holds",
+      "p3": "holds",
+      "leaf": "passthrough",
+      "can_claim": true,
+      "conditions": []
+    },
+    {
+      "placement": "server-library",
+      "attestation": "none",
+      "p1": "holds",
+      "p3": "holds",
+      "leaf": "passthrough",
+      "can_claim": true,
+      "conditions": []
+    },
+    {
+      "placement": "sidecar-gate",
+      "attestation": "verified",
+      "p1": "conditional",
+      "p3": "holds",
+      "leaf": "verified",
+      "can_claim": true,
+      "conditions": [
+        "H-4 §7 probe 1: the measured party cannot reach the workload bypassing the gate",
+        "H-4 §7 probe 2: the measured party cannot reach the component admin/provisioning surface",
+        "H-4 §7 probe 4: a file written into the output volume produces a leaf within the drain window",
+        "H-4 §7 probe 5: output retrieved over the non-file path produces a leaf"
+      ]
+    },
+    {
+      "placement": "sidecar-gate",
+      "attestation": "passthrough",
+      "p1": "conditional",
+      "p3": "conditional",
+      "leaf": "passthrough",
+      "can_claim": true,
+      "conditions": [
+        "H-4 §7 probe 1: the measured party cannot reach the workload bypassing the gate",
+        "H-4 §7 probe 2: the measured party cannot reach the component admin/provisioning surface",
+        "H-4 §7 probe 4: a file written into the output volume produces a leaf within the drain window",
+        "H-4 §7 probe 5: output retrieved over the non-file path produces a leaf",
+        "the sealed key is 0600 and owned by a principal the measured party is not (H-4 §4.4)"
+      ]
+    },
+    {
+      "placement": "sidecar-gate",
+      "attestation": "none",
+      "p1": "conditional",
+      "p3": "conditional",
+      "leaf": "passthrough",
+      "can_claim": true,
+      "conditions": [
+        "H-4 §7 probe 1: the measured party cannot reach the workload bypassing the gate",
+        "H-4 §7 probe 2: the measured party cannot reach the component admin/provisioning surface",
+        "H-4 §7 probe 4: a file written into the output volume produces a leaf within the drain window",
+        "H-4 §7 probe 5: output retrieved over the non-file path produces a leaf",
+        "the sealed key is 0600 and owned by a principal the measured party is not (H-4 §4.4)"
+      ]
+    },
+    {
+      "placement": "attested-client",
+      "attestation": "verified",
+      "p1": "conditional",
+      "p3": "holds",
+      "leaf": "verified",
+      "can_claim": true,
+      "conditions": [
+        "the host verifies the plugin signature at load and refuses unsigned code",
+        "the running build measurement matches a build we published",
+        "the host does not expose a scripting console that can call the plugin with forged arguments"
+      ]
+    },
+    {
+      "placement": "attested-client",
+      "attestation": "passthrough",
+      "p1": "conditional",
+      "p3": "conditional",
+      "leaf": "passthrough",
+      "can_claim": true,
+      "conditions": [
+        "the host verifies the plugin signature at load and refuses unsigned code",
+        "the running build measurement matches a build we published",
+        "the host does not expose a scripting console that can call the plugin with forged arguments",
+        "the sealed key is 0600 and owned by a principal the measured party is not (H-4 §4.4)"
+      ]
+    },
+    {
+      "placement": "attested-client",
+      "attestation": "none",
+      "p1": "conditional",
+      "p3": "conditional",
+      "leaf": "passthrough",
+      "can_claim": true,
+      "conditions": [
+        "the host verifies the plugin signature at load and refuses unsigned code",
+        "the running build measurement matches a build we published",
+        "the host does not expose a scripting console that can call the plugin with forged arguments",
+        "the sealed key is 0600 and owned by a principal the measured party is not (H-4 §4.4)"
+      ]
+    },
+    {
+      "placement": "unattested-client",
+      "attestation": "verified",
+      "p1": "fails",
+      "p3": "fails",
+      "leaf": null,
+      "can_claim": false,
+      "conditions": []
+    },
+    {
+      "placement": "unattested-client",
+      "attestation": "passthrough",
+      "p1": "fails",
+      "p3": "fails",
+      "leaf": null,
+      "can_claim": false,
+      "conditions": []
+    },
+    {
+      "placement": "unattested-client",
+      "attestation": "none",
+      "p1": "fails",
+      "p3": "fails",
+      "leaf": null,
+      "can_claim": false,
+      "conditions": []
+    }
+  ],
+  "build_cases": [
+    {
+      "name": "server-library, no attestation — the honest tier",
+      "note": "PLACEMENT_AND_SURFACES.md §5.2, top-right cell. P1 is free here and it buys NOTHING toward a verified leaf; only a root-chained attestation does, and no verifier plugin in the estate can produce one. A reference integration on non-attestable compute can therefore only ever demonstrate its second-strongest tier, and it must say so.",
+      "input": {
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "declared_placement": "server-library",
+        "enforcement": "no-tenant-code",
+        "attestation": {
+          "provider": "none",
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "declared_properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional"
+        }
+      },
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      }
+    },
+    {
+      "name": "server-library on attestable compute — verified",
+      "input": {
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "declared_placement": "server-library",
+        "enforcement": "no-tenant-code",
+        "attestation": {
+          "provider": "amd-sev-snp",
+          "quote_ref": "quote://surrogate/1",
+          "outcome": "verified"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "declared_properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional"
+        }
+      },
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "amd-sev-snp",
+          "quote_ref": "quote://surrogate/1",
+          "outcome": "verified"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "verified",
+        "can_claim": true,
+        "conditions": []
+      }
+    },
+    {
+      "name": "server-library with a custom-handler feature — resolves to unattested-client",
+      "note": "PLACEMENT_AND_SURFACES.md §7.3, the single most commercially important line in that document. trust_remote_code, a custom handler.py or a customer-supplied image all mean tenant code runs in the capture process. A vendor is not a placement; a CONFIGURATION is, and this one may issue no leaf at all.",
+      "input": {
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "declared_placement": "server-library",
+        "enforcement": "none",
+        "attestation": {
+          "provider": "none",
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "declared_properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional"
+        }
+      },
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "none",
+          "effective": "unattested-client",
+          "honoured": false,
+          "reason": "'server-library' requires enforcement 'no-tenant-code'; got 'none'. Degraded to unattested-client — an unenforced placement is a declaration, not a boundary."
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "fails",
+          "p3": "fails"
+        },
+        "leaf_status": null,
+        "can_claim": false,
+        "conditions": []
+      }
+    },
+    {
+      "name": "browser JS holding a genuine root-verified quote — still refused",
+      "note": "§7.6, pinned deliberately because it is the case an implementer would be tempted to \"improve\". A page can relay a real SEV-SNP quote from a server it does not run; that quote proves something about a machine and nothing about the capture.",
+      "input": {
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "declared_placement": "unattested-client",
+        "enforcement": "none",
+        "attestation": {
+          "provider": "amd-sev-snp",
+          "quote_ref": "quote://relayed",
+          "outcome": "verified"
+        },
+        "surfaces": [
+          {
+            "name": "browser-js",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "document.save"
+            ]
+          }
+        ],
+        "declared_properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional"
+        }
+      },
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "unattested-client",
+          "enforcement": "none",
+          "effective": "unattested-client",
+          "honoured": true,
+          "reason": "declared unattested; nothing to enforce"
+        },
+        "attestation": {
+          "provider": "amd-sev-snp",
+          "quote_ref": "quote://relayed",
+          "outcome": "verified"
+        },
+        "surfaces": [
+          {
+            "name": "browser-js",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "document.save"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "fails",
+          "p3": "fails"
+        },
+        "leaf_status": null,
+        "can_claim": false,
+        "conditions": []
+      }
+    },
+    {
+      "name": "sidecar-gate, passthrough — the ComfyUI shape",
+      "input": {
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "declared_placement": "sidecar-gate",
+        "enforcement": "isolated-namespace",
+        "attestation": {
+          "provider": "tpm-2.0-quote",
+          "quote_ref": "quote://tpm/1",
+          "outcome": "passthrough"
+        },
+        "surfaces": [
+          {
+            "name": "comfyui-http-gate",
+            "surface": "network-gate",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute"
+            ]
+          },
+          {
+            "name": "comfyui-output-watch",
+            "surface": "filesystem-watch",
+            "fidelity": "as-written",
+            "hooks": [
+              "artifact.produced"
+            ]
+          }
+        ],
+        "declared_properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional"
+        }
+      },
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "sidecar-gate",
+          "enforcement": "isolated-namespace",
+          "effective": "sidecar-gate",
+          "honoured": true,
+          "reason": "enforcement 'isolated-namespace' satisfies 'sidecar-gate'"
+        },
+        "attestation": {
+          "provider": "tpm-2.0-quote",
+          "quote_ref": "quote://tpm/1",
+          "outcome": "passthrough"
+        },
+        "surfaces": [
+          {
+            "name": "comfyui-http-gate",
+            "surface": "network-gate",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute"
+            ]
+          },
+          {
+            "name": "comfyui-output-watch",
+            "surface": "filesystem-watch",
+            "fidelity": "as-written",
+            "hooks": [
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "conditional",
+          "p3": "conditional"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": [
+          "H-4 §7 probe 1: the measured party cannot reach the workload bypassing the gate",
+          "H-4 §7 probe 2: the measured party cannot reach the component admin/provisioning surface",
+          "H-4 §7 probe 4: a file written into the output volume produces a leaf within the drain window",
+          "H-4 §7 probe 5: output retrieved over the non-file path produces a leaf",
+          "the sealed key is 0600 and owned by a principal the measured party is not (H-4 §4.4)"
+        ]
+      }
+    }
+  ],
+  "validate_cases": [
+    {
+      "name": "a well-formed predicate has no errors",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": []
+    },
+    {
+      "name": "unattested-client is VALID and refused, never a schema error",
+      "note": "§4.2 — making it a schema error would delete the refusal.",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "unattested-client",
+          "enforcement": "none",
+          "effective": "unattested-client",
+          "honoured": true,
+          "reason": "declared unattested; nothing to enforce"
+        },
+        "attestation": {
+          "provider": "amd-sev-snp",
+          "quote_ref": "quote://relayed",
+          "outcome": "verified"
+        },
+        "surfaces": [
+          {
+            "name": "browser-js",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "document.save"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "fails",
+          "p3": "fails"
+        },
+        "leaf_status": null,
+        "can_claim": false,
+        "conditions": []
+      },
+      "errors": []
+    },
+    {
+      "name": "a self-declared effective placement is DEFECT-1 reopened",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "none",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "placement.effective is declared 'server-library' but resolvePlacement('server-library', 'none') yields 'unattested-client'. Effective placement is derived; a self-declared one is DEFECT-1 reopened.",
+        "placement.honoured disagrees with resolvePlacement()"
+      ]
+    },
+    {
+      "name": "a forged p1 disagrees with the assurance function",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "fails",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "properties.p1 says 'fails'; the assurance function says 'holds'"
+      ]
+    },
+    {
+      "name": "a forged can_claim disagrees with the assurance function",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": false,
+        "conditions": []
+      },
+      "errors": [
+        "can_claim says false; the assurance function says true"
+      ]
+    },
+    {
+      "name": "provider 'none' with a non-none outcome — the §5.1 collision",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "passthrough"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "attestation.provider is 'none' (P7: no hardware attestation, P8 not applicable) but outcome is 'passthrough'. A leaf cannot carry an envelope from a subsystem the baseline says does not exist."
+      ]
+    },
+    {
+      "name": "a real provider whose leaves carry nothing is a P8 failure",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "amd-sev-snp",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "attestation.provider is 'amd-sev-snp', so P8 requires EVERY leaf to carry a platform_attestation envelope; outcome 'none' means none do."
+      ]
+    },
+    {
+      "name": "an unknown provider with no verifier_reference fails P8",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "acme-secure-enclave",
+          "quote_ref": null,
+          "outcome": "passthrough"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "attestation.provider 'acme-secure-enclave' has no built-in verifier, so P8 requires a verifier_reference naming an independent verifier the customer trusts."
+      ]
+    },
+    {
+      "name": "induced fidelity with no induced_artifact_ref",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "induced",
+            "hooks": [
+              "graph.execute",
+              "artifact.produced"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "surfaces[0] is 'induced' fidelity with no induced_artifact_ref. The hashed serialization has to be obtainable again or the leaf is evidence only Scruple can read."
+      ]
+    },
+    {
+      "name": "a baseline claiming no surfaces observes nothing",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "surfaces must name at least one observation position — a baseline claiming none observes nothing"
+      ]
+    },
+    {
+      "name": "an unknown hook is refused",
+      "predicate": {
+        "predicate_version": 1,
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "tenant_id": "vendor-acme",
+          "build_measurement": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "placement": {
+          "declared": "server-library",
+          "enforcement": "no-tenant-code",
+          "effective": "server-library",
+          "honoured": true,
+          "reason": "enforcement 'no-tenant-code' satisfies 'server-library'"
+        },
+        "attestation": {
+          "provider": "none",
+          "quote_ref": null,
+          "outcome": "none"
+        },
+        "surfaces": [
+          {
+            "name": "server-library-inference-handler",
+            "surface": "in-process-callback",
+            "fidelity": "as-delivered",
+            "hooks": [
+              "stream.complete"
+            ]
+          }
+        ],
+        "properties": {
+          "p2": "conditional",
+          "p4": "conditional",
+          "p5": "conditional",
+          "p6": "conditional",
+          "p7": "conditional",
+          "p8": "conditional",
+          "p1": "holds",
+          "p3": "holds"
+        },
+        "leaf_status": "passthrough",
+        "can_claim": true,
+        "conditions": []
+      },
+      "errors": [
+        "surfaces[0] declares unknown hook 'stream.complete'"
+      ]
+    }
+  ]
+}

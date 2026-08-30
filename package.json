@@ -11,6 +11,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "gen:leaf-registry": "node lib/leaf/generate.mjs",
+    "gen:predicate-vectors": "node --import tsx scripts/gen-predicate-vectors.mjs",
+    "gen:preimage-vectors": "node --import tsx scripts/gen-component-preimage-vectors.mjs",
     "test:v2": "SCRUPLE_DB_PATH=$(mktemp -d)/v2-test.db node --import tsx --test test/v2/*.test.ts",
     "test": "npm run test:v2 && npm run test:integration",
     "test:sdk": "cd packages/scruple-host-sdk && python3 -m pytest -q . ../scruple-api",

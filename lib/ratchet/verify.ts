@@ -132,6 +132,68 @@ export const MAX_RATCHET_ADVANCE = 100_000;
  */
 export const ACCEPTANCE_WINDOW_COUNTERS = 1_000;
 
+/**
+ * §10 C-6 — AUTHENTICATE BEFORE RATCHETING, expressed as a parameter.
+ *
+ * C-2 bounded the ratchet at MAX_RATCHET_ADVANCE and C-6 priced it: at the
+ * ~5.8 µs per step WO-4 measured, 100,000 steps is ~584 ms of CPU spent
+ * BEFORE the MAC is checked, on a counter that travels in the clear and is
+ * therefore attacker-chosen. C-6's finding is that the fix is not a smaller
+ * number — lowering the cap trades a DoS window for a legitimate-backlog
+ * ceiling, and refusing a deep drain destroys exactly the evidence the
+ * queue exists to preserve (§5, C-3).
+ *
+ * The fix is that unauthenticated cost must be ZERO. So verification takes
+ * an authenticated principal as its FIRST ARGUMENT rather than reading one
+ * out of a request, and the only way to obtain one is `principalFrom()` in
+ * lib/v2/auth.ts, which is a hashed-key lookup against `api_keys`. A caller
+ * that has not authenticated cannot construct the call, which is a stronger
+ * statement than a caller that has not authenticated should not make it.
+ *
+ * `MAX_RATCHET_ADVANCE` then bounds only AUTHENTICATED abuse, where a
+ * tenant burning their own quota is a billing question rather than a
+ * denial-of-service one. Reconsidering the number is C-6's second step and
+ * takes backlog depth as its only input; it is deliberately not done here.
+ */
+export interface AuthenticatedTenant {
+  /** api_keys.user_id — the tenant boundary, not a display name. */
+  userId: string;
+  /** api_keys.id. Carried for audit, never used as an authorisation input. */
+  keyId: string;
+}
+
+/* ── C-6 instrumentation ──────────────────────────────────────────────────
+ *
+ * A claim that no ratcheting happens before authentication is only worth
+ * what proves it, and a timing assertion proves it flakily. These counters
+ * make the claim mechanical: `test/v2/component-auth.test.ts` resets them,
+ * fires an unauthenticated submission carrying counter 99,999, and asserts
+ * the delta is exactly zero — then repeats with a valid key belonging to
+ * another tenant, and finally with the owning tenant, where the delta is
+ * non-zero and the same test therefore cannot pass vacuously.
+ *
+ * Kept in production code rather than in a test double on purpose: an
+ * instrument that only exists in the test harness measures the harness.
+ * Two integers and an increment cost nothing.
+ */
+let ratchetStepsTotal = 0;
+let ratchetCallsTotal = 0;
+
+/** HKDF-Expand steps performed by this process since the last reset. */
+export function ratchetStepsPerformed(): number {
+  return ratchetStepsTotal;
+}
+
+/** Times a chain key has been positioned at a counter. */
+export function ratchetInvocations(): number {
+  return ratchetCallsTotal;
+}
+
+export function resetRatchetCounters(): void {
+  ratchetStepsTotal = 0;
+  ratchetCallsTotal = 0;
+}
+
 export interface ComponentRow {
   component_id: string;
   tenant_id: string;
@@ -309,6 +371,8 @@ function ratchetTo(row: ComponentRow, target: number): Ratchet | VerifyFail {
     };
   }
 
+  ratchetCallsTotal += 1;
+  ratchetStepsTotal += steps;
   const advanced = ratchetForward(key, steps);
   zeroize(key);
   return new Ratchet(advanced, target);
@@ -347,8 +411,18 @@ function gapsClaiming(componentId: string, counter: number): GapRow[] {
  * component's high-water mark, chain-key checkpoints and last_seen_at —
  * in one transaction, because a verified event whose high-water mark did
  * not advance is a counter that can be replayed.
+ *
+ * `principal` is first because ORDER IS THE POINT (§10 C-6). Everything
+ * before `ratchetTo()` below is a hashed-key lookup, an indexed row read
+ * and two integer comparisons; the only work proportional to the
+ * attacker-supplied counter happens after all of them. A caller with no
+ * API key cannot reach this function at all, and a caller with someone
+ * else's key stops at the tenant check.
  */
-export function verifySubmission(input: VerifyInput): VerifyResult {
+export function verifySubmission(
+  principal: AuthenticatedTenant,
+  input: VerifyInput,
+): VerifyResult {
   const { componentId, counter, mac } = input;
 
   if (!Number.isInteger(counter) || counter < 0 || !Number.isSafeInteger(counter)) {
@@ -362,6 +436,20 @@ export function verifySubmission(input: VerifyInput): VerifyResult {
 
   const row = getComponent(componentId);
   if (!row) {
+    return {
+      ok: false,
+      reason: 'unknown_component',
+      message: 'No such component. Provision it via POST /api/v2/components/provision.',
+    };
+  }
+  // C-6, second half. A component in another tenant's estate answers
+  // EXACTLY as one that does not exist — the same reasoning
+  // principalFrom() applies to key lookup and /components/status applies
+  // to component ids: the difference is useful to someone enumerating ids
+  // and useless to the owner. Placed here, above every other check, so
+  // that an authenticated caller still cannot make this process ratchet on
+  // a component that is not theirs.
+  if (row.tenant_id !== principal.userId) {
     return {
       ok: false,
       reason: 'unknown_component',
