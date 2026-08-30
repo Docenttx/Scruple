@@ -2,9 +2,20 @@
 //
 // Receives POSTs from the in-pod scruple-safetensors-hook whenever
 // Kohya writes a checkpoint. Validates the HMAC signature against
-// SCRUPLE_APPS_WITNESS_SECRET, looks up the app_session, POSTs to the
-// witness server for the leaf hash + HMAC seal, inserts an iterations
-// row + training_runs row into the user's active Kohya project.
+// SCRUPLE_APPS_WITNESS_SECRET, looks up the app_session, and records
+// the checkpoint into app_kohya_progress + training_runs.
+//
+// IMPORTANT — this route does NOT create a witness leaf. It never POSTs
+// to the witness server, so no leaf is signed for a Kohya checkpoint
+// (see the comment further down, and docs/canon/STUDIO_P1-P8_GRADE.md,
+// Path B — Kohya, which found this route reporting `ok: true` over an
+// unwitnessed save). The response follows the same `witnessed` /
+// `reason` vocabulary as `app/api/v2/witness/route.ts` (D-8 there):
+// `ok: true` means the checkpoint was recorded, `witnessed` says
+// whether a leaf exists, and it is always `false` today. Do not flip
+// that field to `true` without actually calling the witness server —
+// see docs/canon/WO-05-studio-comfyui-kohya.md, T-4, for the follow-up
+// that wires this route to `POST /v2/witness`.
 //
 // Body shape (matches scruple_safetensors_hook.py):
 //   {
@@ -111,7 +122,11 @@ export async function POST(req: NextRequest) {
   // the leaf construction still runs through the canonical /api/v1/log/*
   // ingest surface, keyed by the tenant's API principal, not by the pod-side
   // HMAC (which authenticates the hook, not the human customer). Wiring the
-  // pod-side HMAC through to a witness leaf is a separate follow-up.
+  // pod-side HMAC through to a witness leaf is a separate follow-up
+  // (docs/canon/WO-05-studio-comfyui-kohya.md, T-4). Because no leaf is
+  // created here, the response below always reports `witnessed: false` —
+  // never fabricate a leaf by flipping that to true without actually
+  // calling the witness server.
   try {
     const projectRow = database
       .prepare(
@@ -197,6 +212,15 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    // See the header comment and docs/canon/STUDIO_P1-P8_GRADE.md
+    // (Path B — Kohya): this route does not POST to the witness
+    // server, so no leaf is signed. `ok: true` means the checkpoint
+    // was recorded (app_kohya_progress + training_runs); `witnessed`
+    // is the separate, honest answer to whether a leaf exists for it.
+    witnessed: false,
+    reason:
+      'kohya-witness records the checkpoint (hash, size, structural summary) but does not ' +
+      'yet POST to the witness server, so no leaf is signed. See docs/canon/WO-05-studio-comfyui-kohya.md T-4.',
     session_id: row.id,
     received_at: now,
   });

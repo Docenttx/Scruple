@@ -3,13 +3,29 @@
 Custom container image for RunPod pods that host Kohya-ss GUI with the
 Scruple provenance hook installed.
 
+**This directory's `Dockerfile`/`start.sh` build path is superseded.**
+Production runs `ashleykza/kohya:latest` via a RunPod `dockerStartCmd`
+that curls `scruple_safetensors_hook.py` from
+`https://scruple.stooges.ai/pod-hooks/kohya_safetensors_hook.py`
+(served from `public/pod-hooks/` in this repo) — see
+`docs/canon/WO-05-studio-comfyui-kohya.md` §2. The Dockerfile below is
+kept buildable but is not what production pods run.
+
 ## Files
 
 - `Dockerfile` — builds from `runpod/pytorch:2.4.0` + clones Kohya-ss
-  v25.0.3 + installs `sitecustomize.py` (the safetensors hook)
+  v25.0.3 + installs `sitecustomize.py` (the safetensors hook).
+  Superseded for production use (see above); kept for reference and in
+  case this build path is revived.
 - `scruple_safetensors_hook.py` — the Python hook that intercepts every
-  `safetensors.torch.save_file` call and POSTs a witnessed leaf to
-  scruple-web
+  `safetensors.torch.save_file` call and POSTs the checkpoint to
+  scruple-web, which **records** it (`training_runs` +
+  `app_kohya_progress`) but does **not** sign a witness leaf from this
+  path — `POST /api/apps/kohya/witness` reports `witnessed: false`.
+  See `docs/canon/STUDIO_P1-P8_GRADE.md` (Path B — Kohya). This file
+  must stay byte-identical to `public/pod-hooks/kohya_safetensors_hook.py`
+  — that copy is the one production actually fetches and wins on any
+  disagreement.
 - `start.sh` — launches Kohya-ss headless on 0.0.0.0:7860
 
 ## Build + push
@@ -76,8 +92,9 @@ pm2 save
 4. Start training. Every checkpoint save should trigger a POST to
    `/api/apps/kohya/witness` — watch `pm2 logs kohya-ws-proxy` for
    confirmation
-5. Check the scruple-web project workspace — a training iteration row
-   should appear with a leaf hash
+5. Check the scruple-web project workspace — a `training_runs` row
+   should appear with `model_hash`/`header_hash` populated (recorded,
+   not witnessed — see the note in "Files" above)
 
 ## Debugging
 
