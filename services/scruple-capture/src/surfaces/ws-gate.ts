@@ -102,7 +102,25 @@ export interface WsGateOptions {
   upstreamUrl: string;
   correlator: Correlator;
   log?: (line: string) => void;
+  /**
+   * Bidirectional keepalive interval, ms. 0 disables.
+   *
+   * NOT optional in practice. Cloudflare and Modal close an idle tunnel at
+   * roughly 100-125s, and a ComfyUI generation is routinely quieter than that
+   * between progress frames. Without a ping the socket dies mid-run, the
+   * tenant sees a failed generation, and the artifact that was about to be
+   * captured never arrives -- so the shape of the bug is a MISSING LEAF, and
+   * it reads as a provenance defect rather than as the timeout it is.
+   *
+   * Found by the canvas retrofit: its WS sidecar has carried a 30s ping since
+   * canvas v2 and this gate had none, so adopting the gate verbatim would have
+   * silently broken every long generation.
+   */
+  keepaliveMs?: number;
 }
+
+/** Default keepalive: comfortably inside the ~100-125s idle close. */
+export const DEFAULT_KEEPALIVE_MS = 30_000;
 
 export class WsGate implements CaptureSurface {
   private ctx: CaptureSurfaceContext | null = null;
@@ -195,6 +213,24 @@ export class WsGate implements CaptureSurface {
       pendingDown.length = 0;
     });
 
+    // Bidirectional keepalive. Both legs, because either can be the idle one:
+    // the tenant's browser may sit silent while ComfyUI works, and ComfyUI may
+    // sit silent while the tenant reads. A ping on one leg does not hold the
+    // other open.
+    const keepaliveMs = this.opts.keepaliveMs ?? DEFAULT_KEEPALIVE_MS;
+    const keepalive =
+      keepaliveMs > 0
+        ? setInterval(() => {
+            if (upstream.readyState === WebSocket.OPEN) upstream.ping();
+            if (client.readyState === WebSocket.OPEN) client.ping();
+          }, keepaliveMs)
+        : null;
+    // unref so a live keepalive cannot hold the process open at shutdown.
+    keepalive?.unref?.();
+    const stopKeepalive = () => {
+      if (keepalive) clearInterval(keepalive);
+    };
+
     // Downstream: upstream → tenant. This is the direction artifacts travel.
     //
     // SERIALISED, one frame at a time. Capturing a binary frame awaits the
@@ -209,6 +245,7 @@ export class WsGate implements CaptureSurface {
       });
     });
     upstream.on('close', () => {
+      stopKeepalive();
       if (client.readyState === WebSocket.OPEN) client.close();
     });
     upstream.on('error', (e) => this.log(`upstream error: ${e.message}`));
@@ -221,6 +258,7 @@ export class WsGate implements CaptureSurface {
       }
     });
     client.on('close', () => {
+      stopKeepalive();
       if (upstream.readyState === WebSocket.OPEN) upstream.close();
     });
     client.on('error', (e) => this.log(`client error: ${e.message}`));

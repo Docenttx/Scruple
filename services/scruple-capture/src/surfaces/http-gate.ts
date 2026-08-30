@@ -51,6 +51,7 @@
 // workload container, and that obligation belongs in §2 as a fourth item.
 
 import http from 'node:http';
+import https from 'node:https';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
 
@@ -339,13 +340,35 @@ function readBody(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
+/**
+ * Pick the right request implementation for the upstream scheme.
+ *
+ * `http.request({protocol: 'https:'})` does not fall back to TLS -- it throws
+ * ERR_INVALID_PROTOCOL. The component therefore could not proxy to any https
+ * upstream at all, which is every hosted ComfyUI that is not a bare container
+ * on the same host. Found by the canvas retrofit trying to point this gate at
+ * Modal (https) and getting a throw rather than a connection.
+ *
+ * Kept as one function so both proxy paths cannot drift on this.
+ */
+function requesterFor(target: URL): typeof http.request {
+  if (target.protocol === 'https:') return https.request as typeof http.request;
+  if (target.protocol === 'http:') return http.request;
+  // Refuse rather than guess. An upstream we cannot name a transport for is a
+  // configuration error, and defaulting to cleartext would be the wrong guess.
+  throw new Error(
+    `scruple-capture: unsupported upstream protocol '${target.protocol}' ` +
+      `(expected http: or https:)`,
+  );
+}
+
 function proxyBuffered(
   target: URL,
   req: http.IncomingMessage,
   body: Buffer,
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
-    const up = http.request(
+    const up = requesterFor(target)(
       {
         protocol: target.protocol,
         hostname: target.hostname,
@@ -377,7 +400,7 @@ function proxyStreamed(
   onHead: (status: number, headers: http.IncomingHttpHeaders) => void,
 ): Promise<void> {
   return new Promise((resolve) => {
-    const up = http.request(
+    const up = requesterFor(target)(
       {
         protocol: target.protocol,
         hostname: target.hostname,
