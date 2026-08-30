@@ -1,5 +1,8 @@
-"""Client side of GET /v2/capabilities (D-7) and property 2: an unknown
-or unavailable modality fails closed, never downgrades to something
+"""Client side of GET /v2/capabilities (D-7) -- property 2's *server*
+half. The vocabulary half (an unknown modality is refused with no
+network call at all) lives in `scruple_api.modality` so that it holds
+for an API-only consumer too; this module calls it rather than
+restating it. An unknown or unavailable modality fails closed, never downgrades to something
 cheaper that looks similar.
 
 Not one of the nine names CANON_SKELETON.md §5 lists (auth, capture,
@@ -12,21 +15,14 @@ the same fail-closed logic and neither should reimplement it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
+
+from scruple_api.modality import KNOWN_MODALITIES, Capability, refuse_unknown
 
 from . import http as _http
 from .errors import ModalityUnavailableError
 
-KNOWN_MODALITIES = {"c2pa", "watermark", "chain", "local"}
-
-
-@dataclass(frozen=True)
-class Capability:
-    modality: str
-    available: bool
-    reason: str
-    price_cents: Optional[int] = None
+__all__ = ["KNOWN_MODALITIES", "Capability", "fetch", "check", "require_available"]
 
 
 def fetch(session, *, host: str, mime: str) -> List[Capability]:
@@ -61,12 +57,13 @@ def check(session, *, host: str, mime: str, modality: str) -> Capability:
         this call's own fetch() failed or returned nothing) -> refuse.
       - the server's list simply does not mention this modality -> refuse.
     """
-    if modality not in KNOWN_MODALITIES:
-        return Capability(
-            modality=modality,
-            available=False,
-            reason=f'Unknown modality "{modality}". Refusing rather than guessing what it might map to.',
-        )
+    unknown = refuse_unknown(modality)
+    if unknown is not None:
+        # Property 2's vocabulary half. ONE implementation, in
+        # scruple_api.modality, shared with the no-op recorder -- so an
+        # API-only consumer is refused by exactly this rule, not by a
+        # weaker copy of it. See scruple_api/modality.py.
+        return unknown
 
     cached = session.state.capabilities_cache.get((host, mime))
     if cached is None:

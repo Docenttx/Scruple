@@ -24,6 +24,14 @@ PKG_ROOT = pathlib.Path(__file__).resolve().parent.parent / "scruple_host_sdk"
 TRANSPORT_FILE = "http.py"
 FORBIDDEN_TOP_LEVEL_MODULES = {"requests", "httpx", "aiohttp"}
 
+#: Modules allowed to touch a socket at all, and why. Measured, not
+#: assumed -- see test_the_set_of_socket_capable_modules_is_exactly_two.
+SOCKET_CAPABLE = {
+    "http.py": "outbound to scruple.ai -- the sole gateway, see its docstring",
+    "auth.py": "inbound loopback only -- the browser-handshake callback server",
+}
+SOCKET_MODULES = {"socket", "socketserver", "ssl", "http", "urllib", "webbrowser", "asyncio"}
+
 
 def test_only_http_module_touches_the_network():
     """Parses every module in the package except http.py and fails if
@@ -106,3 +114,45 @@ def test_detach_drains_without_reenqueuing_forever(make_client):
 
     assert result["succeeded"] == 1
     assert client.queue.count() == 0
+
+
+def test_the_set_of_socket_capable_modules_is_exactly_two():
+    """The seam this package is built on is usually stated as "only
+    http.py touches the network". Measured, that is one module short:
+    `auth.py` imports `http.server`, `socket` and `webbrowser` to stand up
+    the loopback callback server the browser handshake redirects to.
+
+    That is not a violation of property 3. `http.py`'s guarantee is about
+    OUTBOUND calls to scruple.ai -- the ones that can fail and must
+    therefore enqueue -- and `auth.py` makes none; it binds a listener on
+    localhost and reads one redirect. But an unstated exception is how a
+    third one arrives unnoticed, so the exception is named here and the
+    count is pinned.
+
+    A new socket-capable module fails this test. If it genuinely needs a
+    socket, it goes in `SOCKET_CAPABLE` with a reason, deliberately -- and
+    it can never go in `scruple-api`, whose scan
+    (`packages/scruple-api/tests/test_no_network_capability.py`) has no
+    allowlist at all.
+    """
+    found = {}
+    for path in sorted(PKG_ROOT.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hits = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.split(".")[0] in SOCKET_MODULES:
+                        hits.add(alias.name)
+            elif isinstance(node, ast.ImportFrom) and not node.level:
+                if (node.module or "").split(".")[0] in SOCKET_MODULES:
+                    hits.add(node.module)
+        if hits:
+            found[path.name] = sorted(hits)
+
+    assert set(found) == set(SOCKET_CAPABLE), (
+        "The set of socket-capable modules in scruple-host-sdk changed.\n"
+        f"  expected: {sorted(SOCKET_CAPABLE)}\n"
+        f"  measured: {sorted(found)}  {found}"
+    )
+    assert found["auth.py"] == ["http.server", "socket", "urllib.parse", "webbrowser"]

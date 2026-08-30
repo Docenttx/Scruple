@@ -14,23 +14,18 @@ nothing is inferred from `result.ok` or the HTTP status code alone.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+# Shared with the no-op recorder so `outcome.witnessed` means the same
+# thing and reads the same fields whichever side answered. See
+# scruple_api/outcomes.py.
+from scruple_api.outcomes import MarkOutcome, Outstanding, WitnessOutcome
 
 from . import capabilities as _capabilities
 from . import http as _http
 from .errors import NoBaselineError
 
-
-@dataclass(frozen=True)
-class WitnessOutcome:
-    leaf_id: Optional[str]
-    leaf_hash: Optional[str]
-    witnessed: bool  # D-8: first-class boolean, read from the response body, never from status.
-    leaf_scheme: Optional[str]
-    baseline_ref: Optional[str]
-    queued: bool
-    error: Optional[str] = None
+__all__ = ["WitnessOutcome", "MarkOutcome", "Outstanding", "witness", "mark"]
 
 
 def witness(
@@ -109,24 +104,6 @@ def witness(
         baseline_ref=b.get("baseline_ref"),
         queued=False,
     )
-
-
-@dataclass(frozen=True)
-class Outstanding:
-    modality: str
-    reason: str
-
-
-@dataclass(frozen=True)
-class MarkOutcome:
-    leaf_id: Optional[str]
-    modalities_requested: List[str]
-    modalities_applied: List[str]
-    outstanding: List[Outstanding] = field(default_factory=list)
-    local_lock: Dict[str, Any] = field(default_factory=dict)
-    witnessed: bool = False
-    queued: bool = False
-    error: Optional[str] = None
 
 
 def mark(

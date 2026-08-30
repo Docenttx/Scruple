@@ -3,7 +3,22 @@ name = "scruple-host-sdk"
 version = "0.1.0"
 description = "Canon client SDK for Scruple host integrations (Blender, Meshroom, ToonBoom, Fusion, Adobe, ...). Pure standard library, no third-party dependencies -- these run inside embedded interpreters where pip cannot be assumed."
 requires-python = ">=3.10"
-dependencies = []
+
+# ONE DEPENDENCY, AND IT IS NEW (WO-8). Read before adding a second.
+#
+# This list was empty on purpose and the reason has not changed: these
+# modules run inside embedded interpreters where pip cannot be assumed, so
+# `cp -r` has to be a valid install. `scruple-api` does not break that --
+# it is ours, it is pure standard library, its own dependency list is
+# empty and enforced empty, so vendoring is two directories side by side
+# instead of one. No resolver runs, nothing is fetched.
+#
+# It is still a real dependency and it is the only one. A third-party
+# entry here would void the promise for every embedded host and would
+# transitively void scruple-api's stronger claim (nothing in it can reach
+# the network), which is checked by
+# packages/scruple-api/tests/test_no_network_capability.py.
+dependencies = ["scruple-api"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]

@@ -21,8 +21,9 @@ keeps each module testable with a lightweight stand-in.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional
+
+from scruple_api.outcomes import AttachResult
 
 from . import auth as _auth
 from . import capabilities as _capabilities
@@ -35,14 +36,6 @@ from . import queue as _queue
 from . import state as _state
 from . import witness_flow as _witness_flow
 from .errors import ScrupleAPIError
-
-
-@dataclass
-class AttachResult:
-    baseline_ref: Optional[str]
-    established: bool  # True: this call created the baseline. False: it verified an existing one.
-    drifted: bool  # True: the server's active baseline differs from what attach() just computed.
-    server_baseline_ref: Optional[str] = None
 
 
 class Client:

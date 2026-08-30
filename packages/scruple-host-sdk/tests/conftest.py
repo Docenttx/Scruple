@@ -86,3 +86,34 @@ def make_client(tmp_path):
         return client, opener
 
     return _make
+
+
+@pytest.fixture
+def register_sdk(tmp_path):
+    """Register `scruple_host_sdk` as the process-wide witness provider,
+    behind a scripted FakeOpener. Yields a callable; unregisters after.
+
+    Lives here rather than in the test module that uses it because
+    `from conftest import FakeOpener` is ambiguous once both package
+    suites run in one pytest session -- `packages/scruple-api/conftest.py`
+    and this file are two different files with the same module name, and
+    whichever pytest imported first wins. A fixture is resolved by pytest's
+    own conftest scoping, which is per-directory and unambiguous.
+    """
+    import scruple_host_sdk
+    from scruple_api import reset_witness_provider
+
+    def _register(script: Optional[List[Tuple[Any, ...]]] = None, **kwargs: Any) -> FakeOpener:
+        opener = FakeOpener(script or [])
+        scruple_host_sdk.register(
+            api_key=kwargs.pop("api_key", "sk_test_123"),
+            base_url=kwargs.pop("base_url", "https://scruple.test"),
+            opener=opener,
+            cache_dir=kwargs.pop("cache_dir", str(tmp_path / ".scruple")),
+            queue_path=kwargs.pop("queue_path", str(tmp_path / "queue.jsonl")),
+            **kwargs,
+        )
+        return opener
+
+    yield _register
+    reset_witness_provider()
