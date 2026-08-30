@@ -314,3 +314,73 @@ topology is the configuration.
   the reference integration demonstrates `verified` or only `passthrough`. If
   not, we should build the reference against something that does, or we ship a
   reference implementation that cannot demonstrate its own strongest tier.
+
+---
+
+## 10. Spec corrections — 2026-08-30, from WO-3 implementation
+
+Implementing §4 in two languages found five defects in this document. All five
+are recorded here rather than silently patched above, because components in the
+field would be bound by the original text.
+
+### C-1 · `canonical_preimage` was never defined (§4.1 used it and stopped)
+Two implementations reading that sentence would not agree. **Definition, now
+normative:** UTF-8 JSON, keys sorted by **Unicode code point**, compact
+separators. Two traps that must stay closed:
+- **Floats are refused.** Python `repr` and JS `Number#toString` disagree on
+  doubles; a format-dependent MAC fails unreproducibly and only sometimes.
+- **Code point, not UTF-16 code unit.** JS's default sort disagrees with
+  Python's for astral-plane keys.
+
+### C-2 · Ratcheting forward was unbounded — a CPU-exhaustion primitive
+§4.2 said "ratchets forward to the received counter." The counter travels in the
+clear and is therefore **attacker-chosen**, and the ratchet runs *before* the MAC
+is checked. A claimed `n = 2^40` costs a trillion HMACs on an unauthenticated
+request. **`MAX_RATCHET_ADVANCE = 100_000`, refused distinctly as
+`counter_too_far`.** My error: I specified the honest-party behaviour and forgot
+the counter is adversary-supplied on an unauthenticated path.
+
+### C-3 · §5 contradicted §4.2, and the contradiction loses evidence
+§5 says a queued event keeps its counter and drains later. §4.2 says `n` must
+strictly exceed the high-water mark. Those reconcile only if a component never
+submits `n+1` while `n` is queued — head-of-line blocking, which §5 does not
+state. If it does not block, **a genuinely captured event is rejected as a replay
+and lost from the record.**
+
+**Decision: bounded acceptance window, not strict increase, and not
+head-of-line blocking.**
+
+- Replay defence is the `component_events` primary key `(component_id,
+  counter)`, which WO-3 already built. Strict-increase is **redundant with it**
+  and additionally harmful.
+- Accept any unseen counter within a bounded window below the high-water mark;
+  refuse beyond it as `counter_too_far` (C-2's bound, applied downward too).
+- A counter still unseen after the window closes is a gap, exactly as now.
+
+Head-of-line blocking is rejected on the ground that one permanently
+undeliverable event would silence a component indefinitely — and **silence is
+the specific thing this design exists to make visible.** Trading evidence loss
+for ordering purity is the wrong trade when the ordering is already recoverable
+from the counter itself.
+
+Payments agrees: hosts derive any key from the KSN independently and detect
+duplicates by uniqueness rather than by enforcing arrival order.
+
+### C-4 · §4.3's build check is not yet checkable
+"The server can check the claimed build is one we shipped" presumes a
+**published-builds registry that does not exist**. Until it does, the claimed
+measurement is recorded per event and `build_changed` is flagged against the
+provisioned value — which is drift detection, not provenance. The registry is
+required before §4.3's claim can be made in customer material.
+
+### C-5 · §4.4 omitted authentication on provisioning
+The one-time token alone cannot enforce "this token belongs to another tenant."
+An API key is required **in addition**. WO-3 used `baseline:write` as a
+stand-in; a dedicated `component:provision` scope belongs in `V2_SCOPES`.
+
+### Not a defect — the HKDF asymmetry is correct
+Full HKDF (extract + expand) for `IK`; Expand-only for the chain steps. `K_n` is
+already a uniformly random 32-byte PRK, so re-extracting buys nothing and would
+need a salt the chain does not have. Both suites pin this, because "fixing" it
+to full HKDF later would be silent everywhere except in the field, where it
+would invalidate every provisioned component.
