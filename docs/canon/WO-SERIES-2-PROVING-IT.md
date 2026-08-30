@@ -132,22 +132,90 @@ reach a submission without asking us a question.
 
 ---
 
-## Not in the five, deliberately
+## WO-19 · Kohya inside Studio, to L2
 
-**The Kohya job-submission API.** It is arguably higher value than WO-18 — it
-converts a GUI product into an API product and lands Kohya on `server-library`,
-a stronger tier than the sidecar, on the substrate we already run. It is not
-here because **it is a product decision, not an engineering one**, and it is the
-founder's to make. If it is decided, it displaces WO-18.
+**Studio must be L2-qualified as a product, and training is the hole.** Canvas
+is one probe run from P2; Kohya currently **refuses to start** under RunPod's
+topology, which means Studio today either cannot offer training or offers it
+unwitnessed. Neither is a shippable state for the reference implementation.
 
-The whitelist constraint is not cosmetic and belongs in that decision:
-`--network_module` is an import path and `--sample_prompts` shells out, so one
-"paste your own args" box silently reverts the whole thing to
-`unattested-client`.
+The finding that makes this tractable: **RunPod is not what hands the tenant
+root.** Pods run under our API key and RunPod gives the customer no console, no
+SSH, no exec. Every bit of tenant code execution in that container was granted
+by **Kohya's GUI, which is a command launcher we chose to expose.** Inside
+Studio, the product surface is ours, so this is entirely in our hands.
+
+- Replace the GUI as the tenant-facing surface with a **job-submission API**:
+  data and hyperparameters, never a command. Component as PID 1, trainer as
+  child. One container, no substrate migration — and it lands on
+  `server-library`, a **stronger** tier than the sidecar.
+- **The config surface must be a whitelist, and this is the whole risk.**
+  `--network_module` is an import path and `--sample_prompts` shells out. One
+  "paste your own args" box silently reverts Studio to `unattested-client`.
+  Enumerate every accepted parameter and prove the denied set by test.
+- Evaluate **RunPod Serverless** against Pods while you are here. It is a
+  different product with no interactive surface, and it may be the cheaper route
+  to the same property. Decide on evidence, not preference.
+- Preserve `header_hash` — the safetensors structural fingerprint the in-pod
+  hook computed. Losing it makes the re-placement a net evidence regression.
+
+**Acceptance:** Studio offers training, every checkpoint is witnessed, and the
+whole product grades PASS on P1–P8 — canvas and training both — with the probe
+run behind it, not a declaration.
+
+---
+
+## WO-20 · `model.write` hooks for Kohya outside Studio
+
+**A vendor hosting Kohya has their own topology and we do not get to choose it.**
+WO-19 solves our product; this solves theirs, and the two must not be conflated
+again — Studio's answer ("remove the GUI") is available to us precisely because
+we own the surface, and a vendor may not have that freedom.
+
+- Give `model.write` a **second implementation**. `CANON_SKELETON.md` §4 already
+  notes it is specified from Kohya alone, and WO-5's mapping exercise showed a
+  hook with one implementation describes that integration rather than a contract.
+  A second one is what makes it a hook.
+- Make it work across placements, not just one. A vendor whose backend
+  orchestrates training is `server-library`; a vendor who can isolate is
+  `sidecar-gate`; a vendor who cannot is `unattested-client` and must be told so
+  rather than sold to.
+- **Carry the training-specific shape the image path does not have:** dataset
+  root hash, hyperparameters, base-model fingerprint, and the checkpoint's
+  `header_hash`. A training run's provenance is not an image's provenance with
+  different filenames.
+- Carry the reality WO-11b established: **a checkpoint is a file.** It is
+  collected by a file browser, JupyterLab, `scp`, a remounted volume — there is
+  no point at which bytes can be withheld pending a leaf. So `watch` *is* the
+  capture rather than a complement to the gate, there is no fail-closed point,
+  and the ratchet's counter-in-the-clear is what makes removal visible. **You can
+  get the bytes; you cannot leave the record undisturbed.** Say that plainly in
+  the vendor-facing text rather than implying a guarantee we do not have.
+
+**Acceptance:** a vendor hosting Kohya on their own infrastructure can reach a
+witnessed checkpoint without Studio, at the tier their topology honestly earns.
+
+---
 
 ## Sequencing
 
-WO-14 and WO-15 are independent and can run together. WO-16 gates WO-17 (no real
-attestation without real attested infrastructure). WO-18 wants WO-14 finished,
-because the submission package should contain a probe run we have actually
-performed ourselves.
+Seven, not five — WO-19 and WO-20 are additions, not a swap, because Studio
+reaching L2 and vendors getting Kohya hooks are different deliverables with
+different owners.
+
+- **WO-14 and WO-15** are independent and run together.
+- **WO-14 + WO-19 are what "Studio is L2-qualified" means** — canvas needs the
+  probe run, training needs a conformant placement. Neither alone is sufficient.
+- **WO-16 gates WO-17**: no real attestation without real attested
+  infrastructure. It also gates any *claim*, since production still runs a
+  witness without H-1.
+- **WO-19 gates WO-20** only in the weak sense that the Studio job API is the
+  first implementation the vendor hook generalises from. If they run in
+  parallel, WO-20 must not assume Studio's topology — that assumption is the
+  mistake this split exists to prevent.
+- **WO-18 wants WO-14 finished**, so the submission package contains a probe run
+  we have performed on ourselves.
+
+If capacity is five: **14, 19, 16, 20, 15.** That order buys a demonstrated
+Studio at L2, real signing in production, and a vendor-usable training hook,
+and defers the registry and the vendor packaging by one cycle.
