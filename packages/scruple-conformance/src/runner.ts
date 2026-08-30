@@ -67,6 +67,7 @@ export async function runProbes(
 
   return {
     runId: crypto.randomUUID(),
+    subject: ctx.deployment.integration,
     startedAt,
     finishedAt: new Date().toISOString(),
     vantages: [...new Set(results.map((r) => r.vantage))].sort(),
@@ -88,6 +89,7 @@ export async function runProbes(
 export function renderProbeLog(run: ProbeRun): string {
   const out: string[] = [];
   out.push(`scruple-conformance run ${run.runId}`);
+  out.push(`subject ${run.subject}`);
   out.push(`started ${run.startedAt}`);
   out.push(`vantage(s) ${run.vantages.join(', ')}`);
   out.push('');

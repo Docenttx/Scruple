@@ -27,16 +27,20 @@
 //   probe 7  egress is open                                   (§10 C-9)
 //
 // ---------------------------------------------------------------------------
-// CONFORMANT — and one thing about it is a finding, not a fixture detail
+// CONFORMANT — and the C-8 note here used to be a finding
 // ---------------------------------------------------------------------------
 //
 // §10 C-8 requires `output/`, `temp/` and `input/` to be mounted and watched.
-// `CaptureConfig.outputVolume` is SINGULAR — the shipped component takes one
-// directory. The only way to satisfy C-8 against today's config is to mount the
-// three as SUBDIRECTORIES of one watched root and rely on
-// `fs.watch(..., {recursive: true})`, which is what this fixture does and what
-// a vendor would have to do. It works, and it is worth writing down that it
-// works by accident of the recursive flag rather than by design of the config.
+// Until WO-14 `CaptureConfig.outputVolume` was SINGULAR, so this fixture had to
+// mount the three as SUBDIRECTORIES of one watched root and lean on
+// `fs.watch(..., {recursive: true})` — which satisfied the obligation BY
+// ACCIDENT OF THE FLAG and, worse, left every leaf saying `file:<relpath>` with
+// no record of which of the three volumes the bytes landed in. "A leaf exists
+// for these bytes" is not the claim C-8 is about; "PreviewImage output in
+// `temp/` is witnessed" is, and the old evidence could not distinguish them.
+//
+// The fixture now declares the three as SIBLING roots with their types, which
+// is the shape a vendor mounts, and each leaf carries `file:<type>:<path>`.
 
 import fs from 'node:fs';
 import http from 'node:http';
@@ -236,6 +240,7 @@ export async function startNonConformant(opts: FixtureOptions): Promise<Deployme
     stateDir,
     oracle: recordedLeafOracle(() => ingest.received, 'non-conformant stub ingest'),
     deployment: {
+      integration: 'scruple-capture / ComfyUI (non-conformant fixture)',
       gateUrl,
       declaredUpstream: { host: '127.0.0.1', port: comfy.port },
       volumes: { output: comfy.dirs.output, temp: tempDir, input: comfy.dirs.input },
@@ -263,9 +268,10 @@ export async function startNonConformant(opts: FixtureOptions): Promise<Deployme
 
 export async function startConformant(opts: FixtureOptions): Promise<Deployment> {
   const root = fs.mkdtempSync(path.join(opts.root, 'conf-'));
-  // The workload's three directories live under ONE root, because
-  // CaptureConfig.outputVolume is singular and fs.watch is recursive. See the
-  // header — this is the only shape that satisfies §10 C-8 today.
+  // The workload's three directories are SIBLINGS under one mount point and
+  // are declared one by one, each with its C-8 type. Nested roots are refused
+  // by resolveWatchedVolumes for the reason its comment gives: one write under
+  // two roots has two volume types and the evidence stops being an answer.
   const volumeRoot = path.join(root, 'volume');
   const comfy = await startStubComfyUI(volumeRoot);
   const tempDir = path.join(volumeRoot, 'temp');
@@ -280,7 +286,11 @@ export async function startConformant(opts: FixtureOptions): Promise<Deployment>
       upstreamUrl: comfy.url,
       listenHost: '127.0.0.1',
       listenPort: 0,
-      outputVolume: volumeRoot,
+      watchedVolumes: [
+        { type: 'output', path: comfy.dirs.output },
+        { type: 'temp', path: tempDir },
+        { type: 'input', path: comfy.dirs.input },
+      ],
       stateDir,
       apiBaseUrl: ingest.url,
       apiKey: 'sk_test_conformant',
@@ -305,6 +315,7 @@ export async function startConformant(opts: FixtureOptions): Promise<Deployment>
     stateDir,
     oracle: recordedLeafOracle(() => ingest.received, 'conformant stub ingest'),
     deployment: {
+      integration: 'scruple-capture / ComfyUI (conformant fixture)',
       gateUrl,
       declaredUpstream: { host: '127.0.0.1', port: comfy.port },
       volumes: {

@@ -156,7 +156,24 @@ export interface LeafOracle {
   leafFor(
     contentHash: string,
     windowMs: number,
-  ): Promise<{ found: boolean; counter: number | null; surfaces: string[] }>;
+  ): Promise<{
+    found: boolean;
+    counter: number | null;
+    surfaces: string[];
+    /**
+     * Every `capture.egress` value on a leaf covering these bytes.
+     *
+     * ADDED FOR §10 C-8, and for the same reason `surfaces` was: a leaf that
+     * exists is not the same fact as a leaf that says WHERE the bytes came
+     * from. `fs-watch.ts` writes `file:<volume type>:<path within that root>`,
+     * so a `temp/` write and an `output/` write are distinguishable in the
+     * record rather than only in the mount layout. A deployment on the pre-C-8
+     * singular config emits `file:unspecified:…` and the probe reports the
+     * type as unrecorded — an absent declaration, which is not the same thing
+     * as a wrong one.
+     */
+    egresses: string[];
+  }>;
   /** The component's highest accepted counter, for probe 6. Null when unknown. */
   highWaterCounter(): Promise<number | null>;
   describe: string;
@@ -164,6 +181,22 @@ export interface LeafOracle {
 
 /** Everything a probe is allowed to know about the deployment it is probing. */
 export interface DeploymentUnderTest {
+  /**
+   * WHICH INTEGRATION THIS RUN IS ABOUT. Matched against `GradeInput.path` by
+   * the grader, and a mismatch is a P2 FAIL.
+   *
+   * ADDED BY WO-14, BY WATCHING IT GO WRONG. The grade harness took a
+   * `ProbeRun` and asked only whether its coverage probes passed. So a run made
+   * against the `scruple-capture` ComfyUI deployment — a real, admissible,
+   * seven-of-seven run from an occupied tenant position — satisfied CANVAS's
+   * P2 coverage conjunct, for a deployment it had never touched. Every
+   * individual fact in that grade was true and the conclusion was false.
+   *
+   * It is the same error `surfaces` on the leaf oracle already closes ("some
+   * leaf covers these bytes" is not "the path the tenant used produced a leaf")
+   * one level up: a run with no subject is a run anybody can borrow.
+   */
+  integration: string;
   /** The gate the tenant is supposed to use. */
   gateUrl: string;
   /**
@@ -186,6 +219,28 @@ export interface DeploymentUnderTest {
   volumes: { output: string; temp: string | null; input: string | null } | null;
   /** Where the component keeps its sealed IK and queue. */
   stateDir: string;
+  /**
+   * The component's process id, when the operator declares one.
+   *
+   * DECLARED, NEVER DISCOVERED — the same rule the upstream address follows,
+   * and for the same reason: a probe that scanned `/proc` for the component
+   * would be testing our process finder, and a deployment that survived a
+   * failed scan would pass on our incompetence.
+   *
+   * WHY A PID BELONGS IN A TOPOLOGY QUESTION AT ALL. P-03 asks whether the
+   * sealed IK is reachable from the tenant position, and a MOUNT boundary is
+   * only half the answer. If the tenant shares a PID namespace with the
+   * component, `/proc/<pid>/root` resolves paths in the COMPONENT's mount
+   * namespace — so a state directory that is absent from the tenant's own view
+   * is readable anyway, and `/proc/<pid>/environ` hands over whatever
+   * credentials the component was started with. Mount isolation without PID
+   * isolation is not isolation, and a probe that only stat'd a directory would
+   * have reported it as such.
+   *
+   * Null when the operator declares none; the probe then says what it did not
+   * try rather than reporting a boundary it never tested.
+   */
+  componentPid?: number | null;
   /** scruple-web, for the submission-forgery probe. */
   apiBaseUrl: string;
   /** A credential the TENANT holds. Never the component's. */
@@ -221,6 +276,8 @@ export interface ProbeContext {
 
 export interface ProbeRun {
   runId: string;
+  /** `DeploymentUnderTest.integration` — what this run is a run OF. */
+  subject: string;
   startedAt: string;
   finishedAt: string;
   /** The distinct vantage kinds this run used. */

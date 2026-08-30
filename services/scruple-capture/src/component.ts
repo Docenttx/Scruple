@@ -32,7 +32,7 @@ import {
   type HostCaptureProfile,
 } from '../../../lib/capture/surface';
 import type { CaptureConfig } from './config';
-import { topologyAdvisory } from './config';
+import { resolveWatchedVolumes, topologyAdvisory } from './config';
 import { Correlator } from './correlation';
 import { Identity } from './identity';
 import { QueueStore } from './queue';
@@ -90,11 +90,17 @@ export class CaptureComponent {
       log,
     });
     const wsGate = new WsGate({ upstreamUrl: cfg.upstreamUrl, correlator, log });
+    // §10 C-8: one watcher per declared root, each carrying its type. An
+    // injected source is passed through as-is so FsWatchSurface's own guard
+    // refuses it for a multi-root configuration rather than watching one third
+    // of the surface quietly.
     const fsWatch = new FsWatchSurface({
-      outputVolume: cfg.outputVolume,
+      watchedVolumes: resolveWatchedVolumes(cfg, 'CaptureComponent.start'),
       correlator,
       outputVolumeDeclaredMime: cfg.outputVolumeDeclaredMime,
-      source: deps.closeWriteSource ?? new QuiescenceSource(cfg.settleMs),
+      ...(deps.closeWriteSource
+        ? { source: deps.closeWriteSource }
+        : { sourceFactory: () => new QuiescenceSource(cfg.settleMs) }),
       log,
     });
 

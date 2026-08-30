@@ -30,6 +30,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -69,6 +70,8 @@ type Mod = {
   buildMeasurement: typeof import('../../services/scruple-capture/src/build-measurement').buildMeasurement;
   canonicalPreimage: typeof import('../../lib/ratchet/ratchet').canonicalPreimage;
   C: typeof import('../../packages/scruple-conformance/src/index');
+  CFG: typeof import('../../services/scruple-capture/src/config');
+  preimageOf: typeof import('../../services/scruple-capture/src/leaf').preimageOf;
   F: typeof import('../../services/scruple-capture/probes/fixtures');
   P: typeof import('../../services/scruple-capture/probes/index');
 };
@@ -77,7 +80,7 @@ let M: Mod;
 const TENANT = 'vendor-conformance';
 
 before(async () => {
-  const [migrate, prov, identity, bm, ratchet, C, F, P] = await Promise.all([
+  const [migrate, prov, identity, bm, ratchet, C, F, P, CFG, LEAF] = await Promise.all([
     import('../../lib/db/migrate'),
     import('../../lib/ratchet/provisioning'),
     import('../../services/scruple-capture/src/identity'),
@@ -86,6 +89,8 @@ before(async () => {
     import('../../packages/scruple-conformance/src/index'),
     import('../../services/scruple-capture/probes/fixtures'),
     import('../../services/scruple-capture/probes/index'),
+    import('../../services/scruple-capture/src/config'),
+    import('../../services/scruple-capture/src/leaf'),
   ]);
   M = {
     runMigrations: migrate.runMigrations,
@@ -97,6 +102,8 @@ before(async () => {
     C,
     F,
     P,
+    CFG,
+    preimageOf: LEAF.preimageOf,
   };
   M.runMigrations();
 });
@@ -136,6 +143,7 @@ const byId = (run: { results: ProbeResult[] }, id: string): ProbeResult =>
 /** A deployment with nothing in it, for probes exercised one at a time. */
 function bareDeployment(): import('../../packages/scruple-conformance/src/types').DeploymentUnderTest {
   return {
+    integration: 'bare fixture',
     gateUrl: 'http://127.0.0.1:1',
     declaredUpstream: null,
     volumes: { output: OWN_DIR, temp: null, input: null },
@@ -340,6 +348,168 @@ describe('H-4 §7 — the same probes against a conformant deployment', { concur
     }
   });
 
+  test('§10 C-8 — a temp/ write produces a leaf that says temp/', async () => {
+    // THE POINT OF C-8, AS A TEST. `PreviewImage` (nodes.py:1684-1690) is a
+    // `SaveImage` subclass whose output_dir is get_temp_directory(): it writes
+    // FULL IMAGES to temp/. Before WO-14 the component took ONE volume, so the
+    // only way to watch all three was a recursive watch on a shared parent —
+    // and every leaf then said `file:<relpath>`, which cannot distinguish a
+    // PreviewImage in temp/ from a SaveImage in output/. "A leaf exists for
+    // these bytes" was never the claim C-8 is about.
+    const d = await M.F.startConformant({ root: OWN_DIR, makeIdentity, egressTarget: null });
+    try {
+      const vols = d.deployment.volumes!;
+      const written: Record<string, string> = {};
+      for (const [type, dir] of Object.entries({
+        output: vols.output,
+        temp: vols.temp!,
+        input: vols.input!,
+      })) {
+        const bytes = Buffer.from(`c8 ${type} ${crypto.randomUUID()}`, 'utf8');
+        fs.writeFileSync(path.join(dir, `c8-${type}.bin`), bytes);
+        written[type] = crypto.createHash('sha256').update(bytes).digest('hex');
+      }
+      // The watcher's settle timer, then every capture it started.
+      await new Promise((r) => setTimeout(r, 300));
+      await d.settled();
+
+      for (const [type, hash] of Object.entries(written)) {
+        const leaf = d.ingest.received.find((s) => s.content_hash === hash) as
+          | { capture?: { egress?: string; surface?: string } }
+          | undefined;
+        assert.ok(leaf, `no leaf for the ${type}/ write`);
+        assert.equal(leaf!.capture?.surface, 'filesystem-watch', `${type}/ leaf came from the wrong surface`);
+        assert.equal(
+          leaf!.capture?.egress,
+          `file:${type}:c8-${type}.bin`,
+          `the ${type}/ leaf must name the volume it came from — otherwise a PreviewImage in ` +
+            'temp/ and a SaveImage in output/ are the same record, which is the confusion C-8 exists to end',
+        );
+      }
+    } finally {
+      await d.stop();
+    }
+  });
+
+  test('§10 C-8 — nested watched roots are refused rather than double-counted', async () => {
+    // The pre-C-8 shape: three directories under one recursively watched root.
+    // It satisfied the obligation and could not evidence it, and it also makes
+    // one write two observations with two volume types. Refused at config time
+    // so a deployment cannot arrive in it by accident.
+    const parent = fs.mkdtempSync(path.join(OWN_DIR, 'nested-'));
+    const child = path.join(parent, 'temp');
+    fs.mkdirSync(child, { recursive: true });
+    assert.throws(
+      () =>
+        M.CFG.resolveWatchedVolumes({
+          watchedVolumes: [
+            { type: 'output', path: parent },
+            { type: 'temp', path: child },
+          ],
+        }),
+      /Nested watched roots/,
+      'a root inside another root must not be accepted',
+    );
+    assert.throws(
+      () => M.CFG.resolveWatchedVolumes({ watchedVolumes: [{ type: 'output', path: parent }], outputVolume: parent }),
+      /watchedVolumes and outputVolume are both set/,
+      'the two config forms mean different things and must not be silently merged',
+    );
+  });
+
+  test('probe 6 reaches the ratchet — a 400 from the field validator is NOT a pass', async () => {
+    // WRITTEN BY A BUG, AND THE BUG IS THE FIRST TENANT-POSITION RUN (WO-14).
+    // The probe's forged submission used to be a plausible sketch rather than a
+    // real `Submission`: no `component.attestation`, no `kind`, a three-field
+    // `capture`. An ingest that canonicalises before it verifies rejected all
+    // three attempts at the JSON layer, the probe recorded a clean PASS, and a
+    // deployment with NO replay defence whatsoever would have scored
+    // identically. The probe was measuring our own malformed request.
+    const seen: Array<{ status: number; body: string }> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        if (!(req.url ?? '').startsWith('/api/v2/witness')) {
+          res.writeHead(404, { 'content-type': 'application/json' }).end('{}');
+          return;
+        }
+        let status = 403;
+        let body = JSON.stringify({ error: 'mac_mismatch', component_verified: 0 });
+        try {
+          // The same canonicalisation the real route performs before the
+          // ratchet ever sees the counter. A submission that will not
+          // canonicalise never reaches the replay defence.
+          M.preimageOf(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch (e) {
+          status = 400;
+          body = JSON.stringify({ error: 'malformed_submission', detail: String(e) });
+        }
+        seen.push({ status, body });
+        res.writeHead(status, { 'content-type': 'application/json' }).end(body);
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const r = await M.P.probeCounterReplay.run({
+        vantage: new M.C.OsVantage(),
+        deployment: {
+          ...bareDeployment(),
+          apiBaseUrl: `http://127.0.0.1:${port}`,
+          componentId: 'c-under-test',
+        },
+        leaves: M.C.recordedLeafOracle(() => [], 'none'),
+        log: () => undefined,
+      });
+      assert.equal(seen.length, 3, 'all three forgeries must reach the ingest');
+      assert.deepEqual(
+        seen.map((x) => x.status),
+        [403, 403, 403],
+        'every forgery must canonicalise — a 400 means the probe never reached the ratchet',
+      );
+      assert.equal(r.evidence.refused_as_malformed, 0, r.detail);
+      assert.equal(r.outcome, 'blocked', r.detail);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  test('a malformed-refusal run is INCONCLUSIVE, not a pass', async () => {
+    // The other half of the same lesson: when the submissions do not reach the
+    // ratchet, the probe must say so rather than bank the refusal.
+    const server = http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () =>
+        res.writeHead(400, { 'content-type': 'application/json' }).end('{"error":"malformed_submission"}'),
+      );
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const r = await M.P.probeCounterReplay.run({
+        vantage: new M.C.OsVantage(),
+        deployment: { ...bareDeployment(), apiBaseUrl: `http://127.0.0.1:${port}`, componentId: 'c' },
+        leaves: M.C.recordedLeafOracle(() => [], 'none'),
+        log: () => undefined,
+      });
+      assert.equal(r.outcome, 'not-attempted', r.detail);
+      assert.match(r.detail, /never reached the ratchet/);
+      const run = await M.C.runProbes([M.P.probeCounterReplay], {
+        vantage: new M.C.OsVantage(),
+        deployment: { ...bareDeployment(), apiBaseUrl: `http://127.0.0.1:${port}`, componentId: 'c' },
+        leaves: M.C.recordedLeafOracle(() => [], 'none'),
+        log: () => undefined,
+      });
+      assert.equal(run.results[0].verdict, 'inconclusive');
+      assert.equal(run.admissible, false);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
   test('probe 1 blocks for real when the upstream is genuinely closed', async () => {
     const port = await closedPort();
     const r = await M.P.probeBypassGate.run({
@@ -434,6 +604,7 @@ describe('the submission bundle', () => {
   function sampleBundle() {
     const run: import('../../packages/scruple-conformance/src/types').ProbeRun = {
       runId: 'run-1',
+      subject: 'sample integration',
       startedAt: '2026-08-30T00:00:00.000Z',
       finishedAt: '2026-08-30T00:00:01.000Z',
       vantages: ['os'],
@@ -571,7 +742,11 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
 
     // Probes present but inconclusive (a simulated vantage) is still not a pass.
     const inconclusiveRun = {
-      runId: 'r', startedAt: 'a', finishedAt: 'b', vantages: ['simulated'],
+      runId: 'r',
+      // WO-14: a run says what it is a run OF, and the grader refuses to let
+      // one integration's run satisfy another's P2.
+      subject: 'A vendor who watches output/ and says so',
+      startedAt: 'a', finishedAt: 'b', vantages: ['simulated'],
       results: ['P-04', 'P-05', 'P-07'].map((id) => ({
         id, spec: '', title: '', attempt: '', requirement: '', evidenceFor: [] as never[],
         topological: true, verdict: 'inconclusive' as const, vantage: 'simulated', admissible: false,
@@ -597,6 +772,37 @@ describe('the self-grade harness — WO-5 DEFECT-2 is honoured', () => {
     const noGaps = { ...base, evidence: { ...base.evidence, ratchetGapAccounting: null }, probes: passingRun };
     assert.equal(M.C.gradePath(noGaps).items.P2.disposition, 'FAIL');
     assert.match(M.C.gradePath(noGaps).items.P2.reason, /gap accounting/);
+  });
+
+  test("a probe run of ANOTHER deployment does not satisfy this one's P2", async () => {
+    // FOUND BY DOING IT (WO-14). The namespace harness produced a real,
+    // admissible, seven-of-seven run from an occupied tenant position against
+    // the scruple-capture ComfyUI deployment. Attached to CANVAS's grade — a
+    // different integration, a different tenant, a different boundary — it
+    // carried canvas past P2's coverage conjunct. Nothing in the run was false;
+    // it was simply about somewhere else, and the grader had no way to notice.
+    //
+    // Certification is per configuration (H-4 §7). A run is evidence about the
+    // deployment it occupied and about no other, so `ProbeRun.subject` now says
+    // which, and this is the test that keeps it saying it.
+    const base = wellFormedButWrong();
+    const good = {
+      runId: 'r', subject: base.path, startedAt: 'a', finishedAt: 'b', vantages: ['os'],
+      results: ['P-04', 'P-05', 'P-07'].map((id) => ({
+        id, spec: '', title: '', attempt: '', requirement: '', evidenceFor: [] as never[],
+        topological: false, verdict: 'pass' as const, vantage: 'os', admissible: true,
+        startedAt: 'a', durationMs: 1, outcome: 'blocked' as const, detail: '', evidence: {},
+      })),
+      summary: { passed: 3, failed: 0, inconclusive: 0, line: '' },
+      admissible: true,
+    };
+    assert.equal(M.C.gradePath({ ...base, probes: good }).items.P2.disposition, 'PASS');
+
+    const borrowed = { ...good, subject: 'somebody else entirely' };
+    const g = M.C.gradePath({ ...base, probes: borrowed });
+    assert.equal(g.items.P2.disposition, 'FAIL', 'a borrowed run must not satisfy P2');
+    assert.match(g.items.P2.reason, /performed against 'somebody else entirely'/);
+    assert.equal(g.items.P2.qualifier, 'probe run is of another deployment');
   });
 
   test('a baseline that misses one capture-path file is not a partial pass', () => {

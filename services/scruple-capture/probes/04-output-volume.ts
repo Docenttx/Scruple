@@ -52,6 +52,20 @@ interface DirOutcome {
   wrote: boolean;
   leaf: boolean;
   contentHash: string | null;
+  /** The C-8 volume type the covering leaf declared, or null when it declared
+   *  none. `'unspecified'` is what the pre-C-8 singular config emits. */
+  declaredType: string | null;
+  /** True when a leaf named a DIFFERENT volume than the one written to. */
+  misattributed: boolean;
+}
+
+/**
+ * §10 C-8 rides on `capture.egress` as `file:<volume type>:<path>`. Read the
+ * type back out — carefully, because the path may itself contain colons.
+ */
+function volumeTypeOf(egress: string): string | null {
+  const m = /^file:([a-z]+):/.exec(egress);
+  return m ? m[1] : null;
 }
 
 export const probeOutputVolume: Probe = {
@@ -88,7 +102,15 @@ export const probeOutputVolume: Probe = {
 
     for (const t of targets) {
       if (!t.dir) {
-        outcomes.push({ dir: t.name, abs: null, wrote: false, leaf: false, contentHash: null });
+        outcomes.push({
+          dir: t.name,
+          abs: null,
+          wrote: false,
+          leaf: false,
+          contentHash: null,
+          declaredType: null,
+          misattributed: false,
+        });
         continue;
       }
       // Distinct bytes per directory: a single blob would let one leaf answer
@@ -102,7 +124,15 @@ export const probeOutputVolume: Probe = {
       const abs = path.join(t.dir, `scruple-probe-04-${t.name}.bin`);
       const wrote = await ctx.vantage.writeFile(abs, bytes);
       if (!wrote) {
-        outcomes.push({ dir: t.name, abs, wrote: false, leaf: false, contentHash });
+        outcomes.push({
+          dir: t.name,
+          abs,
+          wrote: false,
+          leaf: false,
+          contentHash,
+          declaredType: null,
+          misattributed: false,
+        });
         continue;
       }
       const found = await ctx.leaves.leafFor(contentHash, ctx.deployment.drainWindowMs);
@@ -112,7 +142,37 @@ export const probeOutputVolume: Probe = {
       // covered. Accepting any leaf would let one artifact's hash answer for
       // another path's silence.
       const byWatcher = found.found && found.surfaces.includes('filesystem-watch');
-      outcomes.push({ dir: t.name, abs, wrote: true, leaf: byWatcher, contentHash });
+
+      // ---------------------------------------------------------------------
+      // §10 C-8's SECOND HALF: not "is there a leaf" but "does the leaf say
+      // which of the three directories these bytes landed in".
+      //
+      // AN ABSENT DECLARATION AND A WRONG ONE ARE NOT THE SAME FINDING, and
+      // collapsing them is the mistake mime.ts already refuses. A deployment on
+      // the pre-C-8 singular config emits `file:unspecified:…`: the write IS
+      // witnessed, and the record cannot distinguish a PreviewImage in `temp/`
+      // from a SaveImage in `output/`. That is reported as an unrecorded type,
+      // not as an uncaptured write — the probe writes DISTINCT bytes per
+      // directory, so its own attribution never depended on the tag.
+      //
+      // A leaf that names the WRONG volume is different in kind. It is a false
+      // statement about where bytes came from, and a verifier who trusted it
+      // would conclude `temp/` is watched on the strength of an `output/`
+      // write. That counts as unwitnessed for the directory it lied about.
+      // ---------------------------------------------------------------------
+      const types = found.egresses.map(volumeTypeOf).filter((x): x is string => x !== null);
+      const declaredType = types.length ? types[0] : null;
+      const misattributed =
+        byWatcher && declaredType !== null && declaredType !== 'unspecified' && declaredType !== t.name;
+      outcomes.push({
+        dir: t.name,
+        abs,
+        wrote: true,
+        leaf: byWatcher && !misattributed,
+        contentHash,
+        declaredType,
+        misattributed,
+      });
     }
 
     const written = outcomes.filter((o) => o.wrote);
@@ -120,8 +180,18 @@ export const probeOutputVolume: Probe = {
     const unmounted = outcomes.filter((o) => o.abs === null);
     const unwritable = outcomes.filter((o) => o.abs !== null && !o.wrote);
 
+    const typedOk = written.filter((o) => o.declaredType !== null && o.declaredType === o.dir);
+    const untyped = written.filter(
+      (o) => o.leaf && (o.declaredType === null || o.declaredType === 'unspecified'),
+    );
+    const misattributed = written.filter((o) => o.misattributed);
+
     const evidence = {
       surface_present: true,
+      c8_volume_type_recorded: `${typedOk.length}/${written.length}`,
+      volume_types_declared:
+        written.map((o) => `${o.dir}→${o.declaredType ?? 'none'}`).join(',') || 'none',
+      volume_type_misattributed: misattributed.map((o) => o.dir).join(',') || 'none',
       drain_window_ms: ctx.deployment.drainWindowMs,
       directories_declared: outcomes.length,
       directories_mounted: outcomes.length - unmounted.length,
@@ -158,12 +228,20 @@ export const probeOutputVolume: Probe = {
     }
 
     if (unwitnessed.length > 0) {
+      const lying = unwitnessed.filter((o) => o.misattributed);
       return {
         outcome: 'succeeded',
         detail:
-          `Wrote to ${written.length} of 3 directories; ${unwitnessed.length} produced no leaf ` +
-          `within ${ctx.deployment.drainWindowMs} ms (${unwitnessed.map((o) => o.dir).join(', ')}). ` +
-          'Those bytes are retrievable and unwitnessed.',
+          `Wrote to ${written.length} of 3 directories; ${unwitnessed.length} produced no usable ` +
+          `leaf within ${ctx.deployment.drainWindowMs} ms ` +
+          `(${unwitnessed.map((o) => o.dir).join(', ')}). Those bytes are retrievable and ` +
+          'unwitnessed.' +
+          (lying.length
+            ? ` ${lying.length} of them DID produce a leaf, naming the wrong volume ` +
+              `(${lying.map((o) => `${o.dir} recorded as ${o.declaredType}`).join('; ')}). A leaf ` +
+              'that misattributes the directory is worse than no leaf: a verifier reading it ' +
+              'concludes a volume is watched on the strength of a write to a different one.'
+            : ''),
         evidence,
       };
     }
@@ -172,7 +250,14 @@ export const probeOutputVolume: Probe = {
       outcome: 'blocked',
       detail:
         `All ${written.length} writes produced a leaf covering the exact bytes within ` +
-        `${ctx.deployment.drainWindowMs} ms.`,
+        `${ctx.deployment.drainWindowMs} ms.` +
+        (untyped.length
+          ? ` ${untyped.length} of those leaves do not record WHICH volume the bytes landed in ` +
+            `(${untyped.map((o) => o.dir).join(', ')}). The writes are witnessed; the record ` +
+            'cannot tell a PreviewImage in temp/ from a SaveImage in output/, which is the ' +
+            'distinction §10 C-8 exists to make. That is a pre-C-8 singular `outputVolume` ' +
+            'configuration — declare the three roots with their types.'
+          : ''),
       evidence,
     };
   },

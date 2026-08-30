@@ -253,6 +253,26 @@ export function gradePath(input: GradeInput): PathGrade {
       conditions: [],
       citations: [e.baseline.cite, e.capturePathFiles.cite],
     };
+  } else if (input.probes && input.probes.subject !== input.path) {
+    // A RUN IS EVIDENCE ABOUT THE DEPLOYMENT IT RAN AGAINST AND NO OTHER.
+    // Found in WO-14: an admissible seven-of-seven run against the
+    // scruple-capture ComfyUI deployment was attached to canvas's grade and
+    // moved canvas's P2 past its coverage conjunct. Nothing in the run was
+    // false; it was simply about somewhere else. This is the borrowed-evidence
+    // shape the leaf oracle's `surfaces` already closes one level down.
+    items.P2 = {
+      item: 'P2',
+      disposition: 'FAIL',
+      qualifier: 'probe run is of another deployment',
+      basis: 'declared+checked',
+      reason:
+        `Baseline covers the declared capture path, but the attached probe run was performed ` +
+        `against '${input.probes.subject}', not against '${input.path}'. A conformance run is ` +
+        'evidence about the deployment it occupied and about no other, and certification is per ' +
+        'configuration (H-4 §7). Run the probes from THIS integration\'s tenant position.',
+      conditions: [],
+      citations: [e.baseline.cite],
+    };
   } else if (!input.probes || !coverageProbesPass) {
     items.P2 = {
       item: 'P2',
@@ -417,7 +437,14 @@ export function gradePath(input: GradeInput): PathGrade {
   // P7 fails FOR FREE when P2 fails, and the reason matters: not because
   // attestation is absent — `provider: none` is a compliant value — but
   // because there is no baseline manifest in which to declare it.
-  if (items.P2.disposition === 'FAIL' && !e.attestationDeclaration) {
+  // WO-14: THE "FOR FREE" BRANCH USED TO STATE A FACT IT HAD NOT CHECKED.
+  // It said "no baseline manifest exists" whenever P2 failed and no provider
+  // was declared — which was true while the only way to fail P2 was to have no
+  // baseline. Once P2 could fail for OTHER reasons (an unattached or borrowed
+  // probe run, missing gap accounting), the sentence became a false statement
+  // about a file the grader had already read. A derived reason has to be
+  // derived from the same inputs as the thing it is derived from.
+  if (items.P2.disposition === 'FAIL' && !e.attestationDeclaration && !e.baseline) {
     items.P7 = {
       item: 'P7',
       disposition: 'FAIL',
@@ -428,6 +455,19 @@ export function gradePath(input: GradeInput): PathGrade {
         'no manifest to declare it in. It closes for free the moment P2 does.',
       conditions: [],
       citations: [],
+    };
+  } else if (items.P2.disposition === 'FAIL' && !e.attestationDeclaration) {
+    items.P7 = {
+      item: 'P7',
+      disposition: 'FAIL',
+      basis: 'derived-from-P2',
+      reason:
+        `A baseline manifest (${e.baseline!.value.ref}) exists and declares no attestation ` +
+        'provider. `none` is a correct VALUE and P7 permits it; what is missing is the ' +
+        'declaration itself. P2 is failing for a separate reason, so this one does NOT close ' +
+        'for free when P2 does.',
+      conditions: [],
+      citations: [e.baseline!.cite],
     };
   } else if (!e.attestationDeclaration) {
     items.P7 = {

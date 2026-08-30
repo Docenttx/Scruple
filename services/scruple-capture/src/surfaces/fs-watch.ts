@@ -58,6 +58,7 @@ import type {
   Placement,
   PlacementEnforcement,
 } from '../../../../lib/capture/surface';
+import { resolveWatchedVolumes, type WatchedVolume } from '../config';
 import type { Correlator } from '../correlation';
 import { mimeFromVendorConfig } from '../mime';
 
@@ -136,16 +137,56 @@ export class QuiescenceSource implements CloseWriteSource {
 }
 
 export interface FsWatchOptions {
-  outputVolume: string;
+  /**
+   * §10 C-8's directories, each with its TYPE. One watcher per root, and the
+   * type travels to the leaf — see `egressFor` below for why that is not
+   * decoration.
+   */
+  watchedVolumes?: readonly WatchedVolume[];
+  /** @deprecated the pre-C-8 singular root. Becomes one `unspecified` volume. */
+  outputVolume?: string;
   correlator: Correlator;
   outputVolumeDeclaredMime: string | null;
+  /**
+   * A single injected source. Legal ONLY for a single-root configuration: a
+   * `CloseWriteSource` holds one watcher, so calling `start()` on one instance
+   * for three roots would silently watch the last one and drop the other two.
+   * Use `sourceFactory` for multiple roots.
+   */
   source?: CloseWriteSource;
+  /** One source per declared root. */
+  sourceFactory?: () => CloseWriteSource;
   log?: (line: string) => void;
+}
+
+/**
+ * `capture.egress` for a file, and the ONE place §10 C-8's type reaches the
+ * evidence record.
+ *
+ * WHY `egress` AND NOT A NEW FIELD. `capture` is a fixed block whose every
+ * member is inside the MAC preimage (`leaf.ts#preimageOf`), computed
+ * identically by the component and by the ingest route. Adding a member is a
+ * preimage change, which invalidates every provisioned component in the field
+ * — the same trap §10's "not a defect" note closes for the HKDF asymmetry. So
+ * the type rides in a field that already exists, already means "the route the
+ * bytes left by", and is already authenticated by the MAC. `ws-gate.ts` uses
+ * the same `<scheme>:<qualifier>:<value>` shape (`ws:binary:4`).
+ *
+ * A `temp/` write and an `output/` write are now different strings, which is
+ * the whole content of C-8: `PreviewImage` writes full images to `temp/`, and
+ * "a leaf exists for these bytes" was never the same claim as "the deployment
+ * witnesses PreviewImage output".
+ */
+export function egressFor(volume: WatchedVolume, abs: string): string {
+  return `file:${volume.type}:${path.relative(volume.path, abs)}`;
 }
 
 export class FsWatchSurface implements CaptureSurface {
   private ctx: CaptureSurfaceContext | null = null;
-  private readonly source: CloseWriteSource;
+  /** The declared roots, resolved and validated (no nesting, no duplicate type). */
+  readonly volumes: readonly WatchedVolume[];
+  /** One per volume, index-aligned. */
+  private readonly sources: readonly CloseWriteSource[];
   private readonly log: (line: string) => void;
   /** path → last content hash emitted. A repeat with the same hash is the
    *  same fact and does not spend a counter; a DIFFERENT hash is the §6
@@ -156,7 +197,22 @@ export class FsWatchSurface implements CaptureSurface {
   private inflight = new Set<Promise<void>>();
 
   constructor(private readonly opts: FsWatchOptions) {
-    this.source = opts.source ?? new QuiescenceSource(250);
+    this.volumes = resolveWatchedVolumes(opts, 'FsWatchOptions');
+    if (opts.source && this.volumes.length > 1) {
+      throw new Error(
+        'fs-watch: a single injected CloseWriteSource cannot watch ' +
+          `${this.volumes.length} roots — it holds one watcher, so the second start() would ` +
+          'replace the first and two of the three C-8 directories would go unwatched while ' +
+          'the component reported healthy. Pass sourceFactory instead.',
+      );
+    }
+    this.sources = this.volumes.map((_v, i) =>
+      opts.sourceFactory
+        ? opts.sourceFactory()
+        : i === 0 && opts.source
+          ? opts.source
+          : new QuiescenceSource(250),
+    );
     this.log = opts.log ?? ((l) => console.log(`[fs-watch] ${l}`));
   }
 
@@ -197,17 +253,23 @@ export class FsWatchSurface implements CaptureSurface {
 
   async open(ctx: CaptureSurfaceContext): Promise<void> {
     this.ctx = ctx;
-    if (!fs.existsSync(this.opts.outputVolume)) {
-      throw new Error(
-        `fs-watch: ${this.opts.outputVolume} does not exist. Refusing to open a watcher ` +
-          'that observes nothing — a surface that silently fails to open is the ComfyUI ' +
-          'WS gap by another name (lib/capture/surface.ts).',
-      );
+    for (const v of this.volumes) {
+      if (!fs.existsSync(v.path)) {
+        throw new Error(
+          `fs-watch: watched volume '${v.type}' at ${v.path} does not exist. Refusing to open ` +
+            'a watcher that observes nothing — a surface that silently fails to open is the ' +
+            'ComfyUI WS gap by another name (lib/capture/surface.ts).',
+        );
+      }
     }
-    this.source.start(this.opts.outputVolume, (abs) => {
-      const p = this.onCloseWrite(abs).catch((e) => this.log(`capture failed for ${abs}: ${String(e)}`));
-      this.inflight.add(p);
-      void p.finally(() => this.inflight.delete(p));
+    this.volumes.forEach((v, i) => {
+      this.sources[i].start(v.path, (abs) => {
+        const p = this.onCloseWrite(v, this.sources[i], abs).catch((e) =>
+          this.log(`capture failed for ${abs}: ${String(e)}`),
+        );
+        this.inflight.add(p);
+        void p.finally(() => this.inflight.delete(p));
+      });
     });
   }
 
@@ -221,12 +283,16 @@ export class FsWatchSurface implements CaptureSurface {
   }
 
   async close(): Promise<void> {
-    this.source.stop();
+    for (const s of this.sources) s.stop();
     await this.settled();
     this.ctx = null;
   }
 
-  private async onCloseWrite(abs: string): Promise<void> {
+  private async onCloseWrite(
+    volume: WatchedVolume,
+    source: CloseWriteSource,
+    abs: string,
+  ): Promise<void> {
     const ctx = this.ctx;
     if (!ctx) return;
 
@@ -269,8 +335,8 @@ export class FsWatchSurface implements CaptureSurface {
         ...(declared ? { mime: declared.mime } : {}),
       },
       evidence: {
-        egress: `file:${path.relative(this.opts.outputVolume, abs)}`,
-        close_detection: this.source.method,
+        egress: egressFor(volume, abs),
+        close_detection: source.method,
         workflow_hash: att.prompt?.workflowHash ?? null,
         input_hash: att.prompt?.inputHash ?? null,
         correlation_method: att.method,

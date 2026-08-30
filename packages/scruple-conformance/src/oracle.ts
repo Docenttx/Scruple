@@ -45,15 +45,23 @@ export function httpLeafOracle(opts: HttpOracleOptions): LeafOracle {
               found?: boolean;
               counter?: number | null;
               surfaces?: string[];
+              egresses?: string[];
             };
             if (body.found) {
-              return { found: true, counter: body.counter ?? null, surfaces: body.surfaces ?? [] };
+              return {
+                found: true,
+                counter: body.counter ?? null,
+                surfaces: body.surfaces ?? [],
+                egresses: body.egresses ?? [],
+              };
             }
           }
         } catch {
           /* the oracle being briefly unreachable is not the same as no leaf */
         }
-        if (Date.now() >= deadline) return { found: false, counter: null, surfaces: [] };
+        if (Date.now() >= deadline) {
+          return { found: false, counter: null, surfaces: [], egresses: [] };
+        }
         await sleep(pollMs);
       }
     },
@@ -92,16 +100,21 @@ export function recordedLeafOracle(
         const hits = findAll(contentHash);
         if (hits.length) {
           const c = (hits[0].component as { counter?: number } | undefined)?.counter;
-          const surfaces = [
+          const distinct = (key: 'surface' | 'egress') => [
             ...new Set(
               hits
-                .map((h) => (h.capture as { surface?: string } | undefined)?.surface)
+                .map((h) => (h.capture as Record<string, unknown> | undefined)?.[key])
                 .filter((x): x is string => typeof x === 'string'),
             ),
           ];
-          return { found: true, counter: typeof c === 'number' ? c : null, surfaces };
+          return {
+            found: true,
+            counter: typeof c === 'number' ? c : null,
+            surfaces: distinct('surface'),
+            egresses: distinct('egress'),
+          };
         }
-        if (Date.now() >= deadline) return { found: false, counter: null, surfaces: [] };
+        if (Date.now() >= deadline) return { found: false, counter: null, surfaces: [], egresses: [] };
         await sleep(pollMs);
       }
     },

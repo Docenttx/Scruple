@@ -1,7 +1,8 @@
 # Conformance — the seven probes, the self-grade, and the submission
 
-_2026-08-30. WO-9. Implementation: `packages/scruple-conformance/`,
-`services/scruple-capture/probes/`, `test/v2/conformance.test.ts`._
+_2026-08-30. WO-9, extended by WO-14. Implementation:
+`packages/scruple-conformance/`, `services/scruple-capture/probes/`,
+`scripts/probe-harness/`, `test/v2/conformance.test.ts`._
 
 ## Bottom line
 
@@ -19,12 +20,24 @@ Three things came out of building it that are worth more than the code:
    answering about the wrong position. They can only be strengthened by moving
    where they run. This is `oss-study/sonobuoy-conformance.md` §5.2 — "P1 and
    P3 are the irreducible cases" — arrived at from the other end.
-2. **§10 C-8's three directories are satisfiable today only by accident.**
-   `CaptureConfig.outputVolume` is singular. The only way to watch `output/`,
-   `temp/` and `input/` with the shipped component is to mount them as
-   subdirectories of one root and rely on `fs.watch`'s recursive flag.
+   **WO-14 moved where they run.** See §1.1.
+2. ~~**§10 C-8's three directories are satisfiable today only by accident.**~~
+   **Closed by WO-14.** `CaptureConfig.watchedVolumes` declares the three roots
+   with their types, one watcher per root, and the type reaches the leaf. See
+   §1.2.
 3. **P2 cannot be satisfied by a declaration, and one hole remains that it
    can.** See "DEFECT-2, and the hole that is left" below.
+
+WO-14 added a fourth, and it is the one worth reading twice:
+
+4. **Every probe that had never run from the tenant position was wrong about
+   something, and the first clean run was the least trustworthy artifact in the
+   exercise.** Four defects came out of the first genuine run — probe 6 never
+   reaching a ratchet, a probe run of one deployment satisfying another's P2, a
+   derived P7 reason stating a fact it had not checked, and probe 6's downward
+   counter case degenerating on a young component. None was visible from
+   reading the code. Three were visible only because a **green** run got read
+   line by line instead of being taken at its summary.
 
 ---
 
@@ -67,6 +80,7 @@ deployment:
 ```
 docker exec -it  <workload-container>  npx scruple-conformance run --config …
 kubectl exec -it <workload-pod>     -- npx scruple-conformance run --config …
+./scripts/probe-harness/run.sh                 # namespaces, when there is no Docker (§1.1)
 ```
 
 `SimulatedVantage` **models** the position from a policy, for tests and dry
@@ -78,6 +92,103 @@ the operator, never discovered**. A probe that had to find the upstream would
 be testing our port scanner, and a deployment that survived a failed scan would
 pass on our incompetence rather than on its topology. A conformant deployment
 is one where *knowing* the address does not help.
+
+---
+
+## 1.1 Occupying the tenant position without Docker
+
+There is no Docker on this host. `scripts/probe-harness/` builds the tenant
+position out of `unshare(2)` instead:
+
+```
+unshare --user --map-root-user --net --mount --fork   # the deployment
+  └── unshare --net --mount --pid --fork              # the tenant
+      joined by two veth pairs; no default route, no resolver
+```
+
+`run.sh` runs the seven; `run.sh --audit` runs them nine times, once per
+deliberately broken topology. Results land under
+`$TMPDIR/scruple-probe-harness/<stamp>/<profile>/` — `probes.json` (results plus
+the namespace inodes the run occupied), `probes.log` (the Sonobuoy-shaped human
+half), `deployment.json`, `gaps.json`. Set `HARNESS_OUT` to put them somewhere a
+submission bundle can pick them up; **not** under `artifacts/`, which is the
+app's content-addressed store.
+
+**What this genuinely answers, and it is most of the point of WO-14:**
+
+| probe | answered? | by what |
+|---|---|---|
+| P-01 | **yes** | the upstream binds the deployment namespace's loopback; the tenant's loopback is a different loopback, and the deployment's routable address does not carry that port |
+| P-02 | **yes** | the gate's listener and the provisioning endpoint are both reached over a real socket from the tenant's namespace |
+| P-03 | **partly** — see below | the state directory is absent from the tenant's mount namespace, and absent from `/proc/<pid>/root` because the tenant has its own PID namespace |
+| P-04, P-05, P-06 | **yes** (they always could be) | behavioural; the deployment is real either way |
+| P-07 | **yes** | the tenant's routing table has no default route, and the negative control sits on a *second* veth subnet so a reachable control proves routing works somewhere other than the one link the tenant obviously has |
+
+**What it does not answer, stated so that nobody reads a namespace as a
+container.**
+
+- **It is not a container.** No image, no cgroup, no seccomp or LSM profile.
+  A conformance claim about a vendor's *container* runtime is not what this
+  produces; it is a claim about network and mount topology, which is the part
+  probes 1, 2, 3 and 7 actually ask about.
+- **P-03 is answered for one of §4.4 step 4's two postures and not the other.**
+  A user namespace maps the invoking uid to root, so a 0600 file owned by that
+  uid is readable inside it by construction. This harness therefore answers
+  *"the state directory is not in the tenant's mount namespace"* — and cannot
+  answer *"the state directory is shared, 0600, owned by a principal the tenant
+  is not"*. That second posture needs two real uids, which needs a real
+  container runtime or a second unprivileged account. **The two are different
+  configurations and certification is per configuration (§7)**, so the run
+  records which one it occupied rather than generalising.
+- **The tenant runs as the same uid that owns the component's files on disk.**
+  Everything the mount namespace hides is hidden by the mount namespace alone.
+- **A shared PID namespace defeats the mount boundary outright, and the audit
+  proves it.** `/proc/<pid>/root` resolves in the *component's* mount namespace.
+  Under the `p3-shared-pid` profile the tenant reads `identity.json` — chain key
+  included — through `/proc`, with the tenant's own view of that path still
+  empty. P-03 now attempts that route when the operator declares
+  `componentPid`, because a boundary nobody tested is not a boundary anybody
+  demonstrated.
+
+**Recording the position, mechanically.** §10 C-11 asks a run to record which
+position it occupied. `probes.json` carries the namespace *inodes* of both
+sides (`/proc/self/ns/*`), read on the tenant side and on the deployment side,
+plus `network_namespace_differs` / `mount_namespace_differs`. Two inode numbers
+a reader can compare is a fact; "we ran it in a container, honest" is not.
+
+**What the remaining inconclusives would need.** Nothing in the WO-14 run is
+inconclusive. The two configurations this harness cannot reach need:
+
+- the **shared-mount 0600** posture — a second uid, i.e. a container runtime
+  (Docker/Podman/containerd) or a dedicated unprivileged account;
+- **canvas's** tenant position — a browser against scruple-web plus a Modal-
+  hosted ComfyUI. No namespace on this host can construct it, because the
+  workload is not on this host. See "Canvas's P2, on evidence" below.
+
+## 1.2 §10 C-8, in configuration rather than by accident
+
+`CaptureConfig.watchedVolumes` is a list of `{ type, path }`; `output`, `temp`
+and `input` are declared separately, each gets its own watcher, and nested roots
+are **refused** (`resolveWatchedVolumes`) because a write under two roots has
+two volume types and the question C-8 exists to answer stops having one answer.
+`loadConfig` fails closed on a partial declaration: set one of
+`SCRUPLE_CAPTURE_VOLUME_{OUTPUT,TEMP,INPUT}` and all three are required.
+
+**The type reaches the leaf through `capture.egress`**, as
+`file:<type>:<path within that root>` — the same `<scheme>:<qualifier>:<value>`
+shape `ws-gate.ts` already uses (`ws:binary:4`). It goes there and not into a
+new field because every member of `capture` is inside the MAC preimage
+(`leaf.ts#preimageOf`), computed identically by the component and the ingest;
+adding a member is a preimage change that invalidates every provisioned
+component in the field. So the volume type is **authenticated, not annotated**,
+and it cost no migration.
+
+The pre-C-8 singular `outputVolume` is still accepted, because two callers this
+change does not own construct a config with it, and it produces one root of type
+`unspecified`. `topologyAdvisory` says so at startup and P-04 reports it as an
+**unrecorded** type rather than a wrong one — an absent declaration and a false
+one are different findings, which is the distinction `mime.ts` already refuses
+to blur.
 
 ---
 
@@ -171,6 +282,59 @@ absence in `surfaceAbsences` with a citation, and it says so in the P2 reason.
 A vendor who falsely declares "no filesystem surface" gets a P2 pass they did
 not earn. Closing that needs a coverage axis — which is DEFECT-2 itself.
 
+### A fourth conjunct, added by watching the third one be borrowed (WO-14)
+
+The harness produced a real, admissible, seven-of-seven run from an occupied
+tenant position — against the **`scruple-capture` ComfyUI deployment**. Attached
+to **canvas's** grade it carried canvas straight past P2's coverage conjunct.
+
+Every fact in that run was true. The conclusion was false. `GradeInput.probes`
+was "a `ProbeRun`", with nothing tying a run to the deployment it ran against,
+so **a run with no subject is a run anybody can borrow** — the same shape the
+leaf oracle's `surfaces` already closes one level down ("some leaf covers these
+bytes" is not "the path the tenant used produced a leaf").
+
+So `DeploymentUnderTest.integration` names the subject, `runProbes` copies it
+onto `ProbeRun.subject`, and `gradePath` fails P2 when the attached run is of
+another deployment. Certification is per configuration (§7); a run is evidence
+about the configuration it occupied and about no other.
+
+This is also why the harness's own clean run was the least trustworthy artifact
+in WO-14. It was read anyway, and that is where two of the three defects came
+from.
+
+### Canvas's P2, on evidence rather than on paperwork
+
+**FAIL, and now for the right reasons.** The published grade's P2 FAIL was
+originally "no baseline covers the capture path". The canvas retrofit landed
+`lib/canvas/baseline.ts`, which covers it — so the paperwork half is now
+*satisfied*, and P2 still fails on three independent counts:
+
+1. **No probe run has ever occupied canvas's tenant position, and this harness
+   cannot construct one.** Canvas's tenant is a browser against scruple-web,
+   with ComfyUI on a Modal-hosted machine. The workload is not on this host, so
+   no namespace on this host is that position. What it needs is a probe run
+   from inside the Modal container plus a browser-side run against the proxy —
+   real infrastructure, not more code.
+2. **P-04 is satisfied only by a declared absence.** Canvas has no filesystem
+   surface, which is true, and the grader accepts it because the integrator
+   said so with a citation. That is the DEFECT-2 hole above, load-bearing here.
+3. **Ratchet gap accounting is structurally unavailable.** `lib/canvas/
+   witness.ts` says it outright: *"Canvas has no ratchet."* There is no
+   component, therefore no counter chain, therefore no gaps to account for —
+   so P2's third conjunct cannot be satisfied by canvas **at any level of
+   effort**, as the grader is written. Canvas either grows a ratcheted capture
+   component, or P2 grows an alternative completeness test for componentless
+   paths and says which one it applied. **That choice is not made here, and it
+   should not be made by leaving it implicit.**
+
+**P7 followed canvas's P2 into a false sentence, and that is fixed too.** P7's
+"fails for free" branch printed *"no baseline manifest exists"* whenever P2
+failed and no provider was declared — true while the only way to fail P2 was to
+have no baseline, and false the moment P2 could fail for other reasons. It now
+splits on whether a baseline is actually present, and says so. A derived reason
+has to be derived from the same inputs as the thing it derives from.
+
 ### Anchors match code, not prose
 
 Written by a bug. The first cut anchored Kohya's P3 on
@@ -251,5 +415,68 @@ everything P1 and P3 cannot prove in advance.
   carries `probe_vantage` for that reason.
 - **§7 probe 7 needs a negative control** and does not mention one. Without it
   the probe reports every air-gapped CI runner as a conformant egress policy.
-- **§2 obligation 3 (as amended by C-8) has no configuration to express it.**
-  `CaptureConfig.outputVolume` is one directory.
+- ~~**§2 obligation 3 (as amended by C-8) has no configuration to express it.**~~
+  **Closed by WO-14** — `CaptureConfig.watchedVolumes`, §1.2 above.
+
+### Added by WO-14, from running the seven where they mean something
+
+- **Probe 6 had never reached a ratchet.** Its forged submission was a
+  plausible sketch, not a `Submission`: no `component.attestation`, no `kind`,
+  a three-field `capture`. An ingest that canonicalises before it verifies
+  refuses that at the JSON layer, and all three attempts came back
+  `400 malformed_submission` — recorded as a clean PASS. **Three 400s from a
+  field validator are indistinguishable from a deployment with no replay
+  defence at all.** The forgery is now the full submission written out longhand
+  (restated, not imported, for the reason probe 5 restates `server.py`'s frame
+  header), the only wrong thing in it is the MAC, and a refusal that smells of
+  the validator is recorded as **inconclusive** rather than banked.
+- **Probe 6's downward case degenerates on a young component.** With a
+  high-water mark below the window width, "far below the window" is a negative
+  counter and is refused as `invalid_counter` — the integer check, not C-3's
+  floor. The evidence record now carries `far_below_degenerate`. Exercising the
+  floor properly needs a component whose high-water mark exceeds
+  `ACCEPTANCE_WINDOW + MAX_RATCHET_ADVANCE`, which a probe must not manufacture
+  by spending 250,000 of the vendor's counters.
+- **§7 probe 3 asks about a file and the answer is not only about files.**
+  `/proc/<pid>/root` resolves in the target's mount namespace, so a shared PID
+  namespace hands over a state directory that the tenant's own mount namespace
+  does not contain. The probe now attempts it when the operator declares
+  `componentPid`. **§7 should say that P1's isolation requirement includes the
+  PID namespace, because mount isolation without it is not isolation** — the
+  `p3-shared-pid` audit profile recovers the chain key through `/proc` with the
+  direct path still empty.
+- **A conformance run needs to say what it is a run OF.** §7 assumes one
+  deployment and therefore never says this. Without it a run satisfies any
+  integration's P2, which it did. `ProbeRun.subject`, above.
+
+---
+
+## 6. The audit pass, and why the clean run did not close the WO
+
+`scripts/probe-harness/run.sh --audit` runs nine topologies: the conformant one
+and eight deliberate breaks, one per probe (P-03 gets two, because it has two
+boundaries). It takes about twenty seconds.
+
+| profile | what is broken | expected |
+|---|---|---|
+| `none` | nothing | 7 pass |
+| `p1-second-route` | the upstream is also reachable on the shared link | P-01 fail |
+| `p2-open-provisioning` | provisioning grants an identity to anyone | P-02 fail |
+| `p3-state-mounted` | the state directory is in the tenant's mount namespace | P-03 fail |
+| `p3-shared-pid` | the tenant shares the component's PID namespace | P-03 fail |
+| `p4-singular-volume` | the pre-C-8 single untyped root | P-04 fail |
+| `p5-passthrough-ws` | HTTP gated, WebSocket relayed by a sidecar | P-05 fail |
+| `p6-permissive-ingest` | the ingest records what it cannot verify | P-06 fail |
+| `p7-open-egress` | a route to the egress target | P-07 fail |
+
+The observed result is a clean diagonal: **each break is caught by exactly the
+probe it targets and by no other.** That is the property worth having — a probe
+that fires on every break is not sensitive, it is noisy, and a suite of noisy
+probes cannot localise a fault.
+
+**The diagonal is what makes the green run mean something, and the green run on
+its own meant almost nothing.** The `none` profile passed 7/7 on the first
+attempt, and reading its evidence rather than its summary is what found probe 6
+measuring our own malformed request. The rule the first WO series arrived at
+holds here too: *every artifact that got used by something else was found to be
+wrong.* The probes had never been used by anything.
