@@ -286,8 +286,12 @@ topology is the configuration.
 
 ## 8. Migration
 
-1. Restore `input_hash`, `workflow_hash`, `model_fingerprints_hash` to
-   `/v2/witness`. Nothing below matters until the leaf carries them.
+1. ~~Restore `input_hash`, `workflow_hash`, `model_fingerprints_hash` to
+   `/v2/witness`.~~ **DONE 2026-08-30 (WO-1).** All three are computed and
+   passed (`route.ts:368-396`, `:417-419`), plus `machine_manifest_hash` which
+   was accepted and never stored, plus `training` which was being discarded
+   exactly like `graph`. Two later WOs re-reported this as outstanding by
+   reading this list instead of the code — **check the route, not this line.**
 2. Server: `components` table, provisioning endpoint, ratchet verification,
    counter/gap/silence accounting.
 3. Component: gate (HTTP **and** WS — today's WS sidecar is pass-through), FS

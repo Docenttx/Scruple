@@ -353,7 +353,18 @@ is verified or passthrough.
 
 ## 5. Client SDK contract
 
-One package. The six forks are deleted, not maintained alongside it.
+**Two packages since 2026-08-30 (WO-8), and the split is load-bearing.**
+`scruple-api` has no network capability, mechanically enforced by an AST scan
+and a runtime test; `scruple-host-sdk` wraps `http.py` and depends on it. The
+six forks are deleted, not maintained alongside either.
+
+Of the three properties below, **MIME lives in the API** (a vendor instrumenting
+before a contract exists is exactly when finding every call site is cheap),
+**unknown-modality splits** along what a network can answer (vocabulary in the
+API, availability behind the wire), and **the queue stays in the SDK and must
+not move** — an API-only consumer with a durable spool nothing could drain would
+hold a file that looks like durability and is a leak. Full reasoning in
+`packages/scruple-api/scruple_api/__init__.py`.
 
 **Modules** — the same nine that were copy-pasted, now with one owner:
 `auth`, `capture`, `manifest`, `queue`, `state`, `witness_flow`,
