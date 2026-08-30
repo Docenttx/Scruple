@@ -59,6 +59,30 @@
 //    `application/octet-stream` — that placeholder silently gates the
 //    image-only watermarker shut while looking exactly like a
 //    declaration.
+//
+// 6. IT STAMPS THE SEAL STATE THE LEAF WAS WRITTEN UNDER (WO-22).
+//    docs/canon/INTEGRATION_LIFECYCLE.md step 2 produces REAL LEAVES from
+//    a pipeline that is not yet approved — that is the point of it, and
+//    the failures are supposed to happen there. But "if they are not
+//    marked, then the moment a vendor seals, they hold a pile of
+//    integration-era leaves INDISTINGUISHABLE FROM APPROVED ONES, and the
+//    first audit cannot tell which configuration produced what."
+//
+//    So every leaf carries `seal_state` and, when and only when that
+//    state is `sealed`, the `seal_ref` it was written under. The
+//    vocabulary is the estate's existing one: `undeclared` for a leaf
+//    that named no deployment (canvas, the plugins — 045's word for
+//    045's case), `unregistered` for one that named a deployment we have
+//    no record of under this tenant (045's `unpublished`, one level up),
+//    `unchecked` for our own failure. NULL is every row written before
+//    migration 046, where the question was never asked.
+//
+//    A leaf is STAMPED, NEVER REFUSED, on any of these. Refusing would
+//    not un-produce the artifact; it would produce an artifact with no
+//    leaf, converting a flagged fact into a silence — §4.2's trade, made
+//    again. And `sealed` is the only state that may claim the standard:
+//    compliance stays binary, the state says which side of the line the
+//    deployment was on. It is not a tier.
 
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
@@ -73,6 +97,7 @@ import {
   hashModelFingerprints,
   hashRunInputs,
 } from '@/lib/leaf/hashes';
+import { checkDeploymentSeal, componentDeployment } from '@/lib/seal/registry';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,6 +112,11 @@ const Body = z.object({
   // — nothing here infers it, and `mime_declared` tells the two apart.
   mime: z.string().min(1).optional(),
   project_id: z.number().int().positive().optional(),
+  // WO-22. Which sealed deployment produced this. Optional and never
+  // inferred beyond the component binding below: a leaf that declared no
+  // deployment is `undeclared`, which is a different fact from one that
+  // declared a deployment we do not have.
+  deployment_id: z.string().min(1).optional(),
   graph: z.record(z.unknown()).optional(),
   training: z.record(z.unknown()).optional(),
   machine_manifest_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
@@ -317,6 +347,31 @@ export async function POST(req: NextRequest) {
   // events land on one chain instead of two.
   const now = new Date().toISOString();
 
+  // ---- WO-22: which lifecycle state was this written under? ---------
+  //
+  // Resolution order, and each step is a different fact rather than a
+  // fallback for the same one:
+  //
+  //   1. what the caller declared. A host may run several deployments
+  //      through one component-less surface, and only it knows which.
+  //   2. the component's binding, when a component MACed this leaf. This
+  //      is the trustworthy half: the component authenticated, and the
+  //      binding is ours, not the caller's.
+  //   3. nothing → `undeclared`.
+  //
+  // The declared id is checked against THIS TENANT inside
+  // checkDeploymentSeal(): a deployment id is a bare string on the wire,
+  // and without that check a tenant could stamp their leaves with
+  // somebody else's `sealed`.
+  //
+  // The stamp is evaluated as of `now` and written down there and then,
+  // for 045's reason: a seal issued later does not retro-bless an earlier
+  // leaf, and a reseal later does not retro-condemn one.
+  const declaredDeployment =
+    body.deployment_id ??
+    (body.component ? componentDeployment(body.component.component_id) : null);
+  const seal = checkDeploymentSeal(principal.userId, declaredDeployment, now);
+
   // `iterations` is project-scoped — the table predates the canon surface,
   // which is tenant-scoped. Rather than push project management into every
   // adapter (the §4 hook contract goes attach -> baseline -> save ->
@@ -450,8 +505,9 @@ export async function POST(req: NextRequest) {
           input_hash, workflow_hash,
           model_fingerprints, model_fingerprints_hash,
           machine_manifest_hash,
-          component_id, component_counter, component_verified, mime_declared)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          component_id, component_counter, component_verified, mime_declared,
+          deployment_id, seal_state, seal_ref)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -484,6 +540,13 @@ export async function POST(req: NextRequest) {
       body.component?.counter ?? null,
       componentVerified ? 1 : 0,
       body.mime ? 1 : 0,
+      seal.deployment_id,
+      seal.state,
+      // NULL unless `sealed`. Migration 046 carries the argument: a leaf
+      // written during `resealing` was not written under an approval, and
+      // stamping the last approved seal on it would read as though it
+      // were.
+      seal.seal_ref,
     );
 
   return v2Ok(
@@ -533,6 +596,19 @@ export async function POST(req: NextRequest) {
       // is stated rather than omitted so that "we did not check" and "we
       // checked and it passed" are never the same response.
       component_verified: componentVerified,
+      // WO-22. Present on every response, including when the state is
+      // `undeclared`, because "this leaf carries no deployment" is a fact
+      // a consumer needs and an absent key is a fact nobody reads.
+      //
+      // `claims_standard` is spelled out rather than left for a client to
+      // derive from `state === 'sealed'` and get subtly wrong somewhere.
+      // It is the whole question the lifecycle answers, and it is binary.
+      seal: {
+        deployment_id: seal.deployment_id,
+        state: seal.state,
+        seal_ref: seal.seal_ref,
+        claims_standard: seal.state === 'sealed',
+      },
     },
     201,
   );
