@@ -42,12 +42,12 @@ jobs:
       contents: read
       security-events: write  # for SARIF upload
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # google/osv-scanner-action pins to the v2 line of osv-scanner.
       # If Google renames the sub-action path (they have before), update the ref.
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@v2.0.2
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
         with:
           # Recursive scan finds package-lock.json + all requirements.txt +
           # pyproject.toml automatically. --fail-on-vuln blocks on any match;
@@ -60,7 +60,7 @@ jobs:
 
       - name: Upload OSV SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: osv-results.sarif
           category: osv-scanner
@@ -68,7 +68,7 @@ jobs:
       # Separate gating pass — fail the job on CRITICAL/HIGH only.
       # (First pass is best-effort so SARIF always uploads.)
       - name: Gate on CRITICAL/HIGH
-        uses: google/osv-scanner-action/osv-scanner-action@v2.0.2
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
         with:
           scan-args: |-
             --recursive
@@ -86,10 +86,10 @@ jobs:
     name: SCA — Grype
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run Grype (dir scan)
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         id: grype
         with:
           path: '.'
@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload Grype SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
           category: grype
@@ -122,7 +122,7 @@ jobs:
     container:
       image: semgrep/semgrep:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Semgrep scan
         # `--error` exits non-zero on any ERROR-severity finding.
@@ -143,14 +143,14 @@ jobs:
 
       - name: Upload Semgrep SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep
 
       - name: Upload Semgrep JSON artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: semgrep-report
           path: semgrep.json
@@ -176,10 +176,10 @@ jobs:
       matrix:
         language: [javascript-typescript, python]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           # security-extended raises the alert threshold coverage;
@@ -188,7 +188,7 @@ jobs:
           queries: security-extended
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
           # Block the job on any high-severity or higher alert.
@@ -212,7 +212,7 @@ jobs:
     permissions:
       contents: write  # required only on tag events to upload release asset
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@v0
@@ -223,7 +223,7 @@ jobs:
           artifact-name: sbom.cdx.json
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
           path: sbom.cdx.json
@@ -246,9 +246,9 @@ jobs:
     name: Static typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -266,7 +266,7 @@ jobs:
             npx --no-install tsc --noEmit
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -301,13 +301,13 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -334,7 +334,7 @@ jobs:
 
       - name: Upload checksec report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: checksec-report
           path: checksec-report.txt
@@ -355,9 +355,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [sca-osv-scanner, sca-grype, sast-semgrep, sast-codeql]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -432,7 +432,7 @@ jobs:
 
       - name: Upload release scan
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: osv-release-scan
           path: osv-release.json
