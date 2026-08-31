@@ -48,3 +48,43 @@ session directory holds a keypair from 2026-07-12 and no live token. Requires
 
 The systemd unit carries `SCRUPLE_WITNESS_SECRET` and **two Stripe test keys in
 plaintext**. Moving to a root-owned `0600` EnvironmentFile is a standing item.
+
+## 2026-08-31 · H-1 made live against the surrogate — and the CVM overreach, corrected
+
+**Two env vars.** `SCRUPLE_WITNESS_KMS_ENDPOINT=http://127.0.0.1:8799` and the
+surrogate's key OCID, added to the unit. `leaf_signer` left `disabled` and now
+returns `ECDSA_SHA_256`, a 71-byte DER signature, `surrogate: true`.
+
+Leaves are now **asymmetrically signed and third-party verifiable** — the actual
+substance of H-1 — and honestly labelled as surrogate-signed. Unit backed up
+alongside the binary.
+
+### What I got wrong, twice
+
+I said the demo needed the CVM and that the audience "will read an OCID." Both
+halves were wrong:
+
+1. **I skipped a free step.** H-1 read `disabled` — production was using neither
+   the CVM *nor* the surrogate. The gap was two environment variables, not a
+   $135/month instance. I went from "H-1 is inert" straight to "start the CVM"
+   without checking what sat between.
+2. **I pointed at the wrong key.** A C2PA or EU AI Office conversation is about
+   the **C2PA manifest's certificate chain** — `services/c2pa-signer/`, a
+   different key on a different layer. The witness leaf signer is Scruple's own
+   substrate. Nobody reviewing a content credential is inspecting our leaf's key
+   OCID.
+
+### When the CVM actually becomes necessary
+
+**Only when we make the GPSR C.2.2 custody claim externally** — that the signing
+key is HSM-resident inside an attested TOE. That is a *conformance submission*,
+not a demo.
+
+So: demo on the surrogate, honestly labelled. `L2_FLOOR.md`'s principle is
+unchanged — an evidence standard cannot sit below a compliance standard — but it
+binds when we **claim** L2, not while we build toward it. The surrogate marks
+every signature `surrogate: true` precisely so this distinction cannot be
+fudged.
+
+**The CVM stays down.** `PRIORITIES.md`'s reversal is itself reversed, and the
+OCI authentication blocker is not on the critical path.
