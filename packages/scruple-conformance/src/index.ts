@@ -2,6 +2,7 @@ export * from './types';
 export * from './vantage';
 export * from './runner';
 export * from './seal';
+export * from './classes';
 export * from './grade';
 export * from './render';
 export * from './bundle';

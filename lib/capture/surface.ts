@@ -13,6 +13,21 @@
 // no dependency on the verifier package (which pulls in crypto backends), but
 // the two MUST stay identical. There is no third value and no default.
 
+// AXIS 4 AND AXIS 5 LIVE IN ./classes.ts. The class (CAPABILITY_CLASSES.md)
+// and the custody locus (CUSTODY_LOCUS.md) are the layer ABOVE these three:
+// this file describes a specific integration, that one describes the class of
+// product a specific integration is graded against. The dependency runs one
+// way at runtime — this module imports `custodyAssuranceFor`, and ./classes.ts
+// imports only TYPES from here — so there is no cycle to reason about.
+
+import {
+  custodyAssuranceFor,
+  type CapabilityClass,
+  type CustodyAssurance,
+  type CustodyCorroborator,
+  type CustodyLocus,
+} from './classes';
+
 /* ────────────────────────────────────────────────────────────────────────
  * Axis 1 — Hook. When capture fires. (CANON_SKELETON.md §4, unchanged.)
  * ──────────────────────────────────────────────────────────────────────── */
@@ -435,6 +450,26 @@ export function allAssuranceCells(): Assurance[] {
  *                  artifact the user keeps, and unless the host's exporter is
  *                  byte-deterministic NOBODY CAN EVER RE-DERIVE THE HASH.
  *
+ * DEFECT-3'S OBVIOUS REPAIR IS NOT AVAILABLE FOR FUSION, and recording that
+ * matters more than recording the defect. "Move the observation to
+ * `as-written` over the user's actual saved file" assumes the host will hand
+ * the add-in the bytes it saved. Fusion will not: `DataFile.download` is
+ * documented as "Only DataFiles that represent non-Fusion data can be
+ * downloaded", and `DataFile.dataObject` fails for F3D likewise
+ * (docs/canon/custody-study/fusion.md §2.2, §6.4). `ExportManager`
+ * manufacturing a fresh serialization is not a shortcut we took; it is the
+ * only door Autodesk left open. A repair that cannot be performed is worse
+ * than none written down, because it reads as work nobody got round to.
+ *
+ * The three routes that ARE open, ascending (fusion.md §6.4): populate
+ * `inducedArtifactRef` so the leaf is at least CHECKABLE against a retained
+ * artifact — which is what `ObservedBytes` already demands and is satisfiable
+ * today; witness a canonical timeline digest as a second observation, which is
+ * a canonicalization WE define over data we read rather than a blob a black
+ * box emitted; or re-derive server-side through Autodesk's Fusion Automation
+ * API (GA 2025-05-19), which is the only route that makes the digest
+ * recomputable by a third party who does not hold a Fusion seat.
+ *
  * Fidelity does NOT enter the assurance function — it is not a statement about
  * who could tamper with the capture code. It is a statement about whether the
  * resulting leaf is checkable by a third party holding the artifact, which is
@@ -566,11 +601,57 @@ export interface HostCaptureProfile {
   declaredPlacement: Placement;
   enforcement: PlacementEnforcement;
   attestation: AttestationOutcome;
+  /**
+   * WHICH PROTECTION PROFILE THIS SECURITY TARGET IS GRADED AGAINST.
+   * See docs/canon/CAPABILITY_CLASSES.md and ./classes.ts.
+   *
+   * OPTIONAL IN THE TYPE, REQUIRED IN PRACTICE, AND THE ASYMMETRY IS
+   * DELIBERATE. Making it required would have forced a class onto every
+   * fixture and helper that constructs a profile, which is how a declaration
+   * becomes a field somebody fills in to make the compiler stop. Omitting it
+   * is instead a FINDING (`CF-01`) and the profile is audited against the
+   * BROADEST class — CAPABILITY_CLASSES.md's ambiguity rule, which is also
+   * the only incentive structure that keeps the rule honest.
+   *
+   * A deployment spanning two classes declares both and is audited against
+   * both. `scopeProfile()` takes the union of their requirements and the
+   * INTERSECTION of their not-applicables, so a second class can never
+   * dilute the first.
+   */
+  capabilityClasses?: readonly CapabilityClass[];
+  /**
+   * WHERE FILES REST BETWEEN WITNESSED EVENTS. docs/canon/CUSTODY_LOCUS.md.
+   *
+   * Optional for the same reason, and `asset-custody` members must declare
+   * one (`CF-07`). Locus and placement TOGETHER decide what may be claimed:
+   * a vendor with perfect capture and `tenant-custody` storage has witnessed
+   * moments, not a history.
+   */
+  custodyLocus?: CustodyLocus;
+  /**
+   * WHO CORROBORATES, AND UNDER WHAT DOCUMENTED GUARANTEE.
+   *
+   * Required to hold `tenant-custody-corroborated`, and `resolveCustodyLocus`
+   * degrades that value to plain `tenant-custody` without it. A modifier a
+   * vendor could assert by naming it would be DEFECT-1 one axis over.
+   */
+  custodyCorroborator?: CustodyCorroborator;
 }
 
 export interface HostAssurance extends Assurance {
   host: string;
   resolution: PlacementResolution;
+  /**
+   * What the custody locus entitles this configuration to say, resolved
+   * against the EFFECTIVE placement. Null when the profile declares no locus.
+   *
+   * SEPARATE FROM `p1`/`p3` AND NOT FOLDED INTO THEM. Custody is not a
+   * property of the capture boundary; it is a property of the interval
+   * between captures. A deployment can have flawless P1/P3 and still hold
+   * nothing better than witnessed moments, and the grade has to be able to
+   * say both sentences at once.
+   */
+  custody: CustodyAssurance | null;
 }
 
 /** Resolve a host profile all the way to its assurance. */
@@ -579,6 +660,13 @@ export function assuranceForHost(profile: HostCaptureProfile): HostAssurance {
   return {
     host: profile.host,
     resolution,
+    // LOCUS x EFFECTIVE PLACEMENT, never locus x declared placement. A vendor
+    // whose placement degraded to `unattested-client` cannot recover a custody
+    // claim by naming a strong locus — `ephemeral` least of all, because it is
+    // a claim about persistence and this is a failure of isolation.
+    custody: profile.custodyLocus
+      ? custodyAssuranceFor(profile.custodyLocus, resolution.effective, profile.custodyCorroborator)
+      : null,
     ...assuranceFor(resolution.effective, profile.attestation),
   };
 }
@@ -618,6 +706,41 @@ export function _resetSurfaceRegistryForTests(): void {
  * The gap between them is the finding, not an oversight.
  * ──────────────────────────────────────────────────────────────────────── */
 
+/**
+ * Autodesk's guarantee, named and cited rather than assumed — which is the
+ * requirement `CustodyCorroborator` exists to enforce.
+ *
+ * READ THE SCOPE OF THIS CAREFULLY. It is a statement about the CLOUD VERSION
+ * SEQUENCE and about nothing else. "Fusion is tamper-resistant" is FALSE of
+ * the parametric timeline, which is fully rewritable through Fusion's own
+ * published scripting API and which `design.designType = DirectDesignType`
+ * destroys entirely in one assignment, recorded nowhere; and FALSE of the
+ * local file, a plain store-compressed ZIP with no integrity field anywhere in
+ * it. It is TRUE of the version sequence, in the sense that you would have to
+ * be Autodesk. Attaching the corroborator to the wrong one of those three is
+ * exactly how a true specific claim launders a false general one.
+ */
+const FUSION_TEAM_CORROBORATOR: CustodyCorroborator = {
+  party: 'Autodesk (Fusion Team, Data Management API v2)',
+  guarantee:
+    'a Fusion Team file version cannot be deleted at all — the Data Management API v2 OpenAPI ' +
+    'spec contains zero delete operations across 8,289 lines, and Autodesk states that even BIM ' +
+    "360's tombstone workaround (posting a 'versions:autodesk.core:Deleted' version) does not " +
+    'apply to Fusion Team. The sequence is append-only in fact, not by convention.',
+  cite: 'docs/canon/custody-study/fusion.md §2.3',
+  // The tenant can delete the whole ITEM, or an administrator the whole
+  // project. Neither rewrites the sequence, which is what corroboration is
+  // about: an all-or-nothing purge is visible as an absence, where a rewritten
+  // entry is not.
+  tenantWritable: false,
+  // NOT `cryptographic`, and the difference is the point. There is no hash, no
+  // signature and no customer-verifiable log; a version's `name` is PATCH-able
+  // and its description is editable after the fact. This buys "a second party
+  // would have to lie too", never "the record is provable". fusion.md open
+  // question 2 asks whether it can be upgraded.
+  verifiable: 'asserted',
+};
+
 export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
   // Two surfaces, neither sufficient alone (H-4 §2). Modal has no attestable
   // compute today, so the strongest leaf this reference path can demonstrate
@@ -630,6 +753,9 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'sidecar-gate',
     enforcement: 'isolated-namespace',
     attestation: 'none',
+    capabilityClasses: ['inference-host'],
+    // Files rest on a volume the tenant reaches only through vendor APIs.
+    custodyLocus: 'vendor-custody',
   },
 
   // As shipped. The pod-side monkey-patch is server code the tenant has root
@@ -642,6 +768,10 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'sidecar-gate',
     enforcement: 'none',
     attestation: 'none',
+    capabilityClasses: ['training-host'],
+    // The pod is the tenant's and they have a shell in it: the checkpoint
+    // rests in vendor space that the tenant reaches directly.
+    custodyLocus: 'shared-custody',
   },
 
   // WO-11's second half: the pod stops being where measurement happens.
@@ -653,6 +783,8 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'sidecar-gate',
     enforcement: 'isolated-namespace',
     attestation: 'none',
+    capabilityClasses: ['training-host'],
+    custodyLocus: 'shared-custody',
   },
 
   // The vendor's managed inference path. No tenant code in the process.
@@ -664,6 +796,10 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'server-library',
     enforcement: 'no-tenant-code',
     attestation: 'verified',
+    capabilityClasses: ['inference-host'],
+    // Generate, hash, deliver, keep nothing. CUSTODY_LOCUS.md's own example
+    // of where `ephemeral` genuinely fits.
+    custodyLocus: 'ephemeral',
   },
 
   // The SAME vendor's custom-handler / BYO-container / trust_remote_code path.
@@ -676,6 +812,13 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'server-library',
     enforcement: 'none',
     attestation: 'verified',
+    capabilityClasses: ['inference-host'],
+    // DECLARED `ephemeral` AND IT BUYS NOTHING HERE. The placement degrades to
+    // unattested-client, and `ephemeral` is a claim about persistence while
+    // this is a failure of isolation: tenant code runs in the same process, so
+    // the memory the bytes pass through is theirs. custodyAssuranceFor refuses
+    // it, which is the caveat CUSTODY_LOCUS.md asks to be carried into code.
+    custodyLocus: 'ephemeral',
   },
 
   // Declared attested-client throughout the WO series. Manifest carries
@@ -689,6 +832,15 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'attested-client',
     enforcement: 'none',
     attestation: 'none',
+    capabilityClasses: ['authoring-application'],
+    // By construction: the artist's files are on the artist's disk. Not a
+    // deficiency to engineer away — it is what the product is. The MODIFIER is
+    // Autodesk's, not ours, and it is independent of our placement — which is
+    // why it is declared here even though this configuration's placement
+    // degrades to `unattested-client` and refuses every custody claim anyway.
+    // Two axes, two answers, and the report says both.
+    custodyLocus: 'tenant-custody-corroborated',
+    custodyCorroborator: FUSION_TEAM_CORROBORATOR,
   },
 
   // The same add-in once the host verifies a signature at load. Expressed now,
@@ -697,10 +849,22 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     host: 'Fusion 360 add-in (signed, host-verified)',
     hooks: ['attach', 'detach', 'document.open', 'document.save', 'idle.tick'],
     surfaces: ['host-api-callback'],
-    fidelity: 'as-written',
+    // INDUCED, AND IT WAS `as-written` HERE UNTIL 2026-08-31. That was wrong,
+    // and wrong in a way worth naming: SIGNING THE ADD-IN CHANGES PLACEMENT,
+    // NOT FIDELITY. The two axes are independent by construction and this row
+    // had quietly coupled them, so a host verifying our signature appeared to
+    // improve the evidence about the bytes. It does not. The export path is
+    // `induced` whether or not the signature was checked, because Autodesk
+    // will not hand an add-in the bytes it saved at all
+    // (docs/canon/custody-study/fusion.md §6.4). It reads `induced` until
+    // route 2 or 3 above actually ships.
+    fidelity: 'induced',
     declaredPlacement: 'attested-client',
     enforcement: 'host-enforced-signature',
     attestation: 'none',
+    capabilityClasses: ['authoring-application'],
+    custodyLocus: 'tenant-custody-corroborated',
+    custodyCorroborator: FUSION_TEAM_CORROBORATOR,
   },
 
   // Extension zip built with plain `zip -qr`; no signing step exists.
@@ -712,6 +876,8 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'attested-client',
     enforcement: 'none',
     attestation: 'none',
+    capabilityClasses: ['authoring-application'],
+    custodyLocus: 'tenant-custody',
   },
 
   // The hostile case. Refused, and refused even holding a genuine quote.
@@ -723,5 +889,11 @@ export const CANON_HOST_PROFILES: Record<string, HostCaptureProfile> = {
     declaredPlacement: 'unattested-client',
     enforcement: 'none',
     attestation: 'verified',
+    // REFUSED TWICE OVER, AND THE TWO REFUSALS ARE INDEPENDENT. It claims the
+    // authoring shape (document.save, artifact.produced) with no host-api
+    // boundary at all, which its class rejects on coverage; and its placement
+    // rejects it on assurance whatever it declares.
+    capabilityClasses: ['authoring-application'],
+    custodyLocus: 'tenant-custody',
   },
 };

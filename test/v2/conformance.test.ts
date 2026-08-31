@@ -898,6 +898,24 @@ describe('the self-grade harness — P2 as SEAL CURRENCY, the rule in force', ()
     };
   }
 
+  /**
+   * A well-formed `inference-host` member, for the class-scope tests below.
+   * Widely typed on purpose: `base()`'s inline profile is narrowed by `as
+   * const` and cannot take a different surface list.
+   */
+  type HP = import('../../lib/capture/surface').HostCaptureProfile;
+  const inferenceHostProfile = (over: Partial<HP> = {}): HP => ({
+    host: 'comfyui',
+    hooks: ['graph.execute', 'artifact.produced'],
+    surfaces: ['network-gate'],
+    fidelity: 'as-delivered',
+    declaredPlacement: 'sidecar-gate',
+    enforcement: 'isolated-namespace',
+    attestation: 'none',
+    capabilityClasses: ['inference-host'],
+    ...over,
+  });
+
   const base = (sealOver: Record<string, unknown> | null = {}) => ({
     path: 'A vendor who sealed their pipeline',
     profile: {
@@ -1112,6 +1130,56 @@ describe('the self-grade harness — P2 as SEAL CURRENCY, the rule in force', ()
     assert.equal(g.items.P2.qualifier, 'deployment not registered');
     const never = M.C.gradePath(base(null));
     assert.equal(never.items.P2.qualifier, 'never sealed');
+  });
+
+  test('a deployment that passes every item is still refused when it is out of scope', () => {
+    // The assertion the two published paths cannot make, because both fail
+    // items anyway. `inScope` has to be load-bearing somewhere or the class
+    // layer is decoration.
+    const clean = M.C.gradePath({ ...base(), profile: inferenceHostProfile() });
+    assert.equal(clean.classScope.inScope, true);
+    assert.equal(clean.compliant, true, 'a sealed, in-scope deployment with no FAIL is compliant');
+
+    // Same evidence, same items, one hook that belongs to a class it did not
+    // declare. Every P-item still passes and the grade is refused.
+    const g = M.C.gradePath({
+      ...base(),
+      profile: inferenceHostProfile({ hooks: ['graph.execute', 'artifact.produced', 'model.write'] }),
+    });
+    assert.ok(M.C.P_ITEMS.every((i) => g.items[i].disposition !== 'FAIL'), 'no item fails');
+    assert.equal(g.classScope.inScope, false);
+    assert.equal(g.compliant, false, 'you cannot be compliant with the wrong part of the standard');
+    const f = g.classScope.findings.find((x) => x.id === 'CF-02')!;
+    assert.equal(f.impliedClass, 'training-host');
+  });
+
+  test('a borrowed run cannot satisfy class scope either', () => {
+    // WO-14 one level up. P2 already refuses a run of another deployment; if
+    // class scope quietly accepted the same run's verdicts, a vendor could
+    // satisfy their required probes with somebody else's evidence and only the
+    // P2 cell would notice.
+    const results = ['P-01', 'P-02', 'P-03', 'P-04', 'P-05', 'P-06', 'P-07'].map((id) => ({
+      id, spec: '', title: '', attempt: '', requirement: '', evidenceFor: [] as never[],
+      topological: false, verdict: 'pass' as const, vantage: 'os', admissible: true,
+      startedAt: 'a', durationMs: 1, outcome: 'blocked' as const, detail: '', evidence: {},
+    }));
+    const b = {
+      ...base(),
+      profile: inferenceHostProfile({ surfaces: ['network-gate', 'filesystem-watch'] }),
+    };
+
+    const own = M.C.gradePath({
+      ...b,
+      probes: { runId: 'r', subject: b.path, startedAt: 'a', finishedAt: 'b', vantages: ['os'], results, summary: { passed: 7, failed: 0, inconclusive: 0, line: '' }, admissible: true },
+    });
+    assert.equal(own.classScope.unmeasured.length, 0, 'its own run satisfies its own probes');
+
+    const borrowed = M.C.gradePath({
+      ...b,
+      probes: { runId: 'r', subject: 'somebody else entirely', startedAt: 'a', finishedAt: 'b', vantages: ['os'], results, summary: { passed: 7, failed: 0, inconclusive: 0, line: '' }, admissible: true },
+    });
+    assert.equal(borrowed.classScope.unmeasured.length, 7, 'a borrowed run supplies nothing');
+    assert.equal(borrowed.items.P2.qualifier, 'probe run is of another deployment');
   });
 
   test('a sealed deployment can declare its attestation provider in the seal', () => {
@@ -1399,6 +1467,106 @@ describe(`THE ACCEPTANCE TEST — reproduce STUDIO_P1-P8_GRADE.md at ${GRADED_CO
     // P7 still falls out of P2 for free, and for the reason it always did.
     assert.equal(canvas.items.P7.basis, 'derived-from-P2');
     assert.match(canvas.items.P7.reason, /closes for free the moment P2 does/);
+  });
+
+  test('CLASS-SCOPING MOVES NO PUBLISHED CELL, and the divergence list still says so', () => {
+    // WO-24. The grader now scores a profile against its capability class
+    // rather than against the union of everything. A re-cut that quietly
+    // turned a published FAIL into a PASS — or a published FAIL into an `n/a`
+    // — would be indistinguishable from inside the suite from a re-cut that
+    // fixed something, which is the same trap WO-23 had to walk out of.
+    //
+    // So the SAME pinned evidence is graded under the rule in force with class
+    // scoping live, and compared to the SAME published table. The divergence
+    // list is asserted EXACTLY, and it is still the two P2 qualifiers WO-23
+    // named. Nothing about the class layer reaches a cell.
+    const doc = readPinned('docs/canon/STUDIO_P1-P8_GRADE.md');
+    const expected = publishedTable(doc!);
+    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned));
+    const divergences: string[] = [];
+    for (const path of ['Canvas / ComfyUI', 'Kohya'] as const) {
+      const p = g.paths.find((x) => x.path === path)!;
+      for (const item of M.C.P_ITEMS) {
+        const cell = M.C.renderCell(p.items[item].disposition, p.items[item].qualifier);
+        if (cell !== expected[item][path]) divergences.push(`${path} ${item}: ${expected[item][path]} → ${cell}`);
+        // AND NO ITEM BECAME `n/a` BY CLASS SCOPE. The mechanism exists and
+        // nothing triggers it; if that ever changes for a published path, this
+        // is the assertion that forces the divergence to be stated.
+        assert.notEqual(p.items[item].basis, 'class-scope', `${path} ${item} went out of scope`);
+      }
+    }
+    assert.deepEqual(divergences, [
+      'Canvas / ComfyUI P2: **FAIL** → **FAIL** (never sealed)',
+      'Kohya P2: **FAIL** → **FAIL** (never sealed)',
+    ]);
+  });
+
+  test('canvas is an inference host, and probe 4 stops reading as its failure', () => {
+    // THE FINDING THIS WO EXISTS TO CLOSE. Canvas has no filesystem surface —
+    // the Modal volume is not mountable into scruple-web — and for three WOs
+    // that read as a canvas failure rather than as out of scope.
+    //
+    // It used to be handled by `surfaceAbsences`: the integrator declared the
+    // absence with a cite, the grader accepted it, and the accepting branch
+    // said so in as many words ("that acceptance rests on a DECLARATION the
+    // model cannot check"). Now the CLASS declares probe 4 not applicable to a
+    // member with no `filesystem-watch` surface, and the declaration is
+    // CHECKED against the profile's own surface list.
+    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned));
+    const canvas = g.paths.find((p) => p.path === 'Canvas / ComfyUI')!;
+    const c = canvas.classScope;
+    assert.deepEqual([...c.audited], ['inference-host']);
+    assert.equal(c.ambiguityResolved, false, 'canvas declares its class rather than defaulting');
+    const p4 = c.probes.find((x) => x.item === 'P-04')!;
+    assert.equal(p4.status, 'not-applicable');
+    assert.equal(p4.outcome, 'not-applicable');
+    assert.ok(!c.unmeasured.includes('P-04'), 'out of scope is not the same fact as unmeasured');
+    // And the six that ARE in scope are unmeasured, not passed. No run is
+    // attached to this grade, and nobody looked is never a pass.
+    assert.equal(c.unmeasured.length, 6);
+    assert.equal(c.inScope, true, 'canvas is a member of the class it declared');
+
+    // Canvas's custody: vendor-custody at an effective sidecar-gate is the one
+    // configuration in the estate entitled to the complete-history sentence,
+    // and the conditions say what it rests on.
+    assert.equal(canvas.assurance.custody!.claim, 'complete-history');
+    assert.ok(c.permittedClaims.includes('this is the complete history of the project'));
+    assert.equal(
+      c.permittedClaims.filter((x) => c.forbiddenClaims.includes(x)).length,
+      0,
+      'nothing may be both permitted and forbidden',
+    );
+    assert.ok(c.forbiddenClaims.includes('Scruple-witnessed authorship'));
+  });
+
+  test('Kohya is a training host: probe 5 leaves its scope, and a floor it misses appears', () => {
+    const g = M.C.grade(GRADED_COMMIT, M.C.deriveStudio(readPinned));
+    const kohya = g.paths.find((p) => p.path === 'Kohya')!;
+    const c = kohya.classScope;
+    assert.deepEqual([...c.audited], ['training-host']);
+
+    // WHAT LEAVES. CAPABILITY_CLASSES.md: "Probe 5 (WebSocket retrieval) is
+    // meaningless for a training host." A checkpoint is a file, fetched as one
+    // or not at all.
+    assert.equal(c.probes.find((x) => x.item === 'P-05')!.status, 'not-applicable');
+
+    // WHAT ARRIVES, AND IT IS THE MORE INTERESTING HALF. `training-host`
+    // requires a `filesystem-watch` position BECAUSE a checkpoint is a file
+    // and there is no fail-closed point; Kohya as shipped has only an
+    // in-process patch on `safetensors.save_file`, which covers the saves that
+    // go through the function it patched and no others. That is a COVERAGE
+    // finding the P-item table never carried, and it is independent of the
+    // placement failure that already sinks P1 and P3.
+    const f = c.findings.find((x) => x.id === 'CF-05');
+    assert.ok(f, 'the class floor Kohya misses must be visible');
+    assert.match(f!.title, /filesystem-watch/);
+    assert.equal(c.inScope, false);
+
+    // And `compliant` is conjoined with scope. Kohya was already
+    // non-compliant on five items, so no published cell moves — but a
+    // deployment that passed every item and was graded against a class it is
+    // not a member of must not come out compliant.
+    assert.equal(kohya.compliant, false);
   });
 
   test('a grade says which rule issued it, in the document and in the manifest', () => {

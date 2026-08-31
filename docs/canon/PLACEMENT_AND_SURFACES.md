@@ -492,7 +492,7 @@ explicitly, per D-8.
 | Vendor, managed | `graph.execute`, `artifact.produced` | `in-process-callback` | as-delivered | `server-library` → `server-library` | verified | `verified` |
 | Vendor, custom handler | same | same | as-delivered | `server-library` → **`unattested-client`** | verified | **none** |
 | Fusion (shipped) | `document.save`, `document.open`, `idle.tick` | `host-api-callback` | **induced** | `attested-client` → **`unattested-client`** | none | **none** |
-| Fusion (signed) | same | same | as-written | `attested-client` → `attested-client` | none | `passthrough` |
+| Fusion (signed) | same | same | **induced** — signing changes placement, not fidelity (`custody-study/fusion.md` §6.4) | `attested-client` → `attested-client` | none | `passthrough` |
 | Blender | `document.save`, `artifact.produced` | `host-api-callback` + `filesystem-watch` | as-written | `attested-client` → **`unattested-client`** | none | **none** |
 | Browser JS | — | `in-process-callback` | — | `unattested-client` | verified | **none** |
 

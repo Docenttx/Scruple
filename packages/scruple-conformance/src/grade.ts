@@ -101,6 +101,7 @@ import {
   type HostAssurance,
   type HostCaptureProfile,
 } from '../../../lib/capture/surface';
+import { probeVerdictsOf, scopeProfile, type ClassScopeReport } from './classes';
 import {
   boundaryOmissions,
   sealCurrency,
@@ -131,8 +132,18 @@ export interface ItemGrade {
   conditions: string[];
   /** File:line pointers the reader can check. */
   citations: string[];
-  /** 'derived' when assuranceForHost decided it; 'declared+checked' otherwise. */
-  basis: 'derived' | 'declared+checked' | 'derived-from-P2' | 'derived-from-P3';
+  /**
+   * 'derived' when assuranceForHost decided it; 'declared+checked' otherwise.
+   * 'class-scope' when the item does not bind this profile's capability class
+   * at all — an OUT OF SCOPE, which is neither a pass nor a failure and must
+   * not read as either.
+   */
+  basis:
+    | 'derived'
+    | 'declared+checked'
+    | 'derived-from-P2'
+    | 'derived-from-P3'
+    | 'class-scope';
 }
 
 /** A citation is a fact plus where to look. An uncited fact is not evidence. */
@@ -270,6 +281,16 @@ export interface LivenessReport {
 export interface PathGrade {
   path: string;
   assurance: HostAssurance;
+  /**
+   * WHICH PROTECTION PROFILE THIS SECURITY TARGET WAS GRADED AGAINST, and
+   * whether it is a member of it. See docs/canon/CAPABILITY_CLASSES.md.
+   *
+   * Reported BEFORE the items, because a grade against the wrong class is a
+   * grade of nothing: probe 4 read as a canvas failure for three WOs on
+   * exactly that mistake. `classScope.inScope` is false when a blocking class
+   * finding stands, and `compliant` is conjoined with it.
+   */
+  classScope: ClassScopeReport;
   items: Record<PItem, ItemGrade>;
   /** Standard §5: compliance is binary. */
   compliant: boolean;
@@ -351,6 +372,23 @@ export function gradePath(
   const a = assuranceForHost(input.profile);
   const e = input.evidence;
   const items = {} as Record<PItem, ItemGrade>;
+
+  // ---- CLASS SCOPE, BEFORE ANY ITEM IS GRADED ----------------------------
+  //
+  // WHAT IS THIS DEPLOYMENT, AND WHAT DOES THE STANDARD ASK OF THAT? Under the
+  // old rule the answer was "everything", so anything a vendor's shape did not
+  // have read as a gap. Probe 4 read as a canvas failure when canvas has no
+  // filesystem surface at all; the plugin hosts were graded against
+  // inference-host probes when their threat model runs the other way.
+  //
+  // The verdict map is derived from the SAME run P2 will look at, through
+  // `probeVerdictsOf`, which refuses a run whose subject is another deployment
+  // (WO-14) and refuses an inadmissible pass. Class scope must never be
+  // satisfied by evidence P2 is about to reject.
+  const classScope = scopeProfile(input.profile, {
+    probeVerdicts: probeVerdictsOf(input.probes, input.path),
+    effectivePlacement: a.resolution.effective,
+  });
 
   // ---- P1 · runtime boundary integrity -----------------------------------
   // Derived. `assuranceFor` is total over placement x attestation and this
@@ -590,14 +628,55 @@ export function gradePath(
     };
   }
 
+  // ---- ITEMS THE CLASS DOES NOT BIND -------------------------------------
+  //
+  // OUT OF SCOPE IS NOT A PASS AND IS NOT A FAILURE, and keeping the three
+  // apart is the whole of this WO. An item the class declares not-applicable
+  // is overwritten to `n/a` with its class's reason — the same disposition P8
+  // already uses for an integration that imports no attestations, so a reader
+  // needs no new vocabulary.
+  //
+  // NOTHING TRIGGERS THIS TODAY, AND THE MECHANISM IS STILL LOAD-BEARING.
+  // CAPABILITY_CLASSES.md expected some of the eight to drop out per class
+  // ("Not all eight bind every class"). Working through the four, none does:
+  // what differs between classes is the EVIDENCE each can offer, which is the
+  // probe set, not which requirements bind. See the note on
+  // `applicablePItems` in lib/capture/classes.ts. The code path stays because
+  // a fifth class will need it and because a rule that only exists in prose
+  // is a rule nobody re-reads.
+  for (const p of P_ITEMS) {
+    if (classScope.pItems[p] === 'not-applicable') {
+      items[p] = {
+        item: p,
+        disposition: 'n/a',
+        basis: 'class-scope',
+        reason:
+          `${p} does not bind \`${classScope.audited.join(' + ')}\`. Out of scope is not a pass ` +
+          'and not a failure: the class declares which requirements bind its members, and this ' +
+          'one is not among them.',
+        conditions: [],
+        citations: [`capability class: ${classScope.audited.join(' + ')}`],
+      };
+    }
+  }
+
   // Standard §5 — compliance is binary. A conditional PASS is still a pass on
   // the item and still not a third compliance state; a single FAIL is the end
   // of the question.
-  const compliant = P_ITEMS.every((p) => items[p].disposition !== 'FAIL');
+  //
+  // AND `inScope` IS A CONJUNCT, NOT AN OBSERVATION. A blocking class finding
+  // means the deployment is not a member of the class it was graded as, or
+  // does not meet that class's floor. You cannot be compliant with a standard
+  // you were measured against the wrong part of, and a vendor who could pick
+  // the profile that grades easiest and still claim the name is the
+  // gradations-of-certification problem the trademark terms exist to forbid.
+  const compliant =
+    P_ITEMS.every((p) => items[p].disposition !== 'FAIL') && classScope.inScope;
 
   return {
     path: input.path,
     assurance: a,
+    classScope,
     items,
     compliant,
     // Which side of the binary line, when it is not compliant. `integrating`

@@ -72,9 +72,104 @@ function renderItem(i: ItemGrade): string {
   return out.join('\n');
 }
 
+/**
+ * The class section, and it goes ABOVE the items on purpose.
+ *
+ * A reader who does not know which Protection Profile a Security Target was
+ * graded against cannot read the table below it: a `n/a` that means "out of
+ * scope for this class" and a `FAIL` that means "in scope and not met" are the
+ * two answers this WO exists to keep apart, and the reader needs the scope in
+ * hand before the first row.
+ */
+function renderClassScope(p: PathGrade): string {
+  const c = p.classScope;
+  const na = <T extends string>(items: readonly { item: T; status: string; reason: string }[]) =>
+    items.filter((i) => i.status === 'not-applicable');
+  const out: string[] = [
+    `### Capability class — ${c.audited.map((x) => `\`${x}\``).join(' + ')}`,
+    '',
+    c.ambiguityResolved
+      ? 'DECLARED: none. CAPABILITY_CLASSES.md — "where it is ambiguous, the broader class ' +
+        `applies" — so this is audited as \`${c.audited.join(', ')}\`, the broadest.`
+      : `Declared: ${c.declared.map((x) => `\`${x}\``).join(' + ')}. A deployment spanning two ` +
+        'classes is audited against both: required items are the union, and an item is out of ' +
+        'scope only when every audited class says so.',
+    '',
+    `In scope: **${c.inScope ? 'yes' : 'no'}**.` +
+      (c.inScope
+        ? ''
+        : ' A blocking class finding stands, so the item table below is a grade against a class ' +
+          'this deployment is not a member of, or does not meet the floor of. Compliance is ' +
+          'refused for that reason and not only for the items.'),
+  ];
+
+  if (c.custody) {
+    out.push(
+      '',
+      `**Custody — \`${c.custody.locus}\` at \`${c.custody.placement}\` → ` +
+        `\`${c.custody.claim}\`.** ${c.custody.reason}`,
+      '',
+      c.custody.canClaim
+        ? `Permitted sentence: _"${c.custody.sentence}"_.`
+        : 'No custody sentence is permitted at this placement.',
+    );
+    if (c.custody.mustNotImply.length) {
+      out.push(
+        '',
+        'MUST NOT be allowed to imply:',
+        '',
+        ...c.custody.mustNotImply.map((m) => `- _"${m}"_`),
+      );
+    }
+  }
+
+  const naProbes = na(c.probes);
+  if (naProbes.length) {
+    out.push(
+      '',
+      'Out of scope for this class — declared by the class, checked against the profile:',
+      '',
+      ...naProbes.map((i) => `- **${i.item}** — ${i.reason}`),
+    );
+  }
+  const naShapes = [...na(c.hooks), ...na(c.surfaces)];
+  if (naShapes.length) {
+    out.push('', ...naShapes.map((i) => `- \`${i.item}\` — ${i.reason}`));
+  }
+  if (c.unmeasured.length) {
+    out.push(
+      '',
+      `**Applicable and not measured: ${c.unmeasured.join(', ')}.** Nobody looked. That is ` +
+        'neither a pass nor a failure, and it aggregates as NOT PASSED everywhere.',
+    );
+  }
+  if (c.findings.length) {
+    out.push(
+      '',
+      'Findings:',
+      '',
+      ...c.findings.map(
+        (f) =>
+          `- **${f.id}${f.blocking ? '' : ' (observation)'} — ${f.title}.** ${f.detail}` +
+          (f.impliedClass ? ` Implied class: \`${f.impliedClass}\`.` : ''),
+      ),
+    );
+  }
+  out.push(
+    '',
+    `Permitted claim wording: ${c.permittedClaims.map((x) => `_"${x}"_`).join(', ')}.`,
+    c.forbiddenClaims.length
+      ? `Must not imply: ${c.forbiddenClaims.map((x) => `_"${x}"_`).join(', ')}.`
+      : '',
+  );
+  return out.filter((l) => l !== undefined).join('\n');
+}
+
 function renderPath(p: PathGrade): string {
   return [
     `## Path — ${p.path}`,
+    '',
+    renderClassScope(p),
     '',
     `Lifecycle: **${p.lifecycle}**. ` +
       (p.lifecycle === 'sealed'

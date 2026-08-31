@@ -118,6 +118,18 @@ export interface BundleManifest extends Record<string, CanonicalValue> {
   grade_profile: string;
   /** Lifecycle state per graded path. `sealed` is the only one that claims. */
   lifecycle: Array<{ path: string; state: string }>;
+  /**
+   * THE CLASS THE VENDOR CLAIMED, INSIDE THE SIGNATURE.
+   *
+   * CAPABILITY_CLASSES.md's anti-gaming rule — "a class may not be chosen to
+   * avoid a requirement that genuinely applies" — needs the choice to be a
+   * matter of record before it can be disputed. A class that lives only in the
+   * grader's memory is a class a vendor can revise after seeing which audit it
+   * bought; one inside the signed manifest is a claim they made, at a time, in
+   * a document a reviewer holds. `in_scope` false says the grade was made
+   * against a class the deployment is not a member of.
+   */
+  capability_classes: Array<{ path: string; classes: string[]; in_scope: boolean }>;
   signature: {
     alg: 'ed25519';
     /** SPKI, base64. The verifier needs no key distribution to check integrity;
@@ -171,6 +183,11 @@ export function buildBundle(input: BundleInput): SignedBundle {
     source_ref: input.grade.sourceRef,
     grade_profile: input.grade.profile,
     lifecycle: input.grade.paths.map((p) => ({ path: p.path, state: p.lifecycle })),
+    capability_classes: input.grade.paths.map((p) => ({
+      path: p.path,
+      classes: [...p.classScope.audited],
+      in_scope: p.classScope.inScope,
+    })),
     signature: null,
   };
 

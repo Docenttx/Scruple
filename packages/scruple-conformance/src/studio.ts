@@ -339,6 +339,17 @@ export function deriveCanvas(
     declaredPlacement: 'sidecar-gate',
     enforcement: 'isolated-namespace',
     attestation: 'none',
+    // INFERENCE-HOST, and declaring it is what stops probe 4 reading as a
+    // canvas failure. The class declares P-04 not applicable to a member with
+    // no `filesystem-watch` surface, and canvas declares none — so the
+    // not-applicable is CHECKED against the profile rather than accepted from
+    // `surfaceAbsences` on a cite nobody could verify.
+    capabilityClasses: ['inference-host'],
+    // Files rest on the Modal volume. The browser user reaches them only
+    // through the proxy, so every mutation crosses a path the pipeline sees —
+    // conditionally, on the same fact P1's declared conditions turn on (a
+    // pinned default machine manifest, no user-defined custom nodes).
+    custodyLocus: 'vendor-custody',
   };
 
   const evidence: DeclaredEvidence = {
@@ -512,6 +523,17 @@ export function deriveKohya(read: ReadSource, probesRun: GradeInput['probes'] = 
     declaredPlacement: 'sidecar-gate',
     enforcement: hookIsOptional ? 'none' : 'isolated-namespace',
     attestation: 'none',
+    // TRAINING-HOST, and the class immediately says something the P-item table
+    // never did: a checkpoint is a FILE, so the class requires a
+    // `filesystem-watch` position and this profile has only an in-process
+    // patch on `safetensors.save_file`. That is a COVERAGE finding independent
+    // of placement — the patch covers the saves that go through the function
+    // it patched and no others — and it is exactly the re-placement WO-11
+    // describes. It also drops probe 5 from Kohya's required set: there is no
+    // interactive retrieval channel for a checkpoint.
+    capabilityClasses: ['training-host'],
+    // The pod is the tenant's and they have a shell in it.
+    custodyLocus: 'shared-custody',
   };
 
   const evidence: DeclaredEvidence = {
@@ -552,18 +574,18 @@ export function deriveKohya(read: ReadSource, probesRun: GradeInput['probes'] = 
     },
     attestationDeclaration: null,
     attestationImport: null,
-    // Canvas has NO filesystem surface: the Modal volume is not mountable into
-    // scruple-web, so probe 4 has nothing to write into. Declared here so the
-    // grader records that P2's coverage for that path rests on a declaration
-    // it cannot check — WO-5 DEFECT-2, named rather than papered over.
-    surfaceAbsences: {
-      'P-04': {
-        value:
-          'no filesystem surface — the Modal volume is not mountable into scruple-web, so there ' +
-          'is no output/temp/input directory for a watcher to watch or a tenant to write into',
-        cite: 'lib/canvas/witness.ts + the canvas proxy: capture is network-gate only',
-      },
-    },
+    // NONE, AND THE PREVIOUS VALUE HERE WAS CANVAS'S, COPIED. It declared "no
+    // filesystem surface — the Modal volume is not mountable into scruple-web"
+    // on KOHYA's evidence, citing `lib/canvas/witness.ts` from a grade of a
+    // RunPod pod. Kohya has a filesystem; what it lacks is a watcher on it,
+    // which is a finding and not an absence. The frozen profile never reached
+    // this field for Kohya (P2 fails earlier, on the missing baseline), so the
+    // published cells are unaffected — it was a false statement waiting for
+    // the first rule that read it.
+    //
+    // The honest version of the same fact is now the class's: `training-host`
+    // REQUIRES a `filesystem-watch` position and this profile declares none.
+    surfaceAbsences: {},
     declaredP1Conditions: [],
     separateFindings: [
       ...(divergentCopies

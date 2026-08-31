@@ -101,6 +101,14 @@ export const TRACKED: readonly string[] = [
   // ── The assurance function. What canvas is permitted to claim is
   //    computed here, so it is part of what the baseline measures. ──
   'lib/capture/surface.ts',
+  // ── And the class layer above it (WO-24), by this list's own rule.
+  //    `lib/capture/classes.ts` decides canvas's capability class, which
+  //    probes are in scope for it, and — through the custody locus — the
+  //    exact sentence it is permitted to say. surface.ts imports it, so
+  //    without this entry a change to the claim wording would leave the
+  //    tamper-surface hash untouched, which is the gap this list exists
+  //    to prevent. ────────────────────────────────────────────────────
+  'lib/capture/classes.ts',
 
   // ── Dependency pins. Same precedent as the witness server's. ─────
   'package.json',
@@ -257,5 +265,5 @@ export const CANVAS_BASELINE = {
    * To re-record after an intended change:
    *   npx tsx -e "import('./lib/canvas/baseline').then(m=>console.log(m.tamperSurface().tamper_surface_hash))"
    */
-  tamper_surface_hash: '63c242781e04018abbef8a72d19a7a78dd1cf0210562169425b0249d632a28d8',
+  tamper_surface_hash: '60f1e483575bb1ed02e3a3c30ecc75c5f0d892fb4d344ede75ffc01fc17af3f6',
 } as const;

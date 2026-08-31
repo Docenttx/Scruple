@@ -375,6 +375,110 @@ surfaces live in. The declaration hole is gone from P2 with it.
 profile and still reported by probe 4 as its third outcome. It is no longer
 load-bearing for anyone's compliance.
 
+### The grade is scoped to a capability class (WO-24)
+
+`docs/canon/CAPABILITY_CLASSES.md`. `CANON_HOST_PROFILES` describes specific
+integrations — a Security Target. The layer above is the **class**, a Protection
+Profile with the requirements every member must meet, and a profile is now
+graded **against its class** rather than against the union of everything.
+
+`gradePath` computes `classScope` **before any item is graded**, because a grade
+against the wrong class is a grade of nothing:
+
+```
+classScope: {
+  declared, audited, ambiguityResolved,
+  hooks[], surfaces[], probes[],   // required | permitted | not-applicable
+  pItems, custody, permittedClaims, forbiddenClaims,
+  findings[], unmeasured[], inScope
+}
+```
+
+**Four outcomes, and the fourth is the one the grader used to spell as one of
+the others**: `not-applicable` (declared by the class, checked against the
+profile), `satisfied`, `failed`, and `unmeasured` — applicable and nobody looked.
+`unmeasured` aggregates as NOT PASSED everywhere, which is WO-14's rule moved up
+a level. A borrowed run (`subject ≠ this path`) supplies **nothing**, so its
+verdicts cannot satisfy class scope either — P2 already refuses such a run, and
+letting scope accept it would have meant only one cell noticed.
+
+**`compliant` is conjoined with `inScope`.** A blocking class finding means the
+deployment is not a member of the class it asked to be graded as, or does not
+meet that class's floor, and you cannot be compliant with a standard you were
+measured against the wrong part of. A vendor who could pick the profile that
+grades easiest and still claim the name is the gradations-of-certification
+problem the trademark terms exist to forbid.
+
+**The class is inside the signed submission** (`capability_classes` in the bundle
+manifest), because the anti-gaming rule needs the choice to be a matter of record
+before it can be disputed.
+
+### DEFECT-2, narrowed a third time — and one place it genuinely closes
+
+The class turns "this surface is absent" from an unchecked declaration in
+`surfaceAbsences` into a declaration **checked against the profile's own surface
+list**. Probe 4 is not applicable to an inference host that declares no
+`filesystem-watch`, and it is applicable the instant one is declared.
+
+**The residue is real and is reproduced as a test.** `profile.surfaces` is still
+a declaration; two profiles differing only in whether they admit to a filesystem
+surface get two different probe-4 scopes. What changed is the **cost** of the
+lie, not its availability — the same list now decides the class floor, the class
+identity and the permitted claim wording, so shading it can put a vendor below
+their floor or trigger a finding against a class they did not declare. A
+declaration load-bearing in four places is harder to shade than one load-bearing
+in a footnote. `residualDefect2()` says exactly this in the code, so it cannot be
+claimed closed by someone reading only the tests.
+
+**And there is one place it closes outright.** A not-applicable probe for which
+the attached run reports `pass` or `fail` — as opposed to `inconclusive`, which
+is what a genuine absence produces — **voids the exemption and raises `CF-04`**.
+The probe got an answer, so the surface the declaration denies is there. An
+observation beats a declaration; nothing a vendor writes down can prove what a
+vendor did not write down, and only a run from the tenant position can.
+
+### What changed for canvas and for the plugins
+
+**Canvas — `inference-host`, `vendor-custody`.** Probe 4 is now **out of scope**
+rather than a failure: the class declares it not applicable to a member with no
+filesystem surface, and canvas declares none. For three WOs that read as a canvas
+failure. Six probes are in scope and all six are `unmeasured`, because no run is
+attached — which is the honest reading and is not a pass. Canvas is the one
+configuration in the estate entitled to *"this is the complete history of the
+project"*, and the conditions say what that rests on.
+
+**Kohya — `training-host`, `shared-custody`.** Probe 5 **leaves** its scope: a
+checkpoint is a file, fetched as one or not at all. And a finding **arrives** that
+the P-item table never carried — `training-host` requires a `filesystem-watch`
+position *because* there is no fail-closed point, and Kohya as shipped has only
+an in-process patch on `safetensors.save_file`, which covers the saves that go
+through the function it patched and no others. That is a **coverage** finding,
+independent of the placement failure that already sinks P1 and P3, and it holds
+with perfect enforcement. It is exactly the re-placement WO-11 describes;
+`kohya_target` meets the floor.
+
+**The plugins — `authoring-application`, `tenant-custody`.** Probes 1, 2, 5 and 7
+are out of scope: there is no gate to bypass, no vendor-side admin surface, no
+retrieval channel, and no vendor network policy — a probe reporting open egress on
+an artist's laptop is reporting that a laptop is a laptop. Only P-03 and P-06 are
+required. Both Fusion rows carry a finding that `artifact.produced` is not
+declared: Fusion witnesses the *document*, not the *artifact*, which is the same
+fact DEFECT-3 records from the other end.
+
+**No published cell moved.** The acceptance test grades the same pinned evidence
+with class scoping live and asserts the divergence list is still exactly WO-23's
+two P2 qualifiers, and that no item became `n/a` by class scope.
+
+### Kohya's `surfaceAbsences` was canvas's, copied
+
+Found while wiring this: `deriveKohya` declared *"no filesystem surface — the
+Modal volume is not mountable into scruple-web"*, citing `lib/canvas/witness.ts`,
+on a grade of a RunPod pod. Kohya has a filesystem; what it lacks is a watcher on
+it. The frozen profile never reached that field for Kohya — P2 fails earlier, on
+the missing baseline — so no published cell was affected. It was a false
+statement waiting for the first rule that read it, and the class's required
+surface is the honest version of the same fact.
+
 ### The old rule is kept executable, deliberately
 
 `STUDIO_P1-P8_GRADE.md` was issued under the old rule, and a suite that cannot
