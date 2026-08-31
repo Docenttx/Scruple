@@ -9,23 +9,45 @@ never does.**
 
 Not "primarily", not "by default". One.
 
-## The distinction I had collapsed
+## Scruple audits. That is what a standard is.
 
-I had been treating *"who audits?"* as an open architectural question. It is
-not. Two different things wear that name:
+**Nobody audits but Scruple.** Not "us now, a third party later" — that was an
+overreach in the first draft of this document and it is corrected here.
 
-| | Can vary | Never varies |
-|---|---|---|
-| **Who performs the review** — reads the architecture, runs the probes, raises findings | ✅ us now; a third party later; the vendor themselves under a self-run-and-submit model | |
-| **Who holds the record** — the leaf chain, the seal registry, the findings, the mark | | ❌ **always Scruple** |
+A standard body that lets someone else grant conformance does not have a
+standard; it has a framework. Two auditors means two interpretations, and the
+binary compliance claim (§5) stops meaning one thing — which is exactly what the
+trademark clause forbidding implied gradations exists to prevent.
 
-CNCF is the precedent: vendors run the conformance suite themselves and submit
-results, and **the Linux Foundation still holds the record and the mark.** The
-labour is delegable. The custody of truth is not.
+Every mature programme keeps the **authority** central even where it delegates
+**labour**: EMVCo accredits labs but EMVCo approves; NIST accredits testing labs
+but CMVP validates; PCI SSC accredits QSAs but owns the standard and the marks.
+Delegation is an accreditation programme — a large, later, separate thing that
+requires the authority to already be unambiguous. **It is not an option to hold
+open at the start; holding it open is what makes it never arrive.**
 
-So the open question is about **labour and independence**, and it cannot reach
-the architecture. A third-party assessor submits findings *into our record*;
-they do not keep their own.
+### The correction this forces to my earlier recommendation
+
+I had recommended the CNCF self-run-and-submit shape from
+`oss-study/sonobuoy-conformance.md`. **That was the wrong import and I carried it
+further than the evidence supported.**
+
+Kubernetes conformance is self-certified because every claim it certifies is
+**functional and re-runnable by anyone** — lying is discoverable by any end user
+repeating the run. Our properties are not that. `ARCHITECTURE_DECIDES.md` is
+explicit that the defence against an undeclared surface is *someone reading the
+architecture at audit*. **A model whose central safeguard is a human looking
+cannot delegate the looking to the party being looked at.**
+
+## What follows for the tooling
+
+- **Phase 2 tooling is ours**, built for our assessors. It is not a distributable
+  artifact a stranger runs and self-certifies with.
+- **What a vendor receives is integration tooling and a submission path** — not
+  the audit tool. That materially simplifies the vendor package.
+- The vendor still runs probes during Phase 1 to find their own problems early.
+  **Running the probes is not auditing**; the audit is the reading, the finding,
+  and the record.
 
 ## Signing a declaration is not holding truth
 
