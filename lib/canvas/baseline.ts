@@ -68,6 +68,10 @@ export const TRACKED: readonly string[] = [
   'lib/canvas/witness.ts',
   'lib/canvas/manifest.ts',
   'lib/canvas/session.ts',
+  // WO-25. The deployment identity and the seal stamp. A change here
+  // changes what every canvas leaf says about its own approval, which is
+  // the same reason `witness.ts` is on this list.
+  'lib/canvas/deployment.ts',
 
   // ── The WS leg. A separate process, and the half that was
   //    pass-through until WO-10. ──────────────────────────────────
@@ -265,5 +269,11 @@ export const CANVAS_BASELINE = {
    * To re-record after an intended change:
    *   npx tsx -e "import('./lib/canvas/baseline').then(m=>console.log(m.tamperSurface().tamper_surface_hash))"
    */
-  tamper_surface_hash: '60f1e483575bb1ed02e3a3c30ecc75c5f0d892fb4d344ede75ffc01fc17af3f6',
+  // Re-recorded by WO-25. WHY THE CAPTURE PATH CHANGED: canvas acquired a
+  // deployment identity (`lib/canvas/deployment.ts`) and its leaves are
+  // now stamped with a seal state resolved by `lib/seal/registry.ts`
+  // instead of NULL, so `lib/canvas/witness.ts` and
+  // `lib/iterations/ingest.ts` both moved. That sentence is the product;
+  // the hash is what makes writing it unavoidable.
+  tamper_surface_hash: '098593c263a5955408f6ccf0e73d8f9ca213bdb53a9f721321f5cb8678918be7',
 } as const;

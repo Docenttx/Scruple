@@ -23,6 +23,16 @@ import {
   hashWorkflow,
 } from '@/lib/leaf/hashes';
 import { storeArtifact } from '@/lib/scruple/artifacts';
+// WO-25 — the SHARED seal check, not a second one.
+//
+// docs/canon/INTEGRATION_LIFECYCLE.md §10 item 6 recorded the gap this
+// closes: canvas ingests here rather than through POST /api/v2/witness, so
+// every leaf this module wrote carried `seal_state = NULL` — honest ("the
+// question was never asked") and not an answer. `checkDeploymentSeal()` is
+// the function the /v2 route already calls; importing it rather than
+// reimplementing the fold is the whole of STUDIO_IS_AN_EXEMPLAR.md's rule
+// applied here: Studio consumes, it does not donate.
+import { checkDeploymentSeal, type SealStamp } from '@/lib/seal/registry';
 import { logTelemetry, estimateCostCents } from '@/lib/telemetry/log';
 import { getActiveProvider } from '@/lib/storage/dispatch';
 import { witness } from '@/lib/scruple/witness';
@@ -113,6 +123,26 @@ export interface IngestParams {
    *  on iterations.container_machine_manifest for trust-label rendering
    *  (WO-B2) and human inspection. NOT part of any signed preimage. */
   containerMachineManifest?: Record<string, unknown> | null;
+  /**
+   * WO-25 — WHICH REGISTERED DEPLOYMENT PRODUCED THIS LEAF, and which
+   * tenant owns it.
+   *
+   * Optional, and its absence is a FACT rather than a default: a caller
+   * that names no deployment gets `undeclared`, which migration 046
+   * coined for exactly this population ("canvas and the plugins carry no
+   * component and no deployment"). `unregistered` — something was said
+   * and we do not recognise it — stays a different word for a different
+   * event, and neither is `NULL`, which now means only "written before
+   * the question existed".
+   *
+   * The pair is supplied by the caller and never read from a request.
+   * `/api/v2/witness` takes the deployment id off the wire and must check
+   * it against the calling tenant, because otherwise a tenant could stamp
+   * their leaves with somebody else's `sealed`. Here the owner is a
+   * server-side constant (lib/canvas/deployment.ts) precisely so that no
+   * request can name one.
+   */
+  deployment?: { deploymentId: string; tenantId: string } | null;
 }
 
 export interface IngestResult {
@@ -135,6 +165,16 @@ export interface IngestResult {
   witnessed: boolean;
   /** 'v1' means the witness server was unreachable and leafHash is the raw output hash. */
   leafScheme: 'v1' | 'v2' | 'v2.2';
+  /**
+   * WO-25 — the seal state this leaf was written under, as of its own
+   * timestamp, and the `seal_ref` only when that state is `sealed`.
+   *
+   * Returned rather than merely persisted for `witnessed`'s reason, which
+   * this file already states one field up: a result that says nothing
+   * about it lets every caller report success identically. Canvas's
+   * capture row and the proxy's response header are downstream of this.
+   */
+  seal: SealStamp;
 }
 
 /** File extension for an output/input by kind + content-type. */
@@ -310,6 +350,25 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   const leafScheme: 'v1' | 'v2' | 'v2.2' = witnessResult?.leaf_scheme ?? 'v1';
 
   const now = new Date().toISOString();
+
+  // ── WO-25: the seal stamp, resolved AS OF THIS LEAF'S OWN INSTANT ──
+  //
+  // `now` and not `Date.now()` at read time, for 045's reason carried into
+  // 046: a seal issued later does not retro-bless this leaf and a reseal
+  // later does not retro-condemn it. The fold takes the instant as an
+  // argument precisely so that a historical leaf keeps verifying across a
+  // reseal.
+  //
+  // `checkDeploymentSeal` never throws and never rejects — refusing an
+  // ingest here would not un-produce the artifact, it would convert a
+  // flagged fact into a silence. A fault on our side lands as `unchecked`,
+  // which is a recorded failure and never a pass.
+  const seal = checkDeploymentSeal(
+    p.deployment?.tenantId ?? p.userId,
+    p.deployment?.deploymentId ?? null,
+    now,
+  );
+
   const tx = conn().transaction(() => {
     const previousHash = (conn()
       .prepare(
@@ -328,8 +387,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            model_fingerprints, model_fingerprints_hash,
            witnessed, witness_id, witness_timestamp, witness_signature,
            compute_machine_id, machine_manifest_hash, workflow_publication,
-           container_machine_manifest
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           container_machine_manifest,
+           deployment_id, seal_state, seal_ref
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -364,6 +424,13 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         machineManifestHash,
         getDefaultPublicationMode(p.userId),
         p.containerMachineManifest ? JSON.stringify(p.containerMachineManifest) : null,
+        seal.deployment_id,
+        seal.state,
+        // NULL unless `sealed`. Migration 046 carries the argument: a leaf
+        // written during `resealing` was not written under an approval,
+        // and stamping the last approved seal on it would read as
+        // "approved under X" — the one thing that is not true of it.
+        seal.seal_ref,
       );
 
     conn()
@@ -409,5 +476,6 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     inputArtifacts,
     witnessed: witnessResult !== null,
     leafScheme,
+    seal,
   };
 }

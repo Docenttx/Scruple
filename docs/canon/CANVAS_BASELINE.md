@@ -1,7 +1,7 @@
 # Canvas — the baseline, and what canvas can honestly claim
 
 **Status:** Implemented. `lib/canvas/baseline.ts`, `test/v2/canvas-retrofit.test.ts`.
-**Version:** 1.0.0 · 2026-08-30 · WO-10 of `WO-SERIES-CANON-AS-FLOOR.md`
+**Version:** 1.1.0 · 2026-08-31 · WO-10 of `WO-SERIES-CANON-AS-FLOOR.md`, amended by WO-25 (§11)
 **Binds:** `STUDIO_P1-P8_GRADE.md` §"Path A — Canvas / ComfyUI" (every FAIL below is one of its), `H4-DUKPT-CAPTURE-COMPONENT.md` §2, §7 and §10 C-7/C-8/C-9/C-10, `PLACEMENT_AND_SURFACES.md` (every axis name)
 **Consumes:** `services/scruple-capture/src/**` — canvas's route table, frame decoder, MIME declarations and correlator all come from there
 
@@ -288,3 +288,84 @@ The canonical form is sorted `sha256  filename` lines with a trailing
 newline — byte-identical in shape to the witness server's, and reproducible by
 hand with `sha256sum`, which matters when a reviewer wants to check it without
 running our code.
+
+---
+
+# 11. Amendments — WO-25, 2026-08-31
+
+Canvas is now a **registered deployment**. `docs/canon/STUDIO_SEAL.md` is the
+full argument; four things in the document above are changed or narrowed by it
+and are corrected here rather than left to be discovered.
+
+### 11.1 The tamper surface grew by one file, and the hash moved
+
+`lib/canvas/deployment.ts` is on `TRACKED`. It resolves the deployment identity
+and the seal stamp, so a change to it changes what every canvas leaf says about
+its own approval — the same reason `witness.ts` is on the list. The recorded
+`tamper_surface_hash` moved twice in WO-25 and the commit says why both times.
+
+### 11.2 §4's four outcomes are unchanged; a fifth **field** joined the leaf
+
+The `witnessed` / `failed` / `unwitnessed` / `refetch` table still holds. What
+is new is that every leaf `ingestIteration` writes now carries `deployment_id`,
+`seal_state` — the fold **as of that leaf's own instant** — and `seal_ref` only
+when that state is `sealed`. Before WO-25 all three were `NULL`, which
+`INTEGRATION_LIFECYCLE.md` §10 item 6 recorded as *"honest (the question was not
+asked) but not the re-grade the direction promises."*
+
+Leaves written before migration 047 keep `NULL`, and are **not backfilled**: the
+seal state of a leaf is a fact about the instant it was written, and there is no
+instant to re-run for a row that predates the machinery.
+
+### 11.3 §5's declaration gained a class and a locus
+
+`canvasCaptureProfile()` now declares `capabilityClasses: ['inference-host']`
+and `custodyLocus: 'vendor-custody'`.
+
+The class makes §3's consequence 1 **mechanical instead of advisory**: probe 4
+is not merely "not satisfiable for canvas", it is a *class-declared*
+not-applicable, contingent on the profile declaring no `filesystem-watch`.
+Declare that surface and probe 4 is required again, with the void recorded.
+
+The locus is argued in `STUDIO_SEAL.md` §2 and it does **not** license the
+sentence it appears to. `custodyAssuranceFor` permits *"this is the complete
+history of the project"* for `vendor-custody` + `sidecar-gate` only while no
+reachable path writes into the custody store without crossing the pipeline —
+evidenced by probe 4 or by the class-checked absence of a filesystem egress
+path. §3.1 says probe 4 is unsatisfiable and §7's C-9 says the egress path is
+unobserved rather than absent, so the condition fails on both branches.
+`canvasClaimsToday()` **withholds** that sentence rather than printing it with a
+caveat.
+
+**This makes §7's "named holes" load-bearing in a new way.** C-9 was recorded as
+a narrowing of the honest claim; it is now the thing that blocks a seal.
+
+### 11.4 The baseline is not the pipeline boundary
+
+They are two artefacts with two jobs and WO-25 is where they separate.
+
+- The **tamper surface** is a single hash over 23 files. It answers *"is the
+  capture path the code we think it is."* `lib/canvas/baseline.ts` is excluded
+  from it, correctly, because hashing the file that carries the hash is a
+  fixpoint.
+- The **pipeline manifest** (`canvasPipelineManifest()`) is a superset,
+  partitioned into `capture` / `config` / `dependency` / `host`. It answers
+  *"is this the approved configuration."* It **includes** `baseline.ts` — no
+  fixpoint arises, because the manifest is stored on the seal row — and it
+  includes the Modal image as a `host` digest, which the tamper surface
+  deliberately excluded on the grounds that it was measured *separately*.
+
+The practical difference: under one flat hash a `package-lock.json` bump breaks
+the baseline exactly as loudly as a rewrite of `lib/canvas/gate.ts`. Under the
+manifest the first is `consequential` against a budget and the second is
+`material` and forces a reseal.
+
+### 11.5 And canvas is **not** sealed
+
+`verifying`, honestly earned; `sealed` refused, on three named findings
+(`CANVAS_SEAL_BLOCKERS`, asserted non-empty by
+`test/v2/studio-sealed.test.ts`). The blocking one is that **no admissible probe
+run exists from canvas's tenant position** — a browser on the public internet
+and a ComfyUI process in a Modal container with no shell, neither of which is
+occupiable from this host. `STUDIO_SEAL.md` §5 works through why each probe's
+partial was rejected.

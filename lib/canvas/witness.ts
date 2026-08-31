@@ -81,7 +81,9 @@ import {
   type HostAssurance,
   type HostCaptureProfile,
 } from '@/lib/capture/surface';
+import { scopeProfile } from '@/lib/capture/classes';
 import type { DeclaredMime } from '../../services/scruple-capture/src/mime';
+import { CANVAS_SEAL_BLOCKERS, canvasDeploymentRef } from './deployment';
 import { isControlPlane } from './egress';
 import {
   attribute,
@@ -132,11 +134,110 @@ export function canvasCaptureProfile(): HostCaptureProfile {
     declaredPlacement: 'sidecar-gate',
     enforcement: 'isolated-namespace',
     attestation: 'none',
+    // WO-25. THE CLASS IS DETERMINED BY WHAT THE VENDOR INSTALLS AND
+    // OFFERS, not by which audit grades easiest (CAPABILITY_CLASSES.md).
+    // Canvas is a hosted ComfyUI serving inference to a tenant who may
+    // lie — the class's own named example — so `inference-host`, and with
+    // it P-01…P-07 as the required set. P-04 is exempt only because the
+    // profile above declares no `filesystem-watch`, which is a CONTINGENT
+    // exemption the class re-checks against `surfaces`: declare the
+    // surface and probe 4 is required again.
+    capabilityClasses: ['inference-host'],
+    // WHERE FILES REST BETWEEN WITNESSED EVENTS, argued in
+    // docs/canon/STUDIO_SEAL.md §2 rather than assumed.
+    //
+    // The store this is about is the ComfyUI working directories —
+    // `output/`, `temp/`, `input/` — inside the Modal container. The
+    // tenant has no shell there, no mounted volume and no Modal
+    // credentials; their ONLY reach is ComfyUI's own HTTP API, and every
+    // byte of it is proxied through the gate. That is `vendor-custody`'s
+    // definition ("inside the vendor's boundary; the tenant reaches them
+    // only through vendor APIs") and it is a statement about TOPOLOGY.
+    //
+    // IT IS NOT A STATEMENT THAT THE CLAIM IS EARNED. `custodyAssuranceFor`
+    // pairs vendor-custody + sidecar-gate to "this is the complete history
+    // of the project" ON A CONDITION — no path the measured party can
+    // reach writes into the store without crossing the pipeline, evidenced
+    // by probe 4 from an occupied position or by the class-checked absence
+    // of a filesystem egress path. Canvas has neither, and
+    // CANVAS_SEAL_BLOCKERS/CSB-03 says so in a list a test reads. Declaring
+    // `shared-custody` instead would have bought a weaker sentence by
+    // misdescribing the topology, which is the same defect as picking a
+    // class to avoid a requirement — one axis over.
+    custodyLocus: 'vendor-custody',
   };
 }
 
 export function canvasAssurance(): HostAssurance {
   return assuranceForHost(canvasCaptureProfile());
+}
+
+export interface WithheldClaim {
+  sentence: string;
+  /** The blocking finding that withholds it. */
+  blocker: string;
+  because: string;
+}
+
+/**
+ * WHAT CANVAS MAY ACTUALLY SAY TODAY — permitted MINUS conditional-and-
+ * unevidenced.
+ *
+ * WHY THIS FUNCTION HAS TO EXIST, and it is the sharpest thing WO-25
+ * found. `scopeProfile` promotes "this is the complete history of the
+ * project" into canvas's PERMITTED list the moment the profile declares
+ * `vendor-custody`, because the specific determination wins over the
+ * class default and vendor-custody + sidecar-gate is the pair that earns
+ * it. That promotion is correct as a rule and premature as a fact:
+ * `custodyAssuranceFor` attaches a CONDITION to it —
+ *
+ *   "no path the measured party can reach writes into the custody store
+ *    without crossing the pipeline — evidenced by probe 4 from an
+ *    occupied tenant position, or by the class-checked absence of a
+ *    filesystem egress path"
+ *
+ * — and canvas has neither half. Probe 4 is not satisfiable (no
+ * filesystem-watch surface, CANVAS_BASELINE.md §3.1) and the filesystem
+ * egress path is not ABSENT, it is UNOBSERVED (§7's C-9: comfy_api_nodes
+ * ships ~25 in-tree packs that open sessions to external services from
+ * inside the ComfyUI process).
+ *
+ * A conditions array nobody evaluates is a caveat, and a caveat beside a
+ * permitted sentence is how a true specific claim launders a false
+ * general one — the exact defect `CustodyCorroborator` was invented to
+ * stop, one axis over. So the condition is evaluated HERE, against the
+ * same named blockers a test reads, and the sentence is WITHHELD rather
+ * than printed with an asterisk.
+ *
+ * It is deliberately a subtraction and never an addition: this function
+ * cannot permit anything the class did not, only decline something the
+ * class permitted conditionally.
+ */
+export function canvasClaimsToday(): { permitted: string[]; withheld: WithheldClaim[] } {
+  const assurance = canvasAssurance();
+  const scope = scopeProfile(canvasCaptureProfile(), {
+    effectivePlacement: assurance.custody?.placement,
+  });
+  const custody = assurance.custody;
+  const withheld: WithheldClaim[] = [];
+
+  // The condition is unevidenced exactly while CSB-03 stands. One list,
+  // read by the operator, the test and this function, so "we decided the
+  // condition holds now" is a deletion somebody has to justify.
+  const csb03 = CANVAS_SEAL_BLOCKERS.find((b) => b.id === 'CSB-03');
+  if (custody && csb03 && custody.conditions.length > 0) {
+    withheld.push({
+      sentence: custody.sentence,
+      blocker: csb03.id,
+      because: csb03.finding,
+    });
+  }
+
+  const withheldSentences = new Set(withheld.map((w) => w.sentence));
+  return {
+    permitted: scope.permittedClaims.filter((c) => !withheldSentences.has(c)),
+    withheld,
+  };
 }
 
 /**
@@ -286,6 +387,9 @@ export async function captureBytes(opts: CaptureBytesOptions): Promise<CaptureOu
       executionAttestation: null,
       computeMachineId: opts.machineId,
       machineManifestHash,
+      // WO-25. Canvas's leaves now carry a registered deployment and the
+      // seal state resolved as of their own instant, instead of NULL.
+      deployment: canvasDeploymentRef(),
     });
 
     conn()
@@ -468,6 +572,10 @@ export async function retryFailedCaptures(opts: {
         executionAttestation: null,
         computeMachineId: null,
         machineManifestHash: manifestHashFor(row.user_id),
+        // Same deployment on the retry path. A drained capture is the same
+        // pipeline's leaf and must not be stamped differently for having
+        // been late.
+        deployment: canvasDeploymentRef(),
       });
       conn()
         .prepare(
