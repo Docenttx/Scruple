@@ -30,6 +30,39 @@ so the model can say no.
 | **`shared-custody`** | vendor space, but tenant has direct reach — mounted volume, shell, object-store credentials | mutation outside the pipeline is possible; **detectable, not preventable** |
 | **`tenant-custody`** | the user's own machine or storage | outside the boundary entirely; custody is **asserted, not enforced** |
 
+### Fifth value, added 2026-08-30 (WO-24, from the Fusion study)
+
+**`tenant-custody-corroborated`** — files rest in tenant custody, but an
+**independent third party** holds an append-only record of the sequence.
+
+It is not `tenant-custody` (that discards a verified gain) and not
+`vendor-custody` (that means the *integrator's* boundary — a party to the
+standard whose topology we can probe; Autodesk is neither).
+
+Fusion is the case that forced it. Autodesk's Data Management API v2 OpenAPI
+spec contains **zero `DELETE` operations anywhere**, and Autodesk states that
+BIM 360's tombstone workaround does not apply to Fusion Team, where a file
+version cannot be deleted at all. **Fusion versions are append-only in fact.**
+The shape generalises — Drive and Dropbox version history, a git remote nobody
+can force-push, S3 object lock.
+
+**It earns its place by being able to degrade.** `resolveCustodyLocus()` reduces
+it to plain `tenant-custody` when no corroborator is named or the record is
+tenant-writable, and the degrade is **reported, not applied silently** — the
+`resolvePlacement` precedent, one axis over. A `CustodyCorroborator` must name
+the party, the guarantee, a citation, and whether it is `asserted` or
+`cryptographic`.
+
+**Scope the corroboration narrowly or it lies.** Fusion's corroborator covers
+the **cloud version sequence only**. The parametric timeline is trivially
+rewritable through Fusion's own scripting API — `designType = DirectDesignType`
+destroys it in one assignment — and the local `.f3d` is a store-compressed ZIP
+with no integrity field. So *"Fusion is tamper-resistant"* is false in general
+and true in exactly one place, and the declaration says which.
+
+Its claim is **`corroborated-moments`** — stronger than bare witnessed moments,
+and deliberately short of `complete-history`.
+
 ## The two honest sentences
 
 This is where the class's permitted claim wording comes from, and the difference
