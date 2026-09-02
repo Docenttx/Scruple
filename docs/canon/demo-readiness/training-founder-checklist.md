@@ -182,3 +182,74 @@ MCC filing hand a reviewer the **base model's** SHA-256 as the trained
 artifact's, so following our own verification instructions produces a mismatch.
 That is a prose fix on an artifact already outside the building, and it ranks
 above everything here.
+
+---
+
+## WO-35 UPDATE (2026-09-02) — what was done without spend, and what is left
+
+**The component has now RUN.** Not in Docker and not on RunPod — locally, with
+`node --import tsx services/scruple-capture/kohya/job-api-server.ts`, which is
+exactly the command the image's `CMD` execs. That closes the part of
+enforcement obligation 1 that did not need a GPU:
+
+- **the import closure resolves.** WO-30's COPY fix is correct; the entrypoint
+  reached configuration validation rather than dying on an import.
+- **it provisions an H-4 identity and binds.** Component `fda51c90-…` is
+  `active` in `components` with a DUKPT chain key at counter 0, a BDK
+  fingerprint, and `provisioning_token_consumed_at` set — single-use worked.
+- **the surface is what the placement claims.** `GET /health` and `POST /jobs`
+  answer; `GET /`, `GET /jobs` and everything else 404. No Gradio, no shell.
+- **it prints its own assurance argument**, including two
+  `probe required before this is evidence` lines for the obligations a process
+  cannot self-verify (the port map, and being PID 1).
+
+### The defect this found, which would have cost the first RunPod attempt
+
+**The env list in `Dockerfile.jobapi` was wrong in both directions.** It named
+seven variables — `SCRUPLE_USER_ID`, `SCRUPLE_APP_ID`, `SCRUPLE_SESSION_ID`,
+`SCRUPLE_SESSION_TOKEN`, `SCRUPLE_WITNESS_URL`, `SCRUPLE_PLACEMENT`,
+`SCRUPLE_CAN_WITNESS` — that appear **nowhere** in `services/scruple-capture`,
+`lib/apps/kohya` or `lib/capture`. `start-jobapi.sh` echoed them at boot, which
+is what made them look load-bearing. **Echoing a variable is not reading it.**
+
+It omitted `SCRUPLE_API_URL` and `SCRUPLE_API_KEY`, which the job API refuses
+to start without. A template registered from the old list produces a pod that
+dies at boot, before the port binds and before a placement resolves — the same
+failure shape WO-30 fixed for the COPY set, one layer up.
+
+Corrected, with the list now MACHINE-READ by
+`test/v2/training-receipt.test.ts` ("the documented env list is the env the
+entrypoint actually requires"), which fails in **both** directions: a required
+var missing from the list, and a listed var nothing requires. **Control-tested**
+— removing the `REQUIRED-ENV: SCRUPLE_API_URL` line fails the suite.
+
+### The server-side prerequisite nobody had written down
+
+**`SCRUPLE_BDK_HEX` must be set on scruple-web**, and it is not in
+`.env.local`. Without it `/api/v2/components/provision` refuses at import and
+**takes the Next process down with it** — the component then reports only
+`TypeError: fetch failed`, which names nothing. Set it (32+ bytes of hex), or
+`SCRUPLE_BDK_ALLOW_DEV=1` to accept a forgeable one deliberately.
+
+Note the ratchet's own warning: a BDK invented at boot silently invalidates
+every already-provisioned component. Choose it once and keep it.
+
+### Also required, and easy to miss
+
+The API key needs the **`component:provision` scope**. A key with only `read`
+gets a 403 naming the scope; the default key issued by the console does not
+carry it.
+
+### Still founder-gated — genuinely blocked here
+
+1. **`docker build` / `docker push`.** There is **no Docker on this box**
+   (`docker` is not installed, no daemon). Nothing about the image can be built
+   or pushed from here.
+2. **Register the RunPod template** against the pushed image — needs the
+   registry and the RunPod console.
+3. `RUNPOD_KOHYA_JOBAPI_TEMPLATE_ID`, `SCRUPLE_KOHYA_SURFACE=job-api`,
+   `SCRUPLE_CAPTURE_BASELINE_REF`.
+4. **Run one small job** — the only step that spends.
+
+The two H-4 §7 probes (port map, PID 1) can only be answered against a running
+container, so they remain open by construction, not by omission.

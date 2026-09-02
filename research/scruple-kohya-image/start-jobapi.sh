@@ -34,13 +34,31 @@
 
 set -euo pipefail
 
-echo "[scruple] SCRUPLE_USER_ID=${SCRUPLE_USER_ID:-<unset>}"
-echo "[scruple] SCRUPLE_APP_ID=${SCRUPLE_APP_ID:-<unset>}"
-echo "[scruple] SCRUPLE_SESSION_ID=${SCRUPLE_SESSION_ID:-<unset>}"
-# Presence only. Never echo the token itself into a log the tenant reads.
-echo "[scruple] SCRUPLE_SESSION_TOKEN=${SCRUPLE_SESSION_TOKEN:+<set>}${SCRUPLE_SESSION_TOKEN:-<unset>}"
-echo "[scruple] SCRUPLE_PLACEMENT=${SCRUPLE_PLACEMENT:-server-library} SCRUPLE_CAN_WITNESS=${SCRUPLE_CAN_WITNESS:-1}"
+# WO-35 — THIS BLOCK USED TO ECHO SEVEN VARIABLES NO CODE READS.
+#
+# SCRUPLE_USER_ID, SCRUPLE_APP_ID, SCRUPLE_SESSION_ID, SCRUPLE_SESSION_TOKEN,
+# SCRUPLE_WITNESS_URL, SCRUPLE_PLACEMENT and SCRUPLE_CAN_WITNESS appear
+# nowhere in services/scruple-capture, lib/apps/kohya or lib/capture. They
+# were printed at boot, which made them look load-bearing, and the RunPod
+# template instructions in Dockerfile.jobapi listed exactly those seven while
+# omitting the ones below. A pod built to that template died at boot.
+#
+# Echoing a variable is not reading it. What is printed here is now what the
+# component actually requires.
+echo "[scruple] SCRUPLE_API_URL=${SCRUPLE_API_URL:-<unset>}"
+# Presence only, never the value: these are credentials and the tenant may
+# read this log.
+echo "[scruple] SCRUPLE_API_KEY=${SCRUPLE_API_KEY:+<set>}${SCRUPLE_API_KEY:-<unset>}"
+echo "[scruple] SCRUPLE_CAPTURE_PROVISIONING_TOKEN=${SCRUPLE_CAPTURE_PROVISIONING_TOKEN:+<set>}${SCRUPLE_CAPTURE_PROVISIONING_TOKEN:-<unset> (first boot needs one)}"
+echo "[scruple] SCRUPLE_CAPTURE_STATE_DIR=${SCRUPLE_CAPTURE_STATE_DIR:-/var/lib/scruple-capture}"
+echo "[scruple] SCRUPLE_CAPTURE_BASELINE_REF=${SCRUPLE_CAPTURE_BASELINE_REF:-<unset>}"
 echo "[scruple] surface: training-job-api only. No Gradio, no Jupyter, no shell."
+
+# Fail here rather than 30 seconds later inside node. Same argument as the
+# directory check below: a component that cannot reach the API cannot
+# provision, cannot MAC, and must not look like it started.
+: "${SCRUPLE_API_URL:?[scruple] FATAL: SCRUPLE_API_URL is required}"
+: "${SCRUPLE_API_KEY:?[scruple] FATAL: SCRUPLE_API_KEY is required (needs the component:provision scope)}"
 
 # Fail loudly rather than starting a component that watches nothing. A surface
 # that silently fails to open is the ComfyUI WS gap by another name.

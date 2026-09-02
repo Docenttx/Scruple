@@ -38,9 +38,52 @@
 # RunPod template:
 #   - Expose HTTP: 8899   (the job API; NOT 7860)
 #   - Volume mount: /workspace
-#   - Env: SCRUPLE_USER_ID, SCRUPLE_APP_ID, SCRUPLE_SESSION_ID,
-#          SCRUPLE_SESSION_TOKEN, SCRUPLE_WITNESS_URL, SCRUPLE_PLACEMENT,
-#          SCRUPLE_CAN_WITNESS, and the four *_ROOT paths below.
+#   - Env — WO-35 CORRECTED THIS LIST. It previously named seven variables
+#     (SCRUPLE_USER_ID, SCRUPLE_APP_ID, SCRUPLE_SESSION_ID,
+#     SCRUPLE_SESSION_TOKEN, SCRUPLE_WITNESS_URL, SCRUPLE_PLACEMENT,
+#     SCRUPLE_CAN_WITNESS) that NO CODE READS — start-jobapi.sh echoed them
+#     and nothing else ever looked at them — while OMITTING the two the job
+#     API refuses to start without. A template registered from the old list
+#     produced a pod that died at boot with "SCRUPLE_API_URL is not set",
+#     before the port bound and before a placement resolved. That is the same
+#     failure WO-30 fixed for the COPY set, one layer up.
+#
+#     REQUIRED — the component exits non-zero without each of these. The
+#     `REQUIRED-ENV:` prefix is MACHINE-READ by test/v2/training-receipt.test.ts
+#     ("the documented env list is the env the entrypoint actually requires"),
+#     which compares this list against the `need()` calls in
+#     job-api-server.ts. Prose elsewhere in this file does not count as
+#     documenting a variable — that was the first version of the guard and it
+#     passed while the operator-facing list was still wrong.
+#       REQUIRED-ENV: SCRUPLE_API_URL        scruple-web base URL
+#       REQUIRED-ENV: SCRUPLE_API_KEY        sk_… key carrying the
+#                                           `component:provision` scope
+#       FIRST-BOOT-ENV: SCRUPLE_CAPTURE_PROVISIONING_TOKEN
+#                                           spt_… , single-use, 15 min TTL.
+#                                           Not a `need()` — the component
+#                                           accepts a SEALED IDENTITY instead,
+#                                           and refuses only when it has
+#                                           neither. Hence its own marker.
+#                                           Required on FIRST boot only; after
+#                                           that the sealed identity in
+#                                           SCRUPLE_CAPTURE_STATE_DIR is used,
+#                                           so this must be re-minted for a pod
+#                                           that starts with an empty volume.
+#       REQUIRED-ENV: SCRUPLE_KOHYA_MODELS_ROOT
+#       REQUIRED-ENV: SCRUPLE_KOHYA_DATASETS_ROOT
+#       REQUIRED-ENV: SCRUPLE_KOHYA_OUTPUT_ROOT
+#       REQUIRED-ENV: SCRUPLE_KOHYA_LOGGING_ROOT
+#         — the four *_ROOT paths, already ENV'd below
+#
+#     REQUIRED ON THE SERVER, not in this template: SCRUPLE_BDK_HEX. Without
+#     it /api/v2/components/provision refuses at import and takes the Next
+#     process with it — the component then reports only "fetch failed".
+#
+#     OPTIONAL:
+#       SCRUPLE_CAPTURE_STATE_DIR   default /var/lib/scruple-capture (0700)
+#       SCRUPLE_CAPTURE_BASELINE_REF  /v2/witness refuses a leaf without it
+#       SCRUPLE_KOHYA_VOLUME_MIME
+#       SCRUPLE_KOHYA_JOB_API_PORT  default 8899
 #   Save the template id as RUNPOD_KOHYA_JOBAPI_TEMPLATE_ID.
 
 FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04

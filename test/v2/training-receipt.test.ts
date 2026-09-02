@@ -49,6 +49,24 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
+/** Every .ts/.sh file under a directory. Used by the env-list guard. */
+function walkFiles(dir: string): string[] {
+  const out: string[] = [];
+  const stack = [dir];
+  while (stack.length) {
+    const d = stack.pop()!;
+    let entries: import('node:fs').Dirent[];
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { if (e.name !== 'node_modules') stack.push(full); }
+      else if (/\.(ts|tsx|sh)$/.test(e.name)) out.push(full);
+    }
+  }
+  return out;
+}
+
+
 const PROD_WITNESS = /127\.0\.0\.1:5799|localhost:5799/;
 if (PROD_WITNESS.test(process.env.WITNESS_SERVER_URL ?? '')) {
   throw new Error('Refusing to run against the production witness server.');
@@ -644,6 +662,117 @@ describe('source does not contradict the receipt', () => {
         'status written beside a request that may not have landed is the same lie as ' +
         'witnessed:true beside a leaf that does not exist.',
     );
+  });
+
+  test('the documented env list is the env the entrypoint actually requires', () => {
+    // WO-35. The COPY set had a closure test; the ENV set had nothing, and it
+    // was wrong in both directions at once. Dockerfile.jobapi's RunPod
+    // template instructions named SCRUPLE_USER_ID, SCRUPLE_APP_ID,
+    // SCRUPLE_SESSION_ID, SCRUPLE_SESSION_TOKEN, SCRUPLE_WITNESS_URL,
+    // SCRUPLE_PLACEMENT and SCRUPLE_CAN_WITNESS — seven variables that appear
+    // nowhere in the component — while omitting SCRUPLE_API_URL and
+    // SCRUPLE_API_KEY, which it refuses to start without.
+    //
+    // Nothing caught it because the image had never been built and the
+    // component had never been run. A pod registered from that template dies
+    // at boot, before the port binds and before a placement resolves.
+    const server = fs.readFileSync(
+      path.join(REPO_ROOT, 'services/scruple-capture/kohya/job-api-server.ts'),
+      'utf8',
+    );
+    // The truth is `need('X')` — the calls that throw when unset.
+    const required = new Set<string>();
+    for (const m of server.matchAll(/need\(\s*'(SCRUPLE_[A-Z0-9_]+)'\s*\)/g)) {
+      required.add(m[1]);
+    }
+    assert.ok(required.size >= 6, `expected the entrypoint to require several vars, saw ${required.size}`);
+    // The two the old list omitted. Named explicitly so that deleting the
+    // `need()` calls cannot make this test vacuously pass.
+    assert.ok(required.has('SCRUPLE_API_URL'));
+    assert.ok(required.has('SCRUPLE_API_KEY'));
+
+    const dockerfile = fs.readFileSync(
+      path.join(REPO_ROOT, 'research/scruple-kohya-image/Dockerfile.jobapi'),
+      'utf8',
+    );
+    const launcher = fs.readFileSync(
+      path.join(REPO_ROOT, 'research/scruple-kohya-image/start-jobapi.sh'),
+      'utf8',
+    );
+
+    // The OPERATOR-FACING list, not "appears somewhere in the file". The
+    // first version of this guard used a bare substring test and passed while
+    // the list was still wrong, because the comment explaining the old bug
+    // mentions SCRUPLE_API_URL. A test that a prose mention satisfies is not
+    // testing the list.
+    const documented = new Set(
+      [...dockerfile.matchAll(/REQUIRED-ENV:\s*(SCRUPLE_[A-Z0-9_]+)/g)].map((m) => m[1]),
+    );
+
+    // MUST FIRE — every var the entrypoint requires is in that list.
+    for (const v of required) {
+      assert.ok(
+        documented.has(v),
+        `${v} is required by job-api-server.ts but is not a REQUIRED-ENV entry in ` +
+          'Dockerfile.jobapi. A template registered from that file produces a pod ' +
+          'that dies at boot, before the port binds and before a placement resolves.',
+      );
+    }
+
+    // FIRST-BOOT-ENV is a separate marker on purpose. The provisioning token
+    // is not a `need()` call: the component accepts a sealed identity in its
+    // state dir instead and refuses only when it has NEITHER. Documenting it
+    // as unconditionally required would be its own small lie, and a pod
+    // restarting on a warm volume does not want a re-minted token.
+    const firstBoot = new Set(
+      [...dockerfile.matchAll(/FIRST-BOOT-ENV:\s*(SCRUPLE_[A-Z0-9_]+)/g)].map((m) => m[1]),
+    );
+    assert.ok(
+      firstBoot.has('SCRUPLE_CAPTURE_PROVISIONING_TOKEN'),
+      'the provisioning token must stay documented somewhere: without it AND without a ' +
+        'sealed identity the component refuses to start, and that is the first thing a ' +
+        'fresh pod hits.',
+    );
+    for (const v of firstBoot) {
+      assert.ok(!required.has(v), `${v} is a hard requirement — document it as REQUIRED-ENV`);
+    }
+
+    // And the converse: the list must not invent requirements either.
+    for (const v of documented) {
+      assert.ok(
+        required.has(v),
+        `Dockerfile.jobapi documents ${v} as REQUIRED-ENV but nothing requires it. ` +
+          'That is how the list came to name seven variables no code reads.',
+      );
+    }
+
+    // MUST *NOT* FIRE — the seven that nothing reads must not come back as
+    // though they were operator instructions. They may be NAMED in the
+    // comment that explains why they were removed; what must not return is
+    // the launcher printing them as if they were configuration.
+    const phantom = [
+      'SCRUPLE_USER_ID',
+      'SCRUPLE_APP_ID',
+      'SCRUPLE_SESSION_ID',
+      'SCRUPLE_SESSION_TOKEN',
+      'SCRUPLE_WITNESS_URL',
+      'SCRUPLE_CAN_WITNESS',
+    ];
+    const componentTrees = ['services/scruple-capture', 'lib/apps/kohya', 'lib/capture'];
+    for (const v of phantom) {
+      const readAnywhere = componentTrees.some((tree) =>
+        walkFiles(path.join(REPO_ROOT, tree)).some((f) => fs.readFileSync(f, 'utf8').includes(v)),
+      );
+      assert.equal(
+        readAnywhere,
+        false,
+        `${v} is now read by the component — add it to the documented list rather than deleting this line.`,
+      );
+      assert.ok(
+        !new RegExp(`echo .*\\$\\{${v}`).test(launcher),
+        `start-jobapi.sh echoes ${v}, which nothing reads. Echoing a variable is not reading it.`,
+      );
+    }
   });
 
   test('Dockerfile.jobapi copies every tree the entrypoint imports', () => {
