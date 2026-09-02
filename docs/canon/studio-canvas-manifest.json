@@ -1,0 +1,172 @@
+{
+  "entries": [
+    {
+      "class": "capture",
+      "id": "app/canvas-proxy/[sessionId]/[[...path]]/route.ts",
+      "source": "content",
+      "sha256": "2bfd833f2016381c75bbc2f79f069b07354af941a83f17864e00215775bae4fd"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/correlate.ts",
+      "source": "content",
+      "sha256": "d5fcb790f22e78bc619419800d531834f88b5f251dee36eb6ad151a0d94e09ef"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/deployment.ts",
+      "source": "content",
+      "sha256": "014572a85d8383f4bd4e394364014d920ea72e232faf4e3f7d8ede485180b143"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/egress.ts",
+      "source": "content",
+      "sha256": "9463cbd82760b439ce4530c0b90e69d62b8a69fccbe8d1a9dd3a27c4ed482859"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/gate.ts",
+      "source": "content",
+      "sha256": "ecc5789113f759e516b2c4784edd14732a5416df92b553d7291ce45a4b93fe19"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/manifest.ts",
+      "source": "content",
+      "sha256": "b90fbc35ea3b1b3c7a1af9675ac6b07416ac8f0fde74fbba4675da249de8634f"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/session.ts",
+      "source": "content",
+      "sha256": "39c19d67db7a7c798ccf20ddb5b062206b07386a4a5853aa8e00b2b65d0bd63d"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/witness.ts",
+      "source": "content",
+      "sha256": "1d86cc520e46d0b795274343cefa797c59c18bc79f84e8ead6d7f4b474511632"
+    },
+    {
+      "class": "capture",
+      "id": "lib/canvas/ws-capture.ts",
+      "source": "content",
+      "sha256": "13e109c7bca2d4b043f131ee10823607fedb91b7026a2235d8faab3f666066e2"
+    },
+    {
+      "class": "capture",
+      "id": "lib/capture/classes.ts",
+      "source": "content",
+      "sha256": "c92a79bab277a36abf67d85339f2b9035d920c78a97877a34cfe0b8b00e2041e"
+    },
+    {
+      "class": "capture",
+      "id": "lib/capture/surface.ts",
+      "source": "content",
+      "sha256": "add0d9fa9a4c59607e9bae2e0756338342922539050227a3e3c41606c4a5c4fe"
+    },
+    {
+      "class": "capture",
+      "id": "lib/db/migrations/044_canvas_capture.sql",
+      "source": "content",
+      "sha256": "a31d41863155dc371c57ec402484afa706840b1b44ea83d6a1f545bf8a8143f2"
+    },
+    {
+      "class": "capture",
+      "id": "lib/iterations/ingest.ts",
+      "source": "content",
+      "sha256": "86f467ba547dd9946199af04a30e3bbe5f4163c0a481e496f8d981572998a301"
+    },
+    {
+      "class": "capture",
+      "id": "lib/leaf/hashes.ts",
+      "source": "content",
+      "sha256": "68213de8f8d0f585b13e699b7cbb3c43f9141e3b3373da9d5d3a9b99c9868607"
+    },
+    {
+      "class": "capture",
+      "id": "lib/scruple/artifacts.ts",
+      "source": "content",
+      "sha256": "b9ce28fd316d8f21c7fc493ced700bb291690a84c0be972566657b7a51a6570f"
+    },
+    {
+      "class": "capture",
+      "id": "lib/scruple/hash.ts",
+      "source": "content",
+      "sha256": "33756afc81d11cda16b0b6358b57ad52cacd07064ec823ea14a4e0188c7d0215"
+    },
+    {
+      "class": "capture",
+      "id": "lib/scruple/witness.ts",
+      "source": "content",
+      "sha256": "b132478eff0161cdb4ab5767ec0365fc62f960987b5f3b648a35d90a8314f0ce"
+    },
+    {
+      "class": "capture",
+      "id": "package-lock.json",
+      "source": "content",
+      "sha256": "a90055f0ac37a28de79d36f6a4f819276064494c44e305342c581c3f5f72a4a0"
+    },
+    {
+      "class": "capture",
+      "id": "package.json",
+      "source": "content",
+      "sha256": "297308d45e8dc8b18573c8180d6b41953e2b52faea01e8dd7daa80fe942d544f"
+    },
+    {
+      "class": "capture",
+      "id": "scripts/canvas-ws-proxy.mjs",
+      "source": "content",
+      "sha256": "e2b9afd614e71d68cb8644378556c87839f0597aee13cc18fe205d8b13168638"
+    },
+    {
+      "class": "capture",
+      "id": "services/scruple-capture/src/correlation.ts",
+      "source": "content",
+      "sha256": "ad9e7e2d7b6ed8896282bd79f53130ac8b7589dae492ec0f7d46b1706c1de918"
+    },
+    {
+      "class": "capture",
+      "id": "services/scruple-capture/src/mime.ts",
+      "source": "content",
+      "sha256": "4b2529afea3cd9a6af651eae2a93530f4c4091d3ddc1f09f31ceddbc0217a7dc"
+    },
+    {
+      "class": "capture",
+      "id": "services/scruple-capture/src/surfaces/http-gate.ts",
+      "source": "content",
+      "sha256": "4bdbba6088063dce294cd689ad9064fabd88b706e768709b08b5d76a69faa16a"
+    },
+    {
+      "class": "capture",
+      "id": "services/scruple-capture/src/surfaces/ws-gate.ts",
+      "source": "content",
+      "sha256": "95e9d39cd0275d36f5021349830267269ec458fb7592005aeeaf33d3c81caf84"
+    },
+    {
+      "class": "dependency",
+      "id": "pack:ComfyUI-Easy-Use@b5e31ef12ad9",
+      "source": "declared",
+      "sha256": "0b63715a8fc11355c02af6735e9e3fc2edd9bfa1f98027b69b99aaa2dad59999"
+    },
+    {
+      "class": "dependency",
+      "id": "pack:ComfyUI-VideoHelperSuite@4ee72c065db2",
+      "source": "declared",
+      "sha256": "51096baf1b15d2974a602a9cf94d3ea86a09e725ce8578dd9854c15d7a6d4f68"
+    },
+    {
+      "class": "dependency",
+      "id": "pack:seedvr2_videoupscaler@4490bd1f482e",
+      "source": "declared",
+      "sha256": "26347d6e4cd0804af86fe7d339b4b7a6a96e0bb10c1714b19261117f7b5aef67"
+    },
+    {
+      "class": "host",
+      "id": "host:comfyui@v0.18.5",
+      "source": "declared",
+      "sha256": "7782171a272bca4bfb8586a5bb801c5c04b5ee6a000000000000000000000000"
+    }
+  ]
+}

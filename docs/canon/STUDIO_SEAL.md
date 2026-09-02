@@ -362,3 +362,74 @@ class and locus; and a seal that has **not** been granted, with three named
 findings saying why. That is a working lifecycle with an unfinished
 integration in it — which is a better thing to show an auditor than a seal
 nobody probed.
+
+---
+
+## 8. Update 2026-09-02 — the manifest exists; two things stand between it and a seal
+
+**§5 says canvas honestly reaches `verifying`. The fold says `integrating`.**
+
+`npx tsx lib/seal/cli.ts status studio-canvas-shared-default` returns
+`state: "integrating"`, `events: 0`, `claims_standard: false`. Migration 047
+registered the deployment and deliberately inserted no lifecycle event, because
+a migration has no key and *"an UNSIGNED row in `deployment_lifecycle_events`
+would be a claim nobody made"*. Nothing has recorded one since.
+
+So `verifying` is **earned and unrecorded**. The distinction matters: §5 is a
+statement about what canvas does, and the fold is a statement about what anyone
+can check. A reader of this document and a reader of the database currently get
+different answers, and the database is the one that is right — a state nobody
+signed is not a state the deployment is in.
+
+### The pipeline manifest is now built, and this is what it measures
+
+`docs/canon/studio-canvas-manifest.json` — **28 entries**, profile
+`scruple/pipeline-manifest/v1`:
+
+| class | source | n | what |
+|---|---|---|---|
+| `capture` | `content` | 24 | every file on canvas's capture path — `TRACKED` from `lib/canvas/baseline.ts`, **imported rather than re-listed**, because two lists of the same set drift |
+| `host` | `declared` | 1 | `host:comfyui@v0.18.5`, the container's own commit |
+| `dependency` | `declared` | 3 | the custom-node packs, by commit and contents hash |
+
+    pipeline measurement   sha256:cb9a59802b0fded50e3062d36cb32fd24e20da2d2bb3a3f204e97062b5de8081
+
+The four `declared` entries are `declared` on purpose — *"a declared digest is
+an ASSERTION, and a manifest that did not say which of its entries were
+asserted would be presenting the vendor's word as our measurement."* We did not
+read the container; the container measured itself.
+
+**Those four entries were unobtainable until 2026-09-02.** The in-container
+manifest never reached a leaf — the import raised on every run and a `try/except`
+ate it (WO-31). Half of this boundary was literally unmeasurable, which is worth
+recording as the reason this manifest could not have been written before.
+
+### What stands between the manifest and a seal — TWO blockers, not one
+
+1. **CSB-01, and it is a designed refusal rather than an omission.** No
+   admissible probe run exists from canvas's tenant position: the tenant is a
+   browser on the public internet, the workload is a ComfyUI process in a Modal
+   container we have no shell in, and neither position is occupiable from this
+   host. `CANVAS_SEAL_BLOCKERS` is asserted non-empty by a test, so closing it
+   requires **deleting an entry and saying why**. Building a manifest does not
+   touch this and must not be read as progress against it.
+
+2. **`SCRUPLE_BUILD_REGISTRY_KEY_HEX` does not exist**, and minting it is not a
+   chore. Every lifecycle event and every seal is Ed25519-signed by that key
+   (`registrySigner()`), so it is the **root identity of the registry** — the
+   thing whose signature means "Scruple attested this". Generating it
+   incidentally, in order to move a status field, would be creating the
+   estate's attestation identity as a side effect of tidying. It is a founder
+   act, and `INTEGRATION_LIFECYCLE.md` §10 item 5's *"sealing is not a
+   self-serve act"* is the same sentence one level down.
+
+**The founder step, once the key exists**, is two commands — and the first is
+the one that makes the document and the database agree:
+
+```bash
+node --import tsx lib/builds/cli.ts keygen        # → SCRUPLE_BUILD_REGISTRY_KEY_HEX
+node --import tsx lib/seal/cli.ts verifying studio-canvas-shared-default \
+  --reason "real leaves flow from here and are not claims to the standard"
+```
+
+`seal` is NOT in that list, and will not be until CSB-01 clears.
