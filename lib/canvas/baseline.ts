@@ -275,5 +275,5 @@ export const CANVAS_BASELINE = {
   // instead of NULL, so `lib/canvas/witness.ts` and
   // `lib/iterations/ingest.ts` both moved. That sentence is the product;
   // the hash is what makes writing it unavoidable.
-  tamper_surface_hash: '098593c263a5955408f6ccf0e73d8f9ca213bdb53a9f721321f5cb8678918be7',
+  tamper_surface_hash: '3e9f7af4b12f5a624168d8eec3571c4467370b587e545f8d25df5c57fbde6f7d',
 } as const;
