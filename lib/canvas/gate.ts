@@ -128,6 +128,7 @@ export function buildUpstreamUrl(
 export function upstreamHeaders(
   incoming: Headers,
   sharedSecret = process.env.SCRUPLE_CANVAS_SHARED_SECRET,
+  opts: { stripRange?: boolean } = {},
 ): Headers {
   const out = new Headers(incoming);
   out.delete('host');
@@ -138,6 +139,24 @@ export function upstreamHeaders(
   // reproduce, and `as-delivered` fidelity means the bytes the consumer
   // keeps. Same reason and same line as the component's outboundHeaders().
   out.set('accept-encoding', 'identity');
+  // WO-32 — the same reason, one status code further along.
+  //
+  // A browser scrubbing a video sends `Range`. This header was forwarded,
+  // Modal answered 206 with a FRAGMENT, and the capture gate read
+  // `upstreamRes.ok` — true for every 2xx, 206 included. So the fragment
+  // was hashed and written as though it were the artifact: a content_hash
+  // for bytes that are not the work, minted silently, once per scrub.
+  //
+  // A partial body hashes to something no holder of the artifact can
+  // reproduce — the accept-encoding sentence above, verbatim. On a route
+  // whose bytes become evidence there is no such thing as a partial
+  // artifact, so the request is normalised to the whole resource before it
+  // is asked for. Costs a full body on a scrub; buys a hash that means
+  // what it says.
+  if (opts.stripRange) {
+    out.delete('range');
+    out.delete('if-range');
+  }
   if (sharedSecret) out.set('X-Scruple-Shared-Secret', sharedSecret);
   return out;
 }

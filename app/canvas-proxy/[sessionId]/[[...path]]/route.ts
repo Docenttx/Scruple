@@ -85,7 +85,6 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
 
   // ── (1) per-session routing, (4) `?t=` strip, (2) shared secret ──
   const upstreamUrl = buildUpstreamUrl(sessionRow.modal_url, subPath, req.nextUrl.searchParams);
-  const outHeaders = upstreamHeaders(req.headers);
 
   // ── Which kind of route is this? ─────────────────────────────────
   // The component's own table (§10 C-7), not the two-entry enumeration
@@ -93,6 +92,13 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
   const routeKind = classifyRoute(req.method, subPath);
   const isPromptPost = routeKind === 'prompt';
   const isByteEgress = routeKind === 'byte-egress';
+
+  // Built AFTER the route is classified: `Range` is stripped only on the
+  // routes whose bytes become evidence, so the gate below always sees a
+  // whole resource rather than the fragment a scrubbing browser asked for.
+  const outHeaders = upstreamHeaders(req.headers, undefined, {
+    stripRange: isByteEgress,
+  });
 
   let promptBodyText: string | undefined;
   let bodyToForward: BodyInit | undefined;
@@ -201,7 +207,22 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ sessionId: str
   // `cloned.arrayBuffer()` on the whole body.
   let captureHeader: string | null = null;
   let bufferedBody: Buffer | null = null;
-  if (isByteEgress && upstreamRes.ok) {
+  // WO-32 — `upstreamRes.ok` was the wrong test. It is true for 206, so a
+  // fragment was captured as the artifact. `Range` is now stripped upstream
+  // for byte-egress, which makes a 206 here unreachable; this asks for 200
+  // explicitly so the invariant is stated where it is relied on rather than
+  // inferred from a header two files away.
+  if (isByteEgress && upstreamRes.status === 206) {
+    // Unreachable unless upstream ignored the stripped Range. Fail closed,
+    // for the reason the catch below fails closed: these bytes are evidence
+    // and nothing can record a fragment as the work.
+    console.error(`[canvas-proxy] REFUSING ${subPath}: 206 on an evidence route`);
+    return new Response(
+      'scruple: refusing to deliver a partial artifact it cannot record\n',
+      { status: 502, headers: { 'content-type': 'text/plain' } },
+    );
+  }
+  if (isByteEgress && upstreamRes.status === 200) {
     bufferedBody = Buffer.from(await upstreamRes.arrayBuffer());
     if (bufferedBody.length > 0) {
       const contentType = upstreamRes.headers.get('content-type');

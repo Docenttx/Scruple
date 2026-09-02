@@ -235,6 +235,36 @@ describe('the five preserved behaviours (WO-7 report)', () => {
     assert.equal(noSecret.get('x-scruple-shared-secret'), null);
   });
 
+  test('(2b) WO-32 — Range is stripped on evidence routes, and ONLY there', () => {
+    const incoming = new Headers({
+      range: 'bytes=0-1023',
+      'if-range': '"etag-abc"',
+      'x-keep-me': 'yes',
+    });
+
+    // MUST FIRE. A byte-egress route's bytes become a content_hash. A 206
+    // fragment hashes to something no holder of the artifact can reproduce,
+    // so the request is normalised to the whole resource before it is made.
+    const evidence = M.gate.upstreamHeaders(incoming, undefined, { stripRange: true });
+    assert.equal(evidence.get('range'), null, 'a partial artifact is not an artifact');
+    assert.equal(evidence.get('if-range'), null, 'if-range would re-open the same door');
+    assert.equal(evidence.get('x-keep-me'), 'yes', 'only Range is touched');
+
+    // MUST *NOT* FIRE. Everything else the proxy carries — ComfyUI's own
+    // frontend, its assets — is not evidence, and range requests there are
+    // ordinary HTTP that costs nothing to honour. A test that only proves
+    // the strip happens would pass just as well if it always happened.
+    const ordinary = M.gate.upstreamHeaders(incoming, undefined);
+    assert.equal(ordinary.get('range'), 'bytes=0-1023', 'non-evidence routes keep Range');
+    assert.equal(ordinary.get('if-range'), '"etag-abc"');
+
+    // The default must be the safe-for-ordinary-traffic one only because
+    // the caller passes stripRange explicitly for byte-egress; if that
+    // wiring is ever dropped the route test below is what catches it.
+    const explicitFalse = M.gate.upstreamHeaders(incoming, undefined, { stripRange: false });
+    assert.equal(explicitFalse.get('range'), 'bytes=0-1023');
+  });
+
   test('(3) NextAuth session ownership — P4', () => {
     seedSession('cs_owned', 'https://x.modal.run/', USER);
     const row = M.gate.getSessionRow('cs_owned');
