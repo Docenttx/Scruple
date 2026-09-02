@@ -10,8 +10,15 @@ signature so `sign.py` never changes when we swap:
      Requires `pip install oci` on the host.)
 
   LOCAL-FILE MODE (development / interop testing): default when the vault
-  env vars are unset. Loads services/c2pa-signer/keys/es256.pem, signs
-  with Python's cryptography library. Same ES256 raw R||S output.
+  env vars are unset. Loads the PEM named by local_key_path() —
+  SCRUPLE_C2PA_LOCAL_KEY_PATH, or keys/signer.key — and signs with
+  Python's cryptography library. Same ES256 raw R||S output.
+
+  local_key_path() is the ONLY place that path is resolved. It used to be
+  resolved independently in four places against a key name that 0b6ee43
+  purged on 2026-07-13, so local mode failed everywhere it was not handed
+  the env var explicitly — which meant every witness leaf signature, and
+  the failure was swallowed. See docs/canon/demo-readiness/c2pa-watermark.md §0.
 
 Both modes return exactly 64 raw bytes: R (32) || S (32), the RFC 8152
 ES256 signature format c2pa-python expects from Signer.from_callback.
@@ -33,16 +40,55 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 
+#: The dev key that keys/regen-dev-cert.sh actually produces. Everything
+#: that needs a local key path asks local_key_path() for it; nothing
+#: re-derives it, because four independent derivations is how this file
+#: came to name a key that had not existed for seven weeks.
+DEFAULT_LOCAL_KEY = Path(__file__).parent / "keys" / "signer.key"
+
+
+def local_key_path() -> Path:
+    """The local-mode ES256 private key, resolved in exactly one place.
+
+    SCRUPLE_C2PA_LOCAL_KEY_PATH wins when set (sign.py sets it from the
+    job spec's key_path). Otherwise the dev key regen-dev-cert.sh emits.
+    """
+    env = os.environ.get("SCRUPLE_C2PA_LOCAL_KEY_PATH")
+    return Path(env) if env else DEFAULT_LOCAL_KEY
+
+
+class LocalKeyMissing(RuntimeError):
+    """The local key is not on disk. A distinct type because it is a
+    configuration fault, not a signing outage: it fails 100% of the time
+    and retrying never helps. Callers surface it as such."""
+
+    def __init__(self, key_path: Path) -> None:
+        self.key_path = key_path
+        super().__init__(
+            f"local signing key not found at {key_path}. This is a "
+            f"configuration fault, not a transient failure: every signature "
+            f"will fail until it is fixed. Either run "
+            f"services/c2pa-signer/keys/regen-dev-cert.sh to produce the dev "
+            f"pair (signer.key + signer.pem), or point "
+            f"SCRUPLE_C2PA_LOCAL_KEY_PATH at the real key. For production, "
+            f"set SCRUPLE_C2PA_VAULT_KEY_OCID and never touch a local key."
+        )
+
+
 def _local_signer_from_env_or_default() -> Callable[[bytes], bytes]:
     """Return an ES256 raw-R||S signer using a local PEM private key."""
-    key_path = os.environ.get(
-        "SCRUPLE_C2PA_LOCAL_KEY_PATH",
-        str(Path(__file__).parent / "keys" / "es256.pem"),
-    )
-    priv_pem = Path(key_path).read_bytes()
+    key_path = local_key_path()
+    if not key_path.exists():
+        raise LocalKeyMissing(key_path)
+    priv_pem = key_path.read_bytes()
     priv = serialization.load_pem_private_key(priv_pem, password=None)
     if not isinstance(priv, ec.EllipticCurvePrivateKey):
         raise RuntimeError(f"expected EC private key at {key_path}")
+
+    # Record what actually signed, so signer_identity() reports the key
+    # that produced the signature rather than a string someone typed.
+    global _active_local_key
+    _active_local_key = key_path.resolve()
 
     def _sign(data: bytes) -> bytes:
         der = priv.sign(data, ec.ECDSA(hashes.SHA256()))
@@ -92,6 +138,7 @@ def _vault_signer_from_env() -> Callable[[bytes], bytes]:
 
 
 _cached_signer: Callable[[bytes], bytes] | None = None
+_active_local_key: Path | None = None
 
 
 def vault_sign_es256(data: bytes) -> bytes:
@@ -111,10 +158,37 @@ def signing_mode() -> str:
 
 
 def signer_identity() -> str:
-    """Return a human-safe identifier of the signing key (for audit logs).
-    Never returns key material — only ocid or file path."""
+    """A human-safe identifier of the key that signed. Never key material.
+
+    THIS VALUE IS NOT A LOG LINE. sign.py returns it, signAsset.ts passes
+    it through as `signerIdentity`, and app/api/scruple/c2pa/sign/route.ts
+    folds it into the canonical payload whose sha256 becomes a witness
+    leaf's payload_hash. So a wrong value here is a false claim committed
+    into an append-only audit chain — and because only the hash is stored,
+    it is neither visible nor correctable afterwards: a verifier
+    recomputing the payload with the true identity gets a mismatch, which
+    is indistinguishable from tampering.
+
+    Until 2026-09-02 this returned a hardcoded string naming a key file
+    that 0b6ee43 purged on 2026-07-13 and that never signed anything.
+
+    It now reports the key that actually signed, or refuses. There is no
+    third answer.
+    """
     if signing_mode() == "vault":
         ocid = os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID", "")
         # Mask everything except the last 8 chars for public logs.
         return f"vault:...{ocid[-8:]}" if ocid else "vault:unknown"
-    return "local:services/c2pa-signer/keys/es256.pem"
+
+    # Local mode. If a signature has already been produced this process,
+    # name the file that produced it — not the file we would pick now,
+    # which an env-var change could have moved out from under us.
+    if _active_local_key is not None:
+        return f"local:{_active_local_key}"
+
+    # Nothing has signed yet: report what would sign, but only if it is
+    # really there. Naming an absent file is the defect this replaces.
+    key_path = local_key_path()
+    if not key_path.exists():
+        raise LocalKeyMissing(key_path)
+    return f"local:{key_path.resolve()}"

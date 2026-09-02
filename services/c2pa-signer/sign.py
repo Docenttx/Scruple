@@ -8,10 +8,12 @@ Job spec:
     {
         "asset_path": "/tmp/thumb.png",
         "output_path": "/tmp/thumb.c2pa.png",
-        "cert_path":   ".../keys/es256.pub",   # public cert chain PEM
-        "key_path":    ".../keys/es256.pem",   # LOCAL MODE ONLY — ignored
-                                               # in Vault mode. Kept for
-                                               # backward-compat.
+        "cert_path":   ".../keys/signer.pem",  # leaf + root chain PEM
+        "key_path":    ".../keys/signer.key",  # LOCAL MODE ONLY — ignored
+                                               # in Vault mode. Optional:
+                                               # when omitted, vault_sign.
+                                               # local_key_path() resolves
+                                               # the same default.
         "manifest": {
             "claim_generator": "Scruple/0.1",   # Signer appends the
                                                  # real c2pa-python version
@@ -128,6 +130,46 @@ def main() -> int:
         }))
         return 1
     dst_name = dst_name.strip()
+
+    # Format gate. The declared MIME is checked against the one registry
+    # (formats.py) BEFORE the SDK loads, so an unsignable format comes
+    # back as a named refusal instead of a c2pa-rs exception that reaches
+    # the caller as a 500. WebM was the live case: mimeFromPath routed
+    # .webm to video/webm, c2pa-rs has no WebM handler, and a txt2vid
+    # output got a crash rather than an answer.
+    #
+    # Enforced here as well as in lib/c2pa/formats.ts because this is the
+    # end that owns the library, and a second caller of sign.py must not
+    # be able to reach c2pa-rs with a format the registry refuses.
+    try:
+        HERE = Path(__file__).resolve().parent
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        from formats import refusal_reason
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"formats import failed: {e}"}))
+        return 1
+    declared_mime = (manifest.get("format") or "").strip()
+    if not declared_mime:
+        print(json.dumps({
+            "ok": False,
+            "code": "unsupported_format",
+            "error": (
+                "manifest.format is required. sign_file()'s extension "
+                "sniffing mis-maps .flac and fails outright on .jxl, so the "
+                "MIME is always passed explicitly — which means the caller "
+                "has to declare it."
+            ),
+        }))
+        return 1
+    _refusal = refusal_reason(declared_mime)
+    if _refusal:
+        print(json.dumps({
+            "ok": False,
+            "code": "unsupported_format",
+            "error": _refusal,
+        }))
+        return 1
 
     # key_path is honored only in LOCAL mode (i.e., when the Vault OCID
     # env var is unset). In Vault mode, key material is inside OCI Vault

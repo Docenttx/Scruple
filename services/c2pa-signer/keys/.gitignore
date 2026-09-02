@@ -1,6 +1,13 @@
 # NEVER track private keys in this directory. Even the dev-mode fallback
-# key (es256.pem) must stay local — production signing lives in OCI Vault.
+# key must stay local — production signing lives in OCI Vault.
+#
+# regen-dev-cert.sh regenerates everything below from scratch, which is
+# why none of it is tracked: signer.key (the ES256 private key),
+# signer.pem (leaf + root chain, in the order c2pa-rs expects) and
+# signer-root.pem. A fresh clone therefore has NO signing material and
+# signAsset() refuses at its cert/key guard until the script is run.
+# lib/c2pa/formats.ts's tests and services/c2pa-signer/tests run it for
+# themselves rather than skipping.
 signer.key
 signer.pem
 signer-root.pem
-es256.pem

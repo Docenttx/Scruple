@@ -202,7 +202,20 @@ export async function POST(req: NextRequest) {
   });
 
   if (!result.ok) {
-    return NextResponse.json({ error: result.error, trace: result.trace }, { status: 500 });
+    // A refusal is not an outage. `unsupported_format` used to reach the
+    // caller as a 500 with a c2pa-rs exception in it — a .webm from a
+    // txt2vid flow looked identical to the signer being down. The status
+    // now says which it is, and `code` says it without prose matching.
+    const status =
+      result.code === 'unsupported_format'
+        ? 415
+        : result.code === 'undeclared_source_type' || result.code === 'asset_not_found'
+          ? 400
+          : 500;
+    return NextResponse.json(
+      { error: result.error, code: result.code, trace: result.trace },
+      { status },
+    );
   }
 
   // Emit the sign event as a witnessed leaf on scruple.c2pa.sign.

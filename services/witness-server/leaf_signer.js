@@ -99,7 +99,27 @@ function signViaVaultPy(leafHashHex) {
       { timeout: TIMEOUT_MS(), maxBuffer: 1 << 20 },
       (err, stdout, stderr) => {
         if (err) {
-          console.error(`[leaf_signer] sign_leaf.py failed: ${String(stderr).slice(0, 300)}`);
+          // A configuration fault and a signing outage need different
+          // reactions, and a bare non-zero exit cannot tell them apart.
+          // sign_leaf.py exits 3 with code:'local_key_missing' when the
+          // box has no signing key — a state in which EVERY leaf will be
+          // recorded unsigned, forever, and no retry helps. That ran from
+          // 2026-07-13 to 2026-09-02 behind a one-line log nobody read.
+          // CANON_SKELETON D-10 (§7): a failed Phase-3 operation surfaces.
+          let detail = null;
+          try { detail = JSON.parse(String(stderr)); } catch { /* not JSON */ }
+          if (detail && detail.retryable === false) {
+            console.error(
+              `[leaf_signer] ####################################################\n` +
+              `[leaf_signer] MISCONFIGURED (${detail.code}): ${detail.error}\n` +
+              `[leaf_signer] EVERY witness leaf is being recorded UNSIGNED and\n` +
+              `[leaf_signer] cannot be independently verified. Retrying will\n` +
+              `[leaf_signer] not help. Fix the configuration.\n` +
+              `[leaf_signer] ####################################################`,
+            );
+          } else {
+            console.error(`[leaf_signer] sign_leaf.py failed: ${String(stderr).slice(0, 300)}`);
+          }
           return resolve(null);
         }
         try {

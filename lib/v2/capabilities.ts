@@ -16,6 +16,8 @@
 // have no pixel or audio data to embed a watermark into" reads as an
 // answer.
 
+import { C2PA_SIGNABLE_MIMES } from '@/lib/c2pa/formats';
+
 export type Modality = 'c2pa' | 'watermark' | 'chain' | 'local';
 
 export type HostId =
@@ -32,17 +34,25 @@ export interface Capability {
 
 /**
  * MIME types the C2PA Generator Product asserts in its Intake Form.
+ *
+ * NOT a list. Derived from lib/c2pa/formats.ts, which is the TypeScript
+ * half of services/c2pa-signer/formats.py — the registry the signer, the
+ * evidence-bundle builder and the Intake Form all read.
+ *
+ * It used to be a fourth hand-maintained copy, and it advertised
+ * `image/vnd.adobe.photoshop`, which no version of this stack has ever
+ * been able to sign: c2pa-rs has no PSD handler, `formats.py` listed it
+ * in neither direction, and `mimeFromPath` had no `.psd` case, so a PSD
+ * resolved to `application/octet-stream` — which c2pa-rs also refuses.
+ * A client that asked this function got `available: true` and a 500.
+ *
  * Kept narrow on purpose: claiming a MIME we have not exercised
  * end-to-end is exactly what the 2026-07-16 conformance round had to
- * walk back.
+ * walk back. Every MIME below is signed against a real fixture, to
+ * validation_state=Valid, by
+ * services/c2pa-signer/tests/test_format_support.py.
  */
-const C2PA_SIGNABLE = new Set([
-  'image/jpeg', 'image/png', 'image/webp', 'image/tiff', 'image/avif',
-  'image/heic', 'image/heif', 'image/gif', 'image/jxl', 'image/svg+xml',
-  'image/x-adobe-dng', 'image/vnd.adobe.photoshop',
-  'video/mp4', 'video/quicktime', 'video/x-msvideo',
-  'audio/mpeg', 'audio/wav', 'audio/flac', 'audio/mp4',
-]);
+const C2PA_SIGNABLE = C2PA_SIGNABLE_MIMES;
 
 /**
  * §9.2 is defined as a frequency-domain transform on pixels or audio

@@ -12,27 +12,43 @@ import assertionContract from '@/config/c2pa-assertions.json';
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { mimeFromPath, signRefusalReason } from './formats';
 
 const SIGNER_DIR = path.join(process.cwd(), 'services', 'c2pa-signer');
 const SIGNER_SCRIPT = path.join(SIGNER_DIR, 'sign.py');
 const KEYS_DIR = path.join(SIGNER_DIR, 'keys');
 // The dev cert chain and key.
 //
-// These named es256.pub / es256.pem, and es256.pem HAS NEVER EXISTED.
-// keys/regen-dev-cert.sh — the script that actually produces the dev
-// material — emits signer.key (the ES256 private key) and signer.pem
-// (leaf + root chain in the order c2pa-rs expects). Both sat beside the
-// wrong names, unused.
+// keys/regen-dev-cert.sh is the script that produces the dev material and
+// it emits signer.key (the ES256 private key) and signer.pem (leaf + root
+// chain in the order c2pa-rs expects). Those are the names used here and
+// in services/c2pa-signer/vault_sign.py, which is the ONE place the local
+// key path is resolved.
 //
-// The effect: signAsset() returned {ok:false} at the fs.access guard
-// below, BEFORE spawning the signer, for every caller. So C2PA signing
-// had two independent breaks, not one. The assertion-allowlist mismatch
-// fixed in bff1fd8 was real, and it was the SECOND thing in the way —
-// nothing ever reached it, because this guard failed first.
+// This constant used to name a different, purged key. That file was real
+// — tracked in git, and signing worked out of the box for ten days from
+// 50c1873 (07-03) — and 0b6ee43 (07-13) gitignored it and purged it from
+// history, so no checkout has had it since. The commit that repaired this
+// line said the old name "HAS NEVER EXISTED"; the history rewrite is why
+// that looked true. The distinction matters, because it is the difference
+// between restoring something and finishing something. The full
+// archaeology is in docs/canon/demo-readiness/c2pa-watermark.md §0.
 //
-// Invisible to CI because services/c2pa-signer's suite tests the
-// assertion partition and never signs anything; tests.yml says so in
-// terms.
+// The effect while it was wrong: signAsset() returned {ok:false} at the
+// fs.access guard below, BEFORE spawning the signer, for every caller. So
+// C2PA signing had two independent breaks, not one. The assertion-allowlist
+// mismatch fixed in bff1fd8 was real, and it was the SECOND thing in the
+// way — nothing ever reached it, because this guard failed first.
+//
+// The same purged name survived in three more places until 2026-09-02
+// (vault_sign.py's local default and its identity string, sign_leaf.py's
+// twice) because each site resolved the path for itself. They now all call
+// vault_sign.local_key_path(), which is the only resolver.
+//
+// Invisible to CI because services/c2pa-signer's suite tested the
+// assertion partition and never signed anything; tests.yml says so in
+// terms. test/v2/c2pa-reachable.test.ts and
+// services/c2pa-signer/tests/test_format_support.py now sign for real.
 const DEV_CERT = path.join(KEYS_DIR, 'signer.pem');
 const DEV_KEY = path.join(KEYS_DIR, 'signer.key');
 const PYTHON_BIN = process.env.SCRUPLE_C2PA_PYTHON ?? 'python3';
@@ -170,6 +186,21 @@ export interface SignAssetError {
   ok: false;
   error: string;
   trace?: string[];
+  /**
+   * Machine-readable reason, so a caller can tell a bad request from a
+   * broken signer without matching on prose.
+   *
+   *   'undeclared_source_type' — no digitalSourceType. 400.
+   *   'unsupported_format'     — the MIME has no c2pa-rs handler. 415.
+   *   'asset_not_found'        — 400.
+   *   'signer_material_missing'— the box has no cert/key. 500, ours.
+   *   undefined                — the signer failed. 500.
+   */
+  code?:
+    | 'undeclared_source_type'
+    | 'unsupported_format'
+    | 'asset_not_found'
+    | 'signer_material_missing';
 }
 
 async function sha256HexOfFile(filePath: string): Promise<string> {
@@ -206,49 +237,6 @@ async function computeSignedArtifactHashes(
   combined.update(assetSha256, 'hex');
   combined.update(outputSha256, 'hex');
   return { assetSha256, outputManifestSha256: combined.digest('hex') };
-}
-
-/**
- * Extension → MIME map. Kept in sync with the C2PA Conformance intake
- * assertion (services/c2pa-signer/formats.py) so any format we claim to
- * generate can be routed correctly to the signer at runtime. The Python
- * signer wrapper (services/c2pa-signer/build_evidence_bundle.py) uses
- * an identical dispatch — see docs/c2pa-conformance-evidence/2026-07-14/.
- *
- * If you add a MIME here, also add it to formats.GENERATE_MIMES and
- * producers.PRODUCERS so the evidence bundle stays complete.
- */
-function mimeFromPath(p: string): string {
-  const ext = path.extname(p).toLowerCase();
-  // images
-  if (ext === '.png') return 'image/png';
-  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
-  if (ext === '.webp') return 'image/webp';
-  if (ext === '.svg') return 'image/svg+xml';
-  if (ext === '.tif' || ext === '.tiff') return 'image/tiff';
-  if (ext === '.dng') return 'image/x-adobe-dng';
-  if (ext === '.heic') return 'image/heic';
-  if (ext === '.heif') return 'image/heif';
-  if (ext === '.avif') return 'image/avif';
-  if (ext === '.gif') return 'image/gif';
-  if (ext === '.jxl') return 'image/jxl';
-  // video
-  if (ext === '.mp4') return 'video/mp4';
-  if (ext === '.mov') return 'video/quicktime';
-  if (ext === '.avi') return 'video/x-msvideo';
-  if (ext === '.webm') return 'video/webm';
-  // audio
-  if (ext === '.wav') return 'audio/wav';
-  if (ext === '.flac') return 'audio/flac';
-  if (ext === '.mp3') return 'audio/mpeg';
-  if (ext === '.m4a') return 'audio/mp4';
-  // documents / mlModel — INTAKE-asserted but NOT SUPPORTED by
-  // c2pa-python 0.89 signer wrapper as of 2026-07-14. Falls back to
-  // octet-stream so the caller gets a clean error rather than a wrong
-  // MIME dispatch. Revisit when c2pa-python exposes these features.
-  //   .pdf → application/pdf     (wrapper missing)
-  //   .pt / .pth → pytorch       (wrapper missing)
-  return 'application/octet-stream';
 }
 
 /**
@@ -363,6 +351,7 @@ export async function signAsset(
   ) {
     return {
       ok: false,
+      code: 'undeclared_source_type',
       error:
         `signAsset() requires an explicit digitalSourceType and will not ` +
         `guess one. There is no default: a default of ` +
@@ -375,18 +364,51 @@ export async function signAsset(
     };
   }
 
+  // The format is settled BEFORE the subprocess, for the same reason
+  // digitalSourceType is: a format c2pa-rs has no handler for is not a
+  // signing failure to be reported as a 500, it is a question with a
+  // known answer. A .webm from a txt2vid flow used to reach c2pa-rs and
+  // come back as "Builder does not support video/webm" wrapped in a 500;
+  // the caller could not distinguish that from the signer being down.
+  //
+  // lib/c2pa/formats.ts is the list, services/c2pa-signer/formats.py is
+  // its emitting twin, and sign.py re-checks at the far end so a second
+  // caller of the subprocess cannot route around this.
+  const format = input.format ?? mimeFromPath(input.assetPath);
+  const refusal = signRefusalReason(format);
+  if (refusal) {
+    return {
+      ok: false,
+      code: 'unsupported_format',
+      error:
+        `${refusal} Declared/derived format for ${path.basename(input.assetPath)}: ` +
+        `${format}.`,
+    };
+  }
+
   try {
     await fs.access(input.assetPath);
   } catch {
-    return { ok: false, error: `asset not found: ${input.assetPath}` };
+    return { ok: false, code: 'asset_not_found', error: `asset not found: ${input.assetPath}` };
   }
 
-  // Ensure dev cert/key are on disk (they always should be — they're
-  // committed in the repo; this guard makes local-dev errors legible).
+  // Ensure the signing material is on disk. It is NOT committed — both
+  // signer.key and signer.pem are gitignored — so a fresh clone has
+  // neither and this guard is the only thing between that and a c2pa-rs
+  // exception. It is also, for seven weeks, the guard that fired for
+  // every caller because DEV_KEY named a purged file.
   try {
     await Promise.all([fs.access(DEV_CERT), fs.access(DEV_KEY)]);
   } catch {
-    return { ok: false, error: 'signer cert/key missing at services/c2pa-signer/keys/' };
+    return {
+      ok: false,
+      code: 'signer_material_missing',
+      error:
+        'signer cert/key missing at services/c2pa-signer/keys/. Both are ' +
+        'gitignored, so a fresh clone has neither: run ' +
+        'services/c2pa-signer/keys/regen-dev-cert.sh to produce signer.key ' +
+        'and signer.pem, or set SCRUPLE_C2PA_CERT / SCRUPLE_C2PA_KEY.',
+    };
   }
 
   const job = {
@@ -394,7 +416,7 @@ export async function signAsset(
     output_path: input.outputPath,
     cert_path: process.env.SCRUPLE_C2PA_CERT ?? DEV_CERT,
     key_path: process.env.SCRUPLE_C2PA_KEY ?? DEV_KEY,
-    manifest: buildManifest(input),
+    manifest: buildManifest({ ...input, format }),
     intent: input.intent ?? 'CREATE',
     // No `??` fallback here, and none in sign.py either. Both ends
     // refuse rather than guess.
