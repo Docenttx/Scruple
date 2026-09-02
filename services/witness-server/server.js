@@ -238,6 +238,32 @@ db.exec(`
   } catch (e) {
     console.log('[DB] Migration warning (v2.2): ' + e.message);
   }
+  // v2.5 (WO-28) — the watermarked-derivative vocabulary.
+  //
+  // A derivative is a SIBLING LEAF, not a rewrite of its master: the
+  // master's leaf was sealed at generation time and folding a derivative
+  // that did not exist yet into that preimage would mean re-signing a
+  // record whose timestamp claims a moment the derivative had not
+  // happened. The ingredient pointer therefore lives inside the
+  // DERIVATIVE's own preimage, pointing backwards at the master leaf —
+  // the same direction C2PA points an ingredient.
+  try {
+    const cols = db.prepare("PRAGMA table_info(witnesses)").all().map(c => c.name);
+    if (!cols.includes('master_hash')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN master_hash TEXT");
+      console.log('[DB] Migrated: witnesses.master_hash (v2.5)');
+    }
+    if (!cols.includes('watermark_payload_hex')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN watermark_payload_hex TEXT");
+      console.log('[DB] Migrated: witnesses.watermark_payload_hex (v2.5)');
+    }
+    if (!cols.includes('ingredient_master_leaf_hash')) {
+      db.exec("ALTER TABLE witnesses ADD COLUMN ingredient_master_leaf_hash TEXT");
+      console.log('[DB] Migrated: witnesses.ingredient_master_leaf_hash (v2.5)');
+    }
+  } catch (e) {
+    console.log('[DB] Migration warning (v2.5): ' + e.message);
+  }
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -303,9 +329,91 @@ function canonicalRecordV22(rec) {
   return JSON.stringify(ordered);
 }
 
+// v2.5 canonical (WO-28) — the watermarked-derivative leaf.
+//
+// PORTED, NOT INVENTED. The field names, the all-three-or-none rule and
+// the payload gate below are lib/witness/ingest.ts:45-51 and 219-244,
+// which have implemented this vocabulary since July on the /v1/log
+// surface — the surface the lock does not use. This brings the same
+// three fields to the surface that actually locks projects.
+//
+// Slot order extends v2.2: the trio sits between machine_manifest_hash
+// and server_timestamp, exactly the way v2.2 inserted its own slot. A
+// v2 or v2.2 record replayed through this function would hash
+// differently, which is why the scheme is recorded per row and audit
+// replays MUST pick the function by leaf_scheme, never by "the newest
+// one".
+//
+// WHY 'v2.5' AND NOT 'v2.3'. Both intervening numbers are spoken for.
+// 'v2.3' names a completely different preimage on the Continuous Audit
+// API's ladder (lib/witness/canonicalLeafV23.ts), and one name meaning
+// two preimages on two surfaces is precisely the class of confusion that
+// left this vocabulary implemented on lib/witness/ingest.ts and absent
+// from the surface the lock uses, from July until WO-28. 'v2.4' is
+// already the version tag lib/leaf/registry.yaml gives the H-1 signature
+// fields. v2.5 is the next free number in THIS registry's numbering.
+function canonicalRecordV25(rec) {
+  const ordered = {
+    run_sequence:     rec.run_sequence,
+    output_hash:      rec.output_hash || '',
+    input_hash:       rec.input_hash || '',
+    workflow_hash:    rec.workflow_hash || '',
+    model_fingerprints_hash: rec.model_fingerprints_hash || '',
+    machine_manifest_hash:   rec.machine_manifest_hash || '',
+    master_hash:                 rec.master_hash || '',
+    watermark_payload_hex:       rec.watermark_payload_hex || '',
+    ingredient_master_leaf_hash: rec.ingredient_master_leaf_hash || '',
+    server_timestamp: rec.server_timestamp,
+    prev_record_hash: rec.prev_record_hash || '',
+  };
+  return JSON.stringify(ordered);
+}
+
 function recordHash(rec, scheme) {
-  const fn = scheme === 'v2.2' ? canonicalRecordV22 : canonicalRecord;
+  const fn =
+    scheme === 'v2.5' ? canonicalRecordV25 :
+    scheme === 'v2.2'    ? canonicalRecordV22 :
+    canonicalRecord;
   return crypto.createHash('sha256').update(fn(rec)).digest('hex');
+}
+
+// Watermark-derivative field validation, ported verbatim in behaviour
+// from lib/witness/ingest.ts:219-244. Returns null when the request
+// carries no watermark fields at all, an {error, detail} object when the
+// set is present but malformed, and {ok:true} when it is complete and
+// well-formed.
+//
+// ALL-THREE-OR-NONE is the whole point: a derivative leaf that names a
+// master without a payload, or a payload without the master leaf it was
+// derived from, is a lineage claim with a hole in it.
+const WM_HEX64 = /^[0-9a-f]{64}$/;
+const WM_HEX32 = /^[0-9a-f]{32}$/;
+
+function validateWatermarkFields(master_hash, watermark_payload_hex, ingredient_master_leaf_hash) {
+  const present =
+    master_hash !== undefined ||
+    watermark_payload_hex !== undefined ||
+    ingredient_master_leaf_hash !== undefined;
+  if (!present) return null;
+
+  if (!master_hash || !WM_HEX64.test(master_hash)) {
+    return { error: 'invalid_master_hash', detail: 'master_hash must be 64 lowercase hex chars' };
+  }
+  if (!watermark_payload_hex || !WM_HEX32.test(watermark_payload_hex)) {
+    return { error: 'invalid_watermark_payload', detail: 'watermark_payload_hex must be 32 lowercase hex chars (128 bits)' };
+  }
+  // Payload magic + version gate (WATERMARK_DESIGN_v1.md §3).
+  if (watermark_payload_hex.slice(0, 2) !== '5c') {
+    return { error: 'invalid_watermark_payload', detail: 'watermark_payload_hex first byte must be magic 0x5c' };
+  }
+  const versionNibble = parseInt(watermark_payload_hex.charAt(2), 16);
+  if (versionNibble !== 1) {
+    return { error: 'invalid_watermark_payload', detail: `unsupported watermark version: ${versionNibble}` };
+  }
+  if (!ingredient_master_leaf_hash || !WM_HEX64.test(ingredient_master_leaf_hash)) {
+    return { error: 'invalid_ingredient_leaf_hash', detail: 'ingredient_master_leaf_hash must be 64 lowercase hex chars' };
+  }
+  return { ok: true };
 }
 
 /**
@@ -530,6 +638,9 @@ async function handleWitness(req, res) {
     // v2.2 (canvas v2 WO-8) — pinned-manifest hash for the artist's
     // custom-node toolchain. Drives leaf_scheme: present → 'v2.2', else 'v2'.
     machine_manifest_hash,
+    // v2.5 (WO-28) — the watermarked derivative. All three or none.
+    // Presence promotes the leaf to leaf_scheme='v2.5'.
+    master_hash, watermark_payload_hex, ingredient_master_leaf_hash,
   } = data;
 
   // Refuse the synthetic project ids a development harness generates.
@@ -573,11 +684,30 @@ async function handleWitness(req, res) {
     return send(res, 400, { error: 'Missing required fields' });
   }
 
-  // Check if project is locked
+  // Check if project is locked.
+  //
+  // DO NOT WIDEN THIS FOR DERIVATIVES (WO-28). It is the only thing
+  // stopping a sealed project from growing a leaf after the fact, and a
+  // derivative is exactly the shape of leaf someone would want to add
+  // afterwards. The fix for "the watermark happens after the lock" is to
+  // move the watermark before the lock — app/api/lock/local/route.ts now
+  // watermarks, witnesses the derivative, and only THEN finalizes — not
+  // to carve an exception here.
   const locked = db.prepare('SELECT 1 FROM locked_projects WHERE project_id = ?').get(String(project_id));
   if (locked) {
     return send(res, 403, { error: 'Project is locked, no new iterations allowed' });
   }
+
+  // v2.5 — reject a malformed lineage claim before anything is written.
+  // Deliberately AFTER the seal check: a locked project refuses every
+  // leaf, well-formed or not, and answering "your payload is malformed"
+  // to a request that was going to be refused anyway would tell a caller
+  // which shapes this server accepts on a project it may not write to.
+  const wmCheck = validateWatermarkFields(master_hash, watermark_payload_hex, ingredient_master_leaf_hash);
+  if (wmCheck && !wmCheck.ok) {
+    return send(res, 400, wmCheck);
+  }
+  const isWatermarkDerivative = Boolean(wmCheck && wmCheck.ok);
 
   const witness_id = generateWitnessId();
   const server_timestamp = new Date().toISOString();
@@ -602,10 +732,18 @@ async function handleWitness(req, res) {
     workflow_hash: workflow_hash || '',
     model_fingerprints_hash: model_fingerprints_hash || '',
     machine_manifest_hash:   machine_manifest_hash || '',
+    // v2.5 slots. Empty on every non-derivative leaf, which is why the
+    // scheme (not the field list) selects the canonical form.
+    master_hash:                 master_hash || '',
+    watermark_payload_hex:       watermark_payload_hex || '',
+    ingredient_master_leaf_hash: ingredient_master_leaf_hash || '',
     server_timestamp,
     prev_record_hash,
   };
-  const leaf_scheme = machine_manifest_hash ? 'v2.2' : 'v2';
+  const leaf_scheme =
+    isWatermarkDerivative ? 'v2.5' :
+    machine_manifest_hash ? 'v2.2' :
+    'v2';
   const leaf_hash = recordHash(record, leaf_scheme);
   const signature = sign(leaf_hash);
 
@@ -623,8 +761,9 @@ async function handleWitness(req, res) {
        input_hash, workflow_hash, prev_record_hash, leaf_hash, leaf_scheme,
        model_fingerprints_hash, machine_manifest_hash,
        leaf_signature, leaf_signer_key_id, leaf_signature_alg,
-       leaf_signer_surrogate)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       leaf_signer_surrogate,
+       master_hash, watermark_payload_hex, ingredient_master_leaf_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     witness_id, String(project_id), project_name, run_sequence, content_hash,
     visual_hash, client_timestamp, server_timestamp, signature,
@@ -636,6 +775,9 @@ async function handleWitness(req, res) {
     leafSig ? leafSig.key_id : null,
     leafSig ? leafSig.alg : null,
     leafSig ? (leafSig.surrogate ? 1 : 0) : null,
+    master_hash || null,
+    watermark_payload_hex || null,
+    ingredient_master_leaf_hash || null,
   );
 
   // Log line is the audit trail: project identity, sequence, witness id,
@@ -646,11 +788,17 @@ async function handleWitness(req, res) {
   const mfMark = model_fingerprints_hash ? model_fingerprints_hash.slice(0, 8) : '∅';
   const mmMark = machine_manifest_hash ? machine_manifest_hash.slice(0, 8) : '∅';
   const prevMark = prev_record_hash ? prev_record_hash.slice(0, 8) : '∅';
-  console.log(`[WITNESS] ${project_name || project_id} #${run_sequence} → ${witness_id} (${leaf_scheme} leaf ${leaf_hash.slice(0, 12)} · in=${inMark} · wf=${wfMark} · mf=${mfMark} · mm=${mmMark} · prev=${prevMark})`);
+  const wmMark = isWatermarkDerivative ? `wm←${String(ingredient_master_leaf_hash).slice(0, 8)}` : 'wm=∅';
+  console.log(`[WITNESS] ${project_name || project_id} #${run_sequence} → ${witness_id} (${leaf_scheme} leaf ${leaf_hash.slice(0, 12)} · in=${inMark} · wf=${wfMark} · mf=${mfMark} · mm=${mmMark} · prev=${prevMark} · ${wmMark})`);
 
   send(res, 200, {
     witness_id, server_timestamp, signature,
     leaf_hash, prev_record_hash, leaf_scheme,
+    // v2.5 — echoed so the caller persists exactly what was hashed
+    // rather than what it believes it sent.
+    master_hash: master_hash || null,
+    watermark_payload_hex: watermark_payload_hex || null,
+    ingredient_master_leaf_hash: ingredient_master_leaf_hash || null,
     // H-1 — the evidence signature, and an honest statement of what it
     // is worth. `independently_verifiable: false` means this leaf can be
     // checked by Scruple and nobody else, which anything presenting it
@@ -713,9 +861,18 @@ async function handleSignerPubkey(res) {
   res.end(pem);
 }
 
+// WO-28 widened the projection. Before, a caller of this endpoint got
+// witness_id / run_sequence / content_hash / server_timestamp / signature
+// — from which the leaf hash cannot be recomputed, so the endpoint that
+// exists for verification could not be used to verify anything. The leaf
+// preimage fields are all non-secret and are now returned, including the
+// v2.5 trio that binds a watermarked derivative to its master.
 function handleGetWitnesses(projectId, res) {
   const rows = db.prepare(`
-    SELECT witness_id, run_sequence, content_hash, server_timestamp, signature
+    SELECT witness_id, run_sequence, content_hash, server_timestamp, signature,
+           leaf_hash, leaf_scheme, prev_record_hash,
+           input_hash, workflow_hash, model_fingerprints_hash, machine_manifest_hash,
+           master_hash, watermark_payload_hex, ingredient_master_leaf_hash
     FROM witnesses WHERE project_id = ?
     ORDER BY run_sequence ASC
   `).all(String(projectId));

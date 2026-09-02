@@ -25,6 +25,20 @@ export interface WitnessIterationInput {
   // it in the canonical record only when present; absent → v2 behavior.
   // See docs/architecture/canvas-v2.md decision 5.
   machineManifestHash?: string;
+  // v2.5 (WO-28) — the watermarked-derivative trio. ALL THREE OR NONE;
+  // the server 400s a partial set. When present the leaf is promoted to
+  // leaf_scheme='v2.5' and the trio joins the preimage.
+  //
+  // Vocabulary and validation are lib/witness/ingest.ts:45-51 / 219-244,
+  // which have carried these three fields since July on the /v1/log
+  // surface — the one the lock does not use. Ported, not reinvented.
+  //
+  //   masterHash                — sha256 of the CLEAN master bytes
+  //   watermarkPayloadHex       — the 128-bit payload actually embedded
+  //   ingredientMasterLeafHash  — the master's own witness leaf hash
+  masterHash?: string;
+  watermarkPayloadHex?: string;
+  ingredientMasterLeafHash?: string;
 }
 
 export interface WitnessIterationResult {
@@ -34,6 +48,17 @@ export interface WitnessIterationResult {
   // v2 fields (absent from pre-v2 servers; treat as optional).
   leaf_hash?: string;       // sha256(canonical(record)) — the Merkled leaf
   prev_record_hash?: string;
+  /**
+   * Scheme of a MASTER leaf. 'v2.5' — the watermarked-derivative leaf
+   * WO-28 added — is deliberately NOT in this union, even though the wire
+   * returns it, because this union is assigned straight into
+   * `IterationRow.leaf_scheme` (lib/iterations/ingest.ts, app/api/v2/witness)
+   * and an iteration row records the scheme of its MASTER, which is never
+   * a derivative. Widening it here would push 'v2.5' into a column
+   * where it can never legitimately appear.
+   *
+   * Read the scheme the server actually sent with `wireLeafScheme()`.
+   */
   leaf_scheme?: 'v1' | 'v2' | 'v2.2';
   // H-1 — the asymmetric evidence signature. Declared here so reading it
   // is ordinary typed code rather than an `unknown` cast; every field is
@@ -59,6 +84,17 @@ export interface WitnessIterationResult {
   independently_verifiable?: boolean;
   // Whatever else the server returns
   [k: string]: unknown;
+}
+
+/**
+ * The leaf scheme the witness server actually put on the wire, including
+ * 'v2.5', which `WitnessIterationResult.leaf_scheme` omits on purpose
+ * (see the note there). Returns undefined for a server old enough not to
+ * send the field at all.
+ */
+export function wireLeafScheme(r: WitnessIterationResult): string | undefined {
+  const v = (r as { leaf_scheme?: unknown }).leaf_scheme;
+  return typeof v === 'string' ? v : undefined;
 }
 
 export interface LockProjectResult {
@@ -173,6 +209,14 @@ export const witness = {
       model_fingerprints_hash: input.modelFingerprintsHash,
       // v2.2 — pre-v2.2 servers ignore this field harmlessly.
       machine_manifest_hash: input.machineManifestHash,
+      // v2.5 — a PRE-WO-28 witness server ignores these three and
+      // returns a 'v2' leaf. That is detectable, not silent: the caller
+      // checks leaf_scheme === 'v2.5' before it records a derivative
+      // leaf, so an un-redeployed witness yields no derivative leaf
+      // rather than a leaf that omits the lineage it claims to carry.
+      master_hash: input.masterHash,
+      watermark_payload_hex: input.watermarkPayloadHex,
+      ingredient_master_leaf_hash: input.ingredientMasterLeafHash,
     });
   },
 

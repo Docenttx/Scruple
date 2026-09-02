@@ -18,7 +18,7 @@ import { conn } from '@/lib/db/sqlite';
 import { buildMerkle } from '@/lib/scruple/merkle';
 import { deriveScrId } from '@/lib/scruple/hash';
 import { witness } from '@/lib/scruple/witness';
-import { watermarkProjectIterations } from '@/lib/watermark/apply';
+import { watermarkProjectIterations, lockLeafOrder, type ApplyResult } from '@/lib/watermark/apply';
 import type { ProjectRow, IterationRow } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -76,7 +76,57 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No iterations to lock' }, { status: 400 });
   }
 
-  const leaves = iterations.map((i) => i.leaf_hash);
+  // ── ORDER MATTERS, AND IT USED TO BE WRONG ─────────────────────────────
+  //
+  // Until WO-28 this route built the Merkle over the master leaves,
+  // finalized with the witness, and watermarked afterwards. `finalize`
+  // inserts a locked_projects row, and the witness server 403s any
+  // witness request for a project holding one — so the derivative was not
+  // merely produced after the seal, it COULD NOT BE WITNESSED AT ALL.
+  // `iterations.watermark_derivative_leaf_hash` (migration 038, July) had
+  // been NULL since the day it landed for that reason.
+  //
+  // The order is now:
+  //     watermark → witness each derivative → build the Merkle → finalize
+  //
+  // The 403 is untouched. It is the only thing stopping a sealed project
+  // from growing a leaf afterwards, and a derivative is precisely the
+  // leaf someone would want to add afterwards; the fix is to stop being
+  // late, not to make the guard permissive.
+  //
+  // Failure here is still additive: an unreachable witness or a failed
+  // embed costs the derivative its leaf, not the project its lock. The
+  // difference from before is that the loss is now recorded — the leaf
+  // columns stay NULL and `watermark.unwitnessed` says why.
+  let watermarkResult: ApplyResult | null = null;
+  try {
+    watermarkResult = await watermarkProjectIterations({
+      projectId: body.projectId,
+      tier: 'local-lock',
+      projectName: project.name,
+    });
+    console.log(`[LOCAL_LOCK] watermark applied=${watermarkResult.applied} witnessed=${watermarkResult.witnessed.length} unwitnessed=${watermarkResult.unwitnessed.length} skipped=${watermarkResult.skipped.length} errors=${watermarkResult.errors.length}`);
+  } catch (e) {
+    console.error('[LOCAL_LOCK] watermark step failed (lock proceeds over masters only):', e);
+  }
+
+  // The tree commits to BOTH artifacts: every master leaf in run_sequence
+  // order, then every witnessed derivative leaf in its master's order.
+  // Appending rather than interleaving is deliberate — a project with no
+  // derivative yields the same root it would have yielded before WO-28,
+  // and master leaf index still equals run_sequence − 1.
+  //
+  // Tier 3's payload carries no SCR-ID, so deriving the SCR-ID from the
+  // FULL root is not circular. Tiers 4/5 embed the SCR-ID in the payload
+  // and therefore cannot use this shape as-is: their payload depends on
+  // the root which would depend on the payload. They need a two-phase
+  // design (SCR-ID from the master-only root, derivative leaves extending
+  // the tree afterwards, and the receipt stating that the SCR-ID commits
+  // to the masters while the final root commits to both). Neither
+  // chain-lock route calls the watermarker today; this is written down so
+  // that whoever wires them does not discover it at runtime.
+  const masterLeaves = iterations.map((i) => i.leaf_hash);
+  const leaves = lockLeafOrder(masterLeaves, watermarkResult?.witnessed ?? []);
   const tree = buildMerkle(leaves);
   if (!tree.root) return NextResponse.json({ error: 'Merkle root computation failed' }, { status: 500 });
 
@@ -140,30 +190,17 @@ export async function POST(req: NextRequest) {
   });
   tx();
 
-  console.log(`[LOCAL_LOCK] user=${userId} project=${body.projectId} scr=${scrId} leaves=${tree.leafCount} root=${tree.root.slice(0, 16)}… sig=${(lockSig ?? '').slice(0, 12)}…`);
-
-  // Watermark image iterations as tier-3 derivatives per
-  // WATERMARK_DESIGN_v1.md v1.2. Master bytes stay unmodified; derivatives
-  // are new byte sequences with their own hash. Non-image iterations and
-  // any masters not reachable locally are skipped with a note in the
-  // response — the lock itself succeeds regardless. Errors here do NOT
-  // roll back the lock (the lock is done; watermarking is additive).
-  let watermarkResult: ReturnType<typeof watermarkProjectIterations> | null = null;
-  try {
-    watermarkResult = watermarkProjectIterations({
-      projectId: body.projectId,
-      tier: 'local-lock',
-    });
-    console.log(`[LOCAL_LOCK] watermark applied=${watermarkResult.applied} skipped=${watermarkResult.skipped.length} errors=${watermarkResult.errors.length}`);
-  } catch (e) {
-    console.error('[LOCAL_LOCK] watermark step failed (lock stands):', e);
-  }
+  console.log(`[LOCAL_LOCK] user=${userId} project=${body.projectId} scr=${scrId} leaves=${tree.leafCount} (masters=${masterLeaves.length} derivatives=${watermarkResult?.witnessed.length ?? 0}) root=${tree.root.slice(0, 16)}… sig=${(lockSig ?? '').slice(0, 12)}…`);
 
   return NextResponse.json({
     ok: true,
     scrId,
     merkleRoot: tree.root,
     leafCount: tree.leafCount,
+    // The leaf count is no longer the iteration count. Say so explicitly
+    // rather than leaving a verifier to infer it.
+    masterLeafCount: masterLeaves.length,
+    derivativeLeafCount: watermarkResult?.witnessed.length ?? 0,
     depth: tree.depth,
     nodeCount: tree.nodes.length,
     paymentVerified: true,

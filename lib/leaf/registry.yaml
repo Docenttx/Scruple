@@ -94,6 +94,41 @@ leaf_schemes:
       - machine_manifest_hash
       - server_timestamp
       - prev_record_hash
+  v2.5:
+    brief: >-
+      WO-28. The WATERMARKED DERIVATIVE leaf. Adds master_hash,
+      watermark_payload_hex and ingredient_master_leaf_hash between
+      machine_manifest_hash and server_timestamp, extending v2.2 the same
+      way v2.2 extended v2. Selected by the PRESENCE of all three on the
+      submit surface — the server refuses a partial set with a 400 rather
+      than falling back to v2.2, because a lineage claim with a hole in it
+      is worse than no claim.
+
+      NOT "v2.3", and the gap is not an accident. "v2.3" already names a
+      completely different preimage on the Continuous Audit API's ladder
+      (lib/witness/canonicalLeafV23.ts), and one name meaning two
+      preimages on two surfaces is the exact confusion that left this
+      vocabulary implemented on lib/witness/ingest.ts and absent from the
+      surface the lock actually uses, from July until WO-28. "v2.4" is
+      already spoken for as the introduced_in tag of the H-1 signature
+      fields below. v2.5 is the next free number in this registry.
+
+      A derivative is a SIBLING leaf, not a rewrite of its master. The
+      master's leaf was sealed at generation time; the lineage pointer
+      lives in the derivative's preimage and points backwards, the same
+      direction a C2PA ingredient points.
+    record_order:
+      - run_sequence
+      - output_hash
+      - input_hash
+      - workflow_hash
+      - model_fingerprints_hash
+      - machine_manifest_hash
+      - master_hash
+      - watermark_payload_hex
+      - ingredient_master_leaf_hash
+      - server_timestamp
+      - prev_record_hash
 
 # ── Canonicalization profiles ───────────────────────────────────────────
 # A leaf scheme says WHICH FIELDS enter a preimage and in what order. It
@@ -491,6 +526,63 @@ groups:
           Whether an asymmetric signature exists at all. Response-only by
           design: it is derived from leaf_signature, and a stored copy
           could disagree with the field it summarises.
+
+      # ── Watermarked derivative (WO-28) ─────────────────────────────
+      # All three or none. The server validates them as a set, and the
+      # set is what selects leaf_scheme v2.5, so `conditionally_required`
+      # here means "required the moment any sibling is present" — not
+      # "optional, sometimes".
+      #
+      # These three are a PORT, not a new design. lib/witness/ingest.ts
+      # has declared them (lines 45-51) and validated them (219-244) since
+      # July on the /v1/log surface. What was missing was them existing on
+      # the surface the lock uses, which is why migration 038's
+      # `watermark_derivative_leaf_hash` column was NULL from the day it
+      # landed.
+      - id: master_hash
+        type: string
+        stability: development
+        requirement_level: conditionally_required
+        condition: >-
+          Required whenever watermark_payload_hex or
+          ingredient_master_leaf_hash is present. 64 lowercase hex.
+        introduced_in: v2.5
+        surfaces: [submit, record, response, storage]
+        brief: >-
+          sha256 of the CLEAN MASTER bytes this derivative was made from.
+          Distinct from output_hash on the same leaf, which is the
+          derivative's own hash — a derivative leaf is the only leaf that
+          commits to two artifacts.
+
+      - id: watermark_payload_hex
+        type: string
+        stability: development
+        requirement_level: conditionally_required
+        condition: >-
+          Required whenever master_hash or ingredient_master_leaf_hash is
+          present. 32 lowercase hex (128 bits), first byte magic 0x5c,
+          version nibble 1. WATERMARK_DESIGN_v1.md §3.
+        introduced_in: v2.5
+        surfaces: [submit, record, response, storage]
+        brief: >-
+          The payload actually embedded in the derivative's pixels. In the
+          preimage rather than merely stored, so the leaf commits to WHAT
+          the mark says, not only that a mark exists.
+
+      - id: ingredient_master_leaf_hash
+        type: string
+        stability: development
+        requirement_level: conditionally_required
+        condition: >-
+          Required whenever master_hash or watermark_payload_hex is
+          present. 64 lowercase hex.
+        introduced_in: v2.5
+        surfaces: [submit, record, response, storage]
+        brief: >-
+          The MASTER's own leaf_hash. This is the lineage edge, and its
+          direction is the design: the derivative names the master, the
+          master is never rewritten to name the derivative. A verifier
+          checks that this value is a leaf of the same Merkle tree.
 
   # ── Deprecated / renamed ────────────────────────────────────────────
   # OTel's rename pattern. Every name that has ever meant one of the
