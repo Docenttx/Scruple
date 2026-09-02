@@ -781,3 +781,30 @@ repository and running every command in its README verbatim: manifest OK,
 asset hash equals the leaf's `content_hash`, credential `Valid`, credential's
 `ai.scruple.provenance.leaf_hash` equals `leaf.json`'s `leaf_hash`, and both
 `machine_manifest_hash` and `workflow_hash` re-derive.
+
+## F-05 UPDATE (2026-09-02) — the model was not lost, and the four lines are fixed
+
+**All four wrong hashes are corrected in place**, each with the correction
+recorded beside it rather than silently applied: F-01's three (`31e35c80…` →
+`3141eb75…`, in `00-membership-application.md`, `README.md` and
+`01-technical-proposal.md` Step 1) and F-04's one (`0027d502…` → `39b5efae…`).
+The wrong values now appear **zero times** in the MCC package.
+
+**And the missing model has been found.** F-05 recorded that
+`stay-puft-cyberpunk-lora-r4.safetensors` existed nowhere in the repository. It
+existed nowhere on the *server's working disks* either — but it survives in the
+**Drive substrate**, at `…/Scruple Projects/training/`, 11,778,336 bytes,
+hashing to exactly `3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900`.
+
+That digest is the one the sidecar binds, so recovering the file **independently
+confirms the F-01 correction from the bytes** rather than from another document.
+
+**The real defect underneath, now repaired.** Iteration 170's `source_file` read
+`stay-puft-cyberpunk-lora` — a label, not the content-addressed pointer every
+other row carries — and the bytes were absent from `artifacts/`. The artifact
+the entire MCC filing is about was **unretrievable through the application's own
+read path**. Restored to `artifacts/31/3141eb75…` and the pointer corrected;
+`readArtifact()` now returns 11,778,336 bytes hashing to the bound value.
+
+D-074's claim that Drive is the substrate is doing real work here: the only
+surviving copy of a filing artifact was on Drive, not on the box.

@@ -17,7 +17,7 @@
 
 - **puffjuly12 provenance bundle:** `/data/scruple-web/docs/provenance-bundles/bundle-29e9a40e1d43/` — five FLUX iterations, video + audio + LoRA sidecar iterations, L2 substrate copy, witness Merkle checkpoint. Merkle root `29e9a40e1d436ce7c4aae2edd4c28bad73bfcece8e9477b9da9b43375543016c`. Scruple ID `SCR_3DE79573`. RVN testnet txid `8f8f95867d1c9185a1f4439e12f3aad88f0697a41ee23874c1822e06bc5d9e93`.
 - **L2 substrate evidence bundle:** `/data/scruple-web/docs/l2-evidence/2026-07-12T174954Z/` — AMD SEV-SNP report, VCEK certificate, AMD ARK/ASK chain, SoftHSM signer public key with `report_data` cross-binding, populated Security Architecture Document mapping to C2PA GPSR §6.1.2 / §6.2.2.
-- **Project 181 LoRA sidecar:** `/data/scruple-web/docs/provenance-bundles/bundle-29e9a40e1d43/iterations/training-181/` — the shipping example of a sidecar-based Content Credential bound to a trained model file. LoRA content hash `31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b`. Scruple ID `SCR_DB433994`.
+- **Project 181 LoRA sidecar:** `/data/scruple-web/docs/provenance-bundles/bundle-29e9a40e1d43/iterations/training-181/` — the shipping example of a sidecar-based Content Credential bound to a trained model file. LoRA content hash `3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900`. (Corrected 2026-09-02 — the previous value was the base model's; F-01.) Scruple ID `SCR_DB433994`.
 
 ## Git commit anchors
 
