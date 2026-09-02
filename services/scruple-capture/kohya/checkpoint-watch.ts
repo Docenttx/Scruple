@@ -94,6 +94,23 @@ export interface KohyaRunContext {
   inputHash?: string | null;
   /** Base-model fingerprints the run started from. */
   modelFingerprintsHash?: string | null;
+  /**
+   * The base-model manifest ITSELF, not only its hash — WO-30.
+   *
+   * The hash alone is what enters the MAC preimage; the manifest is what makes
+   * the stored leaf legible, because `iterations.model_fingerprints` is the
+   * only column that records WHICH weights the run loaded. A leaf carrying the
+   * hash and not the manifest commits to a fact nobody can read back, which is
+   * the same defect as not carrying it — one level less visible.
+   */
+  modelFingerprints?: Record<string, unknown> | null;
+  /**
+   * How the dataset commitment was reached: file count, byte count, and every
+   * path the walk declined to hash. Reported, never folded into the hash.
+   * "We looked and found none" is a claim an empty `skipped` must be able to
+   * make honestly, so it is carried rather than inferred.
+   */
+  datasetSummary?: Record<string, unknown> | null;
 }
 
 export class CheckpointWatchSurface implements CaptureSurface {
@@ -240,6 +257,10 @@ export class CheckpointWatchSurface implements CaptureSurface {
         // fabricated is not.
         input_hash: run?.inputHash ?? null,
         model_fingerprints_hash: run?.modelFingerprintsHash ?? null,
+        // The manifest behind that hash, and what the dataset walk saw. Both
+        // absent-not-guessed when the gate established no run (WO-30).
+        model_fingerprints: run?.modelFingerprints ?? null,
+        dataset_summary: run?.datasetSummary ?? null,
         // Named `graph` because that is what the submission field is called
         // and lib/leaf/hashes.ts hashGraphOrTraining accepts a training
         // config there. Renaming the wire field is not this WO's to do.

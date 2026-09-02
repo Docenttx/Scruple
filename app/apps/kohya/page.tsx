@@ -12,6 +12,28 @@
 //      spawn times out
 //
 // A single active session per user (like Canvas).
+//
+// WO-30 — THE SECOND SURFACE, AND WHY THE BRANCH IS HERE AND NOT INSIDE THE
+// IFRAME.
+//
+// `SCRUPLE_KOHYA_SURFACE` is not a preference; it is the configuration the tier
+// is computed from (lib/apps/runpod-machines.ts). In `gui` it iframes Kohya's
+// Gradio launcher, the tenant has code execution in the container, the
+// placement is `unattested-client` and nothing observed in there may be
+// witnessed. In `job-api` the pod exposes the capture component and nothing
+// else, and the tenant's expressive power is exactly the whitelist in
+// lib/apps/kohya/job-spec.ts.
+//
+// Those are two products with two evidence ceilings, so they are two renders.
+// The same page deciding at runtime which one to draw is correct precisely
+// BECAUSE the decision is the same one `runpod-session.ts` already made when it
+// chose the image and the port — one function, `kohyaSurfaceMode()`, read in
+// both places. A page that drew the job form against a GUI pod would be
+// offering a surface the container does not have.
+//
+// The job API had no caller at all before this. docs/canon/demo-readiness/
+// training.md §6 item 2: "the single smallest missing piece of product on the
+// only path that reaches `server-library`."
 
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth/auth';
@@ -23,8 +45,14 @@ import {
   mintAppSession,
   proxyUrlForAppSession,
 } from '@/lib/apps/session';
-import { RUNPOD_DEFAULT_MACHINE_ID, getRunpodMachineById } from '@/lib/apps/runpod-machines';
+import {
+  RUNPOD_DEFAULT_MACHINE_ID,
+  getRunpodMachineById,
+  kohyaSurfaceMode,
+} from '@/lib/apps/runpod-machines';
+import { describeJobForm, defaultJobValues } from '@/lib/apps/kohya/form';
 import { getApp } from '@/lib/apps/registry';
+import JobSubmitPanel from './JobSubmitPanel';
 
 const IFRAME_ID = 'scruple-kohya-iframe';
 
@@ -42,6 +70,7 @@ export default async function KohyaPage() {
   const active = await getActiveProject();
   const machineId = RUNPOD_DEFAULT_MACHINE_ID;
   const machine = getRunpodMachineById(machineId);
+  const surface = kohyaSurfaceMode();
 
   if (!app?.enabled) {
     return (
@@ -88,6 +117,24 @@ export default async function KohyaPage() {
       else if (/did not expose port/.test(msg)) code = 'spawn_timeout';
       mintFailure = { code, message: msg };
     }
+  }
+
+  if (appSession && surface === 'job-api') {
+    // The whitelist crosses to the browser as SHAPE ONLY — see
+    // lib/apps/kohya/form.ts on why the form is generated rather than written,
+    // and why job-spec.ts itself cannot be bundled for a client.
+    return (
+      <AppShell activeProjectId={active?.id} viewingProjectName={active?.name}>
+        <JobSubmitPanel
+          sessionId={appSession.id}
+          sessionToken={appSession.signed_token}
+          fields={describeJobForm()}
+          defaults={defaultJobValues()}
+          machineName={machine?.name ?? 'RunPod'}
+          surface={surface}
+        />
+      </AppShell>
+    );
   }
 
   if (appSession) {

@@ -53,6 +53,19 @@ export interface ObservationEvidence {
    *  coverage gap shows up as an absent VALUE rather than an absent event. */
   egress?: string | null;
   kind?: LeafKind;
+  /** WO-30. The manifest BEHIND `model_fingerprints_hash`, when the surface
+   *  holds it. Only the hash enters the MAC; the manifest is what makes the
+   *  stored leaf legible, because `iterations.model_fingerprints` is the only
+   *  column that records WHICH weights a run loaded. */
+  model_fingerprints?: Record<string, Record<string, unknown>> | null;
+  /** WO-30. The safetensors structural fingerprint of the bytes that were
+   *  WRITTEN. It has no leaf field — `lib/leaf/registry.yaml` has no
+   *  `header_hash` and neither does the /v2 Zod body — so it rides in the
+   *  capture block, uncovered by the MAC, exactly as the Python SDK sends it
+   *  (`MODEL_WRITE_HOOK.md` §4.2). Carried rather than dropped: a field that
+   *  reaches the wire can be covered later; one the component never sent
+   *  cannot be recovered at all. */
+  header_hash?: string | null;
 }
 
 export type LeafKind = 'document_save' | 'artifact' | 'graph_execute' | 'model_write';
@@ -71,6 +84,10 @@ export interface CaptureBlock {
   workflow_hash: string | null;
   observed_at: string;
   attestation_status: 'verified' | 'passthrough' | null;
+  /** UNCOVERED BY THE MAC, and that is not an oversight — see
+   *  ObservationEvidence.header_hash. `preimageOf()` below does not read it,
+   *  and neither does the server's `componentPreimage()`. */
+  header_hash?: string | null;
 }
 
 export interface ComponentEnvelope {
@@ -89,6 +106,9 @@ export interface Submission {
   mime?: string;
   input_hash?: string;
   model_fingerprints_hash?: string;
+  /** The manifest the hash above covers. The route recomputes the hash from
+   *  it and REFUSES if the two disagree, which is the point of sending both. */
+  model_fingerprints?: Record<string, Record<string, unknown>>;
   machine_manifest_hash?: string;
   /** The route recomputes workflow_hash from this (lib/leaf/hashes.ts), so a
    *  verifier can check it against capture.workflow_hash. */
@@ -171,6 +191,7 @@ export function buildLeaf(
     ...(bytes.mime ? { mime: bytes.mime } : {}),
     ...(ev.input_hash ? { input_hash: ev.input_hash } : {}),
     ...(ev.model_fingerprints_hash ? { model_fingerprints_hash: ev.model_fingerprints_hash } : {}),
+    ...(ev.model_fingerprints ? { model_fingerprints: ev.model_fingerprints } : {}),
     ...(ev.machine_manifest_hash ? { machine_manifest_hash: ev.machine_manifest_hash } : {}),
     ...(graph ? { graph } : {}),
     capture: {
@@ -186,6 +207,7 @@ export function buildLeaf(
       workflow_hash: workflowHash,
       observed_at: o.observedAt,
       attestation_status: ctx.attestationStatus,
+      ...(ev.header_hash ? { header_hash: ev.header_hash } : {}),
     },
     component: {
       component_id: ctx.componentId,

@@ -78,6 +78,30 @@ COPY package.json package-lock.json ./
 COPY services/scruple-capture ./services/scruple-capture
 COPY lib/apps/kohya ./lib/apps/kohya
 COPY lib/capture ./lib/capture
+# WO-30 — THE COPY SET WAS SHORT BY THREE TREES AND THE IMAGE COULD NOT HAVE
+# STARTED.
+#
+# `job-api-server.ts`'s transitive imports reach `lib/leaf/hashes.ts` (via
+# `src/leaf.ts`, since WO-6), `lib/leaf/canonicalJson.ts`, `lib/scruple/hash.ts`
+# and `lib/ratchet/ratchet.ts` (via `src/identity.ts`). None of them was copied,
+# so `node --import tsx` would have died on the first import — before the job
+# API bound a port, before a placement was resolved, before anything could have
+# been observed. `KOHYA_REPLACEMENT.md`'s enforcement obligation 1 said "the
+# image has not been built and nothing has verified what a running container
+# actually exposes"; this is what that was hiding.
+#
+# NAMED FILES, NOT THE DIRECTORIES THEY LIVE IN, and that is the security half.
+# `lib/ratchet/` also contains `provisioning.ts` and `verify.ts` — the
+# SERVER-SIDE ratchet, which reads the BDK and the components table — and
+# `lib/leaf/` contains the registry and the server's `componentPreimage`.
+# Copying either directory whole would put the party that ISSUES identities
+# inside the container that HOLDS one, which is the same category of mistake as
+# the in-pod hook measuring a boundary from inside it (P2). `ratchet.ts` is pure
+# key-schedule arithmetic with no database import — verified, not assumed, by
+# the closure that produced this list.
+COPY lib/ratchet/ratchet.ts ./lib/ratchet/
+COPY lib/leaf/hashes.ts lib/leaf/canonicalJson.ts ./lib/leaf/
+COPY lib/scruple/hash.ts ./lib/scruple/
 COPY tsconfig.json ./
 # tsx is a devDependency, and the component is run through it — so this is
 # `npm ci` and not `--omit=dev`. Said out loud because "prod image, dev deps"

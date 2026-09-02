@@ -186,6 +186,17 @@ make the commitment depend on something outside the directory, and a dataset
 that hashes differently depending on what a link points at today is not a
 commitment.
 
+**There are now two implementations of this rule and it is still not in the
+registry** (WO-30). `packages/scruple-api/scruple_api/model_write.py`
+`dataset_root_hash()` in Python, and
+`services/scruple-capture/kohya/commitments.ts` `datasetRootHash()` in
+TypeScript — the second added so the Kohya job-API path can populate
+`input_hash`, which no shipping path did before. Both are pinned against the
+prose above by `test/v2/training-receipt.test.ts`, which recomputes the hash
+from `sha256` and `JSON.stringify` directly rather than calling either. Two
+implementations of a preimage are two preimages until a third party can
+reproduce it from the words, so §8 row 2 is now MORE urgent, not less.
+
 ### 4.2 `header_hash` — the real gap
 
 The safetensors header is every layer name, shape and dtype. Hashed separately
@@ -303,6 +314,18 @@ problem. NaN and infinity are refused: JSON has no spelling for them.
 document sees `"1e-05"` rather than `1e-05`. The alternative is a hash nobody
 outside our toolchain can reproduce, so the cost is paid deliberately.
 
+> **SUPERSEDED 2026-09-02 (WO-30 reading WO-21).** Do not adopt the quoting
+> below for a new recipe. WO-21 moved both languages onto RFC 8785, whose
+> §3.2.2.3 mandates ECMA-262 `Number::toString` — so raw floats now
+> canonicalize identically and `encode_number`'s Python `repr` would
+> REINTRODUCE the divergence inside the quoted string (`"0.00001"` vs
+> `"1e-05"`). See `packages/scruple-api/scruple_api/canonical.py`'s module
+> docstring, which says so in its own words. The Kohya job-API component
+> commits its recipe RAW for this reason
+> (`services/scruple-capture/kohya/job-runner.ts`), and
+> `test/v2/training-receipt.test.ts` asserts the learning rates are numbers and
+> not strings so the decision cannot be reversed by accident.
+
 **The proper fix is not ours to make here.** `canonicalize()` should refuse
 floats the way `canonical_preimage()` does, in both languages, and the recipe
 document should say which encoding it used. That is `lib/scruple/canonicalWorkflow.ts`
@@ -372,8 +395,19 @@ exactly the place they stopped looking.
 |---|---|---|
 | 1 | `header_hash` has no registry field, no body field and no preimage slot | `lib/leaf/registry.yaml` + `/v2/witness` + three `component_preimage` implementations + their vector file. Wants a leaf scheme (§4.2). |
 | 2 | The dataset-root preimage is defined in the SDK and not in the registry | `lib/leaf/registry.yaml`, as a documented preimage under `input_hash` (§4.1). |
-| 3 | `canonicalize()` accepts floats; `canonical_preimage()` refuses them | `lib/scruple/canonicalWorkflow.ts` and `scruple_api/manifest.py`. Affects the canvas path too (§6). |
-| 4 | `capture.workflow_hash` and the server's recomputation are never compared | `app/api/v2/witness/route.ts`, beside the `model_fingerprints` disagreement check (§6.1). |
+| 3 | ~~`canonicalize()` accepts floats; `canonical_preimage()` refuses them~~ **CLOSED by WO-21, corrected 2026-09-02 (WO-30).** Both languages are on RFC 8785 — `lib/leaf/canonicalJson.ts` and `packages/scruple-api/scruple_api/canonical.py`. JCS §3.2.2.3 mandates ECMA-262 `Number::toString`, so a raw `1e-5` now canonicalizes identically in both. **`training_recipe()`'s float quoting (§6) is superseded and should not be used for new recipes** — `encode_number` uses Python `repr`, so a JavaScript component would write `"0.00001"` where Python writes `"1e-05"`, which moves the divergence into the string rather than removing it. | The remaining edit is to `scruple_api/manifest.py`'s older `canonicalize`, which `hash_training_recipe` still calls. |
+| 4 | `capture.workflow_hash` and the server's recomputation are never compared | `app/api/v2/witness/route.ts`, beside the `model_fingerprints` disagreement check (§6.1). `lib/leaf/hashes.ts` now exports `hashDisagreement()` for exactly this; the route does not yet call it. **Still open.** |
+
+**Correction to this section, 2026-09-02 (WO-30).** Rows 3 and 4 have been read
+by more than one later reader as saying `/v2/witness` does not accept the
+training fields. It does, and has since WO-1:
+`app/api/v2/witness/route.ts` takes `kind: 'model_write'`, `training`,
+`inputs`/`input_hash` and `model_fingerprints`/`model_fingerprints_hash`, and
+folds each through `lib/leaf/hashes.ts`. Row 1 — `header_hash` for the
+checkpoint the run WROTE — is the only field on this list that is genuinely
+absent from the wire, and it is a leaf-scheme bump that gates nothing: it rides
+uncovered on `capture.header_hash` from the Python SDK and, since WO-30, from
+the TypeScript component too.
 | 5 | `ServerLibraryIntegration` hardcodes `as-delivered` and `in-process-callback` | A `submit_observation()` seam taking surface and fidelity as arguments; both classes then call it, and §3's forty duplicated lines go away with it. |
 | 6 | A sharded/directory checkpoint has no answer | Product decision, §5. Do not close it by shipping option 1 quietly. |
 | 7 | The watcher approximates `IN_CLOSE_WRITE` by quiescence | Same §10 C-10 remainder the ComfyUI watcher carries, and worse here: on a checkpoint the two-hashes record is indistinguishable from the tamper case. The fix is real inotify. |

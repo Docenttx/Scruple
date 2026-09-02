@@ -821,7 +821,29 @@ Two more items are outstanding and neither is WO-19's:
    `server-library` to `unattested-client` is the failure the placement axis
    exists to make impossible. Until that template exists, Studio ships the GUI
    and ships it honestly: `witnessed: false`, `placement: unattested-client`.
-4. **H-4 §8 step 1 is still unstarted** — `input_hash`, `workflow_hash` and
-   `model_fingerprints_hash` restored to `/v2/witness`. The job API produces
-   the training-config commitment those fields are for, and it currently rides
-   in the `graph` field because renaming the wire field is not this WO's to do.
+4. ~~**H-4 §8 step 1 is still unstarted** — `input_hash`, `workflow_hash` and
+   `model_fingerprints_hash` restored to `/v2/witness`.~~ **CORRECTED
+   2026-09-02 (WO-30).** This was true when it was written and is not true now.
+   WO-1 restored all three, and `app/api/v2/witness/route.ts` today accepts
+   `kind: 'model_write'`, `training`, `inputs`/`input_hash` and
+   `model_fingerprints`/`model_fingerprints_hash`, computing every hash through
+   `lib/leaf/hashes.ts` — the same module `lib/iterations/ingest.ts` calls.
+   `docs/canon/demo-readiness/training.md` §4 found the same thing
+   independently. What remains true is the second half: the training-config
+   commitment rides in the `graph` field rather than `training`, because
+   `hashGraphOrTraining` treats the two identically and `kind` is what tells a
+   verifier which document to re-canonicalize. Renaming a live wire field for
+   tidiness is still not worth a scheme conversation.
+
+   The one field genuinely still missing is `header_hash` for the checkpoint
+   the run WROTE — §4.2 of `MODEL_WRITE_HOOK.md`, a leaf-scheme bump, and it
+   does not gate anything. It rides uncovered on `capture.header_hash` from
+   both components meanwhile.
+
+5. **A training receipt is now producible with no GPU, and one is.**
+   `test/v2/training-receipt.test.ts` drives the real component, the real
+   `/api/v2/witness` handler, the real server-side ratchet and a stub witness
+   over a synthetic safetensors file and a four-file dataset, and asserts a
+   stored leaf with `witnessed = 1`, `leaf_kind = 'training'`, and all four
+   commitments. What has still never happened is a run on a GPU (§10.1 items 1
+   and 2 remain `needs_probe`).

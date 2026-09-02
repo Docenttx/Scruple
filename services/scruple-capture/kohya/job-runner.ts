@@ -80,6 +80,12 @@ import {
 } from '../../../lib/apps/kohya/placement';
 import type { ObservationSink } from '../../../lib/capture/surface';
 import { CheckpointWatchSurface, type KohyaRunContext } from './checkpoint-watch';
+import {
+  baseModelCommitment,
+  datasetRootHash,
+  trainingInputHash,
+  type DatasetCommitment,
+} from './commitments';
 import type { CloseWriteSource } from '../src/surfaces/fs-watch';
 
 export class JobPlacementRefusal extends Error {
@@ -229,16 +235,79 @@ export class StudioJobRunner {
       );
     }
 
+    // ---- the two commitments that were null until WO-30 -----------------
+    //
+    // WHAT CHANGED IS THE ARGUMENT, NOT THE HONESTY RULE. The previous
+    // comment here said dataset and base-model commitments "are established
+    // by the ingest path that minted the ids, not by this process," and left
+    // both null. That is right about ATTRIBUTION and wrong about
+    // AVAILABILITY: `buildTrainerArgv` has just resolved and
+    // containment-checked both paths under roots this component owns, so the
+    // bytes are in reach right now, immediately before the trainer reads
+    // them. The claim made is therefore the weaker, checkable one — THESE ARE
+    // THE BYTES THE TRAINER READ — and not "Studio's upload path vouches for
+    // this dataset id", which this process still cannot say.
+    //
+    // `docs/canon/demo-readiness/training.md` §4/§5 is the reason it matters:
+    // `input_hash` is the field that answers "what data was this trained on",
+    // and no shipping path populated it. A checkpoint hash with no dataset
+    // commitment is a log line.
+    //
+    // ABSENT ON FAILURE, NEVER FABRICATED. A dataset root that is not there,
+    // or a base-model file that is not there, produces null and a log line —
+    // the leaf then says less, which is the correct direction. It does not
+    // refuse: a checkpoint that exists and gets no leaf is the invisible
+    // failure PLACEMENT_AND_SURFACES.md §2.2 forbids, and it would be a
+    // strictly worse answer than a leaf with two null fields.
+    let dataset: DatasetCommitment | null = null;
+    try {
+      dataset = datasetRootHash(plan.paths.dataset);
+    } catch (e) {
+      this.log(
+        `job ${jobId}: NO DATASET COMMITMENT — ${String(e)}. The leaf will carry a null ` +
+          'input_hash, which is the field a regulator asks about. This is recorded, not ' +
+          'papered over.',
+      );
+    }
+
+    const baseModel = baseModelCommitment(
+      plan.paths.baseModel,
+      path.relative(this.opts.roots.modelsRoot, plan.paths.baseModel).split(path.sep).join('/'),
+    );
+    if (!baseModel) {
+      this.log(
+        `job ${jobId}: NO BASE-MODEL FINGERPRINT — ${plan.paths.baseModel} is not readable. ` +
+          'The leaf will carry a null model_fingerprints_hash.',
+      );
+    }
+
     this.run = {
       // The COMMITMENT the checkpoint's leaf carries: the canonical job, not a
       // filename. WO-20 will need the same shape for vendors; it is built here
       // first, which is the only sense in which WO-19 gates it.
+      //
+      // It is the TENANT-FACING job, not the argv — no import paths, no
+      // resolved paths, no component-supplied module names. And it is sent
+      // through `hashGraphOrTraining` -> RFC 8785 unchanged, NOT through
+      // WO-20's `encode_number` quoting: WO-21 moved both languages onto RFC
+      // 8785, whose §3.2.2.3 mandates ECMA-262 Number::toString, so the raw
+      // floats in a learning rate now canonicalize identically in TypeScript
+      // and in Python. Quoting them here would REINTRODUCE a divergence —
+      // `encode_number` uses Python `repr`, and a JS component writing
+      // "0.00001" where Python writes "1e-05" is the same bug one layer in
+      // (packages/scruple-api/scruple_api/canonical.py, module docstring).
       trainingConfig: JSON.parse(canonicalJobJson(spec)) as Record<string, unknown>,
-      // Dataset and base-model commitments are established by the ingest path
-      // that minted the ids, not by this process. Null is honest; a hash this
-      // process invented would not be.
-      inputHash: null,
-      modelFingerprintsHash: null,
+      inputHash: dataset ? trainingInputHash(dataset.rootHash) : null,
+      modelFingerprintsHash: baseModel?.hash ?? null,
+      modelFingerprints: baseModel?.manifest ?? null,
+      datasetSummary: dataset
+        ? {
+            root_hash: dataset.rootHash,
+            file_count: dataset.fileCount,
+            total_bytes: dataset.totalBytes,
+            skipped: dataset.skipped,
+          }
+        : null,
     };
 
     this.log(
