@@ -97,6 +97,7 @@ import {
   hashModelFingerprints,
   hashRunInputs,
 } from '@/lib/leaf/hashes';
+import { CANONICALIZATION_PROFILE } from '@/lib/leaf/canonicalJson';
 import { checkDeploymentSeal, componentDeployment } from '@/lib/seal/registry';
 
 export const dynamic = 'force-dynamic';
@@ -506,8 +507,9 @@ export async function POST(req: NextRequest) {
           model_fingerprints, model_fingerprints_hash,
           machine_manifest_hash,
           component_id, component_counter, component_verified, mime_declared,
-          deployment_id, seal_state, seal_ref)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          deployment_id, seal_state, seal_ref,
+          canonicalization_profile)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -547,6 +549,11 @@ export async function POST(req: NextRequest) {
       // stamping the last approved seal on it would read as though it
       // were.
       seal.seal_ref,
+      // Migration 049 — same value, same source, same condition as
+      // lib/iterations/ingest.ts. Two doors write leaves; a profile recorded
+      // by only one of them is a field an auditor cannot rely on, which is the
+      // shape of the leaf_kind defect WO-34 found one column over.
+      workflowHash ? CANONICALIZATION_PROFILE : null,
     );
 
   return v2Ok(

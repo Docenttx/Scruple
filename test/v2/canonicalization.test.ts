@@ -267,6 +267,57 @@ describe('existing leaves still verify — no scheme bump was needed', () => {
     }
   });
 
+  test('migration 049 — a leaf says which rule made it, and NULL when none did', () => {
+    // The gap CANONICALIZATION.md §5 left open: "No column records which
+    // profile a row was written under. The fixtures make the four rows
+    // replayable BECAUSE WO-21 IDENTIFIED THEM BY HAND."
+    //
+    // Hand-identification does not survive the next preimage change, and §5's
+    // own closing sentence is that the estate has demonstrated it will make
+    // one. This asserts the column exists, that both write paths populate it
+    // from the implementing module rather than a literal, and — the half that
+    // matters — that it is NULL rather than defaulted when there was no graph.
+    const mig = fs.readFileSync(
+      path.join(process.cwd(), 'lib/db/migrations/049_canonicalization_profile.sql'),
+      'utf8',
+    );
+
+    // MUST FIRE — the backfill states the rule IN FORCE, cut at ec188d6's date.
+    assert.match(mig, /ALTER TABLE iterations ADD COLUMN canonicalization_profile/);
+    assert.match(mig, /timestamp < '2026-07-13'/);
+    assert.match(mig, /'insertion-order-1'/);
+
+    // MUST *NOT* FIRE — rows with no workflow_hash are not stamped. A CAD row
+    // never canonicalized a graph; giving it a profile answers a question
+    // nobody asked, which is the failure the NULL exists to avoid.
+    assert.match(mig, /WHERE workflow_hash IS NOT NULL AND workflow_hash <> ''/);
+
+    // Neither writer may hard-code the name: a row that names its own
+    // canonicalization is only useful if the name cannot drift from the code
+    // that produced it.
+    for (const rel of ['lib/iterations/ingest.ts', 'app/api/v2/witness/route.ts']) {
+      const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+      assert.match(
+        src,
+        /workflowHash \? CANONICALIZATION_PROFILE : null/,
+        `${rel} must record the profile from lib/leaf/canonicalJson, and only when a graph was hashed`,
+      );
+      assert.ok(
+        !/canonicalization_profile[\s\S]{0,80}'jcs-1'/.test(src),
+        `${rel} hard-codes the profile name instead of importing it`,
+      );
+    }
+
+    // And the two doors must agree. leaf_kind was written by /v2/witness and
+    // not by ingest for months (WO-34); a field only one door writes is a
+    // field an auditor cannot rely on.
+    const ingest = fs.readFileSync(path.join(process.cwd(), 'lib/iterations/ingest.ts'), 'utf8');
+    const v2 = fs.readFileSync(path.join(process.cwd(), 'app/api/v2/witness/route.ts'), 'utf8');
+    for (const src of [ingest, v2]) {
+      assert.match(src, /canonicalization_profile/);
+    }
+  });
+
   test('insertion-order-1 is a THIRD rule and is not confusable with the other two', () => {
     // Two profiles differing only on non-JSON values is a compatibility
     // argument; three profiles where one genuinely disagrees is why the

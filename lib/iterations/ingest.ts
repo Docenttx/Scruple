@@ -22,6 +22,10 @@ import {
   hashRunInputs,
   hashWorkflow,
 } from '@/lib/leaf/hashes';
+// Migration 049 — the profile name comes from the module that IMPLEMENTS the
+// rule, never a string literal here. A row that names its own canonicalization
+// is only useful if the name cannot drift from the code that produced it.
+import { CANONICALIZATION_PROFILE } from '@/lib/leaf/canonicalJson';
 import { storeArtifact, artifactPath } from '@/lib/scruple/artifacts';
 // WO-27 — the COMPONENT's loader table, called, not copied. Same rule the
 // canvas correlator (lib/canvas/correlate.ts) states in its header: the
@@ -498,8 +502,8 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            compute_machine_id, machine_manifest_hash, workflow_publication,
            container_machine_manifest,
            deployment_id, seal_state, seal_ref,
-           leaf_kind
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           leaf_kind, canonicalization_profile
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -578,6 +582,19 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         // Same expression and same vocabulary as the witness route, so the
         // two doors cannot drift.
         outputKind === 'checkpoint' ? 'training' : 'workflow',
+        // Migration 049 — the rule this row's hashes were made under.
+        //
+        // ec188d6 changed workflow_hash's canonicalization and shipped with no
+        // version marker, so iterations 166-169 carry the same leaf_scheme as
+        // the rows written after it and replay to a mismatch. `leaf_scheme`
+        // could not have caught it: schemes govern WHICH FIELDS enter a
+        // preimage, not how a field's document becomes bytes. Recording the
+        // profile beside the hash is what makes the next such change a
+        // migration rather than a forensic exercise.
+        //
+        // NULL when there was no graph to canonicalize — "the question was
+        // never asked", not a default.
+        workflowHash ? CANONICALIZATION_PROFILE : null,
       );
 
     conn()
