@@ -22,7 +22,13 @@ import {
   hashRunInputs,
   hashWorkflow,
 } from '@/lib/leaf/hashes';
-import { storeArtifact } from '@/lib/scruple/artifacts';
+import { storeArtifact, artifactPath } from '@/lib/scruple/artifacts';
+// WO-27 — the COMPONENT's loader table, called, not copied. Same rule the
+// canvas correlator (lib/canvas/correlate.ts) states in its header: the
+// decision logic is imported so canvas, the sidecar and ingest agree on what
+// an input-loading node is by construction rather than by review.
+import { referencedInputNames } from '../../services/scruple-capture/src/correlation';
+import { signIngestedArtifact, type C2paIngestOutcome } from '@/lib/iterations/signOnIngest';
 // WO-25 — the SHARED seal check, not a second one.
 //
 // docs/canon/INTEGRATION_LIFECYCLE.md §10 item 6 recorded the gap this
@@ -175,18 +181,80 @@ export interface IngestResult {
    * capture row and the proxy's response header are downstream of this.
    */
   seal: SealStamp;
+  /**
+   * WO-27 — input_hash, and whether it DECLINED.
+   *
+   * `inputHash === null` with `unboundInputs` non-empty is the honest
+   * "the graph loaded something whose bytes never reached us"; `null`
+   * with an empty list is a surface that never had a workflow at all.
+   * Returned for `witnessed`'s reason: a result that says nothing about
+   * it lets every caller report success identically.
+   */
+  inputHash: string | null;
+  /** Names the graph loaded that no supplied input artifact accounts for. */
+  unboundInputs: string[];
+  /** WO-27 — what the C2PA signer did, if it was asked at all. */
+  c2pa: C2paIngestOutcome;
 }
 
-/** File extension for an output/input by kind + content-type. */
-function extFor(kind: OutputKind | 'input', contentType: string): string {
-  if (kind === 'video') return contentType.includes('webm') ? 'webm' : 'mp4';
-  if (kind === 'checkpoint') return 'safetensors';
-  if (kind === 'cad') return 'f3d';
-  if (contentType.includes('jpeg')) return 'jpg';
-  if (contentType.includes('webp')) return 'webp';
-  if (contentType.includes('mp4')) return 'mp4';
-  if (contentType.includes('octet-stream')) return 'safetensors';
-  return 'png';
+/**
+ * File extension for an output/input by kind + content-type.
+ *
+ * WO-27. The old version had two separate ways to be wrong about video and
+ * both were reachable from the same door:
+ *
+ *   - `kind === 'video'` collapsed everything that was not webm to `.mp4`,
+ *     so a `video/quicktime` clip was stored as `.mp4`.
+ *   - the image tail knew `mp4` but not `webm`, `quicktime` or `gif`, so a
+ *     `video/webm` that arrived with `outputKind` UNPASSED — which is every
+ *     `/api/generate` run, see the route — fell through to `.png`. A WebM
+ *     named `.png` is the artifact the demo-readiness survey found.
+ *
+ * The fix for the second is the pass-through in the routes; the fix for BOTH
+ * is that the extension now comes from the declared content type first, via
+ * a table, and the kind only decides the fallback when the type says nothing.
+ */
+const EXT_BY_CONTENT_TYPE: ReadonlyArray<[RegExp, string]> = [
+  [/webm/, 'webm'],
+  [/quicktime|\bmov\b/, 'mov'],
+  [/mp4|m4v/, 'mp4'],
+  [/matroska/, 'mkv'],
+  [/gif/, 'gif'],
+  [/apng/, 'apng'],
+  [/jpeg|jpg/, 'jpg'],
+  [/webp/, 'webp'],
+  [/png/, 'png'],
+  [/tiff/, 'tif'],
+  [/avif/, 'avif'],
+  [/svg/, 'svg'],
+  [/flac/, 'flac'],
+];
+
+/** Fallback when the content type declares nothing usable. */
+const EXT_BY_KIND: Readonly<Record<OutputKind | 'input', string>> = Object.freeze({
+  image: 'png',
+  video: 'mp4',
+  checkpoint: 'safetensors',
+  cad: 'f3d',
+  input: 'png',
+});
+
+export function extFor(kind: OutputKind | 'input', contentType: string): string {
+  const ct = (contentType || '').toLowerCase();
+  for (const [re, ext] of EXT_BY_CONTENT_TYPE) if (re.test(ct)) return ext;
+  // application/octet-stream carries no type. A checkpoint says so by kind;
+  // anything else keeps the kind's fallback rather than being called a model.
+  if (ct.includes('octet-stream') && (kind === 'checkpoint' || kind === 'input')) {
+    return 'safetensors';
+  }
+  return EXT_BY_KIND[kind] ?? 'bin';
+}
+
+/** ComfyUI writes and reads inputs under a bare name, but a graph may carry
+ *  a subfolder (`clipspace/x.png`). Compare on the last segment. */
+function basenameOf(name: string): string {
+  const parts = name.split('/');
+  return parts[parts.length - 1] ?? name;
 }
 
 export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
@@ -233,15 +301,6 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     });
   }
 
-  // input_hash binds the run's inputs: the request canonical + every input
-  // artifact hash. Re-deriving it later proves the inputs are unchanged.
-  const inputHash = hashRunInputs({
-    provider: p.provider,
-    prompt: p.prompt,
-    spec: p.spec,
-    inputs: inputArtifacts.map((a) => ({ kind: a.kind, hash: a.hash })),
-  });
-
   // workflow_hash binds the ComfyUI graph that produced the output. Sync
   // executeRun puts it under spec.providerExtras.workflowApiJson; async
   // pollRunJob does the same after T4. NULL when the path has no workflow.
@@ -249,9 +308,55 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   // MUST use canonical (sorted-key, whitespace-free) JSON — not default
   // JSON.stringify — so any auditor with the same workflow JSON reproduces
   // the same hash regardless of key insertion order in their serializer.
+  //
+  // Resolved BEFORE input_hash because the graph is what says whether this
+  // run had inputs at all — see the binding check immediately below.
   let workflowHash: string | null = null;
   const wf = (p.spec as unknown as { providerExtras?: { workflowApiJson?: unknown } })?.providerExtras?.workflowApiJson;
   if (wf) workflowHash = hashWorkflow(wf);
+
+  // ── input_hash: BIND IT, OR DECLINE. NEVER ASSERT AN EMPTY SET ────────
+  //
+  // WO-27. `hashRunInputs` is always non-null: given no inputs it hashes
+  // `{..., inputs: []}`, which is an AFFIRMATIVE claim — "we enumerated the
+  // inputs and there were none." Three of the four generation doors signed
+  // exactly that on every img2vid run that definitely had an input frame.
+  //
+  // The component's own correlator already states the rule this path broke,
+  // in services/scruple-capture/src/correlation.ts inputHashFor():
+  //
+  //   "NULL RATHER THAN THE HASH OF `[]` … asserting that about a workflow
+  //    whose LoadImage points at a file the tenant put there by hand is a
+  //    false statement in a signed record."
+  //
+  // WHAT IS *NOT* DONE HERE, and it matters. `hashRunInputs` is a PREIMAGE
+  // and is left byte-identical: making it return null for an empty list
+  // would turn every existing txt2img leaf's input_hash into NULL, and a
+  // txt2img run genuinely HAS no input artifacts — `inputs: []` is true of
+  // it. The decline is therefore decided from the GRAPH, not from the list:
+  //
+  //   graph references no input artifact      → hash. A true empty set.
+  //   graph references names, all bound       → hash. A true bound set.
+  //   graph references a name we never saw    → NULL. We do not know.
+  //
+  // An absent input and an empty input list are now different leaves, which
+  // is the whole point.
+  const referencedInputs = wf ? referencedInputNames(wf) : [];
+  const boundNames = new Set(
+    inputArtifacts
+      .map((a) => (a.filename ? basenameOf(a.filename) : null))
+      .filter((n): n is string => n !== null),
+  );
+  const unboundInputs = referencedInputs.filter((n) => !boundNames.has(basenameOf(n)));
+  const inputHash =
+    unboundInputs.length > 0
+      ? null
+      : hashRunInputs({
+          provider: p.provider,
+          prompt: p.prompt,
+          spec: p.spec,
+          inputs: inputArtifacts.map((a) => ({ kind: a.kind, hash: a.hash })),
+        });
 
   // model_fingerprints_hash binds the actual weights loaded for this run.
   // Canonicalize the manifest (keys sorted ascending) so the hash is
@@ -337,7 +442,11 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
       projectName: projectRow?.name ?? `project-${p.projectId}`,
       runSequence: next,
       contentHash: outputHash,
-      inputHash,
+      // `?? undefined` and not `?? outputHash` or `?? ''`: a declined
+      // input_hash is ABSENT from the witnessed record, which is what
+      // `null` in the column means too. Sending an empty string would put
+      // a value in the preimage that asserts something.
+      inputHash: inputHash ?? undefined,
       workflowHash: workflowHash ?? undefined,
       modelFingerprintsHash: modelFingerprintsHash ?? undefined,
       machineManifestHash: machineManifestHash ?? undefined,
@@ -399,7 +508,25 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         inputHash,
         outputHash,
         previousHash,
-        JSON.stringify({ generationSpec: p.spec, contentType: p.imageContentType }),
+        JSON.stringify({
+          generationSpec: p.spec,
+          contentType: p.imageContentType,
+          // WO-27 — WHY input_hash is what it is, on the row itself.
+          //
+          // A NULL input_hash is otherwise indistinguishable from a row
+          // written before the question existed. Recorded only when the
+          // graph referenced something, so a txt2img row is unchanged.
+          ...(referencedInputs.length > 0
+            ? {
+                inputBinding: {
+                  referenced: referencedInputs,
+                  bound: [...boundNames].sort(),
+                  unbound: unboundInputs,
+                  declined: unboundInputs.length > 0,
+                },
+              }
+            : {}),
+        }),
         outputHash,
         p.imageFilename ?? null,
         p.prompt,
@@ -468,6 +595,27 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     console.error('[telemetry] insert failed', e);
   }
 
+  // ── WO-27: give the C2PA signer a caller ──────────────────────────────
+  //
+  // Non-blocking and behind a flag, for the same reason the witness call is
+  // non-blocking: a signing failure must not un-produce the artifact. See
+  // lib/iterations/signOnIngest.ts for why it is a flag and not a default.
+  const c2pa = await signIngestedArtifact({
+    userId: p.userId,
+    projectId: p.projectId,
+    iterationId: id,
+    assetPath: artifactPath(outputHash),
+    contentType: p.imageContentType,
+    outputKind,
+    leafHash,
+    leafScheme,
+    witnessed: witnessResult !== null,
+    workflowHash,
+    modelFingerprintsHash,
+    machineManifestHash,
+    hasGenerativeInputs: inputArtifacts.length > 0 || referencedInputs.length > 0,
+  });
+
   return {
     iteration,
     leafHash,
@@ -477,5 +625,8 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     witnessed: witnessResult !== null,
     leafScheme,
     seal,
+    inputHash,
+    unboundInputs,
+    c2pa,
   };
 }

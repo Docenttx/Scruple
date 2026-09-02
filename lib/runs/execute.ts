@@ -38,6 +38,16 @@ export interface ExecuteRunResult {
   runSequence?: number;
   outputKind?: OutputKind;
   inputHashes?: Array<{ kind: string; hash: string; filename: string | null }>;
+  /** WO-27 — null when the graph loaded a name whose bytes never reached
+   *  us. Distinct from a hash over a genuinely empty input set. */
+  inputHash?: string | null;
+  /** WO-27 — the names that made it decline, empty when it did not. */
+  unboundInputs?: string[];
+  /** WO-27 — whether the leaf's machine_manifest_hash is the CONTAINER's
+   *  measurement (true) or the DB descriptor's claim (false). */
+  containerManifest?: boolean;
+  /** WO-27 — what the C2PA signer did, or why it was not asked. */
+  c2pa?: import('@/lib/iterations/signOnIngest').C2paIngestOutcome;
   durationMs?: number;
   gpu?: string;
   error?: string;
@@ -92,6 +102,14 @@ export async function executeRun(p: ExecuteRunParams): Promise<ExecuteRunResult>
     executionBackend: result.attestation ? 'modal-tee' : 'modal-test',
     executionAttestation: result.attestation,
     modelFingerprints: result.modelFingerprints,
+    // WO-27 — the container manifest. This door was described in the survey
+    // as "the complete path", and it was: it shipped inputs, outputKind and
+    // fingerprints. It still did not pass WO-B1's manifest, because NO
+    // caller in the repo did. `machine_manifest_hash` on every /api/runs
+    // leaf therefore came from the DB fallback — the descriptor's claim
+    // about the machine, not the container's measurement of itself.
+    containerMachineManifestHash: result.containerMachineManifestHash ?? null,
+    containerMachineManifest: result.containerMachineManifest ?? null,
   });
 
   return {
@@ -101,6 +119,10 @@ export async function executeRun(p: ExecuteRunParams): Promise<ExecuteRunResult>
     runSequence: ingest.runSequence,
     outputKind,
     inputHashes: ingest.inputArtifacts.map((a) => ({ kind: a.kind, hash: a.hash, filename: a.filename })),
+    inputHash: ingest.inputHash,
+    unboundInputs: ingest.unboundInputs,
+    containerManifest: !!result.containerMachineManifestHash,
+    c2pa: ingest.c2pa,
     durationMs: result.durationMs,
     gpu: result.gpu,
   };
@@ -178,6 +200,10 @@ export interface RunJobStatus {
   runSequence?: number | null;
   iterationId?: number | null;
   inputHashes?: Array<{ kind: string; hash: string; filename: string | null }>;
+  inputHash?: string | null;
+  unboundInputs?: string[];
+  containerManifest?: boolean;
+  c2pa?: import('@/lib/iterations/signOnIngest').C2paIngestOutcome;
   error?: string;
 }
 
@@ -259,6 +285,11 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
     executionBackend: r.attestation ? 'modal-tee' : 'modal-test',
     executionAttestation: r.attestation,
     modelFingerprints: r.model_fingerprints,
+    // WO-27 — see executeRun. The async result type did not even DECLARE
+    // these two fields until this work order, so the async door could not
+    // have passed them.
+    containerMachineManifestHash: r.container_machine_manifest_hash ?? null,
+    containerMachineManifest: r.container_machine_manifest ?? null,
   });
 
   conn().prepare(
@@ -273,5 +304,9 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
     runSequence: ingest.runSequence,
     iterationId: ingest.iteration.id,
     inputHashes: ingest.inputArtifacts.map((a) => ({ kind: a.kind, hash: a.hash, filename: a.filename })),
+    inputHash: ingest.inputHash,
+    unboundInputs: ingest.unboundInputs,
+    containerManifest: !!r.container_machine_manifest_hash,
+    c2pa: ingest.c2pa,
   };
 }

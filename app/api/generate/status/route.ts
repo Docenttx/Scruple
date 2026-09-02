@@ -164,7 +164,8 @@ export async function GET(req: NextRequest) {
   // Success — ingest, write iteration row + artifact, update job row.
   try {
     const workflow = readWorkflowFromDispatchLog(job.dispatch_log_path) ?? {};
-    const { iteration, leafHash, runSequence } = await ingestIteration({
+    const { iteration, leafHash, runSequence, inputHash, unboundInputs, c2pa } =
+      await ingestIteration({
       userId,
       projectId: job.project_id,
       provider: 'comfydeploy',
@@ -176,6 +177,20 @@ export async function GET(req: NextRequest) {
       },
       imageBytes: Buffer.from(result.image_bytes_b64, 'base64'),
       imageContentType: result.content_type ?? 'image/png',
+      // ── WO-27: the ASYNC door dropped exactly what the sync one did ──
+      //
+      // And this is the door that matters most: CanvasBridge.tsx:110 polls
+      // THIS route, so every generation the Studio canvas has ever made came
+      // through here. `output_kind` defaulting to 'image' is what stored a
+      // video/webm under a .png name; `model_fingerprints_hash` was NULL on
+      // every leaf; WO-B1's container manifest — rung one of ingest's trust
+      // ladder — was not even DECLARED on WorkflowStatusDone until now, so
+      // the value was on the wire with nowhere to land.
+      outputKind: result.output_kind,
+      imageFilename: result.output_filename ?? null,
+      modelFingerprints: result.model_fingerprints,
+      containerMachineManifestHash: result.container_machine_manifest_hash ?? null,
+      containerMachineManifest: result.container_machine_manifest ?? null,
       executionBackend: result.attestation ? 'modal-tee' : 'modal-test',
       executionAttestation: result.attestation ?? null,
       // The user's setting at the moment of completion. Stage 1
@@ -201,6 +216,13 @@ export async function GET(req: NextRequest) {
       leafHash,
       runSequence,
       retryCount: job.retry_count,
+      outputKind: result.output_kind ?? 'image',
+      inputHash,
+      unboundInputs,
+      modelFingerprinted: !!result.model_fingerprints
+        && Object.keys(result.model_fingerprints).length > 0,
+      containerManifest: !!result.container_machine_manifest_hash,
+      c2pa,
     });
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);

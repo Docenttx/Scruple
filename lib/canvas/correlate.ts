@@ -36,6 +36,10 @@ import { conn } from '@/lib/db/sqlite';
 import {
   writingNodesOf,
   referencedInputNames,
+  isWritingNodeClass,
+  isInputLoaderClass,
+  EXTRA_WRITING_NODE_CLASSES,
+  EXTRA_INPUT_LOADER_CLASSES,
   type CorrelationMethod,
 } from '../../services/scruple-capture/src/correlation';
 import { mimeForNodeClass, type DeclaredMime } from '../../services/scruple-capture/src/mime';
@@ -116,8 +120,19 @@ export function openPrompt(opts: {
 
 /** The input artifact names a graph refers to. Re-exported so the proxy can
  *  say, on the capture row, that a workflow read inputs the gate never saw —
- *  which is why input_hash is null rather than the hash of `[]`. */
-export { referencedInputNames };
+ *  which is why input_hash is null rather than the hash of `[]`.
+ *
+ *  WO-27 re-exports the two PREDICATES alongside it. They are the component's
+ *  writer/loader tables — data now, not name-shape regexes — and canvas must
+ *  read them from the component rather than hold a second opinion about what
+ *  a `VHS_VideoCombine` is. */
+export {
+  referencedInputNames,
+  isWritingNodeClass,
+  isInputLoaderClass,
+  EXTRA_WRITING_NODE_CLASSES,
+  EXTRA_INPUT_LOADER_CLASSES,
+};
 
 /** WS `executing` — {prompt_id, node}. A null prompt_id is ComfyUI's idle
  *  message and must not clear a live prompt (correlation.ts noteExecuting). */

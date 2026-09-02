@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
           { status: 502 },
         );
       }
-      const { iteration, leafHash, runSequence } = await ingestIteration({
+      const { iteration, leafHash, runSequence, inputHash, unboundInputs, c2pa } = await ingestIteration({
         userId,
         projectId: project.id,
         provider: 'comfydeploy', // stays in the ProviderName union; backend distinction is via execution_backend
@@ -249,6 +249,35 @@ export async function POST(req: NextRequest) {
         },
         imageBytes: modalResult.imageBytes,
         imageContentType: modalResult.contentType,
+        // ── WO-27: STOP DISCARDING WHAT THE RUNNER ALREADY COMPUTED ──
+        //
+        // Every field below was already sitting on `modalResult` and was
+        // simply not named here. Nothing new is computed; three separate
+        // losses close by passing values that had already been paid for:
+        //
+        //   outputKind      — the default is 'image'. The runner said
+        //                     "video" and nobody read it, so extFor() chose
+        //                     the extension from a kind that was wrong and
+        //                     a video/webm landed on the user's Drive as a
+        //                     .png. The stored bytes were always the video;
+        //                     the NAME lied about them.
+        //   modelFingerprints — model_fingerprints_hash was NULL on every
+        //                     leaf this door ever wrote. Four of the five
+        //                     hashes, on the door the canvas UI uses.
+        //   containerMachineManifest{,Hash} — WO-B1's measurement, rung ONE
+        //                     of ingest's own trust ladder, which had zero
+        //                     callers anywhere in the repo. Without it the
+        //                     leaf's machine_manifest_hash is a DB
+        //                     descriptor: what the catalogue CLAIMS the
+        //                     machine is, not what the container HAD.
+        //   imageFilename   — the runner's own filename, which is also the
+        //                     only in-band evidence of the container when
+        //                     the content type is generic.
+        outputKind: modalResult.outputKind,
+        imageFilename: modalResult.outputFilename ?? null,
+        modelFingerprints: modalResult.modelFingerprints,
+        containerMachineManifestHash: modalResult.containerMachineManifestHash ?? null,
+        containerMachineManifest: modalResult.containerMachineManifest ?? null,
         executionBackend: modalResult.attestation ? 'modal-tee' : 'modal-test',
         executionAttestation: modalResult.attestation,
         computeMachineId: activeMachine.machine.id,
@@ -262,6 +291,17 @@ export async function POST(req: NextRequest) {
         backend: 'modal',
         gpu: modalResult.gpu,
         attested: !!modalResult.attestation,
+        // Surfaced rather than merely persisted, for the reason IngestResult
+        // gives about `witnessed`: a response that says nothing about a
+        // declined input_hash lets the client report success identically
+        // whether the run's inputs were bound or unknown.
+        outputKind: modalResult.outputKind ?? 'image',
+        inputHash,
+        unboundInputs,
+        modelFingerprinted: !!modalResult.modelFingerprints
+          && Object.keys(modalResult.modelFingerprints).length > 0,
+        containerManifest: !!modalResult.containerMachineManifestHash,
+        c2pa,
       });
     } catch (e) {
       const detail = e instanceof ModalError ? e.message : e instanceof Error ? e.message : String(e);

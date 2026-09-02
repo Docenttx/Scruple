@@ -176,6 +176,15 @@ export interface WorkflowStatusDone {
       bytes?: number;
       mtime?: number;
     }>;
+    // WO-B1 / WO-27 — the runner has returned both of these since WO-B1
+    // (modal/scruple_runner.py:664-676) and the SYNC result type declared
+    // them, but WorkflowStatusDone did not. So the ASYNC path — the one
+    // CanvasBridge and /api/runs?async=1 actually use — could not pass the
+    // container manifest through even if a caller wanted to, because the
+    // field did not exist to read. Undeclared is how a value that is on the
+    // wire ends up with zero consumers.
+    container_machine_manifest?: Record<string, unknown> | null;
+    container_machine_manifest_hash?: string | null;
     error?: string;
   };
 }
