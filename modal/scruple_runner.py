@@ -178,6 +178,19 @@ def _comfy_running() -> bool:
         return False
 
 
+def _cold_container_manifest():
+    """(manifest, hash) or (None, None). Cached at container lifetime and
+    primed BEFORE ComfyUI boots — see the note in run_workflow. Never
+    raises: a manifest failure must not un-produce the artifact."""
+    try:
+        from container_manifest import cached_container_manifest
+        cm = cached_container_manifest()
+        return cm["manifest"], cm["hash"]
+    except Exception as e:
+        print(f"[scruple_runner] container manifest failed: {e}")
+        return None, None
+
+
 def _start_comfy() -> None:
     """Boot ComfyUI in the background (single process per container).
     Stdout/stderr land in /tmp/comfyui.log so failed custom-node imports
@@ -626,6 +639,14 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
                 ckpt_path = new_files[-1][1]
                 with open(ckpt_path, "rb") as fh:
                     ckpt_bytes = fh.read()
+                # WO-34: the training path returned NO container manifest.
+                # The image path below does, so a trained checkpoint's leaf
+                # fell down to the DB descriptor's claim about the machine
+                # while an image from the same container carried the
+                # container's own measurement. Same defect WO-31 fixed, one
+                # return statement further up, and it is worse here: a model
+                # is the artifact whose toolchain matters most.
+                _cm, _cmh = _cold_container_manifest()
                 return {
                     "ok": True,
                     "image_bytes_b64": base64.b64encode(ckpt_bytes).decode("ascii"),
@@ -637,6 +658,8 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
                     "gpu": RUN_GPU,
                     "attestation": None,
                     "model_fingerprints": model_fingerprints,
+                    "container_machine_manifest": _cm,
+                    "container_machine_manifest_hash": _cmh,
                 }
             # fall through — maybe the workflow also emitted an image
         except Exception as e:
@@ -685,18 +708,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     # git rev-parses each pack, hashes pack contents. Cached at container
     # lifetime. The web-side ingest folds container_machine_manifest_hash
     # into the leaf as the v2.4 first-class machine_manifest_hash field.
-    try:
-        from container_manifest import cached_container_manifest
-        cm = cached_container_manifest()
-        container_manifest = cm["manifest"]
-        container_manifest_hash = cm["hash"]
-    except Exception as e:
-        container_manifest = None
-        container_manifest_hash = None
-        _log = _tail_comfy_log(1)  # keep the log warm
-        del _log
-        # Non-fatal — leaf still records; machine_manifest_hash just stays ''.
-        print(f"[scruple_runner] container manifest failed: {e}")
+    container_manifest, container_manifest_hash = _cold_container_manifest()
 
     return {
         "ok": True,
@@ -1113,6 +1125,31 @@ def list_nodes_cpu(filter_substr: str = "") -> Dict[str, Any]:
         f = filter_substr.lower()
         keys = [k for k in keys if f in k.lower()]
     return {"ok": True, "count": len(keys), "names": keys}
+
+
+@app.function(timeout=600)
+def node_schema_cpu(names: str = "") -> Dict[str, Any]:
+    """Full /object_info entry for one or more comma-separated node classes.
+    CPU only — the schema is registration data, not a computation."""
+    import subprocess, time as _t
+    logf = open("/tmp/comfyui.log", "ab", buffering=0)
+    subprocess.Popen(["python", "main.py", "--cpu", "--listen", "127.0.0.1", "--port", "8188"],
+                     cwd="/opt/ComfyUI", stdout=logf, stderr=subprocess.STDOUT)
+    for _ in range(300):
+        if _comfy_running():
+            break
+        _t.sleep(1)
+    else:
+        return {"ok": False, "error": "comfy_never_started", "log_tail": _tail_comfy_log(30)}
+    info = _get_json("/object_info")
+    want = [n.strip() for n in names.split(",") if n.strip()]
+    return {"ok": True, "schemas": {n: info.get(n, "<<NOT REGISTERED>>") for n in want}}
+
+
+@app.local_entrypoint()
+def schema_cpu(names: str = ""):
+    """Print /object_info for named node classes. CPU only."""
+    print(json.dumps(node_schema_cpu.remote(names), indent=2))
 
 
 @app.local_entrypoint()

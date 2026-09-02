@@ -497,8 +497,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            witnessed, witness_id, witness_timestamp, witness_signature,
            compute_machine_id, machine_manifest_hash, workflow_publication,
            container_machine_manifest,
-           deployment_id, seal_state, seal_ref
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           deployment_id, seal_state, seal_ref,
+           leaf_kind
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -558,6 +559,25 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         // and stamping the last approved seal on it would read as
         // "approved under X" — the one thing that is not true of it.
         seal.seal_ref,
+        // WO-34 — leaf_kind, which THIS door has never written.
+        //
+        // Migration 034 gives the column a DEFAULT of 'workflow' and
+        // ingestIteration never overrode it, so every leaf the product has
+        // ever written says 'workflow' — 103 CAD rows, 5 videos and both
+        // trained checkpoints included. `/api/v2/witness` sets it correctly
+        // (route.ts:529, 'training' for kind=model_write), so the COMPONENT
+        // door could tell a trained model from an image and the PRODUCT door
+        // could not. Studio held to a lower standard than the component it
+        // defines is the STUDIO_IS_AN_EXEMPLAR finding exactly.
+        //
+        // It is not cosmetic. The leaf registry: `kind` "tells a verifier
+        // which document to re-canonicalize" — the ComfyUI graph for a
+        // generation, the training recipe for a model write. A checkpoint
+        // labelled 'workflow' points a verifier at the wrong document.
+        //
+        // Same expression and same vocabulary as the witness route, so the
+        // two doors cannot drift.
+        outputKind === 'checkpoint' ? 'training' : 'workflow',
       );
 
     conn()
