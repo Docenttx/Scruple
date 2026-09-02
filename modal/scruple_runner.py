@@ -142,6 +142,20 @@ comfy_image = (
         # by fetch_to_volume / the seed entrypoint.
         "rm -rf /opt/ComfyUI/models && mkdir /opt/ComfyUI/models",
     )
+    # WO-31: ship container_manifest.py INTO the container.
+    #
+    # Without this the `from container_manifest import cached_container_manifest`
+    # in run_workflow() raises ImportError, the surrounding try/except swallows
+    # it, and container_machine_manifest_hash is returned as None on EVERY run
+    # — so the leaf's machine_manifest_hash silently falls back to the DB
+    # descriptor's *claim* about the machine instead of the container's
+    # *measurement* of itself. That is a provenance downgrade that reports
+    # success, which is the worst shape a failure can take.
+    #
+    # Modal removed automounting of local Python source in 1.0; the module
+    # sits next to this file and has to be added explicitly. Local source is
+    # a final mount layer, so this does not rebuild the image.
+    .add_local_python_source("container_manifest")
 )
 
 app = modal.App("scruple-runner", image=comfy_image)
@@ -445,6 +459,29 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     import traceback
 
     started = time.time()
+
+    # WO-31: measure the toolchain BEFORE ComfyUI boots.
+    #
+    # This used to be computed at the END of the run. ComfyUI-Easy-Use writes
+    # `styles/your_styles.json.example` and `wildcards/example.txt` on first
+    # import, so a post-boot measurement hashes files the APPLICATION created,
+    # not the toolchain the image shipped. Measured cold the pack hashes
+    # 0b63715a…; measured after a boot, a69c2c35… — same image, two answers.
+    #
+    # It was stable in practice only because it was always taken post-boot. It
+    # was not REPRODUCIBLE: an auditor pulling the same image and hashing it
+    # gets the cold value and concludes the machine does not match. And a pack
+    # that wrote a per-run or timestamped file would drift on every single run
+    # while still reporting a confident hash — a measurement that silently
+    # stops measuring anything is worse than no measurement.
+    #
+    # `cached_container_manifest` caches for the container's lifetime, so the
+    # value read after generation below is this cold one.
+    try:
+        from container_manifest import cached_container_manifest as _ccm
+        _ccm()
+    except Exception as _e:
+        print(f"[scruple_runner] cold container manifest failed: {_e}")
 
     try:
         _start_comfy()
@@ -969,6 +1006,101 @@ def inspect_image() -> Dict[str, Any]:
             deps[mod] = f"IMPORT FAILED: {e}"
     out["deps"] = deps
     return out
+
+
+# WO-31 diagnostic — CPU only, no GPU, no model volume. Proves the
+# container manifest actually computes INSIDE the container before any
+# GPU run is paid for. The import here is deliberately NOT wrapped in a
+# try/except: this function exists to make an ImportError loud, which is
+# exactly what run_workflow's except clause has been hiding.
+@app.function(timeout=120)
+def probe_manifest() -> Dict[str, Any]:
+    from container_manifest import cached_container_manifest
+    cm = cached_container_manifest()
+    m = cm["manifest"]
+    packs = m.get("custom_nodes") or m.get("packs") or []
+    return {
+        "ok": True,
+        "hash": cm["hash"],
+        "manifest_keys": sorted(m.keys()),
+        "pack_count": len(packs) if isinstance(packs, list) else None,
+        "packs": packs if isinstance(packs, list) else None,
+    }
+
+
+# WO-31 diagnostic #2 — CPU only. The manifest hash differed between a
+# fresh container and one that had run a workflow, on the SAME image. If
+# the measurement of a machine changes because the machine was used, an
+# auditor cannot recompute it and cannot tell a runtime write from
+# tampering. This snapshots the pack file listing, boots ComfyUI on CPU
+# (registration-time writes happen at import, not during sampling, so no
+# GPU is needed to reproduce it), and returns the exact file-level diff.
+@app.function(timeout=600)
+def probe_manifest_drift() -> Dict[str, Any]:
+    import os, subprocess, hashlib, time as _t
+    from container_manifest import enumerate_custom_nodes
+
+    def listing(root: str) -> Dict[str, str]:
+        out: Dict[str, str] = {}
+        for dp, dn, fns in os.walk(root):
+            dn[:] = sorted(d for d in dn if d not in (".git", "__pycache__", "node_modules"))
+            for fn in sorted(fns):
+                if fn.endswith((".pyc", ".pyo")):
+                    continue
+                full = os.path.join(dp, fn)
+                try:
+                    with open(full, "rb") as fh:
+                        out[os.path.relpath(full, root)] = hashlib.sha256(fh.read()).hexdigest()
+                except Exception as e:
+                    out[os.path.relpath(full, root)] = f"<unreadable:{type(e).__name__}>"
+        return out
+
+    root = "/opt/ComfyUI/custom_nodes"
+    before_packs = enumerate_custom_nodes()
+    before = {p: listing(os.path.join(root, p)) for p in sorted(os.listdir(root)) if os.path.isdir(os.path.join(root, p)) and not p.startswith(".") and p != "__pycache__"}
+
+    # Boot ComfyUI CPU-only; we only need import/registration side effects.
+    logf = open("/tmp/comfyui.log", "ab", buffering=0)
+    subprocess.Popen(["python", "main.py", "--cpu", "--listen", "127.0.0.1", "--port", "8188"],
+                     cwd="/opt/ComfyUI", stdout=logf, stderr=subprocess.STDOUT)
+    booted = False
+    for _ in range(300):
+        if _comfy_running():
+            booted = True
+            break
+        _t.sleep(1)
+
+    after_packs = enumerate_custom_nodes()
+    after = {p: listing(os.path.join(root, p)) for p in before}
+
+    diff: Dict[str, Any] = {}
+    for pack in before:
+        b, a = before[pack], after.get(pack, {})
+        added = sorted(set(a) - set(b))
+        removed = sorted(set(b) - set(a))
+        changed = sorted(k for k in set(a) & set(b) if a[k] != b[k])
+        if added or removed or changed:
+            diff[pack] = {"added": added[:40], "removed": removed[:40], "changed": changed[:40],
+                          "n_added": len(added), "n_removed": len(removed), "n_changed": len(changed)}
+    return {
+        "booted": booted,
+        "before": {p["pack"]: p["contents_hash"] for p in before_packs},
+        "after": {p["pack"]: p["contents_hash"] for p in after_packs},
+        "diff": diff,
+        "log_tail": _tail_comfy_log(15),
+    }
+
+
+@app.local_entrypoint()
+def probe_drift():
+    """Show what booting ComfyUI does to the pack file listing. CPU only."""
+    print(json.dumps(probe_manifest_drift.remote(), indent=2))
+
+
+@app.local_entrypoint()
+def probe_cm():
+    """Verify the in-container machine manifest computes. CPU only."""
+    print(json.dumps(probe_manifest.remote(), indent=2))
 
 
 @app.local_entrypoint()

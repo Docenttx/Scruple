@@ -154,9 +154,14 @@ async function listProjects() {
 
 async function projectCmd([sub, ...rest]) {
   if (sub === 'new') {
+    // `type` must be one of the route's enum: image | video | training | cad
+    // (app/api/projects/route.ts CreateBody). This read 'txt2img' — a
+    // vocabulary that no longer exists — so every `project new` 400'd on
+    // "Invalid body" while looking like a CLI-side argument problem.
+    const type = (rest[0] === '--type' && rest[1]) ? rest.splice(0, 2)[1] : 'image';
     const name = rest.join(' ');
-    if (!name) fail('Usage: scrupel project new "<name>"');
-    const data = await api('POST', '/api/projects', { name, type: 'txt2img' });
+    if (!name) fail('Usage: scrupel project new [--type image|video|training|cad] "<name>"');
+    const data = await api('POST', '/api/projects', { name, type });
     console.log(green('✓ created ') + data.project?.id + grey(` (${data.project?.name})`));
   } else if (sub === 'view') {
     const id = rest[0];
@@ -170,7 +175,7 @@ async function projectCmd([sub, ...rest]) {
     await api('POST', `/api/projects/deactivate`);
     console.log(green('✓ stopped tracking'));
   } else {
-    fail('Usage: scrupel project new <name> | view <id> | activate <id> | deactivate');
+    fail('Usage: scrupel project new [--type <t>] <name> | view <id> | activate <id> | deactivate');
   }
 }
 
