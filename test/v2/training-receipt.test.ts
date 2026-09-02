@@ -775,6 +775,54 @@ describe('source does not contradict the receipt', () => {
     }
   });
 
+  test('WO-35 — the HTTP-delivered payload is the same set the image COPYs', () => {
+    // Option 2 (public GPU base + dockerStartCmd) delivers the component over
+    // HTTP because there is no image to bake it into. Two delivery paths for
+    // one component is two chances to ship different code while claiming the
+    // same placement — so the set lives in ONE module and this asserts the
+    // Dockerfile agrees with it.
+    //
+    // Without this, `Dockerfile.jobapi` and `/api/apps/kohya/component` drift
+    // exactly the way the COPY set drifted from the import closure in the
+    // first place: silently, because nothing ran both.
+    const mod = fs.readFileSync(
+      path.join(process.cwd(), 'lib/apps/kohya/component-files.ts'),
+      'utf8',
+    );
+    const listed = [...mod.matchAll(/'([a-z][^']*\.(?:ts|json)|[a-z][a-z/-]*)'/g)]
+      .map((m) => m[1])
+      .filter((v) => v.includes('/') || v.endsWith('.json'));
+    const dockerfile = fs.readFileSync(
+      path.join(process.cwd(), 'research/scruple-kohya-image/Dockerfile.jobapi'),
+      'utf8',
+    );
+
+    // MUST FIRE — everything the payload ships is also COPYed into the image.
+    for (const entry of listed) {
+      assert.ok(
+        dockerfile.includes(entry),
+        `${entry} is in the HTTP payload but Dockerfile.jobapi does not COPY it. ` +
+          'The two delivery paths would ship different components.',
+      );
+    }
+
+    // MUST *NOT* FIRE — the payload must not widen to whole directories whose
+    // narrowness is the security argument. lib/ratchet/ holds the SERVER-side
+    // ratchet (provisioning.ts, verify.ts, which read the BDK and the
+    // components table); shipping the directory would put the party that
+    // ISSUES identities inside the container that merely HOLDS one.
+    for (const forbidden of ['lib/ratchet', 'lib/leaf', 'lib/scruple']) {
+      assert.ok(
+        !listed.includes(forbidden),
+        `${forbidden} is shipped WHOLE. Named files only — Dockerfile.jobapi ` +
+          'carries the argument and it is a security property, not tidiness.',
+      );
+    }
+    for (const named of ['lib/ratchet/ratchet.ts', 'lib/leaf/hashes.ts', 'lib/scruple/hash.ts']) {
+      assert.ok(listed.includes(named), `${named} must be shipped by name`);
+    }
+  });
+
   test('Dockerfile.jobapi copies every tree the entrypoint imports', () => {
     // WHY A CLOSURE AND NOT A LIST. `Dockerfile.jobapi` copies three trees and
     // says why it copies only three: "an image that carries app/, scripts/ and

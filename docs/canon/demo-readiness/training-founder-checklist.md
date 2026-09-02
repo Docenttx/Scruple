@@ -321,3 +321,50 @@ So the choice is not "Docker or nothing":
 
 **Neither option is founder-gated on a browser.** Option 2 is not gated on
 anything.
+
+---
+
+## WO-35 option 2, BUILT AND PROVEN — and what building it revealed
+
+Option 2 (public GPU base + `dockerStartCmd`, no Docker anywhere) is
+implemented and proven as far as it can be without a production deploy.
+
+**What exists now**
+
+- `lib/apps/kohya/component-files.ts` — the component's file set, ONE list,
+  read by both delivery paths. Two delivery paths for one component is two
+  chances to ship different code while claiming the same placement.
+- `GET /api/apps/kohya/component` — the component as a deterministic tarball,
+  **authenticated** (the pod is handed `SCRUPLE_API_KEY` before it fetches
+  anything, so a public endpoint would be a weaker default for no gain).
+  231,092 bytes, 56 files. Two fetches are byte-identical (`--sort=name`,
+  fixed mtime), so the digest it reports means something.
+- A guard in `training-receipt.test.ts` asserting the payload equals the
+  Dockerfile's COPY set, and — the must-not-fire half — that `lib/ratchet`,
+  `lib/leaf` and `lib/scruple` are never shipped WHOLE. Control-tested:
+  widening `lib/ratchet/ratchet.ts` to `lib/ratchet` fails the suite.
+
+**Proven without a pod.** The served tarball was extracted into a clean
+directory, `npm ci` run, and the component started from that payload alone —
+no repository, no Docker. It provisioned a real H-4 identity
+(`afccb456-…`), reported `placement: server-library`, and answered `/health`
+while `/`, `/jobs` and `/shell` all 404. That is the delivery mechanism
+end-to-end.
+
+**What building it revealed, which is the honest argument for option 1.**
+
+A pod on option 2 must, at boot: fetch a Node runtime, fetch the component,
+`npm ci`, clone `sd-scripts` at the pinned ref, and only then exec. Every one
+of those is a network dependency that can fail at pod start, with **no build
+step that would have caught it**. An image carries its code with it; this
+carries a promise that four fetches will work.
+
+And it makes pod boot depend on **the web app being deployed and reachable**.
+That is not hypothetical: the component route had to be live on
+`scruple.stooges.ai` before any pod could boot at all.
+
+**Still open for option 2:** register the template
+(`rest.runpod.io/v1/templates`, a POST — no browser) with `startSsh: false`,
+`startJupyter: false`, one exposed port `8899`, and boot one pod. Deliberately
+not registered yet: a template pointing at an endpoint is a landmine if the
+endpoint moves, and the founder has not chosen between the two options.
