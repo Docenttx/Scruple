@@ -1,9 +1,12 @@
 # Scruple for 3D design
 
 **Category page.** Source content for the 3D design category page on scruple.ai.
-**Version:** 1.0
-**Date:** 2026-07-30
+**Version:** 1.1
+**Date:** 2026-09-02
 **Owner:** Docent LLC (dba Docent Technologies), publisher of the Scruple product
+
+**Revision note (v1.1, 2026-09-02).** Modality descriptions corrected against
+measurement of the shipping code. See `docs/canon/FILING_CORRECTIONS.md`.
 
 ---
 
@@ -26,7 +29,7 @@ Customers select the output modalities per export — a C2PA content
 credential attached to 2D exports (PDF, JPEG, PNG), a pixel-space
 watermark on rendered images, and/or a public-ledger anchor on the
 export's leaf hash. Modalities are composable and independent; see
-*The Scruple Standard v1.5* §9.
+*The Scruple Standard v1.7* §9.
 
 ## Supported host applications
 
@@ -42,9 +45,9 @@ implements the required attestations at the export/save boundary.
 
 ## Which Scruple modalities are available in the 3D design integrations
 
-- **C2PA content credentials** — attached to 2D exports (PDF, JPG, PNG). Native 3D formats (STEP, IGES, DWG, F3D, etc.) are not currently in the C2PA specification's supported media types; Scruple's C2PA modality applies to the 2D renderings and export bundles.
-- **Watermarking** — imperceptible pixel-space marks on rendered images.
-- **Chain lock (public-ledger anchor)** — every export event's leaf hash may be inscribed on a distributed public ledger for censorship-resistant discoverability.
+- **C2PA content credentials** — attached to 2D exports (PDF, JPG, PNG). Native 3D formats (STEP, IGES, DWG, F3D, etc.) are not currently in the C2PA specification's supported media types; Scruple's C2PA modality applies to the 2D renderings and export bundles. **Availability:** the signing modality is not yet selectable in the shipping product — the Signer CVM is powered down pre-launch and requests return an explicit unavailable response rather than a silent downgrade.
+- **Watermarking** — an imperceptible frequency-domain mark on rendered still images (PNG, JPEG, WebP, TIFF). Measured 2026-09-02: survives re-encoding to roughly JPEG q70 and colour transforms; **lost by any resize, crop, rotation or flip**. It carries a timestamp, not a content hash or chain pointer, and it is unkeyed. Native CAD files have no pixel data and are not watermarkable.
+- **Chain lock (public-ledger anchor)** — every export event's leaf hash may be inscribed on a distributed public ledger. **The shipping chain-lock modality mints on the Ravencoin testnet.** A testnet inscription is a demonstration anchor, not a censorship-resistant production one, and Scruple states which network an anchor is on rather than letting a testnet txid read as a mainnet one.
 - **Local lock** — the default; every event produces a customer-side receipt.
 
 For 3D design outputs where C2PA and pixel-watermarking do not apply
@@ -56,7 +59,7 @@ selected) chain lock.
 ## Hardware witnessing levels
 
 3D design integrations support Levels 1 and 2 of customer hardware
-witnessing per *The Scruple Standard v1.5* §15.3 — self-witnessing
+witnessing per *The Scruple Standard v1.7* §12.3 — self-witnessing
 compute (Level 1, cloud or local) or third-party hardware observer
 (Level 2, cloud or local). Design workstations are typically local;
 customers building on a cloud CAD infrastructure retain the same
@@ -75,5 +78,5 @@ Contact: `scruple@docentechs.com`.
 
 ## Related
 
-- *The Scruple Standard v1.5* — capability register and threat models
+- *The Scruple Standard v1.7* — capability register and threat models
 - *Scruple and C2PA: How they relate* — companion chart

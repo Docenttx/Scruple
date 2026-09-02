@@ -132,6 +132,36 @@ def make_signer(priv: ec.EllipticCurvePrivateKey, cert_chain_pem: str) -> c2pa.S
 
 # ---------- manifest ----------
 
+# Trainer families we know how to name. Anything else is reported verbatim
+# rather than guessed at — an unrecognised trainer must not be dressed up as a
+# recognised one inside a signed assertion.
+_TRAINER_FAMILIES = {
+    "diffusers+peft": "diffusers+peft",
+    "kohya_ss": "kohya-ss",
+    "kohya-ss": "kohya-ss",
+    "comfyui": "comfyui",
+}
+
+
+def _trainer_family(source, kohya_version):
+    """Derive the trainer family from what the DB actually recorded.
+
+    `source` is training_runs.source; `kohya_version` is training_runs.kohya_version,
+    which is non-NULL only for a genuine Kohya run. Never hardcode this: a
+    trainer_family that does not follow the row is an unfalsifiable claim sitting
+    inside a signed C2PA assertion.
+    """
+    src = (source or "").strip()
+    family = _TRAINER_FAMILIES.get(src.lower())
+    if family:
+        if family == "kohya-ss" and not (kohya_version or "").strip():
+            # Claims Kohya but recorded no Kohya version — say what we have and
+            # do not upgrade it to a family claim we cannot support.
+            return src
+        return family
+    return src or "unknown"
+
+
 def build_manifest(db: dict) -> dict:
     """Assemble the C2PA v2 manifest (pre-sign). Deterministic — no timestamps."""
     proj = db["project"]
@@ -157,6 +187,16 @@ def build_manifest(db: dict) -> dict:
     base_model_hash = run["base_model_hash"]
     training_source = run["source"] or "diffusers+peft"
     session_hash = run["session_hash"]
+
+    # `trainer_family` is DERIVED, never asserted. It used to be the literal
+    # "kohya-ss / diffusers+peft", which put "kohya-ss" into a SIGNED assertion
+    # for a run that never went near Kohya: training_runs.source for project 181
+    # is 'diffusers+peft' and training_runs.kohya_version is NULL. The signed
+    # assertion therefore contradicted its own `trainer` field. See
+    # docs/canon/FILING_CORRECTIONS.md item F-02 — the already-signed sidecar is
+    # deliberately left wrong rather than quietly amended; this fixes the source
+    # so any future emission is correct.
+    training_family = _trainer_family(training_source, run["kohya_version"])
 
     input_artifacts = json.loads(it["input_artifacts"] or "{}")
     storage = json.loads(it["storage_pointer"] or "{}")
@@ -196,7 +236,7 @@ def build_manifest(db: dict) -> dict:
     training_data = {
         "training_run": {
             "trainer": training_source,
-            "trainer_family": "kohya-ss / diffusers+peft",
+            "trainer_family": training_family,
             "base_model": {
                 "path": run["base_model_path"],
                 "sha256_hex": base_model_hash,

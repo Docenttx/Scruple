@@ -4,11 +4,47 @@
 **Scruple ID:** `SCR_DB433994`
 **Status:** `persistent_locked` (RVN testnet + IPFS + Arweave, 2026-07-05)
 **Trained artifact:** `stay-puft-cyberpunk-lora-r4.safetensors`
-**Trained artifact SHA-256:** `31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b`
+**Trained artifact SHA-256:** `3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900`
+**Base model:** `sd_xl_base_1.0.safetensors`, SHA-256 `31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b` — the *input*, not the trained artifact
 **RVN txid (raven-testnet):** `32882d63ff67b75c99d4c5fbcc651b5c7d83d862a771f8651b091af22f52b616`
 **Merkle root:** `1404513c398fe04b98a88523b3c1dfac82c1c53c3de7e70eb34d56c49ccfbe97`
 **IPFS CID:** `bafkreiffhfhdepwvumfje75ojztufagx7qwnq6gcdckkhvylpclhanempa`
 **Arweave tx:** `98-2Udb-TMUfCxRI-kYUuatktkHRnAcDB3WduGdmSnI`
+
+## Corrections to earlier revisions of this README (2026-09-02)
+
+Two errors were found in the prose of this file and in the C2PA MCC working-group
+draft that cites it. **Neither is an error in the cryptography** — the signed
+sidecar was and is correct. Both are recorded here rather than silently amended,
+and both are tracked in `docs/canon/FILING_CORRECTIONS.md`.
+
+1. **Wrong hash given as the trained artifact's (FIXED ABOVE).** Revisions before
+   2026-09-02 printed the base model's SHA-256 `31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b`
+   as the trained artifact's, including inside the `sha256sum` step under "How a
+   verifier uses this". A verifier following those instructions got a mismatch.
+   The correct value is `3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900`,
+   which is what the signed sidecar binds. Verified directly against the signed
+   bytes: the raw 32-byte digest in the `c2pa.hash.data` CBOR bstr of
+   `stay-puft-cyberpunk-lora-r4.safetensors.c2pa` is that value; the base model
+   digest appears nowhere as a binding.
+
+2. **The signed manifest names the wrong trainer family. NOT FIXED — it cannot be
+   fixed without re-signing.** `manifest.json:38` and the corresponding CBOR in
+   the signed sidecar carry `"trainer_family": "kohya-ss / diffusers+peft"`. The
+   run was not Kohya. It was a standalone `diffusers+peft` function on Modal
+   (`modal/scruple_trainer.py`, 2026-07-05); `training_runs.source` is
+   `diffusers+peft` and `training_runs.kohya_version` is NULL. The adjacent
+   `training_run.trainer` field — `diffusers+peft` — is correct, so the signed
+   assertion contradicts itself.
+
+   The signed artifact is **left as-is on purpose.** Editing a fact inside signed
+   evidence to match a corrected story is indistinguishable from the tampering
+   this bundle exists to detect. Correcting it requires re-emitting and re-signing
+   the sidecar, which is a founder decision. The emitter has been corrected at
+   source so a future emission is right; see `FILING_CORRECTIONS.md` item F-02.
+
+   Until then, read `trainer_family` in this sidecar as known-wrong and
+   `trainer` as authoritative.
 
 ## Files
 
@@ -38,7 +74,11 @@ SIDECAR=stay-puft-cyberpunk-lora-r4.safetensors.c2pa
 
 # 1. Hash the model file, compare against c2pa.hash.data in the sidecar
 sha256sum "$MODEL"
-# should equal: 31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b
+# should equal: 3141eb757d4dbc6b9ef5eb33cb7c7ab8334b8598fef18a007b515d2722bbe900
+#
+# NOTE: 31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b is the BASE MODEL
+# (sd_xl_base_1.0.safetensors). It appears in the signed manifest only as
+# training_run.base_model.sha256_hex. It is not what this file hashes to.
 
 # 2. Extract c2pa.hash.data.hash from the sidecar's CBOR-in-JUMBF and compare
 #    (see decompose_sidecar() in scripts/puffjuly12/12-emit-lora-sidecar.py)
