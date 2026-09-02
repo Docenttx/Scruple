@@ -1,0 +1,35 @@
+{
+  "iteration_id": 176,
+  "project": {
+    "id": 186,
+    "name": "WO-32 img2vid LTX 2026-09-02"
+  },
+  "run_sequence": 2,
+  "timestamp": "2026-09-02T05:43:29.102Z",
+  "leaf_scheme": "v2.2",
+  "leaf_kind": "workflow",
+  "leaf_hash": "a9d926c47c60f35204101a8d12f23da16dcbbf0afeedb3342b43094fd34b54a4",
+  "previous_hash": "1930869bd82971a626fa5cb9dcc177cc4aac5433179d1dc74cea4f77518044aa",
+  "content_hash": "f3c02a206dae45fb83795c459e3c1b9bbd0f5677380bdcd585a902e0f020b7f0",
+  "input_hash": "953556b5e4817d00a1b315f77538c92959e094f9418c94510765d2bd5b9d3d56",
+  "workflow_hash": "a0f7971d49b2e77f043cdfa535772155347a089eba2570e3f66250391e05e1af",
+  "model_fingerprints_hash": "7adcf172ebb1339b9e3d6b33a74adbfa209984b14ed33a2a64965fa5e0b8864c",
+  "machine_manifest_hash": "8e05951b385dc5f8127f1456c93070e9ccdd649b9d3dea9b2f43d9d0cd814610",
+  "output_kind": "video",
+  "output_content_type": "video/mp4",
+  "output_bytes": 109027,
+  "input_artifacts": [
+    {
+      "kind": "init_image",
+      "hash": "3a2f0adf0fe0f8f3b2ad39d81ceee69a865bd09d1d2695a6990113003c8a09d9",
+      "filename": "puff-input.png",
+      "content_type": "image/png",
+      "bytes": 955110,
+      "storage_pointer": null
+    }
+  ],
+  "execution_backend": "modal-test",
+  "witnessed": true,
+  "witness_id": "wit_c994deef93726fb9",
+  "witness_timestamp": "2026-09-02T05:43:29.098Z"
+}

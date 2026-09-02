@@ -1,0 +1,164 @@
+{
+ "1": {
+  "class_type": "CheckpointLoaderSimple",
+  "inputs": {
+   "ckpt_name": "ltx-video-2b-v0.9.5.safetensors"
+  }
+ },
+ "2": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "puff-input.png"
+  }
+ },
+ "3": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "clip": [
+    "12",
+    0
+   ],
+   "text": "the Stay Puft marshmallow man walks slowly through the desert playa at sunset, cyberpunk neon lights, cinematic camera pan"
+  }
+ },
+ "4": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "clip": [
+    "12",
+    0
+   ],
+   "text": "blurry, low quality, static, still frame"
+  }
+ },
+ "5": {
+  "class_type": "LTXVConditioning",
+  "inputs": {
+   "frame_rate": 24,
+   "negative": [
+    "4",
+    0
+   ],
+   "positive": [
+    "3",
+    0
+   ]
+  }
+ },
+ "6": {
+  "class_type": "LTXVImgToVideo",
+  "inputs": {
+   "batch_size": 1,
+   "height": 512,
+   "image": [
+    "2",
+    0
+   ],
+   "length": 25,
+   "negative": [
+    "5",
+    1
+   ],
+   "positive": [
+    "5",
+    0
+   ],
+   "strength": 0.85,
+   "vae": [
+    "1",
+    2
+   ],
+   "width": 768
+  }
+ },
+ "7": {
+  "class_type": "LTXVScheduler",
+  "inputs": {
+   "base_shift": 0.95,
+   "latent": [
+    "6",
+    2
+   ],
+   "max_shift": 2.05,
+   "steps": 20,
+   "stretch": true,
+   "terminal": 0.1
+  }
+ },
+ "8": {
+  "class_type": "KSamplerSelect",
+  "inputs": {
+   "sampler_name": "euler"
+  }
+ },
+ "9": {
+  "class_type": "SamplerCustom",
+  "inputs": {
+   "add_noise": true,
+   "cfg": 3,
+   "latent_image": [
+    "6",
+    2
+   ],
+   "model": [
+    "1",
+    0
+   ],
+   "negative": [
+    "6",
+    1
+   ],
+   "noise_seed": 26071232,
+   "positive": [
+    "6",
+    0
+   ],
+   "sampler": [
+    "8",
+    0
+   ],
+   "sigmas": [
+    "7",
+    0
+   ]
+  }
+ },
+ "10": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "9",
+    0
+   ],
+   "vae": [
+    "1",
+    2
+   ]
+  }
+ },
+ "11": {
+  "class_type": "VHS_VideoCombine",
+  "inputs": {
+   "images": [
+    "10",
+    0
+   ],
+   "frame_rate": 24,
+   "loop_count": 0,
+   "filename_prefix": "wo32-signed",
+   "format": "video/h264-mp4",
+   "pix_fmt": "yuv420p",
+   "crf": 20,
+   "save_metadata": true,
+   "pingpong": false,
+   "save_output": true
+  }
+ },
+ "12": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "t5xxl_fp16.safetensors",
+   "type": "ltxv"
+  }
+ }
+}

@@ -724,3 +724,60 @@ contacted and no database written.
 - **Key material** — the ES256 private key path
   (`$SCRUPLE_C2PA_KEYS_DIR`, default `/tmp/puffjuly12/keys/c2pa-es256.pem`)
   does not exist on this host, and no copy exists in the repository.
+
+---
+
+## F-04 — The MCC proposal states the wrong SHA-256 for the sidecar too
+
+**Not the same error as F-01.** F-01 is the *model* hash (base model printed as
+the artifact's). This is the *sidecar's own* hash, in the sentence beside it.
+
+`docs/wo/2026-07-12-c2pa-mcc-wg/01-technical-proposal.md:130`:
+
+> For the Project 181 LoRA the sidecar is 16,498 bytes. Sidecar SHA-256 is
+> `0027d50242c8439028ad3e1833882e7603745f8738a59525abf9ba66fb7bd2dd`.
+
+The shipped sidecar hashes to
+`39b5efae880261776bd4b2e526752538c5d6484ce52d5c66041bdbd4996d72ee`. The byte
+count (16,498) is right, so it is the same artifact with a wrong digest printed
+beside it — and the bundle's own `verification-report.json` already records
+`39b5efae…`, so the two documents contradicted each other.
+
+`0027d502…` appears in **exactly one file** in the repository — that sentence.
+It corresponds to nothing shipped.
+
+**Status: DRAFT, never transmitted. FOUNDER-GATED**, one line, alongside F-01's
+three. Same package, same review.
+
+## F-05 — The bundle's own verification instructions could not be followed
+
+Found by WO-36 doing the only thing that finds this: running them literally,
+from a copy, as a reviewer holding nothing else.
+
+| Step | Result |
+|---|---|
+| `cd puffjuly12-29e9a40e1d43` | **The directory does not exist.** It is `bundle-29e9a40e1d43`. A reviewer stops at line one. |
+| 1 — `sha256sum -c MANIFEST.sha256` | **Passes.** All OK. |
+| 2 — c2pa validate `for i in 1 2 3 4 5` | Passes for those five, but the bundle contains `video-1`, `audio-1` and `training-181` and **the loop never reaches them**. The video credential and the LoRA sidecar — the two artifacts the filings are actually about — are not verified by our own instructions. |
+| 3 — witness checkpoint signature | **Passes.** |
+| 4 — "rebuild the Merkle root from leaves and compare" | **No command is given.** The step ends the code block. A reviewer cannot perform it. |
+
+Also: `01-technical-proposal.md` §4 describes the path "an auditor holding only
+`stay-puft-cyberpunk-lora-r4.safetensors` and its sidecar" would follow, and
+says "No access to Scruple servers is required at any step." **The bundle ships
+the sidecar without the model.** `.safetensors` exists nowhere in the
+repository. Step 1 of that path cannot be started with what we shipped.
+
+**What WO-36 did about it.** `scripts/build-demo-bundle.mjs` generates a bundle
+whose README is produced *from the shipped bytes*, so the number in the
+instruction and the file beside it cannot disagree — which is the structural
+form of F-01. The generated bundle ships `verify-c2pa-reader.py` inside itself
+(the old step 2 said `python3 /path/to/scripts/…`, which a reviewer holding
+only the bundle does not have), gives no `cd`, and emits no C2PA steps at all
+for a media type Scruple does not sign, rather than steps that fail.
+
+Verified by copying `docs/provenance-bundles/bundle-iter176/` outside the
+repository and running every command in its README verbatim: manifest OK,
+asset hash equals the leaf's `content_hash`, credential `Valid`, credential's
+`ai.scruple.provenance.leaf_hash` equals `leaf.json`'s `leaf_hash`, and both
+`machine_manifest_hash` and `workflow_hash` re-derive.
