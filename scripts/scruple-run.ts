@@ -74,6 +74,7 @@ async function main() {
         console.log(`  leaf_hash   : ${pd.leafHash}`);
         console.log(`  run_sequence: ${pd.runSequence}`);
         console.log(`  inputs      : ${JSON.stringify(pd.inputHashes)}`);
+        reportProvenance(pd);
         await runLockIfRequested(spec, base, cookie, session);
         return;
       }
@@ -100,8 +101,44 @@ async function main() {
   console.log(`  leaf_hash   : ${data.leafHash}`);
   console.log(`  run_sequence: ${data.runSequence}`);
   console.log(`  inputs      : ${JSON.stringify(data.inputHashes)}`);
+  reportProvenance(data);
 
   await runLockIfRequested(spec, base, cookie, session);
+}
+
+/**
+ * The three provenance facts the run already computes and this CLI used to
+ * throw away.
+ *
+ * signOnIngest returns a STRUCTURED refusal rather than throwing — status
+ * `unsupported_media` with the server's own reason — and /api/runs/status
+ * hands it back intact. It just never reached a human, so a WebM run and a
+ * signed MP4 run looked identical at the terminal: both "captured", one
+ * silently carrying no credential. "Never silent" has to mean printed.
+ *
+ * `containerManifest` distinguishes a machine_manifest_hash the CONTAINER
+ * measured from one the DB descriptor merely claimed, and `unboundInputs`
+ * is the WO-27 decline — the difference between "no inputs" and "inputs we
+ * could not account for".
+ */
+function reportProvenance(d: {
+  containerManifest?: boolean;
+  inputHash?: string | null;
+  unboundInputs?: string[];
+  c2pa?: { status: string; reason: string; outputPath?: string; digitalSourceType?: string; error?: string };
+}): void {
+  console.log(`  input_hash  : ${d.inputHash ?? 'NULL (declined)'}`);
+  if (d.unboundInputs?.length) {
+    console.log(`  UNBOUND     : ${d.unboundInputs.join(', ')} — input_hash declined, not asserted`);
+  }
+  console.log(`  container_manifest: ${d.containerManifest ? 'measured in-container' : 'NO — fell back to the DB descriptor claim'}`);
+  if (d.c2pa) {
+    const mark = d.c2pa.status === 'signed' ? '✓' : d.c2pa.status === 'failed' ? '✗' : '·';
+    console.log(`  c2pa ${mark} ${d.c2pa.status}${d.c2pa.digitalSourceType ? ` (${d.c2pa.digitalSourceType})` : ''}`);
+    console.log(`       ${d.c2pa.reason}`);
+    if (d.c2pa.outputPath) console.log(`       → ${d.c2pa.outputPath}`);
+    if (d.c2pa.error) console.log(`       error: ${d.c2pa.error}`);
+  }
 }
 
 /**

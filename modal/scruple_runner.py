@@ -1091,6 +1091,36 @@ def probe_manifest_drift() -> Dict[str, Any]:
     }
 
 
+# WO-33 — node registration is a CPU question. ComfyUI registers nodes at
+# import; sampling is what needs a GPU. Answering "does this node exist in
+# the image" on a GPU container is paying for an answer that does not need
+# one, and the answer gates whether a flow is even attemptable.
+@app.function(timeout=600)
+def list_nodes_cpu(filter_substr: str = "") -> Dict[str, Any]:
+    import subprocess, time as _t
+    logf = open("/tmp/comfyui.log", "ab", buffering=0)
+    subprocess.Popen(["python", "main.py", "--cpu", "--listen", "127.0.0.1", "--port", "8188"],
+                     cwd="/opt/ComfyUI", stdout=logf, stderr=subprocess.STDOUT)
+    for _ in range(300):
+        if _comfy_running():
+            break
+        _t.sleep(1)
+    else:
+        return {"ok": False, "error": "comfy_never_started", "log_tail": _tail_comfy_log(30)}
+    info = _get_json("/object_info")
+    keys = sorted(info.keys())
+    if filter_substr:
+        f = filter_substr.lower()
+        keys = [k for k in keys if f in k.lower()]
+    return {"ok": True, "count": len(keys), "names": keys}
+
+
+@app.local_entrypoint()
+def nodes_cpu(filter_substr: str = ""):
+    """List registered ComfyUI node classes. CPU only."""
+    print(json.dumps(list_nodes_cpu.remote(filter_substr), indent=2))
+
+
 @app.local_entrypoint()
 def probe_drift():
     """Show what booting ComfyUI does to the pack file listing. CPU only."""
