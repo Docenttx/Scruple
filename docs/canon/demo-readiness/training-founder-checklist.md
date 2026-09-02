@@ -253,3 +253,71 @@ carry it.
 
 The two H-4 §7 probes (port map, PID 1) can only be answered against a running
 container, so they remain open by construction, not by omission.
+
+---
+
+## CORRECTION (2026-09-02, same night) — the Docker blocker was not real
+
+I reported steps 1-2 as founder-gated on `docker build` / `docker push` and a
+browser visit to the RunPod console. **Both halves are wrong**, and the estate
+had already routed around them before this work order existed.
+
+**Nothing here has ever been built with Docker.** A full-filesystem search — `/`,
+`/data`, `/mnt/corpus`, every mount — finds no `docker`, `dockerd`, `podman`,
+`buildah`, `nerdctl`, `containerd` or `skopeo` binary, no socket, no
+`/var/lib/docker`, no systemd unit, no package. There never was one, because
+none was needed.
+
+`research/scruple-kohya-image/README.md` says so in its fourth line, and I did
+not read it before writing the checklist:
+
+> **This directory's `Dockerfile`/`start.sh` build path is superseded.**
+> Production runs `ashleykza/kohya:latest` via a RunPod `dockerStartCmd` that
+> curls `scruple_safetensors_hook.py` from
+> `https://scruple.stooges.ai/pod-hooks/…`
+
+Confirmed against the live account, not the prose. `GET rest.runpod.io/v1/templates`
+returns exactly one template:
+
+| | |
+|---|---|
+| id | `7lxi6lu86v` |
+| imageName | **`ashleykza/kohya:latest`** — public, third-party, never built by us |
+| dockerStartCmd | `bash -c 'curl -fsSL …/pod-hooks/kohya_safetensors_hook.py -o …/sitecustomize.py; exec /start.sh'` |
+| ports | `3001/http, 3010/http, 22/tcp, 8888/http` |
+| startSsh / startJupyter | **true / true** |
+
+**Template registration does not need a browser either.** The REST API answers
+with the key already in `.env.local`, and `lib/apps/backends/runpod-session.ts`
+already POSTs `/v1/pods` against it. A template is a POST.
+
+### What IS true, and it is a design question rather than a blocker
+
+The proven Docker-free pattern — public image + `dockerStartCmd` — is exactly
+the pattern WO-19's job-API image exists to escape. Look at the ports above:
+**`22/tcp` and `8888/http`, SSH and Jupyter, both started.** A tenant on a pod
+from this template has a shell. That is `unattested-client` by definition, and
+it is why Path B reports `witnessed: false`.
+
+So the choice is not "Docker or nothing":
+
+1. **Custom image (what the checklist assumed).** Keeps the whole argument —
+   no GUI, no 7860, no SSH, component as PID 1, only three trees present, and
+   an image digest to pin `build_measurement` to. Needs Docker somewhere: this
+   box, the founder's machine, or a CI runner. Nothing needs a browser.
+2. **Public base + `dockerStartCmd`, no Docker anywhere.** FROM the same
+   `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04` the Dockerfile
+   already names, but as the template's image; the start command installs node,
+   fetches the component, and `exec`s the job API. No Gradio, no 7860, no SSH,
+   one exposed port — `podCreate` already takes `exposedPort` and its comment
+   already says "in 'job-api' mode this is the component's".
+
+   **The cost, stated plainly:** "only these three trees are present" and the
+   pinned `SD_SCRIPTS_REF` stop being properties of an immutable image and
+   become properties of a script fetched at boot. There is no image digest to
+   pin, so `build_measurement` measures what the component can see of itself
+   rather than what was shipped. That is a weaker claim, not a broken one — but
+   it is the founder's call, because it is the certification argument.
+
+**Neither option is founder-gated on a browser.** Option 2 is not gated on
+anything.
