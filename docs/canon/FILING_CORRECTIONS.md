@@ -1,5 +1,41 @@
 # Filing corrections — claims published outside the building that the code does not support
 
+> ## ⚠ FRAMING CORRECTION — founder, 2026-09-02. Read before any item below.
+>
+> **The standard these submissions were written to was DESIGN CONFORMANCE, not
+> "working code in production today."** Neither the C2PA reviewer nor the EU AI
+> Office required proof of a live product available to the public. The question
+> was whether **the design that will be used** meets the requirements.
+>
+> The demonstration was a **surrogate built on the Scruple backbone**, which
+> produced real output — real signed manifests, a real leaf, real anchors — and
+> the documents describe **how that looks embedded in Scruple**, which is the
+> work now in progress.
+>
+> **This document graded those submissions against a live-product standard and
+> was wrong to.** Most items below are weaker than written; several are not
+> defects. Corrected reading:
+>
+> | Item | Survives? |
+> |---|---|
+> | "Every output carries the full marking stack" | **Largely not.** A design statement about the system as demonstrated. Tighten to design tense at follow-up; not a misrepresentation. |
+> | "Witness API returns a C2PA-conformant signed manifest" | **Largely not.** The surrogate demonstrably produced one; the bundle supports it. |
+> | **PDF listed "Shipped"** | **YES — real.** Not design-vs-live: `c2pa-rs` refuses `application/pdf` outright and we shipped `NOT_SUPPORTED.txt` naming it to C2PA two days later. **Two of our own filings contradict each other**, and no framing reconciles that. |
+> | "Scruple Watermark Reference" consumed downstream | **Weak.** Present tense for a designed component. |
+> | Detection results "digitally signed" | **Weak.** Design capability. |
+>
+> **F-12 also survives in full and is the most serious item here.** The staged
+> bundle cites `smoke-watermark.mjs` as evidence of **75% resize survival**.
+> The test resizes to 0.75 **and back to the original**, restoring the DCT block
+> grid — the script's own log says *roundtrip*, and the regulator-facing
+> restatement dropped the word. **A cited test that could not have failed is a
+> methodology error under any standard**, and it is the one item that would not
+> survive a reviewer repeating it.
+>
+> The prose fixes — corrected artifact hash, derived trainer name, Article 50
+> measurements — stand on their own merits and are unaffected.
+
+
 _Opened 2026-09-02 (WO-29). Every item below was verified against the code, the
 signed bytes, or a measurement run on this branch. Nothing was re-signed and no
 signed artifact, manifest or hash file was modified._

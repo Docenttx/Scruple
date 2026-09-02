@@ -53,6 +53,9 @@ export type LeafFieldId =
   | 'leaf_signature_alg'
   | 'signer_surrogate'
   | 'independently_verifiable'
+  | 'master_hash'
+  | 'watermark_payload_hex'
+  | 'ingredient_master_leaf_hash'
   | 'leaf_signer_surrogate'
   | 'content_hash';
 
@@ -294,6 +297,42 @@ export const LEAF_FIELDS: readonly LeafField[] = [
     brief: "Whether an asymmetric signature exists at all. Response-only by design: it is derived from leaf_signature, and a stored copy could disagree with the field it summarises.",
   },
   {
+    id: "master_hash",
+    group: "registry.witness-leaf",
+    type: "string",
+    stability: "development",
+    requirement_level: "conditionally_required",
+    condition: "Required whenever watermark_payload_hex or ingredient_master_leaf_hash is present. 64 lowercase hex.",
+    introduced_in: "v2.5",
+    surfaces: ["submit","record","response","storage"],
+    aliases: {},
+    brief: "sha256 of the CLEAN MASTER bytes this derivative was made from. Distinct from output_hash on the same leaf, which is the derivative's own hash — a derivative leaf is the only leaf that commits to two artifacts.",
+  },
+  {
+    id: "watermark_payload_hex",
+    group: "registry.witness-leaf",
+    type: "string",
+    stability: "development",
+    requirement_level: "conditionally_required",
+    condition: "Required whenever master_hash or ingredient_master_leaf_hash is present. 32 lowercase hex (128 bits), first byte magic 0x5c, version nibble 1. WATERMARK_DESIGN_v1.md §3.",
+    introduced_in: "v2.5",
+    surfaces: ["submit","record","response","storage"],
+    aliases: {},
+    brief: "The payload actually embedded in the derivative's pixels. In the preimage rather than merely stored, so the leaf commits to WHAT the mark says, not only that a mark exists.",
+  },
+  {
+    id: "ingredient_master_leaf_hash",
+    group: "registry.witness-leaf",
+    type: "string",
+    stability: "development",
+    requirement_level: "conditionally_required",
+    condition: "Required whenever master_hash or watermark_payload_hex is present. 64 lowercase hex.",
+    introduced_in: "v2.5",
+    surfaces: ["submit","record","response","storage"],
+    aliases: {},
+    brief: "The MASTER's own leaf_hash. This is the lineage edge, and its direction is the design: the derivative names the master, the master is never rewritten to name the derivative. A verifier checks that this value is a leaf of the same Merkle tree.",
+  },
+  {
     id: "leaf_signer_surrogate",
     group: "registry.witness-leaf.deprecated",
     type: "boolean",
@@ -324,6 +363,7 @@ export const LEAF_SCHEMES: Readonly<Record<string, readonly string[]>> = {
   "v1": [],
   "v2": ["run_sequence","output_hash","input_hash","workflow_hash","model_fingerprints_hash","server_timestamp","prev_record_hash"],
   "v2.2": ["run_sequence","output_hash","input_hash","workflow_hash","model_fingerprints_hash","machine_manifest_hash","server_timestamp","prev_record_hash"],
+  "v2.5": ["run_sequence","output_hash","input_hash","workflow_hash","model_fingerprints_hash","machine_manifest_hash","master_hash","watermark_payload_hex","ingredient_master_leaf_hash","server_timestamp","prev_record_hash"],
 };
 
 /** Source files the drift guard reads for each surface. */
