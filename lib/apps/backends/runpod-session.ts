@@ -90,6 +90,18 @@ async function podCreate(opts: {
   const body = {
     name: opts.name,
     templateId: opts.templateId,
+    // WO-35 — WITHOUT THIS, RUNPOD GIVES YOU A CPU POD.
+    //
+    // REST v1 defaults `computeType` to CPU, and naming `gpuTypeIds` does not
+    // override it: the pod is created, reports `gpuCount: 1`, and comes up with
+    // an empty `machine` record, ~20 vCPU and no accelerator. torch imports
+    // fine and `cuda.is_available()` is False. Measured — a Kohya LoRA ran to
+    // completion on the CPU of a pod we were billing by the hour, at roughly a
+    // hundredth of the speed, with nothing anywhere reporting an error.
+    //
+    // The price is the tell: $0.34/hr for the same request that costs $0.74/hr
+    // with this field present.
+    computeType: 'GPU',
     gpuTypeIds: [opts.gpuTypeId],
     gpuCount: 1,
     interruptible: opts.interruptible,

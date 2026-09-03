@@ -98,6 +98,21 @@ export class JobPlacementRefusal extends Error {
   }
 }
 
+/** WO-35 — what an operator can learn about a job without a shell. */
+export const JOB_TAIL_LINES = 40;
+
+export interface JobRecord {
+  jobId: string;
+  specHash: string;
+  state: 'running' | 'exited' | 'failed';
+  startedAt: string;
+  endedAt: string | null;
+  exitCode: number | null;
+  signal: string | null;
+  /** Last JOB_TAIL_LINES lines of the trainer's own stdout/stderr. */
+  tail: string[];
+}
+
 /** A spawn we can substitute in tests. The signature is deliberately narrower
  *  than child_process.spawn's: there is no `shell` option to pass, because
  *  there is no shell. */
@@ -131,6 +146,9 @@ export interface StartedJob {
 export class StudioJobRunner {
   readonly assurance: StudioKohyaAssurance;
   private readonly log: (line: string) => void;
+  /** WO-35 — bounded, in-memory. Lost on restart, which is correct: this is
+   *  operational state, not evidence. Evidence is the leaf. */
+  private readonly jobs = new Map<string, JobRecord>();
   private readonly spawnFn: SpawnFn;
   private readonly watch: CheckpointWatchSurface;
   private run: KohyaRunContext | null = null;
@@ -154,7 +172,19 @@ export class StudioJobRunner {
           // whole point — see argv.ts on PYTHONPATH / sitecustomize.
           env: o.env as unknown as NodeJS.ProcessEnv,
           shell: false,
-          stdio: 'inherit',
+          // WO-35 — was `'inherit'`, which sent the trainer's output to the
+          // container log and nowhere a caller could reach. RunPod's REST v1
+          // has no log endpoint and this component deliberately has no shell,
+          // so a job that failed had NO diagnosis path at all: the operator
+          // saw a 202, then silence, and could not distinguish "still loading
+          // a 7.7GB checkpoint" from "died on the first import".
+          //
+          // "No shell" is the right answer for the TENANT. It was never meant
+          // to mean the OPERATOR cannot be told why their training failed.
+          // `progress-stream` is already one of the exposed surfaces the
+          // placement declares, so reporting job state does not widen the
+          // claim — it fills in a surface that was declared and absent.
+          stdio: ['ignore', 'pipe', 'pipe'],
         }));
     this.watch = new CheckpointWatchSurface({
       volume: opts.roots.outputRoot,
@@ -316,7 +346,68 @@ export class StudioJobRunner {
     );
 
     const child = this.spawnFn(plan.bin, plan.argv, { cwd: plan.cwd, env: plan.env });
-    return { jobId, plan, child, specHash: jobSpecHash(spec) };
+
+    // WO-35 — job state, so a 202 is not the last thing an operator hears.
+    // A bounded tail: enough to name a failure, never a log service.
+    const rec: JobRecord = {
+      jobId,
+      specHash: jobSpecHash(spec),
+      state: 'running',
+      startedAt: new Date().toISOString(),
+      endedAt: null,
+      exitCode: null,
+      signal: null,
+      tail: [],
+    };
+    this.jobs.set(jobId, rec);
+    const keep = (chunk: unknown): void => {
+      for (const line of String(chunk).split('\n')) {
+        const t = line.trimEnd();
+        if (!t) continue;
+        rec.tail.push(t.slice(0, 400));
+        if (rec.tail.length > JOB_TAIL_LINES) rec.tail.shift();
+      }
+    };
+    // EVERY hook here is optional, because `SpawnFn`'s signature is
+    // "deliberately narrower than child_process.spawn's" and a substituted
+    // spawn is entitled to return the narrow thing. Assuming a real
+    // ChildProcess broke two suites the first time this was written — which
+    // is the tests doing exactly what they are for.
+    type Streamish = { on?: (e: string, f: (c: unknown) => void) => void } | null | undefined;
+    const c = child as unknown as {
+      stdout?: Streamish;
+      stderr?: Streamish;
+      on?: (e: string, f: (...a: never[]) => void) => void;
+    };
+    c.stdout?.on?.('data', keep);
+    c.stderr?.on?.('data', keep);
+    c.on?.('exit', ((code: number | null, signal: string | null) => {
+      rec.state = code === 0 ? 'exited' : 'failed';
+      rec.exitCode = code;
+      rec.signal = signal;
+      rec.endedAt = new Date().toISOString();
+      this.log(`job ${jobId} ${rec.state} code=${code} signal=${signal}`);
+    }) as never);
+
+    return { jobId, plan, child, specHash: rec.specHash };
+  }
+
+  /**
+   * Operator-facing job state. NOT a log service and not a tenant surface for
+   * reading the filesystem: a fixed set of fields and a bounded tail of the
+   * trainer's own output.
+   *
+   * `witnessed` is deliberately absent here. Whether a checkpoint became a
+   * leaf is the watcher's answer, not the runner's, and conflating "the
+   * trainer exited 0" with "a leaf exists" is the exact substitution this
+   * estate keeps finding.
+   */
+  jobStatus(jobId: string): JobRecord | null {
+    return this.jobs.get(jobId) ?? null;
+  }
+
+  listJobs(): JobRecord[] {
+    return [...this.jobs.values()];
   }
 
   /** Wait for every in-flight capture to settle. */

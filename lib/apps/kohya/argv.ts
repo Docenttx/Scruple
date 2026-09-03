@@ -208,7 +208,29 @@ export function buildTrainerArgv(
   };
 
   return {
-    bin: '/usr/bin/python3',
+    // WO-35 — configurable, though NOT for the reason first written here.
+    //
+    // A first pass claimed the hard-coded `/usr/bin/python3` was why a real
+    // training run reported `device: cpu`, on the theory that CUDA torch lives
+    // in a conda interpreter on ML images. THE EVIDENCE DISPROVED THAT. The
+    // boot report from the pod says `/usr/bin/python3` is the ONLY interpreter
+    // present and it has torch 2.4.1+cu124 — a CUDA build. `cuda.is_available()`
+    // was False because the POD HAD NO GPU: the create call omitted
+    // `computeType: "GPU"`, RunPod's REST v1 defaults to a CPU pod, and it came
+    // up at $0.34/hr with 20 vCPU and an empty `machine` record. With that one
+    // field added the same interpreter trained 40 steps at 3.9 it/s on a 4090.
+    //
+    // The lesson is kept because it cost a diagnosis: the interpreter and the
+    // accelerator are two different questions, and `device: cpu` answers the
+    // second one, not the first.
+    //
+    // It stays configurable anyway — an image that DOES put torch in a venv is
+    // ordinary, and hard-coding an absolute interpreter makes that image
+    // unusable. Absolute by default, because an interpreter resolved off PATH
+    // is something a tenant's environment could influence and this argv is a
+    // security boundary. `SCRUPLE_KOHYA_PYTHON` is an OPERATOR variable, read
+    // from the component's own environment and never from a job spec.
+    bin: process.env.SCRUPLE_KOHYA_PYTHON?.trim() || '/usr/bin/python3',
     argv,
     cwd: '/opt/kohya',
     env,

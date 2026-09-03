@@ -33,6 +33,7 @@
 // child. See job-runner.ts on why that is an obligation and not a detail.
 
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
@@ -128,8 +129,36 @@ async function main(): Promise<void> {
     };
 
     void (async () => {
+      // WO-35 — boot diagnostics, surfaced on the one endpoint that exists.
+      //
+      // The boot script runs before this process does, so when IT fails there
+      // is nothing listening and nothing to ask. That happened: a fail-closed
+      // interpreter check exited non-zero, the container came up with no API,
+      // and the only signal available anywhere was a 404. Fail-closed was
+      // right; failing INVISIBLY was not.
+      //
+      // The contract is one file: the boot script may write
+      // `$SCRUPLE_CAPTURE_STATE_DIR/boot.json`, and whatever is in it is
+      // echoed here verbatim under `boot`. The component does not interpret
+      // it and does not vouch for it — it is the environment describing
+      // itself, reported rather than trusted.
       if (req.method === 'GET' && req.url === '/health') {
         return send(200, {
+          // Unparseable or absent is reported as such rather than omitted:
+          // "no boot report" and "a boot report we could not read" are
+          // different facts about the container.
+          boot: (() => {
+            try {
+              const f = path.join(
+                process.env.SCRUPLE_CAPTURE_STATE_DIR ?? '/var/lib/scruple-capture',
+                'boot.json',
+              );
+              if (!fs.existsSync(f)) return null;
+              return JSON.parse(fs.readFileSync(f, 'utf8')) as unknown;
+            } catch (e) {
+              return { unreadable: e instanceof Error ? e.message : String(e) };
+            }
+          })(),
           ok: true,
           component_id: identity.componentId,
           counter: identity.counter,
@@ -141,10 +170,39 @@ async function main(): Promise<void> {
         });
       }
 
+      // WO-35 — operator-facing job state.
+      //
+      // Until this existed a caller got a 202 and then silence: the trainer's
+      // output went to the container log via stdio:'inherit', RunPod's REST v1
+      // has no log endpoint, and this component deliberately has no shell. A
+      // failed job was indistinguishable from a slow one, which is how the
+      // first real training run on real hardware ended.
+      //
+      // "No file browser, no log tail, no exec, no static root" still holds —
+      // this is not any of those. It is a fixed set of fields about jobs THIS
+      // process started, plus a bounded tail of the trainer's own output.
+      // `progress-stream` is already one of the exposed surfaces the placement
+      // declares; this fills in a declared surface rather than adding one.
+      if (req.method === 'GET' && req.url === '/jobs') {
+        return send(200, { jobs: runner.listJobs() });
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/jobs/')) {
+        const id = req.url.slice('/jobs/'.length);
+        const rec = runner.jobStatus(id);
+        if (!rec) return send(404, { error: 'no such job in this process' });
+        // Deliberately NOT reporting `witnessed` here. Whether a checkpoint
+        // became a leaf is the watcher's answer; "the trainer exited 0" is
+        // not "a leaf exists", and merging them is the substitution this
+        // estate keeps finding in other people's code.
+        return send(200, rec);
+      }
+
       if (req.method !== 'POST' || req.url !== '/jobs') {
         // No file browser, no log tail, no exec, no static root. The absence
         // is the product.
-        return send(404, { error: 'the only endpoints are POST /jobs and GET /health' });
+        return send(404, {
+          error: 'the only endpoints are POST /jobs, GET /jobs, GET /jobs/<id> and GET /health',
+        });
       }
 
       let parsed: unknown;
