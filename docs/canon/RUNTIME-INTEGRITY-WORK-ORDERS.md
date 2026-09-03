@@ -1,230 +1,228 @@
-# Runtime integrity work orders — WO-40…WO-53
+# Runtime integrity work orders — tiered
 
-_2026-09-03. Source: eight council reviews of the generation runtime
-(`review-eval/ground-truth/`, ten files, Modal → witness), plus the host survey
-that produced `SERVER_ARCHITECTURE.md`._
+_2026-09-03, re-cut. Source: eleven council reviews of the generation runtime
+(`review-eval/`), plus the host survey behind `SERVER_ARCHITECTURE.md`._
 
-## Status of the evidence, stated first
+## The framing that decides the ranking
 
-**Four findings I verified myself against the live code.** They are marked
-**VERIFIED**. Everything else is marked **LEAD** — reported by a council,
-plausible on inspection, and *not yet confirmed by running anything*. A lead is
-a hypothesis with a file and line number, not a defect.
+Studio is **not a product with users**. It is the worked example vendors copy.
+`STUDIO_IS_AN_EXEMPLAR.md`, founder direction:
 
-The estate's own rule applies to this document: **verify by side effect, not by
-report.** No WO below is closed by reading the code and agreeing with it.
+> **It must be perfect *as an example*.** … Not *most capable*. **Most faithful.**
 
-A second review round with tighter prompting is in flight; expect this list to
-gain items and lose some.
+That does not soften this list — it inverts it. Anything whose trigger is load,
+concurrency or scale stops mattering, because there is no load. Anything a
+vendor would **copy**, or an auditor would **recompute**, matters more, because
+a product's defect is contained and a blueprint's defect propagates. We are the
+party auditing vendors against a floor; our reference implementation has to meet
+it.
 
-## The pattern underneath almost all of it
+Two things survive regardless of users: infrastructure that is reachable from
+the internet, and secrets. Attackers are not users.
 
-One sentence, because it is the same defect fourteen times:
+## Evidence status
 
-> **A measurement fails, the failure is caught, the run continues, and the leaf
-> records a weaker claim while the caller is told `ok`.**
-
-WO-27 already settled this for `input_hash` — *bind it, or decline; never
-assert an empty set.* That rule was written once and applied in one place. Most
-of what follows is the same rule applied where it was not.
-
-This matters against the L2 floor specifically. H-5 — two-tier assurance,
-implemented — says a record **declares what actually backed it**. A leaf that
-substitutes a database descriptor for a container measurement, or an empty
-fingerprint set for a failed read, is a record that does not.
+**VERIFIED** = I confirmed it against the live code or a live endpoint.
+**LEAD** = file, line, plausible argument, confirmed by nothing that ran.
+No WO here closes by reading it and agreeing.
 
 ---
 
-## Group A — the append-only log. Nothing here may corrupt evidence.
+# TIER 1 — do first. Live infrastructure, not user-facing risk.
 
-### WO-40 · `run_sequence` is allocated outside the transaction — **VERIFIED**
+### WO-60 · The Modal GPU endpoint has no authentication — **VERIFIED LIVE**
 
-`lib/iterations/ingest.ts:400`. `SELECT COALESCE(MAX(run_sequence),0)+1` with no
-lock, and the comment says the risk is handled: *"a uniqueness violation would
-surface as an INSERT failure below."* It would — but the witness call is line
-444 and the transaction is line 485. The `UNIQUE(project_id, run_sequence)`
-constraint fires **after the leaf is already signed and on the witness**.
+`modal/scruple_runner.py:733`. All six `admin-*` siblings take `x_admin_token`
+and call `_check_admin`. `web_run` takes neither. Probed with no credentials:
 
-Two concurrent runs in one project therefore leave an **orphan leaf on an
-append-only log**: a signed record whose `run_sequence` no row holds, duplicating
-a sequence number, and unretractable by construction.
+```
+POST https://aquanomous--run.modal.run  {}
+-> HTTP 200  {"ok":false,"error":"workflow_api_json (object) required"}
+```
 
-**Green means:** two ingests racing on one project produce either two correct
-sequential leaves or one leaf and one clean refusal — never a witnessed leaf
-with no row. Proved with a concurrency harness, not by reading.
+That is the application's own validation error, reached unauthenticated. A
+well-formed body executes an arbitrary ComfyUI graph on our GPU, at our cost,
+in a container that mounts the models volume — and custom nodes are a
+code-execution surface. The URL is a predictable Modal pattern derived from the
+workspace name; obscurity is not a control.
 
-**Watch for:** the fix must reserve the sequence *before* the witness call, or
-move the witness call inside the claim. Do not simply wrap the existing order in
-a transaction — the witness call is remote and must not hold a write lock.
+**Green means:** the endpoint refuses an unauthenticated POST, and a run driven
+through `/api/runs` still succeeds. Both halves, because a token check that also
+breaks the product is not a fix.
 
-### WO-41 · `pollRunJob` is not idempotent — **LEAD**
+### WO-61 · `localPath` reads any file on the host — **VERIFIED**
 
-`lib/runs/execute.ts:241`. Read-then-act with no atomic claim: two overlapping
-polls can both see `running`, both fetch the finished Modal result, and both
-ingest — two rows, two sequence numbers, two leaves, one GPU execution.
+`lib/runs/inputs.ts:65`. The comment says *"Guard against path traversal
+surprises"*; the guard is `path.resolve()`, which normalises and does not
+confine. No root, no allowlist. Confirmed by calling `resolveInput` directly:
+it read `/etc/hostname`.
 
-**Green means:** N concurrent polls of one finished job produce exactly one
-iteration. **Watch for:** a stale `ingesting` lease must be reclaimable, or a
-crashed ingest wedges the job forever.
+It composes into an exfiltration primitive rather than a mere read: the bytes
+are hashed, stored content-addressed, and become retrievable through
+`/api/artifact/<hash>`. `.env.local` holds `AUTH_SECRET`, the Modal tokens,
+Stripe keys and the BDK.
 
----
-
-## Group B — measurement honesty. Generalise WO-27's rule.
-
-### WO-42 · A failed measurement must decline, not substitute — **VERIFIED (partly)**
-
-Two sites, one rule.
-
-- **Container manifest.** Fixed this morning for the *missing import* case
-  (`97af9e4`, `0a9e9b0`), and the fix is incomplete: the `except` still turns a
-  measurement failure into `None`, and ingest still walks its ladder down to the
-  database descriptor's *claim* about the machine. A run whose measurement threw
-  is indistinguishable from one whose machine was described.
-- **Model fingerprints.** `scruple_runner.py:328` drops individual unreadable
-  files silently; the outer handler at :451 collapses everything to `{}`. Ingest
-  then sets `model_fingerprints_hash = null`, recording **"no models were
-  loaded"** for a run that loaded models it could not read.
-
-**Green means:** a distinct, recorded state for *measurement failed* that no
-leaf can present as *measured*, at both sites. `container_machine_manifest_error`
-and `model_fingerprints_error` sentinels, with ingest refusing to substitute.
-
-**Watch for:** the honest states are three, not two — measured, genuinely empty,
-and could-not-determine. Collapsing the last two is the original defect.
-
-### WO-43 · Callers cannot see a degraded run — **LEAD**
-
-`lib/runs/execute.ts:105` and `:305`. `ExecuteRunResult` and `RunJobStatus` drop
-`witnessed`, `leafScheme`, `seal` and `storagePointer`, so a run that fell back
-to `leafScheme v1`, `witnessed: false`, `seal.state: 'unchecked'` and no cloud
-storage returns `ok: true` and looks identical to one that did everything.
-
-**Green means:** those four fields reach the caller and the CLI prints them —
-the same fix as this morning's `reportProvenance`, extended. **Keep `ok: true`**:
-the run did happen. What changes is that its qualifications are visible.
+**Green means:** a confinement root, `localPath` outside it refused, and the
+false comment deleted rather than reworded. **Watch for:** this is a dev-run
+affordance — confine it, do not remove it, or the CC pipeline loses its input
+path.
 
 ---
 
-## Group C — reproducibility. An outsider must recompute and agree.
+# TIER 2 — blueprint fidelity. What a vendor copies and an auditor recomputes.
 
-### WO-44 · `input_hash` is hashed with raw `JSON.stringify` — **LEAD, high value**
+## 2A — Measurement honesty. Generalise WO-27's rule.
 
-`lib/leaf/hashes.ts:76`. `hashRunInputs` serialises the whole `spec` — which
-contains `workflowApiJson` — uncanonicalized. V8 orders integer-like keys
-ascending while Python preserves insertion order, and Python escapes non-ASCII
-by default while V8 emits UTF-8. A verifier re-hashing the stored graph in the
-other language gets a different answer, **which is indistinguishable from
-tampering** — the exact failure `CANONICALIZATION.md` exists to prevent, in a
-formula that document explicitly left alone.
+WO-27 settled this once for `input_hash`: **bind it, or decline; never assert an
+empty set.** It was applied in exactly one place. Against the L2 floor this is
+**H-5** — two-tier assurance, the one item marked *implemented*: a record
+declares what actually backed it.
 
-**Green means:** either the preimage is canonicalized under `jcs-1`, or the exact
-bytes hashed are persisted so a verifier re-hashes them rather than
-re-serialising. Cross-language vectors, both languages, in the vector file.
+### WO-62 · `machine_manifest_hash` conflates THREE documents — **VERIFIED, upgraded**
 
-**Watch for:** changing the formula changes every existing `input_hash`. This is
-a **scheme bump** and needs a `canonicalization_profile` entry — migration 049
-already gives rows somewhere to say which rule made them.
+Sharper than my first cut, which said two. The column holds, indistinguishably:
+the container's own measurement; a caller-supplied hash; and **"whichever
+machine row this user created most recently"**. Nothing on the row records which.
 
-### WO-45 · Output selection depends on node completion order — **LEAD**
+My fix this morning (`97af9e4`) is **incomplete** — the `except` still degrades
+silently to the descriptor.
 
-`scruple_runner.py:624` iterates `outputs.values()` in ComfyUI's insertion
-order, which reflects *which node finished first*. A graph with a `SaveImage`
-and a `PreviewImage` can bind a different artifact on two identical runs.
+**Green means:** an evidence-source recorded beside the hash, and three honest
+states — measured / genuinely absent / could-not-determine. Collapsing the last
+two is the original defect.
 
-**Green means:** sort by node id, with a stated tie-break (terminal save over
-preview; video container over `.gif`). Two runs of one graph select the same file.
+### WO-63 · Model fingerprinting reports failure as "no models" — **LEAD**
 
-### WO-46 · The manifest digest folds a transient error string — **VERIFIED**
+`scruple_runner.py:328` drops unreadable files silently; `:451` collapses
+everything to `{}`; ingest turns that into `model_fingerprints_hash = null`,
+which is the representation for *we enumerated and there were none*.
 
-`container_manifest.py:84`. The comment says folding the error in *"keeps the
-hash deterministic."* It does the opposite: a momentarily unreadable file makes
-an unchanged container measure differently, and the entry also omits the size
-column. **Collect unreadable paths into an `unreadable` list and mark the
-manifest incomplete** — do not put them in the preimage.
+### WO-64 · `witnessed = 1` on any non-null witness response — **LEAD, new**
 
-### WO-47 · Input binding compares bare filenames — **LEAD**
+Set even when the response carries no signature and no leaf hash. A leaf can
+therefore claim it was witnessed on the strength of an HTTP 200 with `{}`. This
+is H-5 violated in the field it is named after.
 
-`ingest.ts:251` matches on `basenameOf`, so `dataset_a/frame.png` satisfies a
-reference to `dataset_b/frame.png` and the leaf makes an affirmative claim over
+### WO-65 · Degraded runs are invisible to callers — **LEAD**
+
+`witnessed`, `leafScheme`, `seal`, `storagePointer` are computed, documented as
+things callers must surface, and dropped by both doors. Keep `ok: true` — the
+run happened; make its qualifications visible.
+
+## 2B — Reproducibility. An outsider must recompute and agree.
+
+### WO-66 · `input_hash` is raw `JSON.stringify` over the graph — **LEAD, highest value**
+
+`lib/leaf/hashes.ts:76`. V8 orders integer-like keys ascending, Python preserves
+insertion order; Python escapes non-ASCII by default, V8 emits UTF-8. A verifier
+in the other language gets a mismatch, **which reads as tampering**.
+
+**This is load-bearing on Priority 1.** The demo artifact is Studio output.
+`bundle-iter176`'s instructions ask a reviewer to recompute `machine_manifest_hash`
+and `workflow_hash` — **not `input_hash`** — so the bundle survives by omission,
+and a serious auditor will not confine themselves to the steps we hand them.
+
+**Watch for:** scheme bump. Migration 049 already gives a row somewhere to say
+which rule made it. Pair with WO-67 and WO-69 in one bump.
+
+### WO-67 · `mtime` is inside `model_fingerprints_hash` — **VERIFIED**
+
+`scruple_runner.py:312`. Filesystem metadata, not a property of the bytes. One
+of the five headline hashes is not recomputable by anyone who holds the model.
+`hashes.ts:49` notes mtime but frames it as float *formatting*; re-record it
+under reproducibility, which is the larger claim.
+
+### WO-68 · The manifest digest folds a transient error string — **VERIFIED**
+
+`container_manifest.py:84`, under a comment claiming it *"keeps the hash
+deterministic."* It does the opposite. Collect unreadable paths into an
+`unreadable` list; mark the manifest incomplete; keep them out of the preimage.
+
+### WO-69 · The stored manifest is not the bytes that were hashed — **LEAD, new**
+
+What is persisted is Node's `JSON.stringify` of a `JSON.parse` round-trip of the
+runner's object; the hash was computed over Python's `json.dumps`. They agree
+only for documents with no floats and no non-ASCII — which is why my
+verification of iteration 174 round-tripped cleanly and proved less than I
+thought. Same family: the Python side is not RFC 8785.
+
+### WO-70 · Output selection depends on node completion order — **LEAD**
+
+`scruple_runner.py:624` iterates `outputs.values()`. A graph with a `SaveImage`
+and a `PreviewImage` can bind a different artifact on two identical runs. Sort
+by node id with a stated tie-break.
+
+### WO-71 · Input binding compares bare filenames — **LEAD**
+
+`ingest.ts:251` matches on `basenameOf`, so `train/init.png` satisfies a
+reference to `clipspace/init.png` and the leaf makes an affirmative claim over
 bytes the graph never read. Compounded by `scruple_runner.py:530`: the input
-directory is never cleared, so a warm container can serve a previous run's file.
+directory is never cleared between runs on a warm container.
 
-**Green means:** full normalised relative-path comparison, duplicate
-destinations refused before dispatch, and per-run input isolation. **Watch for:**
-this is a decline case — an unresolvable reference must decline `input_hash`,
-which is WO-27's machinery already present.
+### WO-72 · `projectName` is mutable, unpersisted, and witnessed — **LEAD, new**
 
----
+Sent to the witness on every leaf. Rename a project and historical leaves no
+longer verify.
 
-## Group D — do not lose paid work; do not mint weak leaves.
+### WO-73 · The v1 fallback leaf has no domain separation — **LEAD, new**
 
-### WO-48 · A transient 502 becomes a permanent failure — **LEAD**
+When the witness is unreachable, the fallback sets `leaf_hash = output_hash`.
+Two iterations with identical output bytes then carry identical leaf hashes and
+the chain is ambiguous.
 
-`lib/compute/modal.ts:182`. Any non-ok status from the poll endpoint returns
-`failed`, and `pollRunJob` writes that to the row. A finished GPU run with a
-real artifact is abandoned because the *status channel* hiccuped.
+## 2C — Patterns a vendor would copy
 
-**Green means:** a non-terminal `unknown` state that leaves the row alone.
+### WO-74 · `run_sequence` allocated outside the transaction — **VERIFIED**
 
-### WO-49 · Workflow recovery failure mints a weakened leaf — **LEAD**
+`ingest.ts:400`. `MAX+1` with no lock; the comment leans on
+`UNIQUE(project_id, run_sequence)`, but the witness call is line 444 and the
+transaction is 485, so the constraint fires **after the leaf is signed**. The
+race needs concurrency and Studio has none — **it stays Tier 2 because
+witness-before-insert with an unlocked counter is the pattern that gets copied**,
+and because the failure it produces is an unretractable orphan on an
+append-only log.
 
-`execute.ts:285`. A parse failure on `generation_jobs.run_workflow` falls back to
-`null`, which makes `referencedInputs` empty, bypasses the decline branch, and
-signs an affirmative *"no inputs"* claim with `workflow_hash` null. **Fail the
-job.** A corrupt row must not produce a leaf.
+### WO-75 · Fingerprint cache keyed on filesystem metadata — **LEAD, new**
 
----
+`(path, mtime_ns, size)`. A model modified and `os.utime`'d back evades
+re-fingerprinting on a warm container. A vendor copying this inherits a
+swap-detection hole.
 
-## Group E — decisions, not patches.
+### WO-76 · A corrupt job row mints a weakened leaf — **LEAD**
 
-### WO-50 · `mtime` is inside `model_fingerprints_hash` — **VERIFIED, deferred**
-
-`scruple_runner.py:312` puts `st.st_mtime` in the dict; `hashes.ts:121` hashes it
-verbatim. Identical model bytes with a different mtime give a different hash, so
-one of the five headline hashes **cannot be recomputed by anyone outside this
-box**. `hashes.ts:49` already notes mtime — but frames it as float *formatting*,
-deferred as a scheme bump. **Re-record it under reproducibility**, which is the
-larger claim, and fold it into the same bump as WO-44.
-
-### WO-51 · Staged inputs — **custody decision before code**
-
-Storing resolved input bytes durably at spawn (so a poll re-resolves nothing) is
-right for provenance and is **a custody change**: `CUSTODY_LOCUS.md` makes where
-files rest at rest the thing that decides the threat model. Route through the
-custody argument, not straight to an implementation.
-
-### WO-52 · The optimizations — **gated on WO-41**
-
-Four, all one waste: multi-gigabyte artifacts base64'd and held whole in memory
-on both sides, transferred once per *poll* rather than once per run. Fixing
-WO-41 removes most of it for free. A streaming/tee variant must preserve
-as-delivered fidelity — we hash the bytes we deliver.
-
-**Two proposed optimizations were correctly refused** and should stay refused:
-a checkpoint-hash sidecar (volume integrity), and computing the container
-manifest at **build time** — which would replace a runtime measurement with a
-build-time declaration, the `content` versus `declared` distinction the seal
-manifest is built on.
+`execute.ts:285` swallows a parse failure on `run_workflow` and falls back to
+`null`, which empties `referencedInputs`, bypasses the decline branch, and signs
+an affirmative *"no inputs"* claim. Fail the job.
 
 ---
 
-## Group F — host hygiene, from `SERVER_ARCHITECTURE.md`
+# TIER 3 — parked while Studio has no users. Revisit if it takes traffic.
 
-### WO-53 · Four items, all small
+Correct, and triggered only by load, concurrency or scale:
 
-1. **`/opt/scruple-witness/arweave-key.json` is world-readable (0644)** while
-   every other secret on the box is 0600. Fix first; it is one `chmod`.
-2. **`/data` is at 93%** (11G free). Artifacts are content-addressed and
-   gitignored; agree a retention or move policy before it bites during a run.
-3. **`ravend-mainnet.service` is enabled and crash-looping past 61,000
-   restarts** ("restart with -reindex"). Testnet — the live anchor target — is
-   healthy. Either repair mainnet or disable it, but it must not sit enabled and
-   broken where something could assume it is available.
-4. **nginx carries a dead `canvas.scruple.ai` vhost** — no DNS record, and two
-   routes proxy to `127.0.0.1:3000` where nothing listens. Superseded by the
-   Cloudflare tunnel. Delete it rather than leave configuration that describes a
-   topology we do not have.
+- **`pollRunJob` is not idempotent** (`execute.ts:241`) — needs overlapping pollers.
+- **Transient 502 becomes terminal failure** (`modal.ts:182`) — costs a finished GPU run.
+- **The timeout ladder is inconsistent** — sync request dies while the GPU keeps working; the 120s status route is shorter than a large checkpoint ingest.
+- **Storage paths truncate the content hash to 48 bits** — needs ~16M artifacts.
+- **`CanonicalizationError` after storage** traps async jobs in a re-upload loop.
+- **`outputKind` precedence inverted** on the async path.
+- **Staged inputs** (`WO-51`) — right for provenance, but a **custody** change; route through `CUSTODY_LOCUS.md`, not straight to code.
+- **Optimizations** — four, all one waste: multi-gigabyte artifacts base64'd and held whole in memory, transferred once per *poll*. Mostly disappears with idempotency.
 
-Not in this WO, but the largest single fragility on the box and already recorded:
-**`scruple.stooges.ai` is an unsupervised `next dev` process**, absent from both
-systemd and pm2.
+**Two proposed optimizations were correctly REFUSED and stay refused:** a
+checkpoint-hash sidecar (volume integrity), and computing the container manifest
+at **build time** — which trades a runtime measurement for a build-time
+declaration, the `content` versus `declared` distinction the seal manifest rests
+on. That refusal was reached without sight of the canon.
+
+---
+
+# TIER 4 — host hygiene (`SERVER_ARCHITECTURE.md`)
+
+1. **`/opt/scruple-witness/arweave-key.json` is world-readable (0644)** while every other secret on the box is 0600. One `chmod`.
+2. **`/data` is at 93%** (11G free).
+3. **`ravend-mainnet.service` enabled and crash-looping past 61,000 restarts.** Testnet — the live anchor — is healthy. Repair or disable; it must not sit enabled and broken.
+4. **nginx carries a dead `canvas.scruple.ai` vhost** — no DNS, two routes proxying to a port with nothing on it.
+
+Recorded elsewhere and larger than all four: **`scruple.stooges.ai` is an
+unsupervised `next dev` process**, absent from systemd and pm2.
