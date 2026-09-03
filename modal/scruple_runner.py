@@ -525,6 +525,26 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     if inputs:
         input_dir = "/opt/ComfyUI/input"
         try:
+            # WO-71 - PURGE BETWEEN RUNS. This directory was never cleared, so
+            # on a warm container a graph could resolve a file left by an
+            # EARLIER run: ComfyUI reads bytes nobody supplied for this run
+            # while the leaf records the inputs that were. The artifact and its
+            # input commitment then describe different things, and nothing
+            # errors.
+            #
+            # Only files this path stages are removed; the tree is ours.
+            if os.path.isdir(input_dir):
+                for _root, _dirs, _files in os.walk(input_dir, topdown=False):
+                    for _f in _files:
+                        try:
+                            os.remove(os.path.join(_root, _f))
+                        except Exception:
+                            pass
+                    for _d in _dirs:
+                        try:
+                            os.rmdir(os.path.join(_root, _d))
+                        except Exception:
+                            pass
             os.makedirs(input_dir, exist_ok=True)
             for item in inputs:
                 # Allow a relative subfolder (training datasets land in
@@ -700,8 +720,23 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     # videos), then classify the primary output by FILE EXTENSION — native
     # SaveVideo/SaveWEBM may report a .mp4/.webm under the "images" key, so
     # key name alone is unreliable. Prefer a video file if any is present.
+    # WO-70 — SORTED BY NODE ID, because `outputs` iterates in insertion order
+    # and that reflects which node FINISHED FIRST. A graph with a SaveImage and
+    # a PreviewImage could bind a different artifact on two identical runs, and
+    # everything downstream — output_hash, the storage pointer, the signed leaf,
+    # the content credential - follows whichever file won the race. A third
+    # party re-running the graph then gets a content hash that does not match,
+    # which reads as tampering.
+    #
+    # Numeric where the id is numeric (ComfyUI's are), lexical otherwise, so
+    # node 9 sorts before node 10 rather than after it.
+    def _node_order(k):
+        ks = str(k)
+        return (0, int(ks), "") if ks.isdigit() else (1, 0, ks)
+
     candidates = []  # list of dicts {filename, subfolder, type}
-    for node_outputs in outputs.values():
+    for node_id in sorted(outputs.keys(), key=_node_order):
+        node_outputs = outputs[node_id]
         for key in ("gifs", "videos", "images"):
             for item in (node_outputs.get(key) or []):
                 if item.get("filename"):

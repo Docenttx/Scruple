@@ -268,6 +268,58 @@ function basenameOf(name: string): string {
   return parts[parts.length - 1] ?? name;
 }
 
+
+/**
+ * WO-74 — allocate a run_sequence that no concurrent caller can also take.
+ *
+ * `BEGIN IMMEDIATE` acquires the write lock up front, so the read and the
+ * reservation are one atomic step. better-sqlite3's `transaction()` is
+ * synchronous and takes the lock for its whole body, which is what makes this
+ * safe without an explicit BEGIN IMMEDIATE pragma.
+ *
+ * The placeholder row is the point. A lock alone would not help: it is released
+ * when this returns, and `MAX(run_sequence)+1` reads COMMITTED ROWS, so a
+ * second caller arriving during the (remote, slow) witness call would compute
+ * the same N. Reserving a row makes the number taken.
+ */
+function reserveRunSequence(projectId: number): number {
+  const db = conn();
+  return db.transaction(() => {
+    // MAX over BOTH tables. A reservation is a number already taken by an
+    // ingest that has not finished inserting — invisible to `iterations` and
+    // exactly the window the race lived in.
+    const n = (db
+      .prepare(
+        `SELECT MAX(m) + 1 AS n FROM (
+           SELECT COALESCE(MAX(run_sequence), 0) AS m FROM iterations WHERE project_id = ?
+           UNION ALL
+           SELECT COALESCE(MAX(run_sequence), 0) AS m FROM run_sequence_reservations WHERE project_id = ?
+         )`,
+      )
+      .get(projectId, projectId) as { n: number }).n;
+    // The row is what makes the number taken. better-sqlite3 transactions are
+    // synchronous and hold the write lock for the whole body, so a concurrent
+    // caller serialises here rather than at the INSERT — which is the whole
+    // point, because by the INSERT a leaf already exists.
+    db.prepare(
+      `INSERT INTO run_sequence_reservations (project_id, run_sequence) VALUES (?, ?)`,
+    ).run(projectId, n);
+    return n;
+  })();
+}
+
+/** Release a reservation once the real row exists. A failure to release burns
+ *  one number and is harmless; reusing one a witness may have signed is not. */
+function releaseRunSequence(projectId: number, runSequence: number): void {
+  try {
+    conn()
+      .prepare(`DELETE FROM run_sequence_reservations WHERE project_id = ? AND run_sequence = ?`)
+      .run(projectId, runSequence);
+  } catch {
+    /* the number stays burned; see the migration */
+  }
+}
+
 export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   const outputKind: OutputKind = p.outputKind ?? 'image';
   const outputHash = sha256Hex(p.imageBytes);
@@ -353,12 +405,37 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   // An absent input and an empty input list are now different leaves, which
   // is the whole point.
   const referencedInputs = wf ? referencedInputNames(wf) : [];
+  // WO-71 — COMPARE THE WHOLE PATH, not the basename.
+  //
+  // This matched on `basenameOf`, so a supplied `train/init.png` satisfied a
+  // graph referencing `clipspace/init.png` and the leaf made an AFFIRMATIVE
+  // input claim over bytes the graph never read. That is the same false
+  // assertion WO-27 exists to prevent, arrived at from the other direction:
+  // not "we enumerated and there were none" but "we matched, and we did not".
+  //
+  // Normalised, separators unified, no leading `./`. The basename remains a
+  // FALLBACK for the genuinely flat case — a graph that says `init.png` and an
+  // input named `init.png` — because that is the common shape and refusing it
+  // would decline every ordinary run.
+  const norm = (v: string): string => v.replace(/\\/g, '/').replace(/^\.\//, '');
+  const boundPaths = new Set(
+    inputArtifacts
+      .map((a) => (a.filename ? norm(a.filename) : null))
+      .filter((n): n is string => n !== null),
+  );
   const boundNames = new Set(
     inputArtifacts
       .map((a) => (a.filename ? basenameOf(a.filename) : null))
       .filter((n): n is string => n !== null),
   );
-  const unboundInputs = referencedInputs.filter((n) => !boundNames.has(basenameOf(n)));
+  const unboundInputs = referencedInputs.filter((n) => {
+    const full = norm(n);
+    if (boundPaths.has(full)) return false;
+    // Flat reference, flat supply: no directory on either side to disagree
+    // about. A reference WITH a directory must match on the full path.
+    if (!full.includes('/')) return !boundNames.has(basenameOf(n));
+    return true;
+  });
   const inputHash =
     unboundInputs.length > 0
       ? null
@@ -419,12 +496,32 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   storeArtifact(outputHash, p.imageBytes);
 
   // ── Witness BEFORE insert so the v2 record-hash leaf lands directly ──
-  // Allocate the run_sequence outside the tx so we can witness with it.
-  // (Single-writer-per-project is the implicit assumption everywhere else;
-  // a uniqueness violation would surface as an INSERT failure below.)
-  const next = (conn()
-    .prepare(`SELECT COALESCE(MAX(run_sequence), 0) + 1 AS n FROM iterations WHERE project_id = ?`)
-    .get(p.projectId) as { n: number }).n;
+  //
+  // WO-74 — RESERVE THE SEQUENCE, DO NOT JUST READ IT.
+  //
+  // This was a bare `MAX(run_sequence) + 1` outside any transaction, and the
+  // comment said the risk was covered: "a uniqueness violation would surface
+  // as an INSERT failure below." It would - but the witness call is ~40 lines
+  // down and the INSERT is ~80 lines below that. `UNIQUE(project_id,
+  // run_sequence)` therefore fires AFTER THE LEAF IS SIGNED AND ON THE
+  // WITNESS.
+  //
+  // Two concurrent ingests in one project both read N, both get a signed leaf
+  // for N, and the loser's INSERT aborts - leaving an ORPHAN LEAF ON AN
+  // APPEND-ONLY LOG: a signed record whose run_sequence no row holds,
+  // duplicating a sequence number, unretractable by construction.
+  //
+  // Studio has no concurrency today. This is fixed anyway because the shape -
+  // allocate unlocked, witness, then insert - is the pattern a vendor copies
+  // out of the reference implementation, and it is wrong in every estate that
+  // has two writers.
+  //
+  // An IMMEDIATE transaction takes the write lock before the read, so a second
+  // caller serialises here rather than at the INSERT. The reservation is a
+  // real row: `MAX+1` cannot see an intent, only a row, so two callers would
+  // otherwise still read the same N even under a lock that is released before
+  // the insert.
+  const next = reserveRunSequence(p.projectId);
   const projectRow = conn()
     .prepare(`SELECT name FROM projects WHERE id = ?`)
     .get(p.projectId) as { name?: string } | undefined;
@@ -675,6 +772,8 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   });
 
   const { id, runSequence } = tx();
+  // WO-74 — the real row exists, so the reservation has done its job.
+  releaseRunSequence(p.projectId, next);
 
   const iteration = conn()
     .prepare(`SELECT * FROM iterations WHERE id = ?`)

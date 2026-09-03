@@ -294,8 +294,28 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
   // regression introduced when run_workflow moved to generation_jobs).
   let workflowApiJson: Record<string, unknown> | null = null;
   if (job.run_workflow) {
-    try { workflowApiJson = JSON.parse(job.run_workflow) as Record<string, unknown>; }
-    catch { workflowApiJson = null; }
+    try {
+      workflowApiJson = JSON.parse(job.run_workflow) as Record<string, unknown>;
+    } catch (e) {
+      // WO-76 - A CORRUPT JOB ROW MUST NOT MINT A LEAF.
+      //
+      // This fell back to `null`, and null is not neutral here: it empties
+      // `referencedInputs`, which bypasses WO-27's decline branch, which makes
+      // `input_hash` an AFFIRMATIVE claim that the run needed no inputs -
+      // while `workflow_hash` goes null because there is no graph to hash. A
+      // database corruption therefore produced a successfully minted,
+      // permanently weaker leaf, signed and witnessed like any other.
+      //
+      // Fail the job. The artifact still exists on Modal and the row records
+      // why; what must not happen is a receipt that misdescribes it.
+      const err = `workflow_recovery_failed: ${e instanceof Error ? e.message : String(e)}`;
+      conn()
+        .prepare(
+          `UPDATE generation_jobs SET status='failed', error_detail=?, completed_at=datetime('now') WHERE id=?`,
+        )
+        .run(err.slice(0, 1000), jobId);
+      return { jobId, status: 'failed', error: err };
+    }
   }
   const ingest = await ingestIteration({
     userId,

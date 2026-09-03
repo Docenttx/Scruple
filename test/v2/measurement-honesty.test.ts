@@ -92,3 +92,63 @@ describe('WO-64 — a response is not a witness', () => {
     assert.match(ingestSrc, /recording as UNWITNESSED/);
   });
 });
+
+describe('WO-70/71/74/76 — the patterns a vendor copies', () => {
+  const runner = fs.readFileSync(path.join(process.cwd(), 'modal/scruple_runner.py'), 'utf8');
+  const execute = fs.readFileSync(path.join(process.cwd(), 'lib/runs/execute.ts'), 'utf8');
+
+  test('WO-70 — output selection is ordered by node id, not by who finished first', () => {
+    // `outputs.values()` iterates in insertion order, which reflects node
+    // COMPLETION order. A graph with a SaveImage and a PreviewImage could bind
+    // a different artifact on two identical runs, and output_hash, the storage
+    // pointer, the leaf and the credential all follow whichever won the race.
+    assert.match(runner, /for node_id in sorted\(outputs\.keys\(\), key=_node_order\)/);
+    // Numeric where numeric, so node 9 sorts before node 10.
+    assert.match(runner, /ks\.isdigit\(\)/);
+    // MUST NOT FIRE — the unordered iteration must be gone.
+    assert.ok(!/for node_outputs in outputs\.values\(\)/.test(runner));
+  });
+
+  test('WO-71 — the input directory is purged between runs', () => {
+    // Never cleared, so on a warm container a graph could resolve a file left
+    // by an earlier run: ComfyUI reads bytes nobody supplied for this run
+    // while the leaf records the inputs that were.
+    assert.match(runner, /PURGE BETWEEN RUNS/);
+    assert.match(runner, /os\.walk\(input_dir, topdown=False\)/);
+  });
+
+  test('WO-71 — binding compares the whole path, with a flat-case fallback', () => {
+    // basenameOf matching let a supplied `train/init.png` satisfy a graph
+    // referencing `clipspace/init.png` — an affirmative claim over bytes the
+    // graph never read.
+    assert.match(ingestSrc, /boundPaths/);
+    assert.match(ingestSrc, /if \(boundPaths\.has\(full\)\) return false;/);
+    // MUST NOT FIRE — a reference WITH a directory must not fall back to the
+    // basename, or the defect is intact for exactly the case it broke on.
+    assert.match(ingestSrc, /if \(!full\.includes\('\/'\)\) return !boundNames\.has/);
+  });
+
+  test('WO-74 — a run_sequence is reserved by a row, not merely read', () => {
+    // A lock alone cannot fix it: any lock is released when the allocating
+    // statement returns and MAX+1 reads committed rows, so a second caller
+    // arriving during the remote witness call computes the same N.
+    assert.match(ingestSrc, /INSERT INTO run_sequence_reservations/);
+    assert.match(ingestSrc, /FROM run_sequence_reservations WHERE project_id = \?/);
+    // MUST NOT FIRE — the bare unlocked read must be gone from the alloc path.
+    assert.ok(
+      !/const next = \(conn\(\)\s*\n?\s*\.prepare\(`SELECT COALESCE\(MAX\(run_sequence\)/.test(ingestSrc),
+      'the unlocked MAX+1 must not survive',
+    );
+  });
+
+  test('WO-76 — a corrupt job row fails the job instead of minting a weak leaf', () => {
+    // `null` is not neutral: it empties referencedInputs, bypasses WO-27's
+    // decline, and makes input_hash an affirmative "no inputs needed" claim
+    // while workflow_hash goes null.
+    assert.match(execute, /workflow_recovery_failed/);
+    assert.ok(
+      !/catch \{ workflowApiJson = null; \}/.test(execute),
+      'the silent fallback to null must be gone',
+    );
+  });
+});
