@@ -123,6 +123,10 @@ async function main() {
  */
 function reportProvenance(d: {
   containerManifest?: boolean;
+  witnessed?: boolean;
+  leafScheme?: string;
+  sealState?: string | null;
+  storagePointer?: unknown;
   inputHash?: string | null;
   unboundInputs?: string[];
   c2pa?: { status: string; reason: string; outputPath?: string; digitalSourceType?: string; error?: string };
@@ -132,6 +136,17 @@ function reportProvenance(d: {
     console.log(`  UNBOUND     : ${d.unboundInputs.join(', ')} — input_hash declined, not asserted`);
   }
   console.log(`  container_manifest: ${d.containerManifest ? 'measured in-container' : 'NO — fell back to the DB descriptor claim'}`);
+  // WO-65 — a degraded run used to be indistinguishable from a complete one.
+  // `ok: true` is still correct: the run happened. These say what it is worth.
+  if (d.witnessed !== undefined) {
+    console.log(
+      `  witnessed   : ${d.witnessed ? `yes (${d.leafScheme})` : `NO — leaf recorded as ${d.leafScheme ?? 'v1'}, nothing countersigned it`}`,
+    );
+  }
+  if (d.sealState !== undefined) console.log(`  seal        : ${d.sealState ?? 'unstamped'}`);
+  if (d.storagePointer !== undefined) {
+    console.log(`  storage     : ${d.storagePointer ? 'uploaded' : 'LOCAL ONLY — no cloud copy'}`);
+  }
   if (d.c2pa) {
     const mark = d.c2pa.status === 'signed' ? '✓' : d.c2pa.status === 'failed' ? '✗' : '·';
     console.log(`  c2pa ${mark} ${d.c2pa.status}${d.c2pa.digitalSourceType ? ` (${d.c2pa.digitalSourceType})` : ''}`);

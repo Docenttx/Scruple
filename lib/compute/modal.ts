@@ -44,6 +44,9 @@ interface ModalResponse {
   container_machine_manifest_hash?: string | null;
   /** WO-69 — the exact bytes the runner hashed. Persist THESE. */
   container_machine_manifest_canonical?: string | null;
+  /** WO-63 — set when models could not be enumerated. `{}` then means
+   *  "unavailable", not "none". */
+  model_fingerprints_error?: string | null;
   error?: string;
 }
 
@@ -138,6 +141,7 @@ export const modalRunner: ComputeBackend = {
         containerMachineManifestHash: data.container_machine_manifest_hash ?? null,
         containerMachineManifest: data.container_machine_manifest ?? null,
         containerMachineManifestCanonical: data.container_machine_manifest_canonical ?? null,
+        modelFingerprintsError: data.model_fingerprints_error ?? null,
       };
     } finally {
       clearTimeout(t);
@@ -201,6 +205,7 @@ export interface WorkflowStatusDone {
     container_machine_manifest_hash?: string | null;
     /** WO-69 — the exact bytes hashed, so the async door can persist them too. */
     container_machine_manifest_canonical?: string | null;
+    model_fingerprints_error?: string | null;
     error?: string;
   };
 }

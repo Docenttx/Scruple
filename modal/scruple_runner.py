@@ -553,11 +553,21 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     # Cached by (path, mtime, size) so canonical bases hash once per warm
     # container. Non-fatal: best-effort, swallow errors so a transient I/O
     # issue can't break a run.
+    model_fingerprints_error = None
     try:
         model_fingerprints = _hash_workflow_models(workflow_api_json)
     except Exception as e:
+        # WO-63 — `{}` is the representation for "we enumerated the models and
+        # there were none". Returning it after a READ FAILURE converts a
+        # missing measurement into an affirmative claim, and the web side then
+        # stores model_fingerprints_hash = NULL, which reads the same way.
+        #
+        # Still non-fatal: a transient I/O error must not un-produce the
+        # artifact. But the failure travels, so the leaf can say `unavailable`
+        # instead of `none`.
         print(f"[FINGERPRINT] non-fatal: {e}")
         model_fingerprints = {}
+        model_fingerprints_error = str(e)[:400]
 
     # Training workflows write a .safetensors to models/loras instead of an
     # image via /view. Detect them and snapshot the loras dir so we can find
@@ -677,6 +687,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
                     "gpu": RUN_GPU,
                     "attestation": None,
                     "model_fingerprints": model_fingerprints,
+                    "model_fingerprints_error": model_fingerprints_error,
                     "container_machine_manifest": _cm,
                     "container_machine_manifest_hash": _cmh,
                     "container_machine_manifest_canonical": _cmc,
@@ -741,6 +752,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
         "gpu": RUN_GPU,
         "attestation": None,  # populated on H100 CC builds
         "model_fingerprints": model_fingerprints,
+        "model_fingerprints_error": model_fingerprints_error,
         "container_machine_manifest": container_manifest,
         "container_machine_manifest_hash": container_manifest_hash,
         "container_machine_manifest_canonical": container_manifest_canonical,

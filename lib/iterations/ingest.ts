@@ -137,6 +137,9 @@ export interface IngestParams {
    *  because a re-serialization only reproduces the digest for documents with
    *  no floats and no non-ASCII. */
   containerMachineManifestCanonical?: string | null;
+  /** WO-63 — set when the runner could not enumerate the models. Turns
+   *  `model_fingerprints_state` into `unavailable` rather than `none`. */
+  modelFingerprintsError?: string | null;
   /**
    * WO-25 — WHICH REGISTERED DEPLOYMENT PRODUCED THIS LEAF, and which
    * tenant owns it.
@@ -373,6 +376,21 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   const fingerprints = hashModelFingerprints(p.modelFingerprints);
   const modelFingerprintsHash: string | null = fingerprints?.hash ?? null;
   const modelFingerprintsJson: string | null = fingerprints?.json ?? null;
+  // WO-63 — three states, not two. The runner returns `{}` both when it
+  // enumerated the models and found none AND when reading them threw, and the
+  // web side turned both into NULL — which is the representation for "we
+  // checked and there were none". A partial or failed measurement was
+  // byte-indistinguishable from a complete one over an empty set.
+  //
+  // WO-27's rule for input_hash, applied to the weights: bind it, or decline;
+  // never assert an empty set.
+  const modelFingerprintsError: string | null = p.modelFingerprintsError ?? null;
+  const modelFingerprintsState: 'measured' | 'none' | 'unavailable' =
+    modelFingerprintsError !== null
+      ? 'unavailable'
+      : fingerprints
+        ? 'measured'
+        : 'none';
 
   // Pivot S8: write output to user's storage. Falls back to local FS if no
   // provider is connected (dev / pre-onboarding state). Storage paths are
@@ -419,6 +437,13 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   //     canvas-proxy path resolves the per-user Machine row).
   //  3. DB-lookup default — the user's most recent ready machine
   //     (falls back to shared default).
+  //  WO-62 — and RECORD WHICH RUNG ANSWERED. The three are structurally
+  //  different documents: a measurement of what ran, a caller's assertion, and
+  //  "whichever machine row this user created most recently". A leaf that
+  //  cannot say which is a leaf whose machine claim cannot be weighed, and the
+  //  fall through rung 3 is silent — the row still looks complete.
+  let machineManifestSource: 'container' | 'caller' | 'db-default' | 'unavailable' =
+    p.containerMachineManifestHash ? 'container' : p.machineManifestHash ? 'caller' : 'unavailable';
   let machineManifestHash =
     p.containerMachineManifestHash ??
     p.machineManifestHash ??
@@ -433,6 +458,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
       )
       .get(p.userId) as { manifest_hash: string } | undefined;
     machineManifestHash = mrow?.manifest_hash ?? null;
+    machineManifestSource = machineManifestHash ? 'db-default' : 'unavailable';
   }
 
   // Auto-witness every ingested iteration. Per [[D-002]] this IS the
@@ -465,6 +491,30 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
 
   const leafHash = witnessResult?.leaf_hash ?? outputHash;
   const leafScheme: 'v1' | 'v2' | 'v2.2' = witnessResult?.leaf_scheme ?? 'v1';
+
+  // WO-64 — a RESPONSE is not a WITNESS.
+  //
+  // `witnessed` was `witnessResult !== null`, so any non-null body counted:
+  // an HTTP 200 carrying `{}`, or a partial payload with no signature and no
+  // leaf hash, marked the leaf witnessed. The one field the column is named
+  // after was never checked.
+  //
+  // A witness record with no signature is not weaker evidence, it is none —
+  // there is nothing for a verifier to check. Fail to the honest state the
+  // capture path already has for an unreachable witness: recorded, not
+  // witnessed.
+  const witnessedOk =
+    witnessResult !== null &&
+    typeof witnessResult.signature === 'string' &&
+    witnessResult.signature.length > 0 &&
+    typeof witnessResult.witness_id === 'string' &&
+    witnessResult.witness_id.length > 0;
+  if (witnessResult !== null && !witnessedOk) {
+    console.error(
+      '[ingest] witness responded without a signature or witness_id; recording as UNWITNESSED',
+      { projectId: p.projectId, runSequence: next },
+    );
+  }
 
   const now = new Date().toISOString();
 
@@ -506,8 +556,9 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            compute_machine_id, machine_manifest_hash, workflow_publication,
            container_machine_manifest,
            deployment_id, seal_state, seal_ref,
-           leaf_kind, canonicalization_profile
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           leaf_kind, canonicalization_profile,
+           machine_manifest_source, model_fingerprints_state, model_fingerprints_error
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -552,7 +603,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         leafScheme,
         modelFingerprintsJson,
         modelFingerprintsHash,
-        witnessResult ? 1 : 0,
+        witnessedOk ? 1 : 0,
         witnessResult?.witness_id ?? null,
         witnessResult?.server_timestamp ?? null,
         witnessResult?.signature ?? null,
@@ -603,6 +654,11 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         // NULL when there was no graph to canonicalize — "the question was
         // never asked", not a default.
         workflowHash ? CANONICALIZATION_PROFILE : null,
+        // WO-62/63 — which measurement answered, and whether it answered at
+        // all. Both are H-5 in the small: a record declares what backed it.
+        machineManifestSource,
+        modelFingerprintsState,
+        modelFingerprintsError,
       );
 
     conn()
@@ -654,7 +710,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     outputKind,
     leafHash,
     leafScheme,
-    witnessed: witnessResult !== null,
+    witnessed: witnessedOk,
     workflowHash,
     modelFingerprintsHash,
     machineManifestHash,
@@ -667,7 +723,7 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
     runSequence,
     storagePointer,
     inputArtifacts,
-    witnessed: witnessResult !== null,
+    witnessed: witnessedOk,
     leafScheme,
     seal,
     inputHash,

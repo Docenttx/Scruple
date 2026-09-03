@@ -73,6 +73,9 @@ export interface ComputeResult {
    *  than re-serializing the object: JSON.stringify and Python's json.dumps
    *  agree only for documents with no floats and no non-ASCII. */
   containerMachineManifestCanonical?: string | null;
+  /** WO-63 — the models could not be enumerated. Distinguishes an empty
+   *  fingerprint map that means "none" from one that means "we do not know". */
+  modelFingerprintsError?: string | null;
   /** Populated when ok=false. */
   rawError?: string;
 }

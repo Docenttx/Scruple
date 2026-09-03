@@ -46,6 +46,18 @@ export interface ExecuteRunResult {
   /** WO-27 — whether the leaf's machine_manifest_hash is the CONTAINER's
    *  measurement (true) or the DB descriptor's claim (false). */
   containerManifest?: boolean;
+  /* WO-65 — the four facts ingest computes, documents as things callers must
+   * surface, and then dropped. A run that fell back to leafScheme 'v1',
+   * witnessed false, seal 'unchecked' and no cloud storage returned `ok: true`
+   * and was indistinguishable from one that did everything.
+   *
+   * `ok` STAYS TRUE. The run happened; what changes is that its
+   * qualifications are visible. Reporting a degraded run as a failure would be
+   * its own lie in the other direction. */
+  witnessed?: boolean;
+  leafScheme?: string;
+  sealState?: string | null;
+  storagePointer?: unknown;
   /** WO-27 — what the C2PA signer did, or why it was not asked. */
   c2pa?: import('@/lib/iterations/signOnIngest').C2paIngestOutcome;
   durationMs?: number;
@@ -111,6 +123,7 @@ export async function executeRun(p: ExecuteRunParams): Promise<ExecuteRunResult>
     containerMachineManifestHash: result.containerMachineManifestHash ?? null,
     containerMachineManifest: result.containerMachineManifest ?? null,
     containerMachineManifestCanonical: result.containerMachineManifestCanonical ?? null,
+    modelFingerprintsError: result.modelFingerprintsError ?? null,
   });
 
   return {
@@ -123,6 +136,10 @@ export async function executeRun(p: ExecuteRunParams): Promise<ExecuteRunResult>
     inputHash: ingest.inputHash,
     unboundInputs: ingest.unboundInputs,
     containerManifest: !!result.containerMachineManifestHash,
+    witnessed: ingest.witnessed,
+    leafScheme: ingest.leafScheme,
+    sealState: ingest.seal?.state ?? null,
+    storagePointer: ingest.storagePointer ?? null,
     c2pa: ingest.c2pa,
     durationMs: result.durationMs,
     gpu: result.gpu,
@@ -204,6 +221,18 @@ export interface RunJobStatus {
   inputHash?: string | null;
   unboundInputs?: string[];
   containerManifest?: boolean;
+  /* WO-65 — the four facts ingest computes, documents as things callers must
+   * surface, and then dropped. A run that fell back to leafScheme 'v1',
+   * witnessed false, seal 'unchecked' and no cloud storage returned `ok: true`
+   * and was indistinguishable from one that did everything.
+   *
+   * `ok` STAYS TRUE. The run happened; what changes is that its
+   * qualifications are visible. Reporting a degraded run as a failure would be
+   * its own lie in the other direction. */
+  witnessed?: boolean;
+  leafScheme?: string;
+  sealState?: string | null;
+  storagePointer?: unknown;
   c2pa?: import('@/lib/iterations/signOnIngest').C2paIngestOutcome;
   error?: string;
 }
@@ -292,6 +321,7 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
     containerMachineManifestHash: r.container_machine_manifest_hash ?? null,
     containerMachineManifest: r.container_machine_manifest ?? null,
     containerMachineManifestCanonical: r.container_machine_manifest_canonical ?? null,
+    modelFingerprintsError: r.model_fingerprints_error ?? null,
   });
 
   conn().prepare(
@@ -309,6 +339,10 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
     inputHash: ingest.inputHash,
     unboundInputs: ingest.unboundInputs,
     containerManifest: !!r.container_machine_manifest_hash,
+    witnessed: ingest.witnessed,
+    leafScheme: ingest.leafScheme,
+    sealState: ingest.seal?.state ?? null,
+    storagePointer: ingest.storagePointer ?? null,
     c2pa: ingest.c2pa,
   };
 }
