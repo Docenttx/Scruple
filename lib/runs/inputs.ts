@@ -39,6 +39,23 @@ export interface ResolvedInput {
   bytes: Buffer;
 }
 
+/**
+ * Roots a `localPath` input may come from. WO-61.
+ *
+ * Deliberately NOT the repository root: `.env.local`, `data/scruple.db` and
+ * the artifact store all live there, and the artifact store is reachable
+ * through /api/artifact anyway. The defaults are the two places a dev run
+ * legitimately stages input bytes.
+ *
+ * `SCRUPLE_LOCAL_INPUT_ROOTS` (colon-separated) widens it deliberately, which
+ * is the point: widening should be a recorded act, not the default.
+ */
+export const LOCAL_INPUT_ROOTS: readonly string[] = (
+  process.env.SCRUPLE_LOCAL_INPUT_ROOTS
+    ? process.env.SCRUPLE_LOCAL_INPUT_ROOTS.split(':')
+    : ['/mnt/corpus/scruple-web-scratch', '/tmp']
+).map((r) => path.resolve(r.trim())).filter(Boolean);
+
 export function contentTypeFor(filename: string): string {
   const ext = filename.toLowerCase().split('.').pop() ?? '';
   switch (ext) {
@@ -61,10 +78,35 @@ export async function resolveInput(userId: string, spec: RunInputSpec): Promise<
   if (spec.inlineBase64 != null) {
     bytes = Buffer.from(spec.inlineBase64, 'base64');
   } else if (spec.localPath) {
-    // Guard against path traversal surprises but allow absolute dev paths.
-    const p = path.resolve(spec.localPath);
-    if (!fs.existsSync(p)) throw new Error(`local input not found: ${p}`);
-    bytes = fs.readFileSync(p);
+    // WO-61 — THIS COMMENT USED TO CLAIM A GUARD IT DID NOT IMPLEMENT.
+    //
+    // It read "Guard against path traversal surprises but allow absolute dev
+    // paths", and the guard was `path.resolve()`. `path.resolve` NORMALISES;
+    // it does not CONFINE. There was no root and no allowlist, so any
+    // authenticated caller could name any file the process could read —
+    // verified by reading /etc/hostname through this branch.
+    //
+    // It is worse than a file read because of what the pipeline then does
+    // with the bytes: they are hashed, stored content-addressed, and served
+    // back by /api/artifact/<hash>. `.env.local` holds AUTH_SECRET, the Modal
+    // tokens, the Stripe keys and the BDK. That is an exfiltration primitive
+    // wearing the shape of provenance capture.
+    //
+    // The affordance is kept because the CC dev pipeline needs it — a local
+    // path is how a run supplies an input without a round trip through
+    // storage. It is confined instead of removed.
+    const resolved = path.resolve(spec.localPath);
+    const allowed = LOCAL_INPUT_ROOTS.some(
+      (root) => resolved === root || resolved.startsWith(root + path.sep),
+    );
+    if (!allowed) {
+      throw new Error(
+        `local input refused: ${resolved} is outside every permitted root. ` +
+          `Permitted: ${LOCAL_INPUT_ROOTS.join(', ')}. Set SCRUPLE_LOCAL_INPUT_ROOTS to widen it.`,
+      );
+    }
+    if (!fs.existsSync(resolved)) throw new Error(`local input not found: ${resolved}`);
+    bytes = fs.readFileSync(resolved);
   } else if (spec.iterationHash) {
     const a = readArtifact(spec.iterationHash);
     if (!a) throw new Error(`iteration artifact not found: ${spec.iterationHash}`);

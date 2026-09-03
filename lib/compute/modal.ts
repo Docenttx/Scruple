@@ -85,9 +85,20 @@ export const modalRunner: ComputeBackend = {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
     try {
+      // WO-60 — the runner's `run` endpoint now requires the same admin token
+      // every admin-* endpoint already required. It previously required
+      // nothing, so this header is what keeps generation working rather than
+      // an added defence: the two sides must deploy together.
+      if (!ADMIN_TOKEN) {
+        throw new ComputeError(
+          'modal',
+          'auth',
+          'SCRUPLE_MODAL_ADMIN_TOKEN is not set, and the runner now refuses unauthenticated calls.',
+        );
+      }
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': ADMIN_TOKEN },
         body: JSON.stringify({
           workflow_api_json: workflowApiJson,
           ...(inputs && inputs.length ? { inputs } : {}),

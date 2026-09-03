@@ -39,6 +39,23 @@ import modal
 # which disables admin endpoints (they all 401).
 ADMIN_TOKEN = os.environ.get("SCRUPLE_MODAL_ADMIN_TOKEN", "")
 
+from fastapi import Header  # noqa: E402
+
+# Required Modal Secret holding the admin token. Create before deploy:
+#   modal secret create scruple-admin SCRUPLE_MODAL_ADMIN_TOKEN=$(openssl rand -hex 32)
+# The matching value goes in scruple-web/.env.local as
+#   SCRUPLE_MODAL_ADMIN_TOKEN=<same>
+#
+# WO-60: MOVED UP from below the admin endpoints. `web_run` sits at the top of
+# this file and now needs both `Header` and this secret, and a decorator is
+# evaluated where it is written — defining them after `web_run` would have made
+# the auth check reference a name that did not exist yet.
+ADMIN_SECRET = modal.Secret.from_name(
+    "scruple-admin",
+    required_keys=["SCRUPLE_MODAL_ADMIN_TOKEN"],
+)
+
+
 
 def _check_admin(token: Optional[str]) -> bool:
     """Constant-time-ish compare against the configured admin token.
@@ -729,10 +746,28 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
 # Web endpoint for the scruple-web Node backend to call without spawning
 # a Python client. Mounted at `${MODAL_RUNNER_ENDPOINT}` from the
 # Node adapter (lib/compute/modal.ts).
-@app.function(timeout=1800)
+@app.function(timeout=1800, secrets=[ADMIN_SECRET])
 @modal.fastapi_endpoint(method="POST", label="run")
-def web_run(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Thin proxy: accept POST {workflow_api_json: ...}, return runner output."""
+def web_run(payload: Dict[str, Any], x_admin_token: str = Header(default="")) -> Dict[str, Any]:
+    """Thin proxy: accept POST {workflow_api_json: ...}, return runner output.
+
+    WO-60 — THIS ENDPOINT HAD NO AUTHENTICATION.
+
+    Every `admin-*` sibling below takes `x_admin_token` and calls
+    `_check_admin`. This one, the endpoint that actually SPENDS GPU, took
+    neither. It answered the open internet: an unauthenticated POST returned
+    HTTP 200 with this function's own validation error, and a well-formed body
+    executed an arbitrary ComfyUI graph on our GPU, in a container that mounts
+    the models volume, with custom nodes as a code-execution surface.
+
+    The URL is a predictable Modal pattern derived from the workspace name, so
+    obscurity was never a control. `secrets=[ADMIN_SECRET]` is required as well
+    as the check: without it ADMIN_TOKEN is "" inside this container and
+    `_check_admin` refuses everything, which is a safe failure but a broken
+    product.
+    """
+    if not _check_admin(x_admin_token):
+        return {"ok": False, "error": "unauthorized"}
     workflow = payload.get("workflow_api_json")
     if not isinstance(workflow, dict):
         return {"ok": False, "error": "workflow_api_json (object) required"}
@@ -852,18 +887,6 @@ def delete_from_volume(target_subpath: str) -> Dict[str, Any]:
 
 # These need FastAPI's Header dependency so we can read X-Admin-Token off
 # the request without going through Modal's payload arg.
-from fastapi import Header  # noqa: E402
-
-# Required Modal Secret holding the admin token. Create before deploy:
-#   modal secret create scruple-admin SCRUPLE_MODAL_ADMIN_TOKEN=$(openssl rand -hex 32)
-# The matching value goes in scruple-web/.env.local as
-#   SCRUPLE_MODAL_ADMIN_TOKEN=<same>
-ADMIN_SECRET = modal.Secret.from_name(
-    "scruple-admin",
-    required_keys=["SCRUPLE_MODAL_ADMIN_TOKEN"],
-)
-
-
 @app.function(
     timeout=60,
     volumes={"/opt/ComfyUI/models": models_volume},
