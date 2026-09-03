@@ -44,12 +44,24 @@
 // NaN, Infinity, undefined, and non-plain objects — are now REFUSED instead
 // of silently hashed as `null`, `undefined`, or `{}`.
 //
-// The other two formulas below are still in the language's own number
-// formatter, and `model_fingerprints` in particular carries floats (a
-// `mtime` per file). They are left alone because fixing them IS a scheme
-// bump: unlike workflow_hash their shipped preimage is not canonical JSON
-// under any spec, so a corrected version is a different hash for every leaf
-// that exists. Recorded in docs/canon/CANONICALIZATION.md §7, not hidden.
+// FIXED 2026-09-03, under profile `jcs-2`. The paragraph this replaces said
+// the other two formulas were "left alone because fixing them IS a scheme
+// bump", and that framing was wrong in two ways.
+//
+// It is not a SCHEME bump: `leaf_schemes` govern which fields enter a preimage
+// and in what order, and this changes how a field's document becomes bytes.
+// That is a CANONICALIZATION PROFILE, which the registry already carries
+// beside the schemes and which migration 049 records per row. Rows written
+// before today keep `jcs-1` and stay replayable through the `*Legacy`
+// functions below.
+//
+// And it framed the defect as number FORMATTING when the larger fault was
+// REPRODUCIBILITY. `input_hash`'s preimage embeds the whole ComfyUI graph, so
+// V8's integer-like key ordering and Python's non-ASCII escaping made a
+// verifier in the other language compute a different digest — indistinguishable
+// from tampering. `model_fingerprints_hash` committed the file's `mtime`,
+// which is not a property of the bytes, so nobody holding the model could
+// recompute it at all.
 
 import { sha256Hex } from '@/lib/scruple/hash';
 import {
@@ -89,6 +101,34 @@ export interface RunInputs {
  * should: the canvas run had a prompt and the /v2 event did not.
  */
 export function hashRunInputs(p: RunInputs): string {
+  // jcs-2. `canonicalize`, not `JSON.stringify`.
+  //
+  // `spec` embeds the whole ComfyUI graph, whose nodes are keyed by numbers.
+  // V8 orders integer-like keys ascending; Python preserves insertion order.
+  // Python escapes non-ASCII by default; V8 emits UTF-8. So the same document
+  // hashed either side of the wire produced two digests, and a verifier
+  // recomputing this in Python got a mismatch — which reads as tampering.
+  //
+  // The key ORDER of the wrapper below is now irrelevant, because the
+  // canonicalizer sorts. It is left in its original order anyway so a reader
+  // comparing against `hashRunInputsLegacy` sees one difference, not two.
+  return sha256Hex(
+    canonicalize({
+      provider: p.provider,
+      prompt: p.prompt,
+      spec: p.spec,
+      inputs: p.inputs.map((a) => ({ kind: a.kind, hash: a.hash })),
+    }),
+  );
+}
+
+/**
+ * @deprecated Replay of `canonicalization_profile = 'jcs-1'` rows only.
+ * Never for new evidence. Kept so a leaf written before 2026-09-03 can be
+ * reproduced and read, rather than being declared unhashable — the same
+ * reason `canonicalizeLegacy` exists.
+ */
+export function hashRunInputsLegacy(p: RunInputs): string {
   return sha256Hex(
     JSON.stringify({
       provider: p.provider,
@@ -119,6 +159,45 @@ export interface ModelFingerprintsResult {
  * weights and there were none".
  */
 export function hashModelFingerprints(
+  fingerprints: Record<string, ModelFingerprint> | null | undefined,
+): ModelFingerprintsResult | null {
+  if (!fingerprints || Object.keys(fingerprints).length === 0) return null;
+
+  // jcs-2, and TWO corrections in one place.
+  //
+  // 1. `mtime` IS NOT A PROPERTY OF THE BYTES. It was inside this preimage —
+  //    the runner reports the file's filesystem modification time and the
+  //    whole record was hashed verbatim. Identical model weights on a
+  //    different volume replica, or after a remount, therefore produced a
+  //    DIFFERENT model_fingerprints_hash. One of the five headline hashes was
+  //    not recomputable by anyone holding the model, which is the opposite of
+  //    what it is for. `content_hash`, `header_hash` and `bytes` identify the
+  //    file; the timestamp only says when this host happened to see it.
+  //
+  // 2. Only the TOP level was sorted and nesting was left in insertion order,
+  //    so the per-file objects were engine-dependent in exactly the way
+  //    `input_hash` was.
+  //
+  // The returned `json` is now the SAME BYTES that were hashed, so a caller
+  // that persists it gives a verifier something that reproduces the digest.
+  // It previously persisted one serialization and hashed another.
+  const stripped: Record<string, unknown> = {};
+  for (const k of Object.keys(fingerprints)) {
+    const fp = fingerprints[k];
+    const { mtime: _dropped, ...rest } = (fp ?? {}) as Record<string, unknown>;
+    void _dropped;
+    stripped[k] = rest;
+  }
+  const json = canonicalize(stripped);
+  return { json, hash: sha256Hex(json) };
+}
+
+/**
+ * @deprecated Replay of `canonicalization_profile = 'jcs-1'` rows only.
+ * Top-level sort, nesting untouched, `mtime` included — what shipped before
+ * 2026-09-03.
+ */
+export function hashModelFingerprintsLegacy(
   fingerprints: Record<string, ModelFingerprint> | null | undefined,
 ): ModelFingerprintsResult | null {
   if (!fingerprints || Object.keys(fingerprints).length === 0) return null;

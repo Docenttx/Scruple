@@ -196,16 +196,18 @@ def _comfy_running() -> bool:
 
 
 def _cold_container_manifest():
-    """(manifest, hash) or (None, None). Cached at container lifetime and
+    """(manifest, hash, canonical_json) or (None, None, None). Cached at container lifetime and
     primed BEFORE ComfyUI boots — see the note in run_workflow. Never
     raises: a manifest failure must not un-produce the artifact."""
     try:
         from container_manifest import cached_container_manifest
         cm = cached_container_manifest()
-        return cm["manifest"], cm["hash"]
+        # WO-69: the canonical STRING travels beside the object, so the web
+        # side can persist what was actually hashed instead of re-serializing.
+        return cm["manifest"], cm["hash"], cm.get("canonical")
     except Exception as e:
         print(f"[scruple_runner] container manifest failed: {e}")
-        return None, None
+        return None, None, None
 
 
 def _start_comfy() -> None:
@@ -663,7 +665,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
                 # container's own measurement. Same defect WO-31 fixed, one
                 # return statement further up, and it is worse here: a model
                 # is the artifact whose toolchain matters most.
-                _cm, _cmh = _cold_container_manifest()
+                _cm, _cmh, _cmc = _cold_container_manifest()
                 return {
                     "ok": True,
                     "image_bytes_b64": base64.b64encode(ckpt_bytes).decode("ascii"),
@@ -677,6 +679,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
                     "model_fingerprints": model_fingerprints,
                     "container_machine_manifest": _cm,
                     "container_machine_manifest_hash": _cmh,
+                    "container_machine_manifest_canonical": _cmc,
                 }
             # fall through — maybe the workflow also emitted an image
         except Exception as e:
@@ -725,7 +728,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
     # git rev-parses each pack, hashes pack contents. Cached at container
     # lifetime. The web-side ingest folds container_machine_manifest_hash
     # into the leaf as the v2.4 first-class machine_manifest_hash field.
-    container_manifest, container_manifest_hash = _cold_container_manifest()
+    container_manifest, container_manifest_hash, container_manifest_canonical = _cold_container_manifest()
 
     return {
         "ok": True,
@@ -740,6 +743,7 @@ def run_workflow(workflow_api_json: Dict[str, Any], inputs: Optional[list] = Non
         "model_fingerprints": model_fingerprints,
         "container_machine_manifest": container_manifest,
         "container_machine_manifest_hash": container_manifest_hash,
+        "container_machine_manifest_canonical": container_manifest_canonical,
     }
 
 

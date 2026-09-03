@@ -76,8 +76,35 @@
 
 import { createHash } from 'node:crypto';
 
-/** The canonicalization rule this module implements. Registry-declared. */
-export const CANONICALIZATION_PROFILE = 'jcs-1' as const;
+/**
+ * The canonicalization rule this module implements. Registry-declared.
+ *
+ * `jcs-2` — RFC 8785 as `jcs-1` defined it, EXTENDED TO TWO MORE PREIMAGES.
+ *
+ * `jcs-1` canonicalized `workflow_hash` and left `input_hash` and
+ * `model_fingerprints_hash` in the language's own `JSON.stringify`. Those two
+ * were therefore engine-dependent: V8 orders integer-like keys ascending while
+ * Python preserves insertion order, and Python escapes non-ASCII by default
+ * while V8 emits UTF-8. `input_hash`'s preimage embeds the whole ComfyUI graph
+ * — every node keyed by a number — so a verifier recomputing it in the other
+ * language got a different digest, and a different digest is indistinguishable
+ * from tampering.
+ *
+ * A NEW NAME RATHER THAN A REDEFINITION, and this is the whole reason
+ * migration 049 exists. Rows already carry `canonicalization_profile`, and
+ * leaving this string as `jcs-1` while changing what it produces would make
+ * one profile name mean two different rules — which is precisely the defect
+ * WO-21 found in `insertion-order-1` and this machinery exists to prevent.
+ * Rows written before today keep `jcs-1` and remain replayable.
+ *
+ * NOT a leaf-scheme bump. `leaf_schemes` govern WHICH FIELDS enter a preimage
+ * and in what order; this changes how a field's own document becomes bytes.
+ * Two orthogonal axes, and the registry carries both.
+ */
+export const CANONICALIZATION_PROFILE = 'jcs-2' as const;
+
+/** What `jcs-1` produced for the two preimages `jcs-2` corrects. Replay only. */
+export const CANONICALIZATION_PROFILE_PREVIOUS = 'jcs-1' as const;
 
 /** Raised instead of hashing a document that has no canonical form. */
 export class CanonicalizationError extends Error {

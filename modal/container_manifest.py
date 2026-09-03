@@ -179,8 +179,18 @@ def cached_container_manifest() -> Dict[str, Any]:
     global _CACHED
     if _CACHED is None:
         m = container_machine_manifest()
+        # WO-69 — return the exact bytes that were hashed, not just the object.
+        #
+        # The web side stored Node's JSON.stringify of a JSON.parse round-trip
+        # of this object, while the hash was taken over Python's json.dumps.
+        # Those agree only for documents with no floats and no non-ASCII, which
+        # is why a check on 2026-09-02 round-tripped cleanly and proved less
+        # than it appeared to. A verifier handed the stored manifest and the
+        # recorded hash needs the bytes, so the bytes travel.
+        canonical = _canonicalize(m)
         _CACHED = {
             "manifest": m,
-            "hash": _sha256_hex(_canonicalize(m).encode("utf-8")),
+            "canonical": canonical,
+            "hash": _sha256_hex(canonical.encode("utf-8")),
         }
     return _CACHED

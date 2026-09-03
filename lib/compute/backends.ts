@@ -69,6 +69,10 @@ export interface ComputeResult {
    *  iterations for trust-label rendering (WO-B2) and human inspection.
    *  NOT part of any signed preimage — the hash above is what's signed. */
   containerMachineManifest?: Record<string, unknown> | null;
+  /** WO-69 — the exact JSON string the runner hashed. Persist this rather
+   *  than re-serializing the object: JSON.stringify and Python's json.dumps
+   *  agree only for documents with no floats and no non-ASCII. */
+  containerMachineManifestCanonical?: string | null;
   /** Populated when ok=false. */
   rawError?: string;
 }

@@ -208,6 +208,49 @@ canonicalization_profiles:
     implementations:
       - lib/leaf/canonicalJson.ts#canonicalizeLegacy   # replay only
 
+  jcs-2:
+    brief: >-
+      RFC 8785 as `jcs-1` defines it, EXTENDED to two more preimages:
+      `input_hash` and `model_fingerprints_hash`. Also removes the file
+      `mtime` from the model fingerprint preimage. Current for every leaf
+      written from 2026-09-03.
+    status: current
+    spec: "RFC 8785 §3.2.2.2, §3.2.2.3, §3.2.3"
+    supersedes: jcs-1
+    what_changed: >-
+      `jcs-1` canonicalized workflow_hash and left the other two preimages in
+      the host language's own JSON.stringify. Those were engine-dependent:
+      V8 orders integer-like keys ascending while Python preserves insertion
+      order, and Python escapes non-ASCII by default while V8 emits UTF-8.
+      input_hash's preimage embeds the entire ComfyUI graph, every node keyed
+      by a number, so a verifier recomputing it in Python got a different
+      digest — indistinguishable from tampering.
+    why_a_new_name: >-
+      Because leaving the name at `jcs-1` while changing what it produces
+      would make one profile name mean two rules, which is exactly the defect
+      WO-21 found in `insertion-order-1`. Migration 049 records the profile
+      per row, so rows written before 2026-09-03 keep `jcs-1` and remain
+      replayable through hashRunInputsLegacy and hashModelFingerprintsLegacy.
+    why_no_leaf_scheme_bump: >-
+      leaf_schemes govern WHICH FIELDS enter a preimage and in what order.
+      This changes how a field's own document becomes bytes. Two orthogonal
+      axes; a replay needs both, which is why this section exists beside
+      leaf_schemes rather than inside it.
+    mtime_removal: >-
+      A file's modification time is not a property of its bytes. It was inside
+      the model_fingerprints preimage, so identical weights on a different
+      volume replica or after a remount produced a different hash, and nobody
+      holding the model could recompute it. content_hash, header_hash and
+      bytes identify the file; mtime only says when this host saw it.
+    stored_equals_hashed: >-
+      hashModelFingerprints now returns the SAME bytes it hashed, and ingest
+      persists them. Previously one serialization was stored and a different
+      one was hashed.
+    implementations:
+      - lib/leaf/canonicalJson.ts                       # TypeScript
+      - packages/scruple-api/scruple_api/canonical.py   # Python
+    vectors: test/vectors/canonicalization-vectors.json
+
   jcs-1:
     brief: >-
       RFC 8785, the JSON Canonicalization Scheme. Numbers per ECMA-262
@@ -215,7 +258,12 @@ canonicalization_profiles:
       units (§3.2.3), string escaping per §3.2.2.2, NaN and Infinity
       refused. Every JSON number is an IEEE-754 double, so `1` and `1.0`
       are the same value and canonicalize identically.
-    status: current
+    status: superseded-by-jcs-2
+    superseded_note: >-
+      Still CURRENT for workflow_hash, whose rule jcs-2 does not change. It is
+      superseded only in the sense that new rows record `jcs-2`, because two
+      more preimages now follow the same rule. A jcs-1 row is fully
+      replayable and is not damaged.
     spec: "RFC 8785 §3.2.2.2, §3.2.2.3, §3.2.3"
     implementations:
       - lib/leaf/canonicalJson.ts                       # TypeScript

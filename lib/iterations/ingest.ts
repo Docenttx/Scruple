@@ -133,6 +133,10 @@ export interface IngestParams {
    *  on iterations.container_machine_manifest for trust-label rendering
    *  (WO-B2) and human inspection. NOT part of any signed preimage. */
   containerMachineManifest?: Record<string, unknown> | null;
+  /** WO-69 — the exact JSON the runner hashed. Stored verbatim when present,
+   *  because a re-serialization only reproduces the digest for documents with
+   *  no floats and no non-ASCII. */
+  containerMachineManifestCanonical?: string | null;
   /**
    * WO-25 — WHICH REGISTERED DEPLOYMENT PRODUCED THIS LEAF, and which
    * tenant owns it.
@@ -555,7 +559,11 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         p.computeMachineId ?? null,
         machineManifestHash,
         getDefaultPublicationMode(p.userId),
-        p.containerMachineManifest ? JSON.stringify(p.containerMachineManifest) : null,
+        // WO-69 — the runner's own bytes first. JSON.stringify of a parsed
+        // object is a DIFFERENT serialization from Python's json.dumps and
+        // only coincides when the document has no floats and no non-ASCII.
+        p.containerMachineManifestCanonical ??
+          (p.containerMachineManifest ? JSON.stringify(p.containerMachineManifest) : null),
         seal.deployment_id,
         seal.state,
         // NULL unless `sealed`. Migration 046 carries the argument: a leaf

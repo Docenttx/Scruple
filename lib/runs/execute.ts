@@ -110,6 +110,7 @@ export async function executeRun(p: ExecuteRunParams): Promise<ExecuteRunResult>
     // about the machine, not the container's measurement of itself.
     containerMachineManifestHash: result.containerMachineManifestHash ?? null,
     containerMachineManifest: result.containerMachineManifest ?? null,
+    containerMachineManifestCanonical: result.containerMachineManifestCanonical ?? null,
   });
 
   return {
@@ -290,6 +291,7 @@ export async function pollRunJob(userId: string, jobId: string): Promise<RunJobS
     // have passed them.
     containerMachineManifestHash: r.container_machine_manifest_hash ?? null,
     containerMachineManifest: r.container_machine_manifest ?? null,
+    containerMachineManifestCanonical: r.container_machine_manifest_canonical ?? null,
   });
 
   conn().prepare(

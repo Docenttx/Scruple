@@ -95,6 +95,7 @@ type Mod = {
   hashWorkflowInsertionOrder: typeof import('../../lib/leaf/canonicalJson').hashWorkflowInsertionOrder;
   CanonicalizationError: typeof import('../../lib/leaf/canonicalJson').CanonicalizationError;
   CANONICALIZATION_PROFILE: string;
+  CANONICALIZATION_PROFILE_PREVIOUS: string;
   hashGraphOrTraining: typeof import('../../lib/leaf/hashes').hashGraphOrTraining;
   hashDisagreement: typeof import('../../lib/leaf/hashes').hashDisagreement;
 };
@@ -113,6 +114,7 @@ before(async () => {
     hashWorkflowInsertionOrder: c.hashWorkflowInsertionOrder,
     CanonicalizationError: c.CanonicalizationError,
     CANONICALIZATION_PROFILE: c.CANONICALIZATION_PROFILE,
+    CANONICALIZATION_PROFILE_PREVIOUS: c.CANONICALIZATION_PROFILE_PREVIOUS,
     hashGraphOrTraining: h.hashGraphOrTraining,
     hashDisagreement: h.hashDisagreement,
   };
@@ -459,8 +461,72 @@ describe('the workflow_hash comparison the route does not do (WO-20 §6.1)', () 
 });
 
 describe('the profile is named so a future change can be a bump', () => {
-  test('this module declares jcs-1 and the vectors agree', () => {
-    assert.equal(M.CANONICALIZATION_PROFILE, 'jcs-1');
+  test('jcs-2 — input_hash agrees across languages on the document that used to diverge', async () => {
+    const { hashRunInputs, hashRunInputsLegacy } = await import('../../lib/leaf/hashes');
+
+    // The shape that broke it: a ComfyUI graph whose node keys are
+    // integer-like and NOT in ascending order, plus a non-ASCII key.
+    //
+    //   V8      JSON.stringify -> {"9":…,"10":…}   (integer-like keys reordered)
+    //   Python  json.dumps     -> {"10":…,"9":…}   (insertion order kept)
+    //
+    // Both were "the preimage". A verifier recomputing input_hash in the other
+    // language got a different digest, and a different digest is
+    // indistinguishable from tampering — the failure CANONICALIZATION.md
+    // exists to prevent, in the one formula it had explicitly left alone.
+    const graph = { '10': { class_type: 'B' }, '9': { class_type: 'A' }, 'é': { t: 1 } };
+    const payload = {
+      provider: 'p',
+      prompt: 'x',
+      spec: { providerExtras: { workflowApiJson: graph } },
+      inputs: [],
+    };
+
+    // MUST FIRE — pinned from the PYTHON implementation
+    // (scruple_api.canonical.canonicalize over the same document), so this
+    // constant fails if either side moves. It is not a JS self-portrait.
+    assert.equal(
+      hashRunInputs(payload as never),
+      '42a3d1fd3f5ce8081348de6566c79849cff19cf71e3ae3bab18f04fd365f5cd9',
+    );
+
+    // MUST *NOT* FIRE — the old rule must still be reachable and must still
+    // disagree, or nothing was actually fixed and jcs-1 rows are unreplayable.
+    assert.notEqual(hashRunInputsLegacy(payload as never), hashRunInputs(payload as never));
+  });
+
+  test('jcs-2 — model_fingerprints agrees across languages and drops mtime', async () => {
+    const { hashModelFingerprints } = await import('../../lib/leaf/hashes');
+    const fp = {
+      'b.safetensors': { content_hash: 'bb', header_hash: 'hh', bytes: 2, mtime: 1.5 },
+      'a.safetensors': { bytes: 1, content_hash: 'aa', header_hash: 'gg', mtime: 9.25 },
+    };
+    // Pinned from Python. Note what this proves about the OLD rule: the Python
+    // twin's `_refuse_floats` RAISED on an mtime, while TypeScript hashed it —
+    // so the two implementations did not merely disagree on bytes, one refused
+    // what the other committed.
+    assert.equal(
+      hashModelFingerprints(fp as never)?.hash,
+      '935f3be5053e2466eaab2157dedeea6d007c35fc4271d40679d4fd68b39c4d9c',
+    );
+  });
+
+  test('this module declares jcs-2, and jcs-1 is still replayable', () => {
+    // The profile name changed on 2026-09-03 because the RULE changed:
+    // `input_hash` and `model_fingerprints_hash` moved from the host
+    // language's JSON.stringify onto the canonicalizer, and `mtime` left the
+    // fingerprint preimage.
+    //
+    // THE RENAME IS THE POINT. Leaving this string at 'jcs-1' while changing
+    // what it produces would make one profile name mean two rules — the exact
+    // defect WO-21 found in `insertion-order-1`, which is why this test
+    // exists at all ("the profile is named so a future change can be a bump").
+    assert.equal(M.CANONICALIZATION_PROFILE, 'jcs-2');
+    assert.equal(M.CANONICALIZATION_PROFILE_PREVIOUS, 'jcs-1');
+
+    // The workflow_hash vectors are unchanged by jcs-2 — that preimage was
+    // already canonical — so the vector file still declares the rule it was
+    // generated under, and must NOT be silently re-stamped.
     assert.equal(V.profile, 'jcs-1');
   });
 

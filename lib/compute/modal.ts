@@ -42,6 +42,8 @@ interface ModalResponse {
   // what the descriptor claimed. Null when the runner can't resolve it.
   container_machine_manifest?: Record<string, unknown> | null;
   container_machine_manifest_hash?: string | null;
+  /** WO-69 — the exact bytes the runner hashed. Persist THESE. */
+  container_machine_manifest_canonical?: string | null;
   error?: string;
 }
 
@@ -135,6 +137,7 @@ export const modalRunner: ComputeBackend = {
         outputFilename: data.output_filename,
         containerMachineManifestHash: data.container_machine_manifest_hash ?? null,
         containerMachineManifest: data.container_machine_manifest ?? null,
+        containerMachineManifestCanonical: data.container_machine_manifest_canonical ?? null,
       };
     } finally {
       clearTimeout(t);
@@ -196,6 +199,8 @@ export interface WorkflowStatusDone {
     // wire ends up with zero consumers.
     container_machine_manifest?: Record<string, unknown> | null;
     container_machine_manifest_hash?: string | null;
+    /** WO-69 — the exact bytes hashed, so the async door can persist them too. */
+    container_machine_manifest_canonical?: string | null;
     error?: string;
   };
 }

@@ -222,15 +222,56 @@ describe('the /v2 path produces the same hash as the canvas path', () => {
     assert.equal(hashWorkflow(reordered), hashWorkflow(GRAPH));
   });
 
-  test('model_fingerprints_hash sorts only the top level, as ingest always did', async () => {
-    const { hashModelFingerprints } = await import('../../lib/leaf/hashes');
-    const sorted = Object.keys(FINGERPRINTS).sort();
-    const canonical: Record<string, unknown> = {};
-    for (const k of sorted) canonical[k] = FINGERPRINTS[k as keyof typeof FINGERPRINTS];
-    assert.equal(
-      hashModelFingerprints(FINGERPRINTS)?.hash,
-      crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex'),
+  test('model_fingerprints_hash is canonical, excludes mtime, and stores what it hashed', async () => {
+    const { hashModelFingerprints, hashModelFingerprintsLegacy } = await import(
+      '../../lib/leaf/hashes'
     );
+    const { canonicalize } = await import('../../lib/leaf/canonicalJson');
+
+    // jcs-2. This test previously pinned "sorts only the top level, as ingest
+    // always did", which was an accurate description of a defect: nesting
+    // stayed in insertion order and was therefore engine-dependent, and the
+    // preimage carried each file's `mtime` — filesystem metadata, not a
+    // property of the bytes, so nobody holding the model could recompute it.
+    const stripped: Record<string, unknown> = {};
+    for (const k of Object.keys(FINGERPRINTS)) {
+      const { mtime: _m, ...rest } = FINGERPRINTS[k as keyof typeof FINGERPRINTS] as Record<
+        string,
+        unknown
+      >;
+      void _m;
+      stripped[k] = rest;
+    }
+    const expected = canonicalize(stripped);
+    const got = hashModelFingerprints(FINGERPRINTS);
+    assert.equal(got?.hash, crypto.createHash('sha256').update(expected).digest('hex'));
+
+    // STORED IS HASHED. A caller that persists `json` gives a verifier bytes
+    // that reproduce the digest; it used to persist one serialization and
+    // hash another.
+    assert.equal(got?.json, expected);
+    assert.equal(crypto.createHash('sha256').update(got!.json).digest('hex'), got!.hash);
+
+    // MUST NOT FIRE — mtime is genuinely gone from the preimage rather than
+    // merely reordered. Changing only the timestamp must not move the hash.
+    const touched = JSON.parse(JSON.stringify(FINGERPRINTS)) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    for (const k of Object.keys(touched)) touched[k].mtime = 1;
+    assert.equal(hashModelFingerprints(touched)?.hash, got?.hash);
+
+    // And the jcs-1 rows stay replayable: the old formula still reproduces
+    // what it always did, and differs from the new one.
+    const legacy = hashModelFingerprintsLegacy(FINGERPRINTS);
+    const sorted = Object.keys(FINGERPRINTS).sort();
+    const oldCanonical: Record<string, unknown> = {};
+    for (const k of sorted) oldCanonical[k] = FINGERPRINTS[k as keyof typeof FINGERPRINTS];
+    assert.equal(
+      legacy?.hash,
+      crypto.createHash('sha256').update(JSON.stringify(oldCanonical)).digest('hex'),
+    );
+    assert.notEqual(legacy?.hash, got?.hash);
   });
 
   test('an empty manifest hashes to nothing, not to the hash of {}', async () => {

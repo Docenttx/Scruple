@@ -68,6 +68,8 @@ import json
 import math
 import os
 from dataclasses import dataclass, field
+
+from .canonical import canonicalize
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .manifest import canonicalize, sha256_file, sha256_hex
@@ -531,6 +533,23 @@ def hash_run_inputs(inputs: Sequence[Mapping[str, str]]) -> str:
         "spec": None,
         "inputs": [{"kind": i["kind"], "hash": i["hash"]} for i in inputs],
     }
+    # jcs-2 (2026-09-03). Was ``_js_json`` -- JSON.stringify-shaped, insertion
+    # order kept -- which made this preimage engine-dependent the moment a
+    # caller passed a ``spec``: the TypeScript side embeds the whole ComfyUI
+    # graph there, keyed by numbers, and V8 orders integer-like keys ascending
+    # while Python does not. A verifier recomputing here got a different
+    # digest, which is indistinguishable from tampering.
+    return sha256_hex(canonicalize(payload))
+
+
+def hash_run_inputs_legacy(inputs: Sequence[Mapping[str, str]]) -> str:
+    """Replay of ``canonicalization_profile = 'jcs-1'`` rows only."""
+    payload = {
+        "provider": None,
+        "prompt": None,
+        "spec": None,
+        "inputs": [{"kind": i["kind"], "hash": i["hash"]} for i in inputs],
+    }
     return sha256_hex(_js_json(payload))
 
 
@@ -545,6 +564,30 @@ def hash_model_fingerprints(
     "we enumerated the weights and there were none" is a claim an absent
     manifest must not make.
     """
+    if not fingerprints:
+        return None
+    # jcs-2 (2026-09-03). Two corrections, mirroring hashModelFingerprints.
+    #
+    # ``mtime`` leaves the preimage: a file's modification time is not a
+    # property of its bytes, so identical weights on another volume replica
+    # hashed differently and nobody holding the model could reproduce it.
+    #
+    # NOTE FOR ANYONE READING THE HISTORY: this side never actually hashed an
+    # mtime, because ``_refuse_floats`` raised on it. The TypeScript side did.
+    # The twins had already diverged -- one refused what the other committed --
+    # and that is a sharper statement of the defect than either alone.
+    stripped = {
+        k: {kk: vv for kk, vv in fingerprints[k].items() if kk != "mtime"}
+        for k in fingerprints
+    }
+    text = canonicalize(stripped)
+    return text, sha256_hex(text)
+
+
+def hash_model_fingerprints_legacy(
+    fingerprints: Optional[Mapping[str, Mapping[str, Any]]],
+) -> Optional[Tuple[str, str]]:
+    """Replay of ``canonicalization_profile = 'jcs-1'`` rows only."""
     if not fingerprints:
         return None
     ordered = {k: fingerprints[k] for k in sorted(fingerprints)}
