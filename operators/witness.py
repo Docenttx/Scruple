@@ -1,7 +1,13 @@
 """Manual re-witness of the current output.
 
-Free action — no payment gate. Useful when the ambient handler was
+Free action -- no payment gate. Useful when the ambient handler was
 disabled or the user wants an explicit leaf pinned to a beat.
+
+The report is deliberately three-valued now. The old operator said
+"Witnessed." whenever no exception escaped; a `WitnessOutcome` carries
+`witnessed` and `queued` as separate fields, so this reports witnessed,
+queued-offline, or delivered-but-not-witnessed as three different
+sentences (D-8: witnessed is never inferred).
 """
 
 from __future__ import annotations
@@ -11,9 +17,19 @@ try:
 except ImportError:
     bpy = None
 
-from lib import scruple_client as _client_mod
-from lib import witness_flow as _wf
-from lib import state as _state
+from adapter import flow as _wf
+from adapter import sdk as _sdk
+from adapter import state as _state
+
+
+def report_for(outcome) -> tuple:
+    """(level, message) for a WitnessOutcome. Shared with the export
+    operator so both spell the three states the same way."""
+    if outcome.witnessed:
+        return ({"INFO"}, f"Witnessed. leaf={(outcome.leaf_id or '')[:16]}")
+    if outcome.queued:
+        return ({"WARNING"}, f"Server unreachable; capture queued for retry. {outcome.error or ''}".strip())
+    return ({"WARNING"}, f"Not witnessed: {outcome.error or 'the server accepted the request without witnessing it.'}")
 
 
 if bpy is not None:
@@ -24,22 +40,22 @@ if bpy is not None:
         bl_description = "Re-hash the current render output and post it as a Scruple leaf"
 
         def execute(self, context):
-            client = _client_mod.from_preferences()
+            client = _sdk.get_client()
             if client is None:
                 self.report({"ERROR"}, "Not signed in. Open Add-on Preferences to sign in.")
                 return {"CANCELLED"}
             try:
-                resp = _wf.witness_render(client, context.scene, trigger="manual")
+                outcome = _wf.witness_render(client, context.scene, trigger="manual")
             except Exception as e:
-                _state.get().last_error = str(e)
+                _state.set_error(str(e))
                 self.report({"ERROR"}, f"Witness failed: {e}")
                 return {"CANCELLED"}
-            if resp is None:
+            if outcome is None:
                 self.report({"WARNING"}, "No render output on disk yet; render first.")
                 return {"CANCELLED"}
-            leaf = resp.get("leafHash") or resp.get("leaf_hash") or ""
-            self.report({"INFO"}, f"Witnessed. leaf={leaf[:12]}...")
-            return {"FINISHED"}
+            level, message = report_for(outcome)
+            self.report(level, message)
+            return {"FINISHED"} if outcome.witnessed or outcome.queued else {"CANCELLED"}
 
     _CLASSES = (SCRUPLE_OT_witness_now,)
 

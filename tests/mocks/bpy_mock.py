@@ -49,11 +49,34 @@ class BpyData:
 # ------------------------------------------------------------------ scene
 
 @dataclass
+class ImageFormatSettings:
+    """bpy.types.ImageFormatSettings. `file_format` is Blender's own enum
+    for the format it encoded -- the addon declares MIME from this rather
+    than guessing from the filename (adapter/scene.py)."""
+    file_format: str = "PNG"
+
+
+@dataclass
+class FFmpegSettings:
+    """bpy.types.FFmpegSettings. Only `format` matters here: it is the
+    container, and it is the second step of resolving a MIME type when
+    file_format is FFMPEG."""
+    format: str = "MPEG4"
+
+
+@dataclass
 class RenderSettings:
     filepath: str = ""
     resolution_x: int = 1920
     resolution_y: int = 1080
     engine: str = "CYCLES"
+    image_settings: ImageFormatSettings = field(default_factory=ImageFormatSettings)
+    ffmpeg: FFmpegSettings = field(default_factory=FFmpegSettings)
+    # Real bpy exposes both. `file_extension` is read-only and
+    # format-aware -- Blender reports ".jpg" for JPEG, not ".jpeg" --
+    # so the addon asks Blender rather than deriving it.
+    use_file_extension: bool = True
+    file_extension: str = ".png"
 
 
 @dataclass

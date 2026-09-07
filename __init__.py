@@ -27,6 +27,14 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
+# `vendor/` carries scruple_host_sdk and scruple_api -- Blender installs a
+# zip, not a wheel, so there is no pip step in which they could be
+# resolved. `adapter/__init__.py` puts that directory on sys.path ahead
+# of everything else, so `import scruple_host_sdk` anywhere in this addon
+# resolves to the copy in this zip and not to whatever else the host
+# interpreter happens to have. vendor/VENDOR.json records the commit it
+# came from.
+
 _MODULES = None
 
 
@@ -34,8 +42,8 @@ def _load_modules():
     global _MODULES
     if _MODULES is not None:
         return _MODULES
-    from lib import preferences as _prefs
-    from lib import handlers as _handlers
+    from adapter import preferences as _prefs
+    from adapter import handlers as _handlers
     from panels import main as _panel_main
     from operators import (
         auth as _op_auth,

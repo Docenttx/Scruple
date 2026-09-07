@@ -1,13 +1,22 @@
 """bpy.app.handlers registration + dispatch.
 
-Handlers must be idempotent about registration: reloading the addon
-would double-register otherwise. Each handler wraps the actual capture
-in try/except so a witness failure never bubbles into Blender's own
-render/save/export pipelines.
+gap.json, modules row 11, verdict "keep -- adapter code": there is no SDK
+counterpart for this, because `bpy.app.handlers` registration is
+genuinely Blender's. What changed is the four lines inside `_dispatch`'s
+`except`. They used to be the ENTIRE failure path -- log a warning, set
+`last_error`, drop the capture on the floor -- because nothing in the
+addon ever called the queue it shipped with.
 
-The handler bodies run on Blender's main thread. Actual HTTP POSTs
-dispatch to a small worker thread so the UI doesn't stall on witness
-latency.
+Under the SDK they are a backstop and not much else. `http.submit()`
+enqueues before the exception ever reaches here, inline in its own
+control flow, so a witness that could not be delivered is already spooled
+to disk by the time this handler hears about it. `unregister()` drains
+that spool through `Client.detach()`.
+
+Handlers must be idempotent about registration: reloading the addon
+would double-register otherwise. Each handler wraps the actual capture in
+try/except so a witness failure never bubbles into Blender's own
+render/save/export pipelines.
 """
 
 from __future__ import annotations
@@ -15,13 +24,12 @@ from __future__ import annotations
 import os
 import queue
 import threading
-import time
 from typing import Any, Callable, Optional
 
-from . import logging as _log
-from . import scruple_client as _client_mod
+from . import flow as _wf
+from . import log as _log
+from . import sdk as _sdk
 from . import state as _state
-from . import witness_flow as _wf
 
 try:
     import bpy
@@ -36,8 +44,9 @@ class WitnessWorker:
     """Single background thread that drains a work queue.
 
     A queue keeps witness calls in order per session and stops Blender's
-    UI from freezing on the network round-trip. We keep this small and
-    single-purpose; the offline retry queue on disk handles crashes.
+    UI from freezing on the network round-trip. This is the in-memory,
+    this-session queue; the on-disk retry queue that survives a crash is
+    the SDK's, and it is filled by http.submit(), not by this class.
     """
 
     def __init__(self) -> None:
@@ -78,21 +87,27 @@ class WitnessWorker:
 WORKER = WitnessWorker()
 
 
-def _get_client() -> Optional[_client_mod.ScrupleClient]:
-    return _client_mod.from_preferences()
+def _get_client():
+    return _sdk.get_client()
 
 
-def _dispatch(fn: Callable[[_client_mod.ScrupleClient], Any], *, label: str) -> None:
+def _dispatch(fn: Callable[[Any], Any], *, label: str) -> None:
     client = _get_client()
     if client is None:
         _log.info(f"{label}: not signed in; skipping")
         return
+
     def _job():
         try:
             fn(client)
         except Exception as e:
+            # Backstop only. A transport failure inside the SDK does not
+            # arrive here -- it was enqueued and returned as an outcome
+            # with queued=True. What reaches this line is a bug in the
+            # adapter, and it belongs on the error surface as one.
             _log.warn(f"{label} failed: {e}")
-            _state.get().last_error = f"{label}: {e}"
+            _state.set_error(f"{label}: {e}")
+
     WORKER.submit(_job)
 
 
@@ -165,6 +180,23 @@ def _uninstall(handlers_module: Any) -> None:
         hook_list[:] = [h for h in hook_list if not getattr(h, HANDLER_TAG, False)]
 
 
+def drain_queue() -> dict:
+    """Replay whatever the SDK spooled while the server was unreachable.
+
+    Called on unregister (addon disabled / Blender quitting), which is
+    the moment `Client.detach()`'s docstring names. WO-B4 wires it to a
+    timer as well -- until then, a capture taken offline lands on the
+    next Blender session that reaches the server, not on the next render.
+    """
+    client = _sdk.peek_client()
+    if client is None:
+        return {"succeeded": 0, "failed": 0, "remaining": 0}
+    result = client.detach()
+    if result.get("succeeded") or result.get("remaining"):
+        _log.info(f"queue drain: {result}")
+    return result
+
+
 def register() -> None:
     if bpy is None:
         return
@@ -178,6 +210,7 @@ def unregister() -> None:
         return
     try:
         _uninstall(bpy.app.handlers)
+        drain_queue()
     finally:
         WORKER.stop()
     _log.info("handlers unregistered")

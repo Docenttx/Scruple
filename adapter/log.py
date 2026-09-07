@@ -1,8 +1,13 @@
 """Verbosity-aware logging shim.
 
-Blender addons print to stdout. Silencing chatty modules by default keeps
-the console clean; users can flip on `verbose` in preferences to get the
-full trace when reporting a bug.
+Kept from lib/logging.py unchanged. This is the one module of the old
+lib/ with no SDK counterpart at all -- `scruple_host_sdk` has no logging
+module and its inventory of what it owns does not list one, so this
+stays as adapter code (gap.json, modules row 12, verdict
+"keep -- adapter code").
+
+Renamed from `logging` to `log` on the way across so that nothing in
+this package can shadow the standard library module by accident.
 """
 
 from __future__ import annotations

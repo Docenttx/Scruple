@@ -1,16 +1,20 @@
-"""Payment flow tests — off-session PaymentIntent orchestration."""
+"""Payment -- the SDK's module, driven by a Client.
+
+Same behaviours the addon's payment.py was tested for; gap.json marks
+this pair `differs: false` ("functionally the same module"). The one
+difference is documentation honesty, and it is worth restating here
+because it governs what these tests can prove: `/api/stripe/*`
+authenticates with a browser session cookie, not a bearer key, so a
+plugin gets a 401 against the deployed server. These tests run against a
+mock that answers as if it did not. They prove the flow is correctly
+wired; they do not prove a charge works headless, and nothing can until
+a bearer-compatible payment route exists.
+"""
 
 from __future__ import annotations
 
-import pytest
-
-from lib import payment as _payment
-from lib import scruple_client as _client_mod
-from tests.mocks import http_mock
-
-
-def _client(opener):
-    return _client_mod.ScrupleClient(base_url="https://scruple.test", api_key="sk_test", opener=opener)
+from scruple_host_sdk import payment as _payment
+from tests.mocks import v2
 
 
 def test_has_payment_method_true_when_config_carries_pm():
@@ -25,8 +29,7 @@ def test_has_payment_method_false_when_missing():
 
 
 def test_price_cents_prefers_server_over_default():
-    cfg = {"prices": {"checkpoint": 750}}
-    assert _payment.price_cents_for("checkpoint", cfg) == 750
+    assert _payment.price_cents_for("checkpoint", {"prices": {"checkpoint": 750}}) == 750
 
 
 def test_price_cents_falls_back_to_default():
@@ -39,65 +42,56 @@ def test_confirm_message_with_pm():
     assert "Visa ending 4242" in msg
 
 
-def test_charge_requires_pm_on_file():
-    opener = http_mock.new()
-    opener.register("GET", "/api/stripe/config", {})
-    result = _payment.charge(_client(opener), project_id=1, action="checkpoint", confirm=lambda _m: True)
+def test_charge_requires_pm_on_file(sdk_client, http_opener):
+    http_opener.register("GET", "/api/stripe/config", {})
+    result = _payment.charge(sdk_client, project_id=1, action="finalize", confirm=lambda _m: True)
     assert not result.ok
     assert "payment method" in result.error.lower()
 
 
-def test_charge_cancelled_by_confirm_dialog():
-    opener = http_mock.new()
-    result = _payment.charge(
-        _client(opener), project_id=1, action="checkpoint",
-        confirm=lambda _m: False,
-        config={"payment_method": {"brand": "Visa", "last4": "4242"}, "prices": {"checkpoint": 500}},
-    )
+def test_charge_cancelled_by_confirm_dialog(sdk_client, http_opener):
+    v2.register_stripe(http_opener)
+    result = _payment.charge(sdk_client, project_id=1, action="finalize", confirm=lambda _m: False)
     assert not result.ok
     assert result.error == "Cancelled by user"
+    assert [r for r in http_opener.recorded if r.path == "/api/stripe/payment-intent"] == []
 
 
-def test_charge_happy_path_returns_pi():
-    opener = http_mock.new()
-    opener.register("POST", "/api/stripe/payment-intent", {
-        "paymentIntentId": "pi_ok", "status": "succeeded",
-    })
-    result = _payment.charge(
-        _client(opener), project_id=42, action="checkpoint",
-        confirm=lambda _m: True,
-        config={"payment_method": {"brand": "Visa", "last4": "4242"}, "prices": {"checkpoint": 500}},
-    )
+def test_charge_happy_path_returns_pi(sdk_client, http_opener):
+    v2.register_stripe(http_opener)
+    result = _payment.charge(sdk_client, project_id=42, action="finalize", confirm=lambda _m: True)
     assert result.ok
     assert result.payment_intent_id == "pi_ok"
-    body = opener.recorded[0].body
+    body = [r for r in http_opener.recorded if r.path == "/api/stripe/payment-intent"][0].body
     assert body["projectId"] == 42
-    assert body["action"] == "checkpoint"
+    assert body["action"] == "finalize"
 
 
-def test_charge_requires_action_surfaces_pi_and_url():
-    opener = http_mock.new()
-    opener.register("POST", "/api/stripe/payment-intent", {
+def test_charge_requires_action_surfaces_pi_and_url(sdk_client, http_opener):
+    v2.register_stripe(http_opener)
+    http_opener.register("POST", "/api/stripe/payment-intent", {
         "paymentIntentId": "pi_needs3ds", "status": "requires_action",
         "next_action_url": "https://scruple.ai/pay/pi_needs3ds",
     })
-    result = _payment.charge(
-        _client(opener), project_id=42, action="checkpoint",
-        confirm=lambda _m: True,
-        config={"payment_method": {"brand": "Visa", "last4": "4242"}, "prices": {"checkpoint": 500}},
-    )
+    result = _payment.charge(sdk_client, project_id=42, action="finalize", confirm=lambda _m: True)
     assert not result.ok
     assert result.payment_intent_id == "pi_needs3ds"
     assert result.requires_action_url == "https://scruple.ai/pay/pi_needs3ds"
 
 
-def test_charge_maps_server_error_to_error_string():
-    opener = http_mock.new()
-    opener.register("POST", "/api/stripe/payment-intent", {"error": "card_declined"}, status=402)
-    result = _payment.charge(
-        _client(opener), project_id=42, action="checkpoint",
-        confirm=lambda _m: True,
-        config={"payment_method": {"brand": "Visa", "last4": "4242"}, "prices": {"checkpoint": 500}},
-    )
+def test_charge_maps_server_error_to_error_string(sdk_client, http_opener):
+    v2.register_stripe(http_opener)
+    http_opener.register("POST", "/api/stripe/payment-intent", {"error": "card_declined"}, status=402)
+    result = _payment.charge(sdk_client, project_id=42, action="finalize", confirm=lambda _m: True)
     assert not result.ok
     assert "402" in result.error
+
+
+def test_a_failed_charge_is_never_queued(sdk_client, http_opener):
+    """Deliberate, and different from a witness: silently retrying a
+    finance-adjacent request is a worse kind of unsafe."""
+    v2.register_stripe(http_opener)
+    http_opener.register("POST", "/api/stripe/payment-intent", {"error": "boom"}, status=503)
+    result = _payment.charge(sdk_client, project_id=42, action="finalize", confirm=lambda _m: True)
+    assert not result.ok
+    assert sdk_client.queue_depth == 0

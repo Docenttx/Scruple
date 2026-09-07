@@ -1,11 +1,17 @@
-"""Manual export witness — user picks an already-exported file.
+"""Manual export witness -- user picks an already-exported file.
 
 Blender's export operators (bpy.ops.export_scene.gltf, .fbx, .obj,
 export_mesh.usd) are individual invocations rather than a hookable
 `export_post` list. Real auto-wrapping would subclass each importer/
-exporter and re-register; that is a follow-up. Until then this
-operator is what the user invokes from the Scruple N-panel after
-running the built-in exporter.
+exporter and re-register; that is a follow-up. Until then this operator
+is what the user invokes from the Scruple N-panel after running the
+built-in exporter.
+
+The `mime` field is new and it is the reason "Other" is still offered.
+Property 1 (MIME is declared, never guessed) means the addon cannot
+accept an arbitrary file and shrug -- so a known format resolves from
+adapter/scene.py's table and "Other" requires the user to say what they
+exported.
 """
 
 from __future__ import annotations
@@ -15,8 +21,9 @@ try:
 except ImportError:
     bpy = None
 
-from lib import scruple_client as _client_mod
-from lib import witness_flow as _wf
+from adapter import flow as _wf
+from adapter import sdk as _sdk
+from operators.witness import report_for
 
 
 if bpy is not None:
@@ -26,7 +33,7 @@ if bpy is not None:
         ("fbx", "FBX", "Autodesk FBX"),
         ("obj", "OBJ", "Wavefront OBJ"),
         ("usd", "USD", "Universal Scene Description"),
-        ("other", "Other", "Any other exported file"),
+        ("other", "Other", "Any other exported file -- requires an explicit MIME type"),
     ]
 
     class SCRUPLE_OT_witness_export(bpy.types.Operator):
@@ -36,12 +43,17 @@ if bpy is not None:
 
         filepath: bpy.props.StringProperty(subtype="FILE_PATH")
         format: bpy.props.EnumProperty(items=FORMAT_ITEMS, default="gltf")
+        mime: bpy.props.StringProperty(
+            name="MIME type",
+            description="Required for format 'Other'. The addon does not guess a type from the extension.",
+            default="",
+        )
 
         def invoke(self, context, event):
             return context.window_manager.fileselect_add(self) if hasattr(context.window_manager, "fileselect_add") else self.execute(context)
 
         def execute(self, context):
-            client = _client_mod.from_preferences()
+            client = _sdk.get_client()
             if client is None:
                 self.report({"ERROR"}, "Not signed in.")
                 return {"CANCELLED"}
@@ -50,18 +62,19 @@ if bpy is not None:
                 self.report({"ERROR"}, "No file selected.")
                 return {"CANCELLED"}
             try:
-                resp = _wf.witness_export(
-                    client, context.scene, path, format=self.format, trigger="manual_export",
+                outcome = _wf.witness_export(
+                    client, context.scene, path, format=self.format,
+                    mime=(self.mime or None), trigger="manual_export",
                 )
             except Exception as e:
                 self.report({"ERROR"}, f"Witness failed: {e}")
                 return {"CANCELLED"}
-            if resp is None:
+            if outcome is None:
                 self.report({"WARNING"}, "No file at that path.")
                 return {"CANCELLED"}
-            leaf = resp.get("leafHash") or resp.get("leaf_hash") or ""
-            self.report({"INFO"}, f"Export witnessed. leaf={leaf[:12]}...")
-            return {"FINISHED"}
+            level, message = report_for(outcome)
+            self.report(level, message)
+            return {"FINISHED"} if outcome.witnessed or outcome.queued else {"CANCELLED"}
 
     _CLASSES = (SCRUPLE_OT_witness_export,)
 

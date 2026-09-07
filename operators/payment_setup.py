@@ -9,7 +9,7 @@ try:
 except ImportError:
     bpy = None
 
-from lib import preferences as _prefs
+from adapter import preferences as _prefs
 
 
 if bpy is not None:

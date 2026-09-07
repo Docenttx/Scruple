@@ -1,4 +1,28 @@
-"""Checkpoint operator — paid soft-lock."""
+"""Checkpoint operator -- paid soft-lock. CURRENTLY UNAVAILABLE, LOUDLY.
+
+`POST /api/lock/checkpoint` has no /api/v2 equivalent (gap.json,
+endpoints row 8: "no_equivalent"). /api/v2/mark's modality vocabulary is
+a closed set -- c2pa, watermark, chain, local -- and "checkpoint", a v1
+soft-lock over a whole project, is not in it and does not decompose into
+it.
+
+There were three ways to handle that and only one of them is honest:
+
+  a. keep calling the v1 route from inside the addon. That means the
+     adapter constructs its own HTTP request, which is the first item on
+     CANON_SKELETON.md §5's list of things an adapter may not do, and it
+     would be the last hand-rolled client in the tree.
+  b. quietly map it onto `local`, so the button still "works". A paid
+     button that charges for one thing and performs another is the exact
+     dishonesty the L2 floor exists to prevent.
+  c. refuse, in one sentence, and charge nothing.
+
+This is (c). The operator stays registered and its bl_idname is
+unchanged, so a saved keymap still resolves; pressing it explains itself
+and returns CANCELLED without touching the network. It comes back when
+the server has a v2 route for it -- that is a server-side decision, and
+it is written down as one in docs/canon/blender-l2/.
+"""
 
 from __future__ import annotations
 
@@ -7,67 +31,26 @@ try:
 except ImportError:
     bpy = None
 
-from lib import paid_action as _paid
-from lib import payment as _payment
-from lib import scruple_client as _client_mod
-from lib import state as _state
+from adapter import state as _state
+
+UNAVAILABLE_REASON = (
+    "Checkpoint has no /api/v2 equivalent: v1's /api/lock/checkpoint was a "
+    "project-level soft lock, and v2's modality vocabulary (c2pa, watermark, "
+    "chain, local) has no member for it. Nothing was charged."
+)
 
 
 if bpy is not None:
 
     class SCRUPLE_OT_checkpoint(bpy.types.Operator):
         bl_idname = "scruple.checkpoint"
-        bl_label = "Checkpoint"
-        bl_description = "Paid soft-lock. Preserves progress without sealing the project."
-
-        def invoke(self, context, event):
-            client = _client_mod.from_preferences()
-            if client is None:
-                self.report({"ERROR"}, "Not signed in.")
-                return {"CANCELLED"}
-            try:
-                self._config = client.get_payment_methods()
-            except Exception:
-                self._config = {}
-            price = _payment.price_cents_for(_payment.ACTION_CHECKPOINT, self._config)
-            pm = _payment.payment_method_summary(self._config)
-            self._message = _payment.build_confirm_message(
-                _payment.ACTION_CHECKPOINT, price, pm,
-            )
-            return context.window_manager.invoke_props_dialog(self)
-
-        def draw(self, context):
-            self.layout.label(text=self._message)
+        bl_label = "Checkpoint (unavailable on v2)"
+        bl_description = UNAVAILABLE_REASON
 
         def execute(self, context):
-            client = _client_mod.from_preferences()
-            if client is None:
-                self.report({"ERROR"}, "Not signed in.")
-                return {"CANCELLED"}
-            pid = _state.get().active_project_id or 0
-            if pid <= 0:
-                self.report({"ERROR"}, "No active project. Render or save first.")
-                return {"CANCELLED"}
-
-            def _confirm(_msg: str) -> bool:
-                return True
-
-            result = _paid.run_paid_action(
-                client,
-                action=_payment.ACTION_CHECKPOINT,
-                project_id=pid,
-                submit_lock=lambda c, p, pi: c.lock_checkpoint(p, pi),
-                confirm=_confirm,
-                config=getattr(self, "_config", None),
-            )
-            if not result.ok:
-                if result.cancelled:
-                    return {"CANCELLED"}
-                self.report({"ERROR"}, result.error or "Checkpoint failed.")
-                return {"CANCELLED"}
-            scr = (result.lock_response or {}).get("preScrId") or ""
-            self.report({"INFO"}, f"Checkpoint OK. preScr={scr[:12]}...")
-            return {"FINISHED"}
+            _state.set_error(UNAVAILABLE_REASON)
+            self.report({"WARNING"}, UNAVAILABLE_REASON)
+            return {"CANCELLED"}
 
     _CLASSES = (SCRUPLE_OT_checkpoint,)
 

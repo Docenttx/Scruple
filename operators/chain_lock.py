@@ -1,9 +1,14 @@
-"""Chain-lock operator — paid public anchor.
+"""Chain-lock operator -- paid public anchor.
 
-Two tiers: 'basic' ($50) and 'pinned' ($65 + IPFS/Arweave). The Blender
-addon exposes 'pinned' as the headline "$100" price the WO documents
-because that's what marketing lists; the exact cents come back from
-stripe/config so the confirm dialog is always truthful.
+v2: `POST /api/v2/mark` with `modalities: ["chain"]` and a `chain_tier`
+(gap.json, endpoints row 10: "replaced"). Two tiers, basic and pinned;
+the exact cents come back from stripe/config so the confirm dialog is
+always truthful.
+
+`mark()` checks the requested modality against GET /api/v2/capabilities
+BEFORE sending anything, and refuses rather than downgrading -- so a
+server that cannot chain-anchor produces a ModalityUnavailableError
+here, not a charge followed by a silent local lock.
 """
 
 from __future__ import annotations
@@ -13,16 +18,19 @@ try:
 except ImportError:
     bpy = None
 
-from lib import paid_action as _paid
-from lib import payment as _payment
-from lib import scruple_client as _client_mod
-from lib import state as _state
+from adapter import flow as _wf
+from adapter import sdk as _sdk
+from adapter import state as _state
+from operators.c2pa import NO_LEAF_REASON, mark_report
+
+from scruple_host_sdk import payment as _payment
+from scruple_host_sdk.errors import ModalityUnavailableError
 
 
 if bpy is not None:
 
     TIER_ITEMS = [
-        ("basic", "Basic ($50)", "RVN testnet anchor"),
+        ("basic", "Basic ($50)", "RVN anchor"),
         ("pinned", "Pinned ($65)", "RVN anchor + IPFS + Arweave"),
     ]
 
@@ -37,16 +45,16 @@ if bpy is not None:
             default="pinned",
         )
 
+        def _action(self) -> str:
+            return _payment.ACTION_CHAIN_PINNED if self.tier == "pinned" else _payment.ACTION_CHAIN_BASIC
+
         def invoke(self, context, event):
-            client = _client_mod.from_preferences()
+            client = _sdk.get_client()
             if client is None:
                 self.report({"ERROR"}, "Not signed in.")
                 return {"CANCELLED"}
-            try:
-                self._config = client.get_payment_methods()
-            except Exception:
-                self._config = {}
-            action = _payment.ACTION_CHAIN_PINNED if self.tier == "pinned" else _payment.ACTION_CHAIN_BASIC
+            self._config = _payment.get_payment_config(client)
+            action = self._action()
             price = _payment.price_cents_for(action, self._config)
             pm = _payment.payment_method_summary(self._config)
             self._message = _payment.build_confirm_message(action, price, pm)
@@ -56,33 +64,48 @@ if bpy is not None:
             self.layout.label(text=self._message)
 
         def execute(self, context):
-            client = _client_mod.from_preferences()
+            client = _sdk.get_client()
             if client is None:
                 self.report({"ERROR"}, "Not signed in.")
                 return {"CANCELLED"}
-            pid = _state.get().active_project_id or 0
-            if pid <= 0:
-                self.report({"ERROR"}, "No active project. Render or save first.")
+            st = _state.get()
+            if not st.last_leaf_id:
+                _state.set_error(NO_LEAF_REASON)
+                self.report({"ERROR"}, NO_LEAF_REASON)
                 return {"CANCELLED"}
-            action = _payment.ACTION_CHAIN_PINNED if self.tier == "pinned" else _payment.ACTION_CHAIN_BASIC
-            tier = self.tier
-            result = _paid.run_paid_action(
-                client,
-                action=action,
-                project_id=pid,
-                submit_lock=lambda c, p, pi: c.lock_chain(p, pi, tier=tier),
+
+            result = client.charge(
+                project_id=st.active_project_id or 0,
+                action=self._action(),
                 confirm=lambda _m: True,
-                config=getattr(self, "_config", None),
             )
             if not result.ok:
-                if result.cancelled:
-                    return {"CANCELLED"}
+                _state.set_error(result.error)
                 self.report({"ERROR"}, result.error or "Chain-lock failed.")
                 return {"CANCELLED"}
-            scr = (result.lock_response or {}).get("scrId") or ""
-            tx = (result.lock_response or {}).get("proofTxId") or ""
-            self.report({"INFO"}, f"Chain-locked. scr={scr[:12]}... tx={tx[:12]}...")
-            return {"FINISHED"}
+
+            try:
+                outcome = _wf.mark_chain(
+                    client,
+                    leaf_id=st.last_leaf_id,
+                    mime=st.last_leaf_mime or "application/octet-stream",
+                    tier=self.tier,
+                    payment_intent_id=result.payment_intent_id,
+                )
+            except ModalityUnavailableError as e:
+                # Fail closed: the chain modality was refused before the
+                # request went out. The charge above already happened, so
+                # say so rather than reporting a bare refusal.
+                msg = f"Chain-lock refused: {e}. PaymentIntent {result.payment_intent_id} was created -- reconcile on scruple.ai."
+                _state.set_error(msg)
+                self.report({"ERROR"}, msg)
+                return {"CANCELLED"}
+
+            level, message = mark_report(outcome, f"Chain-lock ({self.tier})")
+            if outcome.error or outcome.queued:
+                _state.set_error(message)
+            self.report(level, message)
+            return {"CANCELLED"} if outcome.error else {"FINISHED"}
 
     _CLASSES = (SCRUPLE_OT_chain_lock,)
 

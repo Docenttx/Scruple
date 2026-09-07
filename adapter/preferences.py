@@ -1,19 +1,26 @@
-"""AddonPreferences — the addon's Settings UI.
+"""AddonPreferences -- the addon's Settings UI.
 
-Only imported inside register(); the module still loads without bpy so
-unit tests can inspect the field definitions.
+gap.json, modules row 9, verdict "split": the SDK's `Preferences` is a
+26-line dataclass holding base_url/timeout, and its docstring says
+"Rendering a settings panel is the adapter's job". The
+`bpy.types.AddonPreferences` subclass and its `draw()` are that job and
+stay here. What went is the duplicated auth-cache read: `get_api_key()`
+and `get_base_url()` used to open `~/.scruple/blender-auth.json`
+themselves through lib/auth.py; they now read the SDK's cache, which is
+the same file for host "blender" and the only implementation left.
 """
 
 from __future__ import annotations
 
-import webbrowser
 from typing import Any, Optional
 
-from . import auth as _auth
-from . import logging as _log
+from . import log as _log
+from . import sdk as _sdk
+
+from scruple_host_sdk import auth as _auth
+from scruple_host_sdk.preferences import DEFAULT_BASE_URL
 
 ADDON_KEY = "scruple_blender"
-DEFAULT_BASE_URL = "https://scruple.ai"
 
 try:
     import bpy
@@ -35,7 +42,7 @@ def get_api_key() -> str:
     p = _addon_prefs()
     if p is not None and getattr(p, "api_key", ""):
         return p.api_key.strip()
-    cached = _auth.load_cached()
+    cached = _auth.load_cached(_sdk.HOST)
     return (cached.get("api_key") or "").strip()
 
 
@@ -43,7 +50,7 @@ def get_base_url() -> str:
     p = _addon_prefs()
     if p is not None and getattr(p, "base_url", ""):
         return p.base_url.strip().rstrip("/")
-    cached = _auth.load_cached()
+    cached = _auth.load_cached(_sdk.HOST)
     return (cached.get("base_url") or DEFAULT_BASE_URL).strip().rstrip("/")
 
 
@@ -52,12 +59,12 @@ def is_authed() -> bool:
 
 
 def sync_from_cache() -> None:
-    """Push disk-cached key/base into the live prefs object so the UI reflects
-    what the sign-in handshake wrote out-of-band."""
+    """Push the disk-cached key/base into the live prefs object so the UI
+    reflects what the sign-in handshake wrote out-of-band."""
     p = _addon_prefs()
     if p is None:
         return
-    cached = _auth.load_cached()
+    cached = _auth.load_cached(_sdk.HOST)
     key = cached.get("api_key") or ""
     if key and not p.api_key:
         p.api_key = key
@@ -124,6 +131,19 @@ if bpy is not None:
             box.label(text="Advanced", icon="PREFERENCES")
             box.prop(self, "base_url")
             box.prop(self, "verbose_logging")
+
+            # Which SDK build this addon is actually running. A vendored
+            # copy with no traceable source is the thing VENDOR.json
+            # exists to prevent, so it is shown, not buried.
+            info = _sdk.vendored_sdk_info()
+            box = layout.box()
+            box.label(text="Scruple SDK", icon="SCRIPT")
+            if info:
+                commit = (info.get("source_commit") or "")[:12] or "unknown"
+                box.label(text=f"scruple-host-sdk @ {commit}")
+                box.label(text=f"vendored {info.get('vendored_at', 'unknown')}")
+            else:
+                box.label(text="vendor/VENDOR.json missing", icon="ERROR")
 
     _CLASSES = (ScrupleAddonPreferences,)
 
