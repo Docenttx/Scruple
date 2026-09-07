@@ -1,0 +1,555 @@
+{
+  "wo": "WO-B1",
+  "title": "The gap between Scruple for Blender and the L2 floor, measured",
+  "generated": "2026-09-07",
+  "inventory_only": true,
+  "addon": {
+    "repo": "/data/scruple-blender",
+    "commit": "aa889a20dd35592091dcd460658bb6ff64dd7cba",
+    "shipped": "2026-07-17",
+    "source_python_lines": 2699
+  },
+  "server": {
+    "repo": "/data/scruple-web",
+    "commit": "f1dcba6e7e1328113f20af0e54f6f9ee02a8ca4d",
+    "sdk": "packages/scruple-host-sdk/scruple_host_sdk",
+    "sdk_python_lines": 4231
+  },
+  "baseline_suite": {
+    "command": "python3 -m pytest tests/ -q",
+    "cwd": "/data/scruple-blender",
+    "at_commit": "aa889a20dd35592091dcd460658bb6ff64dd7cba",
+    "expected": 81,
+    "passed": 81,
+    "failed": 0,
+    "errors": 0,
+    "matches_expected": true,
+    "duration_seconds": 4.79,
+    "note": "Baseline observed BEFORE this WO added tests/test_gap_inventory.py. The count that matters for WO-B2's 'baseline suite still passes' is these 81 tests."
+  },
+
+  "summary": {
+      "v2_routes_on_server": 16,
+      "v2_routes_the_addon_calls": 0,
+      "addon_endpoint_rows": 14,
+      "endpoints_with_no_v2_equivalent": 8,
+      "endpoints_replaceable_by_v2": 4,
+      "addon_lib_modules": 12,
+      "lib_modules_to_delete_and_adopt": 7,
+      "lib_modules_to_split": 2,
+      "lib_modules_that_stay_as_adapter_code": 2,
+      "lib_modules_adopt_plus_thin_shim": 1,
+      "floor_rows": 19,
+      "floor_met": 0,
+      "floor_partial": 2,
+      "floor_absent": 13,
+      "floor_absent_client_side_only": 2,
+      "floor_violated": 1,
+      "floor_not_applicable": 1
+  },
+
+  "v2_surface_unused": [
+    "POST /api/v2/witness",
+    "POST /api/v2/mark",
+    "POST /api/v2/baseline",
+    "GET /api/v2/baseline/current",
+    "POST /api/v2/baseline/rebaseline",
+    "GET /api/v2/capabilities",
+    "GET /api/v2/receipt/{leaf_id}",
+    "GET /api/v2/verify/{content_hash}",
+    "GET /api/v2/builds",
+    "GET /api/v2/builds/{measurement}",
+    "GET /api/v2/builds/unrecognised",
+    "POST /api/v2/components/provision",
+    "GET /api/v2/components/status",
+    "GET /api/v2/seal/deployments",
+    "GET /api/v2/seal/deployments/{deployment_id}",
+    "GET /api/v2/seal/unsealed"
+  ],
+
+  "endpoints": [
+    {
+      "addon_call": "GET /api/projects",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 108, "quote": "\"/api/projects\""},
+      "reached_from": "nothing in the addon — only tests/test_client.py",
+      "dead_cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 107, "quote": "def list_projects"},
+      "v2_replacement": null,
+      "status": "no_equivalent",
+      "behaviour_delta": "There is no /api/v2/projects. v2 keeps project as an optional integer on the leaf (`project_id`), not as a resource with a list/create surface. A v2 addon has no route to enumerate projects, which is the first thing WO-B5's project switcher would need.",
+      "v2_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 115, "quote": "project_id: z.number().int().positive().optional()"}
+    },
+    {
+      "addon_call": "GET /api/projects/{id}",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 116, "quote": "f\"/api/projects/{project_id}\""},
+      "reached_from": "nothing in the addon — only tests/test_client.py",
+      "v2_replacement": null,
+      "status": "no_equivalent",
+      "behaviour_delta": "Same as above. Nothing under /api/v2 reads a project."
+    },
+    {
+      "addon_call": "POST /api/projects",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 128, "quote": "\"POST\", \"/api/projects\""},
+      "reached_from": "lib/witness_flow.py ensure_project(), on every first witness of a session",
+      "reached_cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 29, "quote": "proj = client.create_project(name=name, kind=\"image\")"},
+      "v2_replacement": null,
+      "status": "no_equivalent",
+      "behaviour_delta": "Load-bearing and unreplaceable as written. Every witness in the addon is gated on having created a v1 project first; a v2 witness needs a baseline_ref, not a project id. This is the single call that makes the v1→v2 move a rewrite of witness_flow rather than a change of path string.",
+      "v2_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 106, "quote": "baseline_ref: z.string()"}
+    },
+    {
+      "addon_call": "POST /api/witness/cad",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 158, "quote": "\"/api/witness/cad\""},
+      "reached_from": "lib/witness_flow.py _post_leaf() — the addon's only witness path",
+      "reached_cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 52, "quote": "resp = client.witness("},
+      "v2_replacement": "POST /api/v2/witness",
+      "v2_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 181, "quote": "export async function POST(req: NextRequest)"},
+      "status": "replaced_with_material_differences",
+      "behaviour_delta": "Four differences, each of them work. (1) /witness/cad is bytes-in — the addon base64s the whole file and the server hashes it; /v2/witness is zero-content and takes `content_hash` only. (2) /v2/witness requires `baseline_ref`, a 64-hex tamper-surface hash the addon has never computed. (3) `kind` is a closed enum on v2 — the addon's trigger labels ('render_complete', 'save_post') are not members of it. (4) v2 returns witnessed / leaf_scheme / attestation / canonicalization_profile; the cad route returns none of those, so the addon has never had anything to record honestly.",
+      "delta_cites": [
+        {"repo": "server", "file": "app/api/witness/cad/route.ts", "line": 4, "quote": "The bytes ARE the output"},
+        {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 108, "quote": "content_hash: z.string().regex"},
+        {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 107, "quote": "kind: z.enum(['document_save', 'artifact', 'graph_execute', 'model_write'])"}
+      ]
+    },
+    {
+      "addon_call": "GET /api/stripe/config",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 162, "quote": "\"/api/stripe/config\""},
+      "reached_from": "panels/main.py _load_stripe_config_once() and lib/payment.py charge()",
+      "reached_cite": {"repo": "addon", "file": "panels/main.py", "line": 34, "quote": "cfg = client.get_payment_methods()"},
+      "v2_replacement": null,
+      "status": "no_equivalent_by_design",
+      "behaviour_delta": "/v2 exposes no payment surface at all. The SDK keeps calling this same v1 route and says so in its own docstring — moving to v2 does NOT move payment. Note also that this route authenticates with a browser session, so a bearer-key plugin gets 401.",
+      "v2_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/payment.py", "line": 73, "quote": "def get_payment_config(session)"}
+    },
+    {
+      "addon_call": "POST /api/stripe/payment-intent",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 171, "quote": "\"/api/stripe/payment-intent\""},
+      "reached_from": "lib/payment.py charge(), behind every paid operator",
+      "reached_cite": {"repo": "addon", "file": "lib/payment.py", "line": 130, "quote": "resp = client.create_payment_intent(project_id, action=action)"},
+      "v2_replacement": null,
+      "status": "no_equivalent_by_design",
+      "behaviour_delta": "The SDK's payment.py states the gap in full: /v2/mark accepts a payment_intent_id but /v2 exposes no route to create one, and the v1 routes that do call auth() rather than accepting a bearer key. A headless plugin session cannot pay today. The addon has the same defect and does not say so anywhere.",
+      "v2_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/payment.py", "line": 12, "quote": "`/v2` exposes no route to create one"}
+    },
+    {
+      "addon_call": "POST /api/stripe/confirm",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 185, "quote": "\"/api/stripe/confirm\""},
+      "reached_from": "operators/resume_payment.py only — the 3DS resume path",
+      "reached_cite": {"repo": "addon", "file": "operators/resume_payment.py", "line": 70, "quote": "resp = client.confirm_payment(pid, pi, action=self.action)"},
+      "v2_replacement": null,
+      "status": "no_equivalent_by_design",
+      "behaviour_delta": "Same as payment-intent. The SDK has no confirm() at all, so an SDK-consuming addon loses the resume-payment operator unless the addon keeps a v1 call of its own or the SDK grows one."
+    },
+    {
+      "addon_call": "POST /api/lock/checkpoint",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 194, "quote": "\"/api/lock/checkpoint\""},
+      "reached_from": "operators/checkpoint.py",
+      "reached_cite": {"repo": "addon", "file": "operators/checkpoint.py", "line": 59, "quote": "submit_lock=lambda c, p, pi: c.lock_checkpoint(p, pi)"},
+      "v2_replacement": null,
+      "status": "no_equivalent",
+      "behaviour_delta": "'checkpoint' is not one of v2's four modalities (c2pa, watermark, chain, local). /v2/mark has no notion of a paid soft-lock that preserves progress without sealing. Either the concept dies in the v2 addon or the server grows it; this is a founder-shaped question, not an engineering one.",
+      "v2_cite": {"repo": "server", "file": "app/api/v2/mark/route.ts", "line": 51, "quote": "export async function POST(req: NextRequest)"}
+    },
+    {
+      "addon_call": "POST /api/lock/local",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 203, "quote": "\"/api/lock/local\""},
+      "reached_from": "operators/c2pa.py — the button labelled 'C2PA sign' / 'Local Lock'",
+      "reached_cite": {"repo": "addon", "file": "operators/c2pa.py", "line": 72, "quote": "submit_lock=lambda c, p, pi: c.lock_local(p, pi)"},
+      "v2_replacement": "POST /api/v2/mark with modalities: []",
+      "v2_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/witness_flow.py", "line": 119, "quote": "`modalities` defaults to [] -- an empty selection is"},
+      "status": "replaced",
+      "behaviour_delta": "Direct replacement: a local lock is always performed server-side regardless of what is requested, so modalities:[] is the v2 spelling of lock_local. What changes is honesty — /v2/mark returns modalities_applied and `outstanding`, so the addon would stop reporting a flat success. Separately: the server declares c2pa AVAILABLE for host=blender, mime=image/png (observed live on the scratch app, 2026-09-07), so this button could be a real C2PA mark under v2 and today is not."
+    },
+    {
+      "addon_call": "POST /api/lock/chain",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 217, "quote": "\"/api/lock/chain\""},
+      "reached_from": "operators/chain_lock.py",
+      "reached_cite": {"repo": "addon", "file": "operators/chain_lock.py", "line": 73, "quote": "submit_lock=lambda c, p, pi: c.lock_chain(p, pi, tier=tier)"},
+      "v2_replacement": "POST /api/v2/mark with modalities: [\"chain\"], chain_tier",
+      "v2_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/witness_flow.py", "line": 109, "quote": "def mark("},
+      "status": "replaced",
+      "behaviour_delta": "Direct replacement, with one addition v2 enforces and the addon does not: mark() checks every requested modality against GET /capabilities BEFORE sending, and an unavailable modality raises rather than downgrading. The addon sends the chain-lock request unconditionally."
+    },
+    {
+      "addon_call": "browser: GET {base}/projects/{id}  (the 'Open receipt' button)",
+      "cite": {"repo": "addon", "file": "operators/open_receipt.py", "line": 33, "quote": "url = f\"{base.rstrip('/')}/projects/{pid}\""},
+      "v2_replacement": "GET /api/v2/receipt/{leaf_id}",
+      "v2_cite": {"repo": "server", "file": "app/api/v2/receipt/[leaf_id]/route.ts", "line": 37, "quote": "export async function GET("},
+      "status": "replaced_and_upgraded",
+      "behaviour_delta": "Today 'Open receipt' opens a web page for the PROJECT and shows the user nothing in Blender. /api/v2/receipt/{leaf_id} is public, unauthenticated, per-LEAF, and returns witnessed / outstanding / attestation status — a receipt the addon could render in the N-panel. It is also, per its own header comment, 'deliberately unflattering', which is the point."
+    },
+    {
+      "addon_call": "browser: GET {base}/settings/payment",
+      "cite": {"repo": "addon", "file": "operators/payment_setup.py", "line": 24, "quote": "url = base.rstrip(\"/\") + \"/settings/payment\""},
+      "v2_replacement": null,
+      "status": "no_equivalent_by_design",
+      "behaviour_delta": "Card entry stays on scruple.ai in every host — the SDK agrees. Unchanged by the v2 move."
+    },
+    {
+      "addon_call": "browser: GET {base}/settings/keys/desktop  (sign-in handshake)",
+      "cite": {"repo": "addon", "file": "lib/auth.py", "line": 189, "quote": "\"/settings/keys/desktop?\""},
+      "v2_replacement": null,
+      "status": "unchanged",
+      "behaviour_delta": "The SDK ports this handshake almost verbatim, parametrized by host. Its docstring notes the alternative — POST /v2/session/handoff — does not exist on the server, so nothing here changes under v2.",
+      "v2_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/auth.py", "line": 22, "quote": "It is independent of POST /v2/session/handoff"}
+    },
+    {
+      "addon_call": "GET /api/v2/verify/{content_hash}  — NOT CALLED",
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 36, "quote": "class ScrupleClient:"},
+      "v2_replacement": "GET /api/v2/verify/{content_hash}",
+      "v2_cite": {"repo": "server", "file": "app/api/v2/verify/[content_hash]/route.ts", "line": 64, "quote": "const independentlyVerifiable = Boolean(row.witness_signature)"},
+      "status": "absent",
+      "behaviour_delta": "The addon has no verify path of any kind — grep for 'api/v2' across lib/, operators/, panels/ and __init__.py returns 0 hits. It cannot tell a user whether the leaf it just produced is independently verifiable, which under H-5 is the one thing a receipt must not be vague about."
+    }
+  ],
+
+  "modules": [
+    {
+      "addon_module": "lib/scruple_client.py",
+      "lines": 239,
+      "cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 36, "quote": "class ScrupleClient:"},
+      "sdk_module": "scruple_host_sdk/client.py + http.py",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/client.py", "line": 41, "quote": "class Client:"},
+      "differs": true,
+      "difference": "The addon's client is its own transport: _request() builds and sends every call itself, and each caller decides what to do when it raises. The SDK splits this — client.py holds no socket, http.submit() is the single gateway, and enqueue-on-failure is inline in that one function's control flow so no caller can skip it.",
+      "addon_quote": "raise ScrupleClientError(f\"{method} {path} -> {e.reason}\") from None",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 105, "quote": "raise ScrupleClientError(f\"{method} {path} -> {e.reason}\") from None"},
+      "sdk_quote": "if queue_kind is not None: entry = session.queue.enqueue(...)",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/http.py", "line": 153, "quote": "entry = session.queue.enqueue("},
+      "verdict": "delete_and_adopt"
+    },
+    {
+      "addon_module": "lib/queue_store.py",
+      "lines": 87,
+      "cite": {"repo": "addon", "file": "lib/queue_store.py", "line": 20, "quote": "class QueueStore:"},
+      "sdk_module": "scruple_host_sdk/queue.py",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/queue.py", "line": 25, "quote": "class QueueStore:"},
+      "differs": true,
+      "difference": "THE HEADLINE FINDING OF THIS INVENTORY. lib/queue_store.py is imported by exactly one file in the repository and that file is its own test. Nothing in lib/, operators/, panels/ or __init__.py ever constructs a QueueStore or calls enqueue(). The failure path in handlers._dispatch logs a warning, sets state.last_error, and drops the capture on the floor. The SDK's own header names this defect and says it was true in all six forks. Two mechanical differences follow: the SDK keys entries by a uuid `id` (the addon keys by float `queued_at`, which collides), and the SDK has drain(), which the addon has no equivalent of.",
+      "addon_quote": "_state.get().last_error = f\"{label}: {e}\"   # <- the entire failure path",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/handlers.py", "line": 95, "quote": "_state.get().last_error = f\"{label}: {e}\""},
+      "sdk_quote": "tested in every one of them and wired into the failure path in NONE of them",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/queue.py", "line": 9, "quote": "wired into the failure path in NONE of them"},
+      "verdict": "delete_and_adopt"
+    },
+    {
+      "addon_module": "lib/capture.py",
+      "lines": 264,
+      "cite": {"repo": "addon", "file": "lib/capture.py", "line": 157, "quote": "def capture_render("},
+      "sdk_module": "scruple_api/capture.py (re-exported as scruple_host_sdk.capture)",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-api/scruple_api/capture.py", "line": 76, "quote": "def capture("},
+      "differs": true,
+      "difference": "Two differences and only one of them is a deletion. (1) MIME: the addon never declares one — capture_* returns no content_type key, so witness_flow's .get() default fires on every single leaf and every Blender artifact is uploaded as application/octet-stream. scruple_api refuses to proceed without an explicit mime and has no mimetypes import anywhere. (2) Host introspection: the addon's capture reads scene.render, bpy.data.materials and bpy.app.version inline; scruple_api says flatly that this belongs in the adapter and takes `workflow` as data. So the hashing half of this module is superseded; the bpy-reading half must SURVIVE as adapter code, and WO-B2 must not delete it.",
+      "addon_quote": "content_type=payload.get(\"content_type\", \"application/octet-stream\"),",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 57, "quote": "content_type=payload.get(\"content_type\", \"application/octet-stream\")"},
+      "sdk_quote": "Blender hardcodes `application/octet-stream` for every upload",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-api/scruple_api/capture.py", "line": 4, "quote": "Blender hardcodes `application/octet-stream` for every upload"},
+      "verdict": "split — hashing to the SDK, bpy introspection stays in the adapter"
+    },
+    {
+      "addon_module": "lib/witness_flow.py",
+      "lines": 116,
+      "cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 42, "quote": "def _post_leaf("},
+      "sdk_module": "scruple_host_sdk/witness_flow.py",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/witness_flow.py", "line": 31, "quote": "def witness("},
+      "differs": true,
+      "difference": "Same name, opposite discipline. The addon infers success from the absence of an exception and records whatever leaf hash it can find under either spelling; it has no concept of `witnessed`, no baseline gate, and no `outstanding`. The SDK reads every field out by name, refuses client-side with NoBaselineError before making any network call, and treats witnessed=False on a delivered request as different from queued=True on an undelivered one — the three measurement-honesty states WO-B3 is about.",
+      "addon_quote": "\"leaf_hash\": resp.get(\"leafHash\") or resp.get(\"leaf_hash\"),",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 66, "quote": "\"leaf_hash\": resp.get(\"leafHash\") or resp.get(\"leaf_hash\")"},
+      "sdk_quote": "witnessed=bool(b.get(\"witnessed\", False)),",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/witness_flow.py", "line": 102, "quote": "witnessed=bool(b.get(\"witnessed\", False))"},
+      "verdict": "delete_and_adopt"
+    },
+    {
+      "addon_module": "lib/manifest.py",
+      "lines": 123,
+      "cite": {"repo": "addon", "file": "lib/manifest.py", "line": 23, "quote": "def canonicalize(obj: Any) -> str:"},
+      "sdk_module": "scruple_api/manifest.py (re-exported as scruple_host_sdk.manifest)",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-api/scruple_api/manifest.py", "line": 23, "quote": "def canonicalize(obj: Any) -> str:"},
+      "differs": true,
+      "difference": "canonicalize() and sha256_hex() are textually identical — the SDK's own comment says it is a near-verbatim port of this file. build_machine_manifest is NOT: the addon's is hardcoded to blender_version/addon/addon_version, the SDK's is host-agnostic and expects scene-specific fields in the adapter's workflow dict. And the SDK has compute_tamper_surface_hash(), which has no counterpart here at all — that function is the baseline_ref /api/v2/witness requires, so its absence is why the addon cannot reach v2 at all.",
+      "addon_quote": "blender_version: str = DEFAULT_BLENDER_VERSION,",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/manifest.py", "line": 40, "quote": "blender_version: str = DEFAULT_BLENDER_VERSION,"},
+      "sdk_quote": "def compute_tamper_surface_hash(",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-api/scruple_api/manifest.py", "line": 77, "quote": "def compute_tamper_surface_hash("},
+      "verdict": "delete_and_adopt"
+    },
+    {
+      "addon_module": "lib/auth.py",
+      "lines": 231,
+      "cite": {"repo": "addon", "file": "lib/auth.py", "line": 137, "quote": "class LocalCallbackServer:"},
+      "sdk_module": "scruple_host_sdk/auth.py",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/auth.py", "line": 92, "quote": "def load_cached(host: str"},
+      "differs": true,
+      "difference": "The SDK's auth.py is a direct port of THIS file — its docstring says so and calls this 'the healthiest of the six forks'. The only functional difference is parametrization: the addon hardcodes ~/.scruple/blender-auth.json, the SDK takes `host` and a cache_dir override (which is what makes it testable without touching a real home directory). Both write 0600, both keep the key in plaintext. Neither meets H-4.",
+      "addon_quote": "CACHE_FILE = os.path.join(CACHE_DIR, \"blender-auth.json\")",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/auth.py", "line": 39, "quote": "CACHE_FILE = os.path.join(CACHE_DIR, \"blender-auth.json\")"},
+      "sdk_quote": "the one this module is almost a direct port of, parametrized by `host`",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/auth.py", "line": 4, "quote": "forks and the one this module is almost a direct port of"},
+      "verdict": "delete_and_adopt"
+    },
+    {
+      "addon_module": "lib/state.py",
+      "lines": 40,
+      "cite": {"repo": "addon", "file": "lib/state.py", "line": 11, "quote": "class AddonState:"},
+      "sdk_module": "scruple_host_sdk/state.py",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/state.py", "line": 19, "quote": "class SessionState:"},
+      "differs": true,
+      "difference": "Same shape (recent_receipts deque, MAX 5, last_error) with different contents. The addon's fields are v1 nouns — active_project_id / active_project_name / active_project_status. The SDK's are v2 nouns — baseline_ref, tamper_surface_hash, capabilities_cache. Neither holds the other's, so WO-B2 needs both: the SDK's SessionState plus a small Blender-side bag for the project the panel shows.",
+      "addon_quote": "self.active_project_id: Optional[int] = None",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/state.py", "line": 13, "quote": "self.active_project_id: Optional[int] = None"},
+      "sdk_quote": "baseline_ref: Optional[str] = None",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/state.py", "line": 26, "quote": "baseline_ref: Optional[str] = None"},
+      "verdict": "adopt SDK, keep a thin Blender-side project bag"
+    },
+    {
+      "addon_module": "lib/payment.py",
+      "lines": 151,
+      "cite": {"repo": "addon", "file": "lib/payment.py", "line": 104, "quote": "def charge("},
+      "sdk_module": "scruple_host_sdk/payment.py",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/payment.py", "line": 113, "quote": "def charge("},
+      "differs": false,
+      "difference": "Functionally the same module — same four action constants, same DEFAULT_PRICE_CENTS, same four-step confirm-then-charge, same v1 stripe routes. The one difference is honesty of documentation: the SDK's header states in full that a bearer-key plugin gets 401 from /api/stripe/payment-intent and that /v2/mark ignores payment_intent_id entirely, so priced modalities cannot work headless today. The addon's header describes the flow as if it worked.",
+      "addon_quote": "3. POST /api/stripe/payment-intent with the target action; the server charges the on-file card off-session",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/payment.py", "line": 10, "quote": "POST /api/stripe/payment-intent with the target action"},
+      "sdk_quote": "As deployed right now, `charge()` will reliably fail with a 401 the first time it is exercised against a real server",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/payment.py", "line": 25, "quote": "will reliably fail with a 401"},
+      "verdict": "delete_and_adopt"
+    },
+    {
+      "addon_module": "lib/preferences.py",
+      "lines": 149,
+      "cite": {"repo": "addon", "file": "lib/preferences.py", "line": 71, "quote": "class ScrupleAddonPreferences(bpy.types.AddonPreferences):"},
+      "sdk_module": "scruple_host_sdk/preferences.py",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/preferences.py", "line": 20, "quote": "class Preferences:"},
+      "differs": true,
+      "difference": "Only partly superseded, and the SDK says so: 'Rendering a settings panel is the adapter's job'. The SDK's Preferences is a 26-line dataclass holding base_url/timeout/verbose. The addon's file is 149 lines of which the bpy.types.AddonPreferences subclass and its draw() are genuinely Blender-specific and must stay. What can go is get_api_key/get_base_url/sync_from_cache, which duplicate the SDK's auth cache read.",
+      "addon_quote": "def get_api_key() -> str:",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/preferences.py", "line": 34, "quote": "def get_api_key() -> str:"},
+      "sdk_quote": "Rendering a settings panel is the adapter's job (host hook contract, CANON_SKELETON.md §4)",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/preferences.py", "line": 4, "quote": "Rendering a settings panel is the adapter's job"},
+      "verdict": "split — value holding to the SDK, the AddonPreferences class stays"
+    },
+    {
+      "addon_module": "lib/paid_action.py",
+      "lines": 70,
+      "cite": {"repo": "addon", "file": "lib/paid_action.py", "line": 30, "quote": "def run_paid_action("},
+      "sdk_module": "scruple_host_sdk/client.py charge() + witness_flow.mark()",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/client.py", "line": 250, "quote": "def charge(self, *, project_id: int, action: str"},
+      "differs": true,
+      "difference": "The addon's spine is charge-then-POST-a-lock-endpoint, parametrized by a submit_lock callable per operator. The SDK's is charge-then-mark, with one mark() that takes modalities. The callable seam disappears — three operators collapse into three different modality lists.",
+      "addon_quote": "submit_lock: Callable[[_client_mod.ScrupleClient, int, str], Dict[str, Any]],",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/paid_action.py", "line": 35, "quote": "submit_lock: Callable"},
+      "sdk_quote": "for m in requested: _capabilities.require_available(session, host=host, mime=mime, modality=m)",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/witness_flow.py", "line": 133, "quote": "_capabilities.require_available(session, host=host, mime=mime, modality=m)"},
+      "verdict": "delete_and_adopt"
+    },
+    {
+      "addon_module": "lib/handlers.py",
+      "lines": 192,
+      "cite": {"repo": "addon", "file": "lib/handlers.py", "line": 35, "quote": "class WitnessWorker:"},
+      "sdk_module": "none — bpy.app.handlers registration is genuinely Blender-specific",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/preferences.py", "line": 4, "quote": "Rendering a settings panel is the adapter's job"},
+      "differs": true,
+      "difference": "This module KEEPS. It is the adapter: bpy.app.handlers install/uninstall, idempotent re-registration, and a worker thread so the UI does not stall. What must change is the four lines inside _dispatch's except: today they are the whole failure path. Under the SDK, http.submit() enqueues before the exception ever reaches here, and detach() drains — so this module stops being the place where captures are lost.",
+      "addon_quote": "except Exception as e: _log.warn(...); _state.get().last_error = ...",
+      "addon_quote_cite": {"repo": "addon", "file": "lib/handlers.py", "line": 94, "quote": "_log.warn(f\"{label} failed: {e}\")"},
+      "sdk_quote": "enqueuing on failure is inline in that function's own control flow, not a step a caller can skip",
+      "sdk_quote_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/http.py", "line": 26, "quote": "is preceded by `session.queue.enqueue(...)`"},
+      "verdict": "keep — adapter code"
+    },
+    {
+      "addon_module": "lib/logging.py",
+      "lines": 44,
+      "cite": {"repo": "addon", "file": "lib/logging.py", "line": 14, "quote": "_PREFIX = \"[scruple]\""},
+      "sdk_module": "none — the SDK has no logging module",
+      "sdk_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/__init__.py", "line": 46, "quote": "Here: `http` (the sole network gateway), `auth`, `queue`, `payment`,"},
+      "differs": true,
+      "difference": "The one lib/ module with no SDK twin. The SDK's inventory of what it owns does not include logging. This module stays as adapter code; it is 44 lines and prints to stderr.",
+      "verdict": "keep — adapter code"
+    }
+  ],
+
+  "floor_items": [
+    {
+      "item": "H-1 — the witness stops signing; leaves are ECDSA-signed by the HSM-resident key, and are third-party verifiable",
+      "source": "L2_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_FLOOR.md", "line": 91, "quote": "H-1 · The witness stops signing. It becomes a client of the Signer."},
+      "addon_today": "Nothing. The addon posts to /api/witness/cad, which returns no signature fields, and the addon reads none — grep for leaf_signature, leaf_signer_key_id or leaf_signature_alg across the addon source returns 0 hits. Server-side H-1 IS implemented (the fields exist on the wire and /api/v2/verify reports independently_verifiable per leaf), so this is purely a client-side gap: the evidence is being produced and the addon is not collecting it.",
+      "addon_cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 60, "quote": "_state.get().record_receipt({"},
+      "server_cite": {"repo": "server", "file": "lib/scruple/witness.ts", "line": 68, "quote": "leaf_signature?: string | null;"},
+      "status": "absent_client_side",
+      "closes_in": "WO-B3"
+    },
+    {
+      "item": "H-2 — HMAC demoted to transport integrity; nothing in a receipt derives trust from it",
+      "source": "L2_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_FLOOR.md", "line": 97, "quote": "H-2 · HMAC survives, demoted to what it is."},
+      "addon_today": "Not applicable to the addon and not violated by it: the addon holds no HMAC secret of any kind. It authenticates with a bearer API key only.",
+      "addon_cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 57, "quote": "h[\"Authorization\"] = f\"Bearer {self.api_key}\""},
+      "status": "not_applicable"
+    },
+    {
+      "item": "H-3 — the code that captures is in git and under measurement; un-measured code cannot compute a baseline",
+      "source": "L2_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_FLOOR.md", "line": 102, "quote": "H-3 · The witness server enters git and the TOE."},
+      "addon_today": "Half met by accident. The addon IS in git and IS the thing that captures — but nothing computes a measurement over it. There is no compute_tamper_surface_hash call, no baseline POST, and the addon's build script records no source commit into the zip, so a shipped copy cannot be traced back to what produced it.",
+      "addon_cite": {"repo": "addon", "file": "build/build_addon.sh", "line": 1, "quote": "#!"},
+      "server_cite": {"repo": "server", "file": "packages/scruple-api/scruple_api/manifest.py", "line": 77, "quote": "def compute_tamper_surface_hash("},
+      "status": "partial",
+      "closes_in": "WO-B2 (commit stamping) + WO-B3 (baseline)"
+    },
+    {
+      "item": "H-4 — client-side key custody rises to the same bar. MANDATORY, per the founder answer in L2_AS_THE_VENDOR_FLOOR.md",
+      "source": "L2_FLOOR.md + L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_FLOOR.md", "line": 106, "quote": "H-4 · Client-side key custody rises to the same bar."},
+      "ruling_cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 30, "quote": "**Client-binding. H-4 is mandatory.**"},
+      "addon_today": "The addon writes a plaintext API key to ~/.scruple/blender-auth.json at 0600 and reads it back. That is precisely the 'plaintext API keys' H-4 names. There is no ratchet, no per-event derived key, no component id and no MAC — grep for ratchet, component_id and mac across the addon source returns 0 hits for all three. The SDK ships a full forward-secure ratchet the addon does not touch.",
+      "addon_cite": {"repo": "addon", "file": "lib/auth.py", "line": 83, "quote": "os.chmod(CACHE_FILE, stat.S_IRUSR | stat.S_IWUSR)"},
+      "server_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/ratchet.py", "line": 231, "quote": "class Ratchet:"},
+      "status": "absent",
+      "closes_in": "not scheduled in this WO series — flagged for the founder"
+    },
+    {
+      "item": "H-5 — verifiers chain to a vendor root or say they did not; verified vs passthrough, honest per leaf",
+      "source": "L2_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_FLOOR.md", "line": 111, "quote": "H-5 · §12.4 verifiers chain to a vendor root or say they did not."},
+      "addon_today": "Absent, and worse than absent — the addon actively asserts. panels/main.py shows 'Status: unlocked' and a receipt line with a truncated hash, with no assurance field at all; witness_flow records a receipt on any non-throwing response. The server computes 'verified' | 'passthrough' | null per leaf and the addon has never read it. Note the sandbox constraint this WO series runs under: the CVM surrogate reports protectionMode SOFTWARE truthfully, so every leaf signed here is passthrough, and recording it otherwise would be the exact dishonesty H-5 exists to prevent.",
+      "addon_cite": {"repo": "addon", "file": "panels/main.py", "line": 64, "quote": "row.label(text=f\"Status: {st.active_project_status or 'unlocked'}\")"},
+      "server_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 322, "quote": "const attestationStatus: 'verified' | 'passthrough' | null ="},
+      "status": "absent",
+      "closes_in": "WO-B3 (record it) + WO-B5 (show it)"
+    },
+    {
+      "item": "Vendor floor 1 (PCI PTS) — the trust boundary is a component, not a site",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 15, "quote": "**PCI PTS device**"},
+      "addon_today": "Absent. /api/v2/witness accepts a component envelope (component_id, build_measurement, counter, attestation) with a MAC; the addon sends no component block, so every leaf it could produce would be component_verified: false.",
+      "addon_cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 149, "quote": "body: Dict[str, Any] = {"},
+      "server_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 159, "quote": "component: z"},
+      "status": "absent"
+    },
+    {
+      "item": "Vendor floor 2 (P2PE scope reduction) — the untrusted middle becomes irrelevant",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 16, "quote": "**P2PE scope reduction**"},
+      "addon_today": "Absent, and the doc itself records the rule as 'not currently stated' server-side either. For Blender the question is sharp and unanswered: Blender's own process is the untrusted middle, and an addon running inside it cannot put itself out of scope. Nothing in the addon addresses this.",
+      "addon_cite": {"repo": "addon", "file": "__init__.py", "line": 68, "quote": "def register():"},
+      "status": "absent"
+    },
+    {
+      "item": "Vendor floor 3 (DUKPT) — per-event derived keys; the terminal never holds the base key",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 17, "quote": "**DUKPT**"},
+      "addon_today": "Absent. The addon holds one long-lived bearer key and sends it on every request. The SDK's ratchet.py implements the full HKDF chain against a shared vector file; the addon does not import it.",
+      "addon_cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 46, "quote": "self.api_key = api_key"},
+      "server_cite": {"repo": "server", "file": "docs/canon/H4-DUKPT-CAPTURE-COMPONENT.md", "line": 1, "quote": "#"},
+      "status": "absent"
+    },
+    {
+      "item": "Vendor floor 4 (store-and-forward) — local nodes run disconnected and the work survives",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 18, "quote": "**Store-and-forward + settlement reconciliation**"},
+      "addon_today": "Written and unwired — the doc's exact diagnosis, confirmed here by import graph. lib/queue_store.py is 87 lines with 100% test coverage of its own behaviour and zero callers outside tests. If scruple.ai is unreachable when a render finishes, that render is not witnessed and never will be.",
+      "addon_cite": {"repo": "addon", "file": "lib/queue_store.py", "line": 1, "quote": "Offline retry queue for witness POSTs that failed mid-flight."},
+      "server_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/queue.py", "line": 108, "quote": "def drain("},
+      "status": "absent",
+      "closes_in": "WO-B4"
+    },
+    {
+      "item": "Vendor floor 5 (settlement reconciliation) — divergence and silence are DETECTED, not merely absent",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 83, "quote": "### Missing 2 — reconciliation"},
+      "addon_today": "Absent on both sides of the wire for this host. The addon has no sequence counter, no heartbeat and no settlement step; a Blender session that stops witnessing produces the same observable as a quiet afternoon. The server side DOES now have per-component gap accounting, but it keys off the component envelope the addon never sends, so it can never fire for a Blender leaf.",
+      "addon_cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 42, "quote": "def _post_leaf("},
+      "server_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 598, "quote": "gap: componentGap,"},
+      "status": "absent",
+      "closes_in": "WO-B4"
+    },
+    {
+      "item": "Vendor floor 6 (EMV L3) — the configuration is certified, re-run on material change",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 19, "quote": "**EMV Level 3**"},
+      "addon_today": "Absent. packages/scruple-conformance exists and grades an integration; the addon has never been run through it. WO-B6 is the first time it will be.",
+      "addon_cite": {"repo": "addon", "file": "VERSION", "line": 1, "quote": "0"},
+      "server_cite": {"repo": "server", "file": "docs/canon/CONFORMANCE.md", "line": 1, "quote": "#"},
+      "status": "absent",
+      "closes_in": "WO-B6"
+    },
+    {
+      "item": "Vendor floor 7 (two-tier assurance) — attested → verified, otherwise passthrough, declared per leaf",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 20, "quote": "**Two-tier assurance**"},
+      "addon_today": "Implemented server-side, absent client-side. This is the one floor item the estate already has, and the addon is the reason it does not reach the user: nothing in panels/main.py has a place to put it.",
+      "addon_cite": {"repo": "addon", "file": "panels/main.py", "line": 105, "quote": "if st.recent_receipts:"},
+      "status": "absent_client_side",
+      "closes_in": "WO-B5"
+    },
+    {
+      "item": "Vendor floor — the capture component ships from us with a published measurement, and every leaf carries which build produced it",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 61, "quote": "### Missing 1 — the capture component as a shipped, measured artifact"},
+      "addon_today": "Absent. The addon reports addon_version as a hardcoded string constant with nothing binding it to a build. /api/v2/builds exists to answer 'did we publish this measurement'; a Blender leaf carries no measurement to ask about.",
+      "addon_cite": {"repo": "addon", "file": "lib/manifest.py", "line": 19, "quote": "ADDON_VERSION = \"0.1.0\""},
+      "server_cite": {"repo": "server", "file": "app/api/v2/builds/route.ts", "line": 1, "quote": "//"},
+      "status": "absent"
+    },
+    {
+      "item": "Vendor floor — hash local, sign central; the vendor never holds signing authority over evidence",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 115, "quote": "**Hash local, sign central.**"},
+      "addon_today": "Half met, by accident rather than design. The addon hashes locally (sha256_file over the render output) and holds no signing key — so it satisfies the shape. But it then ALSO ships the whole file body base64-inline to the server, which is the opposite of the zero-content property /api/v2/witness is built on. Moving to v2 makes this item true on purpose and stops sending the user's bytes.",
+      "addon_cite": {"repo": "addon", "file": "lib/capture.py", "line": 192, "quote": "\"inline_base64\": inline_base64(path),"},
+      "server_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 125, "quote": "this surface is zero-content (P6)"},
+      "status": "partial",
+      "closes_in": "WO-B3"
+    },
+    {
+      "item": "Baseline / deployment seal — a leaf declares which sealed deployment produced it",
+      "source": "L2_AS_THE_VENDOR_FLOOR.md (component measurement) + the v2 witness route",
+      "cite": {"repo": "server", "file": "docs/canon/L2_AS_THE_VENDOR_FLOOR.md", "line": 127, "quote": "**Certify the configuration**"},
+      "addon_today": "Absent. /api/v2/witness takes an optional deployment_id and records `undeclared` when none is sent. The addon has no notion of a deployment, so every Blender leaf would be undeclared — which is at least honest, and is the correct starting state.",
+      "addon_cite": {"repo": "addon", "file": "lib/manifest.py", "line": 45, "quote": "m: Dict[str, Any] = {"},
+      "server_cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 120, "quote": "deployment_id: z.string().min(1).optional(),"},
+      "status": "absent"
+    },
+    {
+      "item": "Canonicalization profile recorded on the leaf",
+      "source": "migration 049 / the v2 witness route",
+      "cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 556, "quote": "workflowHash ? CANONICALIZATION_PROFILE : null,"},
+      "addon_today": "Absent, and the addon has its own second implementation of canonical JSON to go with it — lib/manifest.py:canonicalize() duplicates scruple_api's byte for byte. Two canonicalizers and no recorded profile is the shape of a divergence nobody will notice until a hash disagrees.",
+      "addon_cite": {"repo": "addon", "file": "lib/manifest.py", "line": 24, "quote": "Sorted-keys, no-whitespace JSON. Byte-for-byte matches the server."},
+      "status": "absent",
+      "closes_in": "WO-B3"
+    },
+    {
+      "item": "Measurement honesty — witnessed, queued and delivered-but-not-witnessed are three different states",
+      "source": "the v2 witness route and the SDK's witness_flow",
+      "cite": {"repo": "server", "file": "app/api/v2/witness/route.ts", "line": 563, "quote": "201 means CAPTURED. It has never meant witnessed"},
+      "addon_today": "Absent. The addon has one state: the POST did not raise, so a receipt is recorded. It cannot represent queued (there is no queue in the path) and it cannot represent delivered-but-not-witnessed (it never reads a `witnessed` field, because /api/witness/cad does not return one).",
+      "addon_cite": {"repo": "addon", "file": "lib/witness_flow.py", "line": 69, "quote": "return resp"},
+      "server_cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/witness_flow.py", "line": 54, "quote": "distinguish this from witnessed=False on a call that DID reach the"},
+      "status": "absent",
+      "closes_in": "WO-B3"
+    },
+    {
+      "item": "MIME is declared, never guessed (canon property 1)",
+      "source": "scruple_api/capture.py",
+      "cite": {"repo": "server", "file": "packages/scruple-api/scruple_api/capture.py", "line": 3, "quote": "MIME is declared, never guessed."},
+      "addon_today": "Violated on every leaf. No capture_* function sets content_type, so witness_flow's default fires unconditionally and every render, save and export is uploaded as application/octet-stream. The server declares c2pa and watermark AVAILABLE for host=blender + mime=image/png (observed live, 2026-09-07) — so the addon's own MIME defect is what would gate the image modalities shut.",
+      "addon_cite": {"repo": "addon", "file": "lib/scruple_client.py", "line": 138, "quote": "content_type: str = \"application/octet-stream\","},
+      "server_cite": {"repo": "server", "file": "app/api/v2/capabilities/route.ts", "line": 27, "quote": "Extension-based guessing is what broke .flac and .jxl signing."},
+      "status": "violated",
+      "closes_in": "WO-B2/B3"
+    },
+    {
+      "item": "Modality applicability is checked before requesting, and fails closed (canon property 2)",
+      "source": "scruple_host_sdk/capabilities.py",
+      "cite": {"repo": "server", "file": "packages/scruple-host-sdk/scruple_host_sdk/capabilities.py", "line": 85, "quote": "def require_available(session, *, host: str, mime: str, modality: str)"},
+      "addon_today": "Absent. The addon never calls /api/v2/capabilities. Its three paid buttons post their lock request unconditionally, and its 'C2PA sign' button does not request the c2pa modality at all — it calls lock_local. Every price shown in the panel comes from a hardcoded dict, not from the server.",
+      "addon_cite": {"repo": "addon", "file": "lib/payment.py", "line": 40, "quote": "DEFAULT_PRICE_CENTS: Dict[str, int] = {"},
+      "status": "absent",
+      "closes_in": "WO-B3/B5"
+    }
+  ]
+}
