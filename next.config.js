@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // A second dev server (a rig, an overnight run) must not share `.next` with
+  // the instance serving scruple.stooges.ai out of this same tree. Unset, this
+  // is exactly Next's default, so the live server is unaffected.
+  distDir: process.env.SCRUPLE_DIST_DIR || '.next',
   eslint: {
     // ESLint is run as part of `npm run lint`, not as a build gate.
     // Pre-existing unescaped-entity errors + a rule-config gap in ./lib/types.ts
