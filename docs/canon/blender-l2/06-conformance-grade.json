@@ -1,6 +1,6 @@
 {
-  "graded_at": "2026-09-07T10:45:42.694Z",
-  "addon_commit": "018c5fc7f98538dbfd58d11cd211ed4012f743c8 (WORKING TREE — dirty)",
+  "graded_at": "2026-09-07T10:49:58.821Z",
+  "addon_commit": "c7ba1edf88bd0be1179cdfb00be76582dfa2d30a",
   "web_commit": "b6cb1fd5f7cbee8815ca2a17675ebd31a3e34e5c (WORKING TREE — dirty)",
   "profile": {
     "host": "Blender add-on",

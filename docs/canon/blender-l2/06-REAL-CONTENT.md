@@ -324,7 +324,11 @@ Graded against the **server's** registered `blender` profile
 | **P8** attestation import | n/a | imports none |
 
 `compliant: false`, `lifecycle: integrating`, `classScope.inScope: true`,
-`liveness: not-applicable`.
+`liveness: not-applicable`. Pinned to addon `c7ba1ed`. The `web_commit`
+reads `b6cb1fd (WORKING TREE — dirty)`: `/data/scruple-web` carries an
+unrelated `tsconfig.json` reformat that predates this WO and is not
+committed here, so the grade says so rather than citing a commit that is
+not what it read.
 
 **Not compliant is the expected answer, and a compliant grade would mean
 the harness is broken.** The registered profile is `attested-client` /
