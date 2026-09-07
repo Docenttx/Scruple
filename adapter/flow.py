@@ -34,9 +34,12 @@ FROM HERE:
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 from . import assurance as _assurance
+from . import baseline_cache as _baseline_cache
+from . import ledger as _ledger
 from . import log as _log
 from . import scene as _scene
 from . import sdk as _sdk
@@ -176,6 +179,33 @@ def ensure_attached(client) -> bool:
             code_paths=list(_sdk.TAMPER_SURFACE_PATHS),
         )
     except Exception as e:  # ScrupleAPIError, transport, anything
+        # WO-B4. The offline branch, and the only place a baseline is ever
+        # used without the server having just confirmed it.
+        #
+        # Measured before it was written (adapter/baseline_cache.py's
+        # header): a Blender started while the server is unreachable
+        # refused EVERY capture here and spooled none of them, because
+        # attach() is a network call, SessionState is in memory, and
+        # witness() refuses without a baseline_ref (D-3). Store-and-forward
+        # was unreachable in the case it is most for.
+        #
+        # The cache is only usable when it was written by a LIVE attach
+        # under the same tamper surface hash -- the same bytes, running
+        # now. Different code is a different integration and gets no
+        # baseline. Everything captured on a restored baseline goes into
+        # the queue, and /api/v2/witness validates baseline_ref at ingest,
+        # so a stale one is refused at drain time and is visible as a
+        # rejection instead of as silence.
+        restored = _restore_cached_baseline(client)
+        if restored is not None:
+            _log.warn(f"attach failed ({e}); continuing on the cached baseline {restored.baseline_ref[:16]}")
+            _state.set_error(
+                "Offline: running on the baseline last confirmed at "
+                f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(restored.verified_at))}. "
+                "Captures are being spooled and are NOT on the record; the server "
+                "validates the baseline when they are delivered."
+            )
+            return True
         _log.warn(f"attach failed: {e}")
         _state.set_error(f"Could not establish a Scruple baseline: {e}")
         return False
@@ -188,7 +218,75 @@ def ensure_attached(client) -> bool:
             "baseline the server has on file."
         )
     _log.info(f"attached: baseline_ref={client.state.baseline_ref} established={result.established}")
+    if client.state.baseline_ref:
+        # Cached only after a LIVE attach. A baseline this client did not
+        # just hear from the server is never written to the cache, so the
+        # cache can never launder one session's guess into the next
+        # session's fact.
+        _baseline_cache.save(client)
     return bool(client.state.baseline_ref)
+
+
+#: `/api/v2/baseline/rebaseline` closes `reason` to five values
+#: (rebaseline/route.ts:29). `Client.rebaseline()` takes a free string and
+#: validates nothing, so an unmapped reason is a 400 discovered at the
+#: server -- the same shape as the `kind` enum WO-B3 found, and found the
+#: same way: measured against the scratch app.
+#:
+#:     reason=integration_update -> invalid_enum_value
+#:     reason=other              -> OK
+#:
+#: A rebaseline is NOT queued (attach and rebaseline are preconditions,
+#: not Phase-3 events), so a 400 here raises rather than vanishing. It is
+#: still refused client-side, because a build that cannot rebaseline
+#: cannot witness and the reason should be legible in one place.
+REBASELINE_REASONS = (
+    "sdk_upgrade",
+    "config_change",
+    "host_upgrade",
+    "capture_point_change",
+    "other",
+)
+
+
+class UnknownRebaselineReason(ValueError):
+    """Raised before any request for a reason the route does not accept."""
+
+
+def rebaseline(client, *, reason: str, detail: Optional[str] = None):
+    """Re-declare this build's tamper surface. `reason` is checked against
+    the route's closed enum here, not at the server."""
+    if reason not in REBASELINE_REASONS:
+        raise UnknownRebaselineReason(
+            f"{reason!r} is not one of {REBASELINE_REASONS}; "
+            f"/api/v2/baseline/rebaseline answers invalid_enum_value for anything else."
+        )
+    result = client.rebaseline(
+        reason=reason,
+        detail=detail,
+        config={"host": _sdk.HOST},
+        code_paths=list(_sdk.TAMPER_SURFACE_PATHS),
+    )
+    if client.state.baseline_ref:
+        _baseline_cache.save(client)
+    return result
+
+
+def _restore_cached_baseline(client):
+    """The cached baseline for THIS build, or None. See
+    adapter/baseline_cache.py for the three rules."""
+    from scruple_host_sdk import manifest as _manifest
+
+    try:
+        tsh = _manifest.compute_tamper_surface_hash(
+            integration_version=client.integration_version,
+            config={"host": _sdk.HOST},
+            code_paths=list(_sdk.TAMPER_SURFACE_PATHS),
+        )
+    except Exception as e:
+        _log.warn(f"could not compute the tamper surface hash offline: {e}")
+        return None
+    return _baseline_cache.restore_if_same_build(client, tsh)
 
 
 def _witness_path(
@@ -209,18 +307,18 @@ def _witness_path(
     try:
         leaf_kind = leaf_kind_for(kind)
     except UnknownCaptureKind as e:
-        return _refused_with_assurance(str(e), kind=kind, mime=mime)
+        return _refused_with_assurance(str(e), kind=kind, mime=mime, client=client, filename=os.path.basename(path))
 
     if os.path.getsize(path) > _capture.INLINE_PAYLOAD_LIMIT_BYTES:
         return _refused_with_assurance(
             f"{os.path.basename(path)} is over the "
             f"{_capture.INLINE_PAYLOAD_LIMIT_BYTES}-byte inline limit and was not witnessed.",
-            kind=kind, mime=mime,
+            kind=kind, mime=mime, client=client, filename=os.path.basename(path),
         )
     if not ensure_attached(client):
         return _refused_with_assurance(
             _state.get().last_error or "No baseline; nothing was witnessed.",
-            kind=kind, mime=mime,
+            kind=kind, mime=mime, client=client, filename=os.path.basename(path),
         )
 
     # The graph is what makes the server compute workflow_hash and stamp a
@@ -238,20 +336,47 @@ def _witness_path(
         # workflow_hash or refuse, and either way the leaf would commit to
         # something this client cannot reproduce.
         return _refused_with_assurance(
-            f"Workflow has no canonical form and was not sent: {e}", kind=kind, mime=mime,
+            f"Workflow has no canonical form and was not sent: {e}",
+            kind=kind, mime=mime, client=client, filename=os.path.basename(path),
         )
 
-    outcome = client.witness_file(
-        path,
-        mime=mime,
+    # WO-B4. `Client.witness_file()` is capture() + witness() in one call,
+    # and the ledger line has to go BETWEEN them: written once the content
+    # hash exists and before anything is sent, so that a process killed
+    # mid-request still leaves a record that this capture was attempted.
+    # There is no seam inside witness_file() to put it in, so the two SDK
+    # calls it composes are made here instead -- the same two calls, in the
+    # same order, with the receipt recorded exactly as it records it.
+    payload = client.capture(path, mime=mime, kind=leaf_kind, workflow=workflow)
+    content_hash = payload["content_hash"]
+    led = _ledger.get(client)
+    line = None
+    if led is not None:
+        line = led.record_intent(
+            kind=kind,
+            leaf_kind=leaf_kind,
+            mime=mime,
+            content_hash=content_hash,
+            filename=payload["filename"],
+        )
+
+    outcome = client.witness(
         kind=leaf_kind,
-        workflow=workflow,
+        content_hash=content_hash,
+        mime=mime,
         graph=graph,
         project_id=_state.get().active_project_id,
         machine_manifest_hash=machine_manifest_hash(client, workflow),
     )
-
-    content_hash = _last_content_hash(client)
+    client.state.record_receipt(
+        {
+            "filename": payload["filename"],
+            "content_hash": content_hash,
+            "leaf_id": outcome.leaf_id,
+            "witnessed": outcome.witnessed,
+            "queued": outcome.queued,
+        }
+    )
     record = _assurance.from_outcome(
         outcome,
         kind=kind,
@@ -261,6 +386,18 @@ def _witness_path(
         client_workflow_hash=client_workflow_hash,
         queue_depth_after=client.queue_depth,
     )
+    if led is not None and line is not None:
+        # The ledger records the OUTCOME state, not a success flag. A
+        # queued line keeps the id of the queue entry holding it, so
+        # settlement can tell "still spooled" from "spooled and then lost"
+        # -- which is the difference between outstanding and a gap.
+        led.update(
+            line["id"],
+            state=record.state,
+            leaf_id=outcome.leaf_id,
+            queue_id=_queue_id_for(client, content_hash) if outcome.queued else None,
+            error=outcome.error,
+        )
     _state.remember_leaf(leaf_id=outcome.leaf_id, mime=mime, content_hash=content_hash)
     _state.record_assurance(record)
     if outcome.error:
@@ -272,13 +409,46 @@ def _witness_path(
     return outcome
 
 
-def _refused_with_assurance(reason: str, *, kind: str, mime: Optional[str]) -> WitnessOutcome:
+def _queue_id_for(client, content_hash: str) -> Optional[str]:
+    """The id of the spooled entry holding this capture, if any.
+
+    `WitnessOutcome` does not carry it -- `http.Result` does, and
+    `witness_flow.witness()` does not pass it on -- so it is recovered by
+    matching the content hash against the bodies the queue stored. That
+    match is exact: the queued body IS the submission.
+    """
+    for e in reversed(client.queue.load_all()):
+        body = e.get("body") or {}
+        if body.get("content_hash") == content_hash:
+            return str(e.get("id"))
+    return None
+
+
+def _refused_with_assurance(
+    reason: str, *, kind: str, mime: Optional[str], client=None, filename: Optional[str] = None
+) -> WitnessOutcome:
     """A local refusal, recorded on the assurance surface as well as the
     error line. A capture that never left the machine must be visible as
     REFUSED_LOCALLY and not merely as a missing row -- silence and refusal
     read the same otherwise, which is the failure vendor floor item 5 is
     about."""
     _state.record_assurance(_assurance.refused(reason, kind=kind, mime=mime))
+    # And on the LEDGER, with no content hash, because a capture refused
+    # before it was hashed has none. Settlement reports it as
+    # `refused_locally` -- accounted for, with a reason, and therefore not
+    # a gap. Leaving it out of the ledger would make a refused session and
+    # an idle session produce the same file.
+    led = _ledger.get(client) if client is not None else _ledger.get()
+    if led is not None:
+        led.record_intent(
+            kind=kind,
+            leaf_kind=None,
+            mime=mime,
+            content_hash=None,
+            filename=filename,
+            state=_ledger.REFUSED_LOCALLY,
+            error=reason,
+        )
     return _refused(reason)
 
 
@@ -378,7 +548,7 @@ def witness_render(
         # An undeclarable format is a REFUSAL, and it goes on the tracker
         # as one. Property 1 forbids guessing a MIME; it does not licence
         # dropping the capture silently.
-        return _refused_with_assurance(str(e), kind="render", mime=None)
+        return _refused_with_assurance(str(e), kind="render", mime=None, client=client, filename=os.path.basename(path))
     settings = _scene.read_render_settings(scene)
     workflow = _scene.build_render_workflow(
         filename=os.path.basename(path),
@@ -432,7 +602,7 @@ def witness_export(
     try:
         declared = _scene.mime_for_export(format, output_path, declared=mime)
     except Exception as e:
-        return _refused_with_assurance(str(e), kind="export", mime=mime)
+        return _refused_with_assurance(str(e), kind="export", mime=mime, client=client, filename=os.path.basename(output_path))
     workflow = _scene.build_export_workflow(
         filepath=output_path,
         format=format,

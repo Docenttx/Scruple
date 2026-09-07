@@ -32,9 +32,49 @@ class AppHandlers:
         self.depsgraph_update_post = HandlerList()
 
 
+class AppTimers:
+    """`bpy.app.timers`, with the three methods the addon uses.
+
+    WO-B4 registers a drain timer, so the mock has to be able to say
+    whether one is registered -- otherwise the test asserting the addon
+    schedules a drain would pass against an addon that schedules nothing.
+    `fire()` has no counterpart in bpy; it exists so a test can run the
+    callback and see what it does rather than only that it exists.
+    """
+
+    def __init__(self) -> None:
+        self.registered: List[Any] = []
+        self.intervals: dict = {}
+        self.persistent: dict = {}
+
+    def register(self, fn, first_interval=0.0, persistent=False):
+        if fn in self.registered:
+            return
+        self.registered.append(fn)
+        self.intervals[fn] = first_interval
+        self.persistent[fn] = persistent
+
+    def is_registered(self, fn) -> bool:
+        return fn in self.registered
+
+    def unregister(self, fn):
+        if fn not in self.registered:
+            raise ValueError("timer is not registered")
+        self.registered.remove(fn)
+        self.intervals.pop(fn, None)
+        self.persistent.pop(fn, None)
+
+    def fire(self, fn=None):
+        """Run a registered callback once and return what it asked for as
+        its next interval."""
+        target = fn if fn is not None else (self.registered[0] if self.registered else None)
+        return target() if target is not None else None
+
+
 class App:
     def __init__(self) -> None:
         self.handlers = AppHandlers()
+        self.timers = AppTimers()
         self.version = (4, 2, 0)
 
 
@@ -174,6 +214,83 @@ class OperatorBase:
         self.reports_recorded.append((set(level), message))
 
 
+class OperatorProps:
+    """What `layout.operator(...)` returns: an object whose attributes are
+    the operator's properties. `op.tier = "pinned"` in a panel has to land
+    somewhere, and a test asserting the panel set it needs to read it."""
+
+    def __init__(self, idname: str, text: str = "", icon: str = "") -> None:
+        self.idname = idname
+        self.text = text
+        self.icon = icon
+
+
+class Layout:
+    """A recording `UILayout`.
+
+    WO-B4. The panel's draw() was previously untested end to end -- only
+    the line-formatting helpers were -- so a region that was always drawn
+    and a region that was drawn conditionally were indistinguishable from
+    the suite. This records what draw() actually emitted, so a test can
+    assert a region is ABSENT as easily as present. That asymmetry is the
+    whole point: a panel that draws everything would pass any test that
+    only ever checks for presence.
+    """
+
+    def __init__(self, parent: "Layout" = None) -> None:
+        self.labels: List[str] = []
+        self.operators: List[OperatorProps] = []
+        self.children: List["Layout"] = []
+        self.separators = 0
+        self._parent = parent
+
+    # -- the UILayout API the panel uses ---------------------------------
+    def label(self, text: str = "", icon: str = "") -> None:
+        self.labels.append(text)
+
+    def operator(self, idname: str, text: str = "", icon: str = "", **kw) -> OperatorProps:
+        op = OperatorProps(idname, text, icon)
+        self.operators.append(op)
+        return op
+
+    def box(self) -> "Layout":
+        child = Layout(self)
+        self.children.append(child)
+        return child
+
+    def row(self, align: bool = False) -> "Layout":
+        child = Layout(self)
+        self.children.append(child)
+        return child
+
+    def column(self, align: bool = False) -> "Layout":
+        child = Layout(self)
+        self.children.append(child)
+        return child
+
+    def separator(self) -> None:
+        self.separators += 1
+
+    # -- what a test reads -----------------------------------------------
+    def all_text(self) -> List[str]:
+        """Every label and operator label drawn anywhere in this tree, plus
+        the operator ids, so a test can assert on either."""
+        out: List[str] = list(self.labels)
+        for op in self.operators:
+            out.append(op.idname)
+            if op.text:
+                out.append(op.text)
+        for child in self.children:
+            out.extend(child.all_text())
+        return out
+
+    def all_operators(self) -> List[str]:
+        out = [op.idname for op in self.operators]
+        for child in self.children:
+            out.extend(child.all_operators())
+        return out
+
+
 class PanelBase:
     bl_space_type: str = "VIEW_3D"
     bl_region_type: str = "UI"
@@ -263,6 +380,7 @@ class Props:
 
 
 class Types:
+    UILayout = Layout
     Operator = OperatorBase
     Panel = PanelBase
     AddonPreferences = AddonPreferencesBase
@@ -305,6 +423,7 @@ def reset():
     """Restore mock state between tests."""
     global _CTX
     app.handlers = AppHandlers()
+    app.timers = AppTimers()
     data.filepath = ""
     data.materials = []
     _CTX = Context()

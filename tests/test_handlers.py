@@ -149,4 +149,4 @@ def test_drain_queue_replays_what_the_outage_spooled(attached_client, http_opene
 
 
 def test_drain_queue_is_safe_with_no_session(fresh_state):
-    assert _handlers.drain_queue() == {"succeeded": 0, "failed": 0, "remaining": 0}
+    assert _handlers.drain_queue() == {"attempted": 0, "succeeded": 0, "failed": 0, "remaining": 0}

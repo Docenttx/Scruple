@@ -79,6 +79,14 @@ class MockOpener:
         # so a more specific route always wins.
         self._prefixes: List[Tuple[str, str, Any, int]] = []
         self.recorded: List[Recorded] = []
+        # WO-B4. The server being unreachable, as a transport failure and
+        # not as a 500: `http.submit()` treats the two the same for
+        # queueing but a client sees a URLError, not a status. Set this and
+        # every call raises the way a refused connection does. The attempt
+        # is still RECORDED -- a test asserting nothing was sent while
+        # offline needs the difference between "did not try" and "tried and
+        # could not".
+        self.offline = False
 
     def register(
         self,
@@ -100,7 +108,14 @@ class MockOpener:
         """Register a route matched by path prefix. The handler is called
         with `(body, path=<the full path>)` so it can read the identifier
         the route carries."""
-        self._prefixes.append((method.upper(), prefix, response, status))
+        # Replace an identical (method, prefix) rather than shadowing it.
+        # `register()` has always overwritten; a prefix route that could
+        # only ever be added would make "the server forgets a leaf" an
+        # untestable scenario, because the first registration would keep
+        # winning.
+        m = method.upper()
+        self._prefixes = [e for e in self._prefixes if not (e[0] == m and e[1] == prefix)]
+        self._prefixes.append((m, prefix, response, status))
         self._prefixes.sort(key=lambda e: len(e[1]), reverse=True)
 
     def _resolve(self, method: str, path: str):
@@ -127,6 +142,9 @@ class MockOpener:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 body = None
         self.recorded.append(Recorded(method, path, query, headers, body))
+
+        if self.offline:
+            raise urllib.error.URLError("Connection refused (mock opener is offline)")
 
         route, status, wants_path = self._resolve(method, path)
         if route is None:

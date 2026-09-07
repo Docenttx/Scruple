@@ -107,15 +107,43 @@ if bpy is not None:
                     "scruple.open_receipt", text="Open receipt", icon="URL"
                 ).project_id = st.active_project_id
 
+            # WO-B4. The store-and-forward surface: what is spooled, and
+            # what the last settlement found. Both are drawn only when
+            # there is something to say -- an addon with an empty queue
+            # and no settlement draws neither box, which is what makes the
+            # boxes mean something when they do appear.
             depth = _state.queue_depth()
             if depth:
                 box = layout.box()
                 box.label(text=f"{depth} capture(s) queued offline", icon="SORTTIME")
+                box.label(text="Spooled on disk. Retried automatically; nothing is on the record yet.")
+                box.operator("scruple.drain_queue", text="Retry now", icon="FILE_REFRESH")
+
+            rec = _state.last_reconciliation()
+            if rec is not None and not rec.all_clear:
+                # Only when something is WRONG. A green "all clear" badge
+                # sitting on a panel is how a settlement stops being read;
+                # the honest default for a settled session is silence, and
+                # the operator's report is where "clear" gets said.
+                box = layout.box()
+                box.label(text="Reconciliation", icon="ERROR")
+                box.label(text=rec.summary[:200])
+                for line in rec.gaps[:5]:
+                    box.row().label(
+                        text=f"MISSING #{line.seq} {(line.filename or line.content_hash or '?')[:24]}",
+                        icon="CANCEL",
+                    )
+                for line in rec.inconclusive[:5]:
+                    box.row().label(
+                        text=f"UNRESOLVED #{line.seq} {(line.filename or '?')[:24]}",
+                        icon="QUESTION",
+                    )
 
             layout.separator()
 
             layout.operator("scruple.witness_now", text="Witness Now", icon="RESTRICT_RENDER_OFF")
             layout.operator("scruple.witness_export", text="Witness an export...", icon="EXPORT")
+            layout.operator("scruple.reconcile", text="Reconcile with Scruple", icon="FILE_REFRESH")
 
             pm = st.payment_method_summary or ""
             payment_ready = bool(pm)

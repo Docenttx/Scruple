@@ -67,6 +67,13 @@ class BlenderState:
         # silence vendor floor item 5 exists to make visible.
         self.assurances: Deque[Any] = deque(maxlen=MAX_ASSURANCES)
 
+        # WO-B4. The most recent settlement (adapter/reconcile.py), or
+        # None when one has never run in this session. None is NOT
+        # "clear" -- the panel prints "never reconciled", because a
+        # settlement that has not happened and one that found nothing
+        # missing are the two answers this addon exists to keep apart.
+        self.last_reconciliation: Any = None
+
     def clear(self) -> None:
         self.__init__()  # one definition of what the fields are
 
@@ -81,8 +88,14 @@ def get() -> BlenderState:
 def reset() -> None:
     """Clear the Blender bag AND drop the session Client, so a test or a
     sign-out does not leave a half-live session behind."""
+    from . import ledger as _ledger
+
     STATE.clear()
     _sdk.reset_client()
+    # The ledger HANDLE, not the file. A ledger deleted on sign-out would
+    # destroy the only record of captures that have not settled yet, which
+    # is the opposite of what it is for.
+    _ledger.reset()
 
 
 def set_error(message: Optional[str]) -> None:
@@ -159,3 +172,55 @@ def state_counts() -> Dict[str, int]:
     for rec in STATE.assurances:
         counts[rec.state] = counts.get(rec.state, 0) + 1
     return counts
+
+
+# ---- WO-B4: settlement ---------------------------------------------------
+
+
+def record_reconciliation(rec) -> None:
+    """Remember the most recent settlement. One, not a history: the panel
+    shows the current position, and the durable history is the ledger
+    file itself."""
+    STATE.last_reconciliation = rec
+
+
+def last_reconciliation():
+    """The last settlement, or None if none has run.
+
+    None is a distinct answer and callers must render it as one. An
+    addon that has never reconciled knows nothing about whether its
+    captures are on the record; that is not the same as knowing they are.
+    """
+    return STATE.last_reconciliation
+
+
+def replace_assurance(existing, updated) -> bool:
+    """Swap one tracker row for another, in place, preserving order.
+
+    Used by settlement when a capture's state changes AFTER the capture --
+    a queued leaf that drained, or a leaf the server turns out not to
+    have. Appending instead would make one capture look like two, which is
+    the same reason `record_assurance` has `replace_leaf_id`.
+    """
+    for i, rec in enumerate(STATE.assurances):
+        if rec is existing:
+            STATE.assurances[i] = updated
+            return True
+    return False
+
+
+def queue_is_backed_up() -> bool:
+    """True when anything is spooled and undelivered. What an offline
+    indicator reads -- a boolean over `queue_depth()` so a panel does not
+    have to decide what "offline" means."""
+    return queue_depth() > 0
+
+
+def ledger_depth() -> int:
+    """How many captures this session's ledger has recorded, ever. 0 when
+    there is no session -- not "unknown", for the same reason
+    `queue_depth()` returns 0."""
+    from . import ledger as _ledger
+
+    led = _ledger.get()
+    return led.count() if led is not None else 0

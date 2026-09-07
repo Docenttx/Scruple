@@ -50,6 +50,7 @@ def _load_modules():
         witness as _op_witness,
         witness_export as _op_witness_export,
         verify as _op_verify,
+        reconcile as _op_reconcile,
         checkpoint as _op_checkpoint,
         c2pa as _op_c2pa,
         chain_lock as _op_chain,
@@ -65,6 +66,7 @@ def _load_modules():
         "op_witness": _op_witness,
         "op_witness_export": _op_witness_export,
         "op_verify": _op_verify,
+        "op_reconcile": _op_reconcile,
         "op_checkpoint": _op_checkpoint,
         "op_c2pa": _op_c2pa,
         "op_chain": _op_chain,
@@ -82,6 +84,7 @@ def register():
     m["op_witness"].register()
     m["op_witness_export"].register()
     m["op_verify"].register()
+    m["op_reconcile"].register()
     m["op_checkpoint"].register()
     m["op_c2pa"].register()
     m["op_chain"].register()
@@ -102,6 +105,7 @@ def unregister():
     m["op_chain"].unregister()
     m["op_c2pa"].unregister()
     m["op_checkpoint"].unregister()
+    m["op_reconcile"].unregister()
     m["op_verify"].unregister()
     m["op_witness_export"].unregister()
     m["op_witness"].unregister()
