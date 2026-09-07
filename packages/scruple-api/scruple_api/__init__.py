@@ -128,7 +128,7 @@ from .model_write import (
     structural_summary,
     training_recipe,
 )
-from .outcomes import AttachResult, MarkOutcome, Outstanding, WitnessOutcome
+from .outcomes import AttachResult, ComponentOutcome, MarkOutcome, Outstanding, WitnessOutcome
 from .provider import (
     NO_SDK_REASON,
     NoOpWitnessProvider,
@@ -167,6 +167,7 @@ __all__ = [
     # outcomes
     "AttachResult",
     "WitnessOutcome",
+    "ComponentOutcome",
     "MarkOutcome",
     "Outstanding",
     # capture + hashing

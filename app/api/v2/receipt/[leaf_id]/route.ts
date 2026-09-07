@@ -10,6 +10,7 @@
 
 import { conn } from '@/lib/db/sqlite';
 import { v2Error, v2Ok } from '@/lib/v2/http';
+import { discloseLeafSignature } from '@/lib/leaf/signatureDisclosure';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,16 @@ interface Row {
   modalities_outstanding: string | null;
   platform_attestation_status: string | null;
   continuity_json: string | null;
+  // WO-S1(a) / migration 052.
+  leaf_signature: string | null;
+  leaf_signer_key_id: string | null;
+  leaf_signature_alg: string | null;
+  leaf_signer_surrogate: number | null;
+  leaf_signature_state: string | null;
+  canonicalization_profile: string | null;
+  component_id: string | null;
+  component_counter: number | null;
+  component_verified: number | null;
 }
 
 const parse = (s: string | null): unknown => {
@@ -44,12 +55,19 @@ export async function GET(
       `SELECT id, leaf_hash, output_hash, output_content_type, witnessed,
               leaf_scheme, baseline_hash, timestamp,
               modalities_requested, modalities_applied, modalities_outstanding,
-              platform_attestation_status, continuity_json
+              platform_attestation_status, continuity_json,
+              leaf_signature, leaf_signer_key_id, leaf_signature_alg,
+              leaf_signer_surrogate, leaf_signature_state,
+              canonicalization_profile,
+              component_id, component_counter, component_verified
          FROM iterations WHERE id = ?`,
     )
     .get(Number(leaf_id)) as Row | undefined;
 
   if (!row) return v2Error('not_found', `No receipt for leaf ${leaf_id}.`);
+
+  // WO-S1(a) — the seal, disclosed rather than asserted.
+  const signature = discloseLeafSignature(row, row.leaf_hash);
 
   return v2Ok({
     leaf_id: String(row.id),
@@ -71,5 +89,43 @@ export async function GET(
       : null,
     // §9.6 — produced outside the witness path.
     continuity: parse(row.continuity_json),
+
+    // ── WO-S1(a). ADDITIVE. Nothing above this line changed. ──────────
+    //
+    // What the leaf is actually sealed with, and what that is worth. The
+    // witness has held these four since H-1 and this surface disclosed
+    // none of them, so `independently_verifiable` was a claim the reader
+    // had no way to test — and a surrogate-signed leaf was
+    // indistinguishable from any other, which is exactly the per-leaf
+    // two-tier honesty H-5 exists to provide.
+    //
+    // Every key inside is always present. `state` says which of the three
+    // reasons a null means.
+    signature,
+    // Hoisted to the top level as well as sitting inside `signature`,
+    // because it is the one field a caller reads to decide whether to
+    // believe the rest, and burying it one level down invites the reading
+    // that its absence means false.
+    independently_verifiable: signature.independently_verifiable,
+
+    // Which canonicalization rule this row's hashes were made under
+    // (migration 049). Undisclosed until now, which made a live
+    // divergence undetectable: the Blender client computed `jcs-1` where
+    // the row records `jcs-2`, and no surface would show the reader the
+    // two disagreed. NULL means no document was canonicalized for this
+    // leaf — 046's "the question was never asked" — not a default.
+    canonicalization_profile: row.canonicalization_profile,
+
+    // H-4, per leaf. Present including when null, because "no component
+    // MACed this event" is a fact a verifier needs and an absent key is a
+    // fact nobody reads. `verified: false` beside a component_id is a
+    // third thing again: one was named and it did not check out.
+    component: row.component_id
+      ? {
+          component_id: row.component_id,
+          counter: row.component_counter,
+          verified: row.component_verified === 1,
+        }
+      : null,
   });
 }

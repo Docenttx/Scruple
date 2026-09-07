@@ -589,6 +589,31 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
   const leafHash = witnessResult?.leaf_hash ?? outputHash;
   const leafScheme: 'v1' | 'v2' | 'v2.2' = witnessResult?.leaf_scheme ?? 'v1';
 
+  // WO-S1(a), migration 052 — H-1's evidence signature, kept.
+  //
+  // `witnessResult.signature` a few lines down is the HMAC: a transport seal
+  // between this tier and the witness (H-2), forgeable by us and checkable by
+  // nobody else. It has been the only signature this tier stored, and
+  // /api/v2/verify read `independently_verifiable` off it. These four are the
+  // ECDSA half the witness has held since H-1 and this door discarded.
+  //
+  // The state stays null unless the witness ANSWERED. A pre-H-1 witness omits
+  // the field, which is not the same fact as answering "no signature" — so the
+  // test is presence of the key, not nullness of the value.
+  const sigAnswered = witnessResult !== null && 'leaf_signature' in witnessResult;
+  const leafSignature = sigAnswered ? witnessResult!.leaf_signature ?? null : null;
+  const leafSignatureState: 'signed' | 'unsigned' | null = sigAnswered
+    ? leafSignature
+      ? 'signed'
+      : 'unsigned'
+    : null;
+  // The witness's column is `leaf_signer_surrogate`; its wire field is
+  // `signer_surrogate` (server.js:828). Accept either spelling — reading the
+  // column name off the wire yields undefined forever with no type error.
+  const leafSignerSurrogateWire =
+    witnessResult?.signer_surrogate ??
+    (witnessResult as { leaf_signer_surrogate?: unknown } | null)?.leaf_signer_surrogate;
+
   // WO-64 — a RESPONSE is not a WITNESS.
   //
   // `witnessed` was `witnessResult !== null`, so any non-null body counted:
@@ -654,8 +679,10 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
            container_machine_manifest,
            deployment_id, seal_state, seal_ref,
            leaf_kind, canonicalization_profile,
-           machine_manifest_source, model_fingerprints_state, model_fingerprints_error
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           machine_manifest_source, model_fingerprints_state, model_fingerprints_error,
+           leaf_signature, leaf_signer_key_id, leaf_signature_alg,
+           leaf_signer_surrogate, leaf_signature_state
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         p.projectId,
@@ -756,6 +783,14 @@ export async function ingestIteration(p: IngestParams): Promise<IngestResult> {
         machineManifestSource,
         modelFingerprintsState,
         modelFingerprintsError,
+        // Migration 052 — the ECDSA half. Stored so a receipt can DISCLOSE a
+        // signature rather than assert one, and so a leaf the witness answered
+        // "unsigned" for reads differently from one this tier never asked about.
+        leafSignature,
+        sigAnswered ? witnessResult!.leaf_signer_key_id ?? null : null,
+        sigAnswered ? witnessResult!.leaf_signature_alg ?? null : null,
+        leafSignature ? (leafSignerSurrogateWire ? 1 : 0) : null,
+        leafSignatureState,
       );
 
     conn()

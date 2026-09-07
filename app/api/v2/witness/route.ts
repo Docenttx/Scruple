@@ -98,6 +98,7 @@ import {
   hashRunInputs,
 } from '@/lib/leaf/hashes';
 import { CANONICALIZATION_PROFILE } from '@/lib/leaf/canonicalJson';
+import { discloseLeafSignature } from '@/lib/leaf/signatureDisclosure';
 import { checkDeploymentSeal, componentDeployment } from '@/lib/seal/registry';
 
 export const dynamic = 'force-dynamic';
@@ -459,6 +460,24 @@ export async function POST(req: NextRequest) {
   let witnessId: string | null = null;
   let witnessSig: string | null = null;
 
+  // WO-S1(a) — H-1's evidence signature, kept rather than dropped.
+  //
+  // `witnessSig` above is the HMAC (H-2, a transport seal between this tier
+  // and the witness). It is NOT the thing a third party checks, and until
+  // migration 052 it was the only signature this tier stored — which is why
+  // /api/v2/verify reported `independently_verifiable` off it and was wrong
+  // for every leaf. These four are the ECDSA half.
+  //
+  // `leafSigState` stays null unless the witness ANSWERED the question. A
+  // pre-H-1 witness omits the field entirely; that is not the same as
+  // answering "no signature", so `'leaf_signature' in res` is the test and
+  // not `res.leaf_signature == null`.
+  let leafSignature: string | null = null;
+  let leafSignerKeyId: string | null = null;
+  let leafSignatureAlg: string | null = null;
+  let leafSignerSurrogate: number | null = null;
+  let leafSigState: 'signed' | 'unsigned' | null = null;
+
   // §9.6 — an event produced outside the witness path during an outage,
   // using the customer's own credentials, being recorded on reconnect.
   // It is explicitly NOT Scruple-witnessed, so we do not even attempt to
@@ -481,6 +500,22 @@ export async function POST(req: NextRequest) {
         witnessed = true;
         witnessId = String(res.witness_id ?? '');
         witnessSig = String(res.signature ?? '');
+      }
+      if (res && 'leaf_signature' in res) {
+        leafSignature = res.leaf_signature ?? null;
+        leafSignerKeyId = res.leaf_signer_key_id ?? null;
+        leafSignatureAlg = res.leaf_signature_alg ?? null;
+        // NAMING DRIFT, READ THROUGH THE REGISTRY RATHER THAN GUESSED. The
+        // witness's COLUMN is `leaf_signer_surrogate`; its WIRE field is
+        // `signer_surrogate` (server.js:828, and the note above it). Reading
+        // the column name off the response yields undefined forever, and the
+        // index signature on WitnessIterationResult means the compiler will
+        // not say so. Both spellings are accepted here, live name first.
+        const surrogate =
+          res.signer_surrogate ??
+          (res as { leaf_signer_surrogate?: unknown }).leaf_signer_surrogate;
+        leafSignerSurrogate = leafSignature ? (surrogate ? 1 : 0) : null;
+        leafSigState = leafSignature ? 'signed' : 'unsigned';
       }
     } catch {
       // Deliberately swallowed: capture must not block on witness-server
@@ -508,8 +543,10 @@ export async function POST(req: NextRequest) {
           machine_manifest_hash,
           component_id, component_counter, component_verified, mime_declared,
           deployment_id, seal_state, seal_ref,
-          canonicalization_profile)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          canonicalization_profile,
+          leaf_signature, leaf_signer_key_id, leaf_signature_alg,
+          leaf_signer_surrogate, leaf_signature_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -554,6 +591,14 @@ export async function POST(req: NextRequest) {
       // by only one of them is a field an auditor cannot rely on, which is the
       // shape of the leaf_kind defect WO-34 found one column over.
       workflowHash ? CANONICALIZATION_PROFILE : null,
+      // Migration 052. Stored so a receipt can DISCLOSE the signature rather
+      // than assert its existence, and so `leaf_signature_state` can tell
+      // "unsigned" apart from "we never got an answer".
+      leafSignature,
+      leafSignerKeyId,
+      leafSignatureAlg,
+      leafSignerSurrogate,
+      leafSigState,
     );
 
   return v2Ok(
@@ -567,6 +612,23 @@ export async function POST(req: NextRequest) {
       leaf_scheme: leafScheme,
       run_sequence: runSequence,
       baseline_ref: body.baseline_ref,
+      // WO-S1(a), additive. The same disclosure the receipt carries, from
+      // the same function, returned at capture time so a client learns
+      // what its leaf is sealed with without a second round trip — and so
+      // a client whose own canonicalization disagrees with the row's
+      // (`jcs-1` against `jcs-2`, observed) finds out on the response that
+      // recorded it rather than never.
+      signature: discloseLeafSignature(
+        {
+          leaf_signature: leafSignature,
+          leaf_signer_key_id: leafSignerKeyId,
+          leaf_signature_alg: leafSignatureAlg,
+          leaf_signer_surrogate: leafSignerSurrogate,
+          leaf_signature_state: leafSigState,
+        },
+        leafHash,
+      ),
+      canonicalization_profile: workflowHash ? CANONICALIZATION_PROFILE : null,
       attestation: attestationStatus ? { status: attestationStatus } : null,
       // What this leaf actually commits to. A caller that sent a graph
       // is entitled to see that it was folded in rather than dropped —

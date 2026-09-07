@@ -269,11 +269,15 @@ export const CANVAS_BASELINE = {
    * To re-record after an intended change:
    *   npx tsx -e "import('./lib/canvas/baseline').then(m=>console.log(m.tamperSurface().tamper_surface_hash))"
    */
-  // Re-recorded by WO-25. WHY THE CAPTURE PATH CHANGED: canvas acquired a
-  // deployment identity (`lib/canvas/deployment.ts`) and its leaves are
-  // now stamped with a seal state resolved by `lib/seal/registry.ts`
-  // instead of NULL, so `lib/canvas/witness.ts` and
-  // `lib/iterations/ingest.ts` both moved. That sentence is the product;
-  // the hash is what makes writing it unavoidable.
-  tamper_surface_hash: '8daff6dacc99c8c3d699c5527b9316c470f4492c811b76e416cdfefbf10f6e3a',
+  // Re-recorded by WO-S1(a). WHY THE CAPTURE PATH CHANGED:
+  // `lib/iterations/ingest.ts` now persists H-1's four leaf-signature
+  // fields (migration 052) instead of discarding them, so a canvas leaf
+  // records what actually sealed it and `/api/v2/receipt` can disclose
+  // it. Nothing about what canvas CAPTURES changed — but what a canvas
+  // leaf can be checked against did, and that is squarely what this
+  // surface covers.
+  //
+  // The previous value, for the record: 8daff6dacc99c8c3d699c5527b9316c4
+  // 70f4492c811b76e416cdfefbf10f6e3a (WO-25, the seal stamp).
+  tamper_surface_hash: '42ba03bd82647ffafc8c1adedfacd0ab7ff47d91a541a48d45955de418e6d7c6',
 } as const;
