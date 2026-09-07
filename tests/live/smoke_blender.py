@@ -71,6 +71,13 @@ def main():
         "scruple.payment_setup",
         "scruple.resume_payment",
         "scruple.witness_export",
+        # WO-B5's dashboard operators.
+        "scruple.refresh_config",
+        "scruple.refresh_projects",
+        "scruple.select_project",
+        "scruple.archive_project",
+        "scruple.select_capture",
+        "scruple.clear_error",
     ]
     for op_id in expected_operators:
         module_name, op_name = op_id.split(".")
@@ -78,7 +85,17 @@ def main():
         _report(f"operator_{op_id}", found)
 
     # 4. Panel classes registered as bpy.types
-    expected_panels = ["SCRUPLE_PT_main"]
+    # WO-B5 made this a parent and five sub-panels. A sub-panel whose
+    # `bl_parent_id` does not resolve registers WITHOUT error and is
+    # silently absent from the N-panel, so each is checked by name.
+    expected_panels = [
+        "SCRUPLE_PT_main",
+        "SCRUPLE_PT_projects",
+        "SCRUPLE_PT_edits",
+        "SCRUPLE_PT_tracker",
+        "SCRUPLE_PT_receipt",
+        "SCRUPLE_PT_locks",
+    ]
     for cls in expected_panels:
         found = hasattr(bpy.types, cls)
         _report(f"panel_{cls}", found)

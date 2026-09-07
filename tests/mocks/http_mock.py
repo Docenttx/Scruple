@@ -11,6 +11,7 @@ request body and returning the dict.
 
 from __future__ import annotations
 
+import inspect
 import io
 import json
 import urllib.error
@@ -107,7 +108,13 @@ class MockOpener:
     ) -> None:
         """Register a route matched by path prefix. The handler is called
         with `(body, path=<the full path>)` so it can read the identifier
-        the route carries."""
+        the route carries.
+
+        WO-B5: a handler may also declare a `query` parameter and receive
+        the parsed query string. `/api/projects?archived=only` and
+        `?archived=live` are the same path and different answers, so a
+        mock that could not see the query would have made the archived
+        list untestable."""
         # Replace an identical (method, prefix) rather than shadowing it.
         # `register()` has always overwritten; a prefix route that could
         # only ever be added would make "the server forgets a leaf" an
@@ -157,10 +164,21 @@ class MockOpener:
         try:
             if not callable(route):
                 payload = route
-            elif wants_path:
-                payload = route(body or {}, path=path)
             else:
-                payload = route(body or {})
+                # What the handler asks for is what it gets. Declared by
+                # signature rather than by a flag on the registration, so
+                # a handler that needs the query string cannot be
+                # registered in a way that silently withholds it.
+                kwargs = {}
+                try:
+                    params = inspect.signature(route).parameters
+                except (TypeError, ValueError):
+                    params = {}
+                if "path" in params:
+                    kwargs["path"] = path
+                if "query" in params:
+                    kwargs["query"] = query
+                payload = route(body or {}, **kwargs)
         except Rejected as r:
             # A route that refuses, refusing the way the real one does.
             # Raised rather than returned so a mock route cannot describe

@@ -57,6 +57,7 @@ def _load_modules():
         open_receipt as _op_receipt,
         payment_setup as _op_payment,
         resume_payment as _op_resume,
+        dashboard as _op_dashboard,
     )
     _MODULES = {
         "preferences": _prefs,
@@ -73,6 +74,7 @@ def _load_modules():
         "op_receipt": _op_receipt,
         "op_payment": _op_payment,
         "op_resume": _op_resume,
+        "op_dashboard": _op_dashboard,
     }
     return _MODULES
 
@@ -91,6 +93,9 @@ def register():
     m["op_receipt"].register()
     m["op_payment"].register()
     m["op_resume"].register()
+    # Before the panel: its regions draw these operators, and a panel
+    # that references an unregistered operator id is a broken button.
+    m["op_dashboard"].register()
     m["panel_main"].register()
     m["handlers"].register()
 
@@ -99,6 +104,7 @@ def unregister():
     m = _load_modules()
     m["handlers"].unregister()
     m["panel_main"].unregister()
+    m["op_dashboard"].unregister()
     m["op_resume"].unregister()
     m["op_payment"].unregister()
     m["op_receipt"].unregister()

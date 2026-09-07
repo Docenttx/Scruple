@@ -263,6 +263,19 @@ def _drain_tick() -> float:
     return DRAIN_INTERVAL_SECONDS
 
 
+def _refresh_dashboard() -> None:
+    """Fill the panel's caches. Never raises: it runs on the worker
+    thread at startup, and a failure here must cost the panel a project
+    list, not the addon its handlers."""
+    try:
+        from operators import dashboard as _dashboard_ops
+
+        _dashboard_ops.refresh_projects()
+        _dashboard_ops.refresh_payment_config()
+    except Exception as e:
+        _log.warn(f"dashboard refresh: {e}")
+
+
 def _install_timer() -> bool:
     if bpy is None or not hasattr(bpy.app, "timers"):
         return False
@@ -297,6 +310,11 @@ def register() -> None:
     # render. Off the main thread: register() runs while Blender is
     # starting up and a network round-trip here would be a hang at launch.
     WORKER.submit(lambda: drain_queue())
+    # WO-B5. The dashboard's caches, filled once at startup so the panel
+    # has a project list and a payment state before the user presses
+    # anything. Off the main thread for the same reason the drain is:
+    # register() runs while Blender is starting up.
+    WORKER.submit(_refresh_dashboard)
     _log.info("handlers registered")
 
 

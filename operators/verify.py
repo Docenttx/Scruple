@@ -75,7 +75,12 @@ if bpy is not None:
             if client is None:
                 self.report({"ERROR"}, "Not signed in. Open Add-on Preferences to sign in.")
                 return {"CANCELLED"}
-            rec = _state.last_assurance()
+            # WO-B5: the SELECTED capture, which defaults to the newest
+            # when the drill-down has never been clicked -- so this is
+            # unchanged for a user who never opens a row, and correct for
+            # one who does. Verifying "the last" while the panel shows a
+            # different row would attach a receipt to the wrong capture.
+            rec = _state.selected_capture()
             if rec is None:
                 self.report({"WARNING"}, "Nothing captured this session yet.")
                 return {"CANCELLED"}

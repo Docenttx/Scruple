@@ -43,6 +43,16 @@ class BlenderState:
         self.active_project_status: Optional[str] = None
 
         self.payment_method_summary: Optional[str] = None
+        # WO-B5. The whole /api/stripe/config body, not just the card
+        # summary: `price_cents_for()` reads `prices` off it, and a
+        # dashboard that shows a price has to show the one the confirm
+        # dialog will use. Cached because draw() must not fetch.
+        self.payment_config: Optional[Dict[str, Any]] = None
+        #: Why the last read of /api/stripe/config failed, or None. A
+        #: separate field from `payment_config` because "never asked" and
+        #: "asked and was refused" block the paid buttons for different
+        #: reasons and only one of them is the user's to fix.
+        self.payment_error: Optional[str] = None
 
         # What a paid action would be applied to: /v2/mark takes a
         # leaf_id, so the addon has to remember which leaf the last
@@ -53,6 +63,23 @@ class BlenderState:
         self.last_content_hash: Optional[str] = None
 
         self.last_error: Optional[str] = None
+
+        # WO-B5. One MarkRecord per leaf this session marked, keyed by
+        # leaf_id. Not a list: a leaf can be marked more than once (a
+        # local lock and then a chain anchor), and the dashboard shows
+        # the current position of a leaf, not a transaction log -- the
+        # durable log is the server's.
+        self.marks: Dict[str, Any] = {}
+
+        # Which capture the receipt drill-down is showing. A KEY (see
+        # `assurance.capture_key`), not an index and not the record
+        # object: the tracker is a deque that new captures push onto the
+        # front, so an index would silently drift onto a different row,
+        # and `replace_assurance()` swaps the object when a settlement
+        # updates a capture, so identity would not survive either.
+        # None means "the newest", which is what a drill-down opened
+        # without a click should show.
+        self.selected_capture_key: Optional[str] = None
 
         # WO-B3. One LeafAssurance per capture this session, newest first,
         # INCLUDING the ones that never reached the server.
@@ -92,6 +119,12 @@ def reset() -> None:
 
     STATE.clear()
     _sdk.reset_client()
+    # The project index is a cache of a server response tied to the
+    # session's key; a new session must not inherit the old tenant's
+    # project list.
+    from . import projects as _projects
+
+    _projects.reset()
     # The ledger HANDLE, not the file. A ledger deleted on sign-out would
     # destroy the only record of captures that have not settled yet, which
     # is the opposite of what it is for.
@@ -224,3 +257,68 @@ def ledger_depth() -> int:
 
     led = _ledger.get()
     return led.count() if led is not None else 0
+
+
+# ---- WO-B5: the dashboard's reads ---------------------------------------
+
+
+def set_payment_config(config: Optional[Dict[str, Any]], *, error: Optional[str] = None) -> None:
+    """Cache /api/stripe/config and the card summary derived from it, in
+    one place, so the price on a button and the price in the confirm
+    dialog come from the same body. `error` is why the read failed, and
+    it is recorded rather than collapsed into an absent config."""
+    from scruple_host_sdk import payment as _payment
+
+    STATE.payment_config = config
+    STATE.payment_error = error
+    STATE.payment_method_summary = _payment.payment_method_summary(config or {})
+
+
+def payment_config() -> Optional[Dict[str, Any]]:
+    return STATE.payment_config
+
+
+def payment_ready() -> bool:
+    """True only when a card summary was actually read off a fetched
+    config. False before the config has ever been fetched -- "not asked"
+    renders as "cannot pay yet", which is the safe direction: it blocks
+    a button rather than offering one that would fail."""
+    return bool(STATE.payment_method_summary)
+
+
+def record_mark(record) -> None:
+    """Remember what a paid action did to a leaf."""
+    if getattr(record, "leaf_id", None):
+        STATE.marks[record.leaf_id] = record
+
+
+def mark_for(leaf_id: Optional[str]):
+    """The last mark applied to this leaf, or None if it was never
+    marked. None is not "unlocked by choice" -- it is "no paid action was
+    attempted", and locks.state_line() says so."""
+    if not leaf_id:
+        return None
+    return STATE.marks.get(leaf_id)
+
+
+def select_capture(key: Optional[str]) -> None:
+    STATE.selected_capture_key = key
+
+
+def selected_capture():
+    """The capture the drill-down is showing: the one whose key was
+    selected, or the newest when nothing was.
+
+    Falls back to the newest when the selected key is no longer in the
+    tracker (the deque is bounded at MAX_ASSURANCES, so a long session
+    drops old rows) rather than showing nothing -- but it does NOT
+    silently keep the stale key, so the next selection is honest.
+    """
+    from . import assurance as _assurance
+
+    key = STATE.selected_capture_key
+    if key is not None:
+        for rec in STATE.assurances:
+            if _assurance.capture_key(rec) == key:
+                return rec
+    return last_assurance()

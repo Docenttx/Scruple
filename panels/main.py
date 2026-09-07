@@ -1,20 +1,37 @@
-"""N-panel in the 3D Viewport sidebar.
+"""The N-panel: project manager, capture tracker, and lock dashboard.
 
-WO-B2 repoints this at the SDK and changes nothing else structurally --
-it is still a sign-in gate, a header, the paid buttons and a receipt
-list. WO-B5 is the one that rebuilds it as the project manager /
-tracker / lock dashboard that Studio and the Fusion palette are.
+WO-B5. What was here before was a sign-in gate, a project header that
+nothing ever populated, four paid buttons and a receipt list -- one
+`draw()` that read four adapter modules inline and decided, while
+drawing, what each region meant. It is now three files:
 
-Two things did have to change, because the data underneath them did:
+    panels/model.py      one read of everything, as a snapshot
+    panels/dashboard.py  one function per region, no policy
+    panels/main.py       this file: the bpy classes, and nothing else
 
-  * the receipt list now reads `SessionState.recent_receipts`, which the
-    SDK writes in `Client.witness_file()`. Its rows carry
-    `content_hash`, `leaf_id`, `witnessed` and `queued` -- so the list
-    can say whether each capture was witnessed, rather than showing a
-    leaf hash and implying it.
-  * a queue depth is shown when anything is spooled. The addon has had
-    an offline queue since day one and has never had a way to tell the
-    user something was in it.
+WHY SUB-PANELS. Blender's own answer to "a sidebar and a workspace" is a
+parent panel with collapsible children, and it buys three things a
+single tall panel does not: a user can collapse the regions they are not
+using, each child gets its own `poll()` so a region that does not apply
+is genuinely not in the UI (not merely empty), and the header stays
+visible while the tracker scrolls. The Fusion palette's information
+architecture maps onto them one for one:
+
+    palette sidebar, project list      -> SCRUPLE_PT_projects
+    palette sidebar, witnessed edits   -> SCRUPLE_PT_edits
+    palette workspace, iteration list  -> SCRUPLE_PT_tracker
+    palette workspace, lock buttons    -> SCRUPLE_PT_locks
+    palette workspace, receipt detail  -> SCRUPLE_PT_receipt
+    palette top bar + error banner     -> SCRUPLE_PT_main
+
+`SCRUPLE_PT_main` keeps the queue, reconciliation and error regions
+because they are session-wide and must be visible without expanding
+anything: an addon whose spool is backing up should not be able to hide
+that inside a collapsed sub-panel.
+
+`assurance_line` and `receipt_line` are re-exported from
+`panels.dashboard` -- WO-B3's tests pin them by name on this module, and
+the wording is now shared with the drill-down.
 """
 
 from __future__ import annotations
@@ -24,195 +41,124 @@ try:
 except ImportError:
     bpy = None
 
-from adapter import assurance as _assurance
-from adapter import preferences as _prefs
-from adapter import sdk as _sdk
-from adapter import state as _state
+from panels import dashboard as _dash
+from panels import model as _model
 
-from scruple_host_sdk import payment as _payment
-
+# Re-exported: the tests from WO-B3 address these on this module, and
+# moving the wording to dashboard.py must not move the API.
+assurance_line = _dash.assurance_line
+receipt_line = _dash.receipt_line
 
 PANEL_LABEL = "Scruple"
 CATEGORY = "Scruple"
 
 
-def _load_stripe_config_once():
-    """Grab a fresh payment-method summary, best-effort. Runs in the UI
-    thread on an explicit button press -- never in draw(), which Blender
-    calls on every redraw."""
-    client = _sdk.get_client()
-    if client is None:
-        return
-    cfg = _payment.get_payment_config(client)
-    _state.get().payment_method_summary = _payment.payment_method_summary(cfg)
-
-
-def assurance_line(rec) -> str:
-    """One tracker row: what state the capture is in and what its
-    evidence actually amounts to.
-
-    WO-B3. The old row could say "witnessed" and nothing else, so a leaf
-    nobody can verify and a leaf signed in an HSM rendered identically.
-    The tier here is `LeafAssurance.assurance_tier`, which is
-    `undisclosed` on every leaf today because the server sends no
-    signature field -- and `undisclosed` is the honest word for that.
-    """
-    label = (rec.leaf_id or rec.content_hash or rec.filename or "-")[:16]
-    if rec.state == _assurance.WITNESSED:
-        return f"{label}  [witnessed · {rec.assurance_tier}]"
-    return f"{label}  [{rec.state.replace('_', ' ')}]"
-
-
-def receipt_line(r: dict) -> str:
-    """One receipt row, with its state said out loud. `witnessed` is a
-    field on the row because it is a field in the server's response
-    (D-8); it is not inferred from the leaf id being present."""
-    label = (r.get("leaf_id") or r.get("content_hash") or "-")[:16]
-    if r.get("queued"):
-        state = "queued"
-    elif r.get("witnessed"):
-        state = "witnessed"
-    else:
-        state = "not witnessed"
-    return f"{label}  [{state}]"
-
-
 if bpy is not None:
 
-    class SCRUPLE_PT_main(bpy.types.Panel):
+    class _ScruplePanel:
         bl_space_type = "VIEW_3D"
         bl_region_type = "UI"
         bl_category = CATEGORY
+
+    class SCRUPLE_PT_main(_ScruplePanel, bpy.types.Panel):
         bl_label = PANEL_LABEL
+        bl_idname = "SCRUPLE_PT_main"
 
         def draw(self, context):
             layout = self.layout
-            st = _state.get()
-            signed_in = _prefs.is_authed()
+            m = _model.build()
 
-            if not signed_in:
-                box = layout.box()
-                box.label(text="Not signed in", icon="ERROR")
-                box.operator("scruple.sign_in", text="Sign in", icon="URL")
+            if _dash.draw_signin(layout, m):
+                # The gate. Nothing else is drawn signed out -- there is
+                # no session, so every other region would be describing
+                # state that does not exist.
                 return
 
-            box = layout.box()
-            row = box.row()
-            proj_name = st.active_project_name or "(no active project)"
-            row.label(text=proj_name, icon="OUTLINER_COLLECTION")
-            row = box.row()
-            row.label(text=f"Status: {st.active_project_status or 'unlocked'}")
-            if st.active_project_id:
-                row.operator(
-                    "scruple.open_receipt", text="Open receipt", icon="URL"
-                ).project_id = st.active_project_id
-
-            # WO-B4. The store-and-forward surface: what is spooled, and
-            # what the last settlement found. Both are drawn only when
-            # there is something to say -- an addon with an empty queue
-            # and no settlement draws neither box, which is what makes the
-            # boxes mean something when they do appear.
-            depth = _state.queue_depth()
-            if depth:
-                box = layout.box()
-                box.label(text=f"{depth} capture(s) queued offline", icon="SORTTIME")
-                box.label(text="Spooled on disk. Retried automatically; nothing is on the record yet.")
-                box.operator("scruple.drain_queue", text="Retry now", icon="FILE_REFRESH")
-
-            rec = _state.last_reconciliation()
-            if rec is not None and not rec.all_clear:
-                # Only when something is WRONG. A green "all clear" badge
-                # sitting on a panel is how a settlement stops being read;
-                # the honest default for a settled session is silence, and
-                # the operator's report is where "clear" gets said.
-                box = layout.box()
-                box.label(text="Reconciliation", icon="ERROR")
-                box.label(text=rec.summary[:200])
-                for line in rec.gaps[:5]:
-                    box.row().label(
-                        text=f"MISSING #{line.seq} {(line.filename or line.content_hash or '?')[:24]}",
-                        icon="CANCEL",
-                    )
-                for line in rec.inconclusive[:5]:
-                    box.row().label(
-                        text=f"UNRESOLVED #{line.seq} {(line.filename or '?')[:24]}",
-                        icon="QUESTION",
-                    )
-
+            _dash.draw_header(layout, m)
+            _dash.draw_connection(layout, m)
+            _dash.draw_queue(layout, m)
+            _dash.draw_reconciliation(layout, m)
+            _dash.draw_error(layout, m)
             layout.separator()
-
             layout.operator("scruple.witness_now", text="Witness Now", icon="RESTRICT_RENDER_OFF")
             layout.operator("scruple.witness_export", text="Witness an export...", icon="EXPORT")
             layout.operator("scruple.reconcile", text="Reconcile with Scruple", icon="FILE_REFRESH")
 
-            pm = st.payment_method_summary or ""
-            payment_ready = bool(pm)
+    class _ScrupleSubPanel(_ScruplePanel):
+        bl_parent_id = "SCRUPLE_PT_main"
+        bl_options = {"DEFAULT_CLOSED"}
 
-            box = layout.box()
-            box.label(text="Paid actions", icon="FUND")
+    class SCRUPLE_PT_projects(_ScrupleSubPanel, bpy.types.Panel):
+        bl_label = "Projects"
+        bl_idname = "SCRUPLE_PT_projects"
 
-            if not payment_ready:
-                box.label(text="No payment method on file", icon="ERROR")
-                box.operator(
-                    "scruple.setup_payment",
-                    text="Set up payment on scruple.ai",
-                    icon="URL",
-                )
-            else:
-                box.label(text=f"Card: {pm}", icon="CHECKMARK")
-                box.operator(
-                    "scruple.c2pa_sign",
-                    # /api/v2/mark with modalities: [] — see operators/c2pa.py.
-                    text=self._button_label("Local Lock", _payment.ACTION_C2PA),
-                )
-                op = box.operator(
-                    "scruple.chain_lock",
-                    text=self._button_label("Chain-lock", _payment.ACTION_CHAIN_PINNED),
-                )
-                op.tier = "pinned"
+        @classmethod
+        def poll(cls, context):
+            return _model.build().show_projects
 
-            # WO-B3: the tracker is the assurance list, not the SDK's
-            # receipt list. It is a superset -- a capture refused before
-            # the SDK was called produces no receipt, and a tracker that
-            # showed only receipts would show nothing at all for it.
-            records = _state.assurances()
-            if records:
-                layout.separator()
-                box = layout.box()
-                counts = _state.state_counts()
-                summary = "  ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(counts.items()))
-                box.label(text=f"Captures this session — {summary}", icon="TEXT")
-                for rec in records[:8]:
-                    box.row().label(text=assurance_line(rec))
-                last = records[0]
-                if last.leaf_id:
-                    box.operator("scruple.verify_last", text="Fetch receipt & verify", icon="CHECKMARK")
-                    if last.signature.source == _assurance.NOT_DISCLOSED:
-                        # Said once, at the bottom, rather than on every
-                        # row: the reason every tier above reads
-                        # `undisclosed` is the API, not the leaf.
-                        box.label(text="No leaf signature is disclosed by this server.", icon="INFO")
+        def draw(self, context):
+            _dash.draw_projects(self.layout, _model.build())
 
-            if st.last_error:
-                layout.separator()
-                box = layout.box()
-                box.label(text="Last error", icon="ERROR")
-                box.label(text=st.last_error[:200])
+    class SCRUPLE_PT_edits(_ScrupleSubPanel, bpy.types.Panel):
+        bl_label = "Witnessed edits"
+        bl_idname = "SCRUPLE_PT_edits"
 
-        def _button_label(self, base: str, action: str) -> str:
-            price = _payment.price_cents_for(action)
-            return f"{base}  {_payment.format_price(price)}"
+        @classmethod
+        def poll(cls, context):
+            m = _model.build()
+            return m.show_projects and m.active_project_id is not None
 
-    class SCRUPLE_PT_refresh_config(bpy.types.Operator):
-        bl_idname = "scruple.refresh_config"
-        bl_label = "Refresh payment info"
-        bl_description = "Re-read the payment method summary from scruple.ai"
+        def draw(self, context):
+            _dash.draw_edits(self.layout, _model.build())
 
-        def execute(self, context):
-            _load_stripe_config_once()
-            return {"FINISHED"}
+    class SCRUPLE_PT_tracker(_ScrupleSubPanel, bpy.types.Panel):
+        bl_label = "Captures this session"
+        bl_idname = "SCRUPLE_PT_tracker"
+        bl_options = set()  # open by default: this is the live surface
 
-    _CLASSES = (SCRUPLE_PT_main, SCRUPLE_PT_refresh_config)
+        @classmethod
+        def poll(cls, context):
+            return _model.build().show_tracker
+
+        def draw(self, context):
+            _dash.draw_tracker(self.layout, _model.build())
+
+    class SCRUPLE_PT_receipt(_ScrupleSubPanel, bpy.types.Panel):
+        bl_label = "Receipt"
+        bl_idname = "SCRUPLE_PT_receipt"
+
+        @classmethod
+        def poll(cls, context):
+            return _model.build().show_receipt
+
+        def draw(self, context):
+            _dash.draw_receipt(self.layout, _model.build())
+
+    class SCRUPLE_PT_locks(_ScrupleSubPanel, bpy.types.Panel):
+        bl_label = "Lock & mint"
+        bl_idname = "SCRUPLE_PT_locks"
+
+        @classmethod
+        def poll(cls, context):
+            return _model.build().show_locks
+
+        def draw(self, context):
+            layout = self.layout
+            m = _model.build()
+            _dash.draw_payment(layout, m)
+            _dash.draw_locks(layout, m)
+
+    #: Every panel class, parent first -- Blender resolves `bl_parent_id`
+    #: at registration and a child registered before its parent is
+    #: silently dropped from the UI.
+    _CLASSES = (
+        SCRUPLE_PT_main,
+        SCRUPLE_PT_projects,
+        SCRUPLE_PT_edits,
+        SCRUPLE_PT_tracker,
+        SCRUPLE_PT_receipt,
+        SCRUPLE_PT_locks,
+    )
 
     def register():
         for cls in _CLASSES:

@@ -263,6 +263,38 @@ class LeafAssurance:
         return d
 
 
+# ---- addressing one capture ---------------------------------------------
+
+
+def capture_key(rec) -> str:
+    """A stable handle for one tracker row.
+
+    WO-B5's drill-down has to name a capture across redraws, and the
+    tracker is a bounded deque that new captures push onto the FRONT --
+    so a positional index points at a different capture the moment
+    anything else is witnessed. It is also not the record object, because
+    `state.replace_assurance()` swaps the object when a settlement
+    updates a capture.
+
+    Leaf id first, then content hash: both survive every in-place update
+    the tracker performs. A capture that has neither -- refused before it
+    was hashed -- gets a key derived from what it does have, which is
+    unique enough to address a row and is never used as an identifier for
+    anything on the record.
+    """
+    leaf_id = getattr(rec, "leaf_id", None)
+    if leaf_id:
+        return f"leaf:{leaf_id}"
+    content_hash = getattr(rec, "content_hash", None)
+    if content_hash:
+        return f"hash:{content_hash}"
+    return "local:{}:{}:{}".format(
+        getattr(rec, "state", ""),
+        getattr(rec, "filename", "") or "",
+        (getattr(rec, "error", "") or "")[:40],
+    )
+
+
 # ---- builders -----------------------------------------------------------
 
 def state_for(outcome) -> str:

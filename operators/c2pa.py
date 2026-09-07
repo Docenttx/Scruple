@@ -28,6 +28,7 @@ except ImportError:
     bpy = None
 
 from adapter import flow as _wf
+from adapter import locks as _locks
 from adapter import sdk as _sdk
 from adapter import state as _state
 
@@ -102,6 +103,11 @@ if bpy is not None:
                 mime=st.last_leaf_mime or "application/octet-stream",
                 payment_intent_id=result.payment_intent_id,
             )
+            # WO-B5: the outcome goes on the dashboard, not only into
+            # Blender's info bar -- which the next report overwrites, so
+            # before this the panel could not say what state a leaf was
+            # in a minute after the button was pressed.
+            _state.record_mark(_locks.from_outcome(outcome))
             level, message = mark_report(outcome, "Local lock")
             if outcome.error or outcome.queued:
                 _state.set_error(message)

@@ -258,3 +258,123 @@ def register_v2_disclosing(opener, **kwargs) -> None:
     telling the truth about what today's server sends."""
     kwargs.setdefault("discloses_signature", True)
     register_v2(opener, **kwargs)
+
+
+# ---- the project routes (v1, deliberately) ------------------------------
+
+def project_row(
+    pid: int,
+    name: str,
+    *,
+    status: str = "unlocked",
+    iteration_count: int = 0,
+    witnessed_count: int = 0,
+    is_archived: bool = False,
+    is_active: bool = False,
+    type: str = "image",
+) -> Dict[str, Any]:
+    """One row shaped like `projects` in the app DB, keyed the way
+    app/api/projects/route.ts returns it (`SELECT *`, so snake_case
+    columns straight off the table)."""
+    return {
+        "id": pid,
+        "user_id": "u_test",
+        "name": name,
+        "type": type,
+        "status": status,
+        "iteration_count": iteration_count,
+        "witnessed_count": witnessed_count,
+        "is_archived": 1 if is_archived else 0,
+        "is_active": 1 if is_active else 0,
+        "scr_id": None,
+        "merkle_root": None,
+        "created_at": "2026-09-07T09:00:00.000Z",
+        "updated_at": "2026-09-07T09:30:00.000Z",
+    }
+
+
+def iteration_row(seq: int, *, witnessed: bool = True, leaf_hash: Optional[str] = None) -> Dict[str, Any]:
+    return {
+        "id": seq,
+        "project_id": 1,
+        "run_sequence": seq,
+        "leaf_hash": leaf_hash or (f"{seq:02d}" + "e" * 62),
+        "output_hash": "d" * 64,
+        "timestamp": "2026-09-07T09:31:00.000Z",
+        "witnessed": 1 if witnessed else 0,
+    }
+
+
+def register_projects(
+    opener,
+    rows: Optional[List[Dict[str, Any]]] = None,
+    *,
+    active_id: Optional[int] = None,
+    iterations: Optional[Dict[int, List[Dict[str, Any]]]] = None,
+    status: int = 200,
+) -> Dict[str, Any]:
+    """`/api/projects`, `/api/projects/{id}`, `set-active` and `archive`.
+
+    These are v1 routes and that is the finding, not an oversight:
+    /api/v2 has nine routes and none of them lists a project, while
+    `/api/v2/witness` takes a `project_id`. See adapter/projects.py's
+    header. They authenticate with the same bearer key -- `requireUser`,
+    app/api/projects/route.ts:20 -- which is why the addon may call them
+    at all.
+
+    Returns a small dict of mutable state so a test can read what the
+    routes were told: `calls` records every set-active and archive.
+    """
+    registry = list(rows if rows is not None else [])
+    state = {"active_id": active_id, "calls": [], "rows": registry}
+
+    def _list(_body, query=None):
+        if status >= 400:
+            raise Rejected(status, {"error": "refused"})
+        mode = (query or {}).get("archived", "live")
+        if mode == "all":
+            selected = list(registry)
+        elif mode == "only":
+            selected = [r for r in registry if r.get("is_archived")]
+        else:
+            selected = [r for r in registry if not r.get("is_archived")]
+        return {"projects": selected, "activeId": state["active_id"], "count": len(selected)}
+
+    opener.register("GET", "/api/projects", _list)
+
+    def _by_id_for(verb):
+        """One handler per verb. POST /{id}/archive archives and DELETE
+        restores -- the real route's two halves
+        (app/api/projects/[id]/archive/route.ts:1-2). A verb-blind toggle
+        here would have let a "restore" that actually archived pass."""
+
+        def _by_id(body, path=""):
+            tail = path[len("/api/projects/"):]
+            parts = [p for p in tail.split("/") if p]
+            try:
+                pid = int(parts[0])
+            except (IndexError, ValueError):
+                raise Rejected(400, {"error": "Invalid project id"})
+            row = next((r for r in registry if r["id"] == pid), None)
+            if row is None:
+                raise Rejected(404, {"error": "Not found"})
+            suffix = parts[1] if len(parts) > 1 else ""
+            if suffix == "set-active":
+                state["active_id"] = pid
+                state["calls"].append(("set-active", pid))
+                for r in registry:
+                    r["is_active"] = 1 if r["id"] == pid else 0
+                return {"ok": True, "activeId": pid}
+            if suffix == "archive":
+                row["is_archived"] = 1 if verb == "POST" else 0
+                state["calls"].append(("archive" if verb == "POST" else "restore", pid))
+                return {"ok": True}
+            its = (iterations or {}).get(pid, [])
+            return {"project": row, "iterations": its, "iterationCount": len(its)}
+
+        return _by_id
+
+    opener.register_prefix("GET", "/api/projects/", _by_id_for("GET"))
+    opener.register_prefix("POST", "/api/projects/", _by_id_for("POST"))
+    opener.register_prefix("DELETE", "/api/projects/", _by_id_for("DELETE"))
+    return state

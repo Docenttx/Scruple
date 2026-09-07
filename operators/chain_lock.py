@@ -19,6 +19,7 @@ except ImportError:
     bpy = None
 
 from adapter import flow as _wf
+from adapter import locks as _locks
 from adapter import sdk as _sdk
 from adapter import state as _state
 from operators.c2pa import NO_LEAF_REASON, mark_report
@@ -101,6 +102,7 @@ if bpy is not None:
                 self.report({"ERROR"}, msg)
                 return {"CANCELLED"}
 
+            _state.record_mark(_locks.from_outcome(outcome))
             level, message = mark_report(outcome, f"Chain-lock ({self.tier})")
             if outcome.error or outcome.queued:
                 _state.set_error(message)

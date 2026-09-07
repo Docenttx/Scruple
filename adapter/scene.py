@@ -448,3 +448,24 @@ def host_environment() -> Dict[str, Any]:
     if addons:
         env["enabled_addons"] = addons
     return env
+
+
+def document_name() -> Optional[str]:
+    """The .blend file currently open, by basename, or None when the
+    session has never been saved.
+
+    WO-B5. The Fusion palette's top bar names the document the add-in is
+    bound to (`designName`, FusionPalette.tsx:511), and the Blender
+    equivalent is `bpy.data.filepath` -- which is the empty string until
+    the first save. None rather than "untitled": a capture taken before
+    the first save has no document name, and the panel says so rather
+    than printing a name Blender did not give it.
+    """
+    try:
+        import bpy
+    except ImportError:
+        return None
+    path = getattr(getattr(bpy, "data", None), "filepath", "") or ""
+    if not path:
+        return None
+    return os.path.basename(path) or None
