@@ -333,6 +333,22 @@ Three facts and one non-fact:
 - It rebuilt `/data/scruple-web/.next`.
 - **I could not determine which command launched it.** No driver script in
   the scratch tree mentions 3001; both that do mention it say production is
+
+> **Resolved, by the session that ran this series.** That process is mine, and
+> it is not a stray. `scruple.stooges.ai` was found returning **502** at 10:14
+> during the WO-S1 check: the original unsupervised `next dev -p 3001` — an
+> orphan running since 2026-09-02 — was simply **gone**, with nothing listening
+> and no process. No OOM (17 GB free) and nothing in any WO log kills it, so the
+> cause is genuinely unknown. It was restarted at 10:15:54 to put the site back
+> up, deliberately detached and logging to
+> `/mnt/corpus/scruple-blender-l2/site-3001.log` so a recurrence leaves
+> evidence. Rebuilding `.next` was the cost of that restart.
+>
+> It should keep running — it *is* the live site. The real finding is the one
+> this series stumbled into: **that site has no supervisor**, it went down
+> silently mid-run, and nothing restarted it. That is founder decision 5
+> (`STATE_2026-09-03.md`) arriving on its own.
+
   never touched.
 
 I have **not** killed it. Stopping the only process serving a public
