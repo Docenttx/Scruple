@@ -1,0 +1,34 @@
+CAUGHT               panel draws everything signed out
+                     FAILED tests/test_dashboard.py::test_signed_out_draws_the_gate_and_NOTHING_else
+CAUGHT               queue box always drawn
+                     FAILED tests/test_dashboard.py::test_an_empty_queue_shows_NOTHING - Assertion...
+CAUGHT               offline banner fires on UNKNOWN too
+                             attempted and failed, so it must not fire here -- and the header must
+                     FAILED tests/test_dashboard.py::test_a_session_that_never_asked_says_so_and_does_not_claim_connected
+CAUGHT               surrogate warning drawn unconditionally
+                     FAILED tests/test_dashboard.py::test_a_verified_leaf_reads_verified_and_NOT_passthrough
+CAUGHT               blocked lock still draws its operator
+                     FAILED tests/test_dashboard.py::test_signed_in_with_no_payment_method_blocks_every_paid_button
+CAUGHT               capture addressed by position
+                     FAILED tests/test_dashboard.py::test_the_drilldown_follows_the_selection_not_the_newest
+CAUGHT               witness stops carrying project_id
+                     FAILED tests/test_dashboard.py::test_switching_project_changes_where_the_next_leaf_is_witnessed
+CAUGHT               drill-down shown for a refused capture
+                     FAILED tests/test_dashboard.py::test_the_drilldown_is_ABSENT_for_a_capture_with_no_leaf
+CAUGHT               draw() fetches the project list
+                     FAILED tests/test_dashboard.py::test_drawing_the_whole_panel_makes_NO_network_call
+CAUGHT               restore archives instead of restoring
+                     FAILED tests/test_dashboard.py::test_an_archived_project_is_listed_separately_and_can_be_restored
+CAUGHT               receipt sub-panel ignores the sign-in gate
+                     FAILED tests/test_dashboard.py::test_signing_out_with_a_capture_in_the_tracker_draws_NO_receipt
+CAUGHT               payment failure reported as 'not read yet'
+                     FAILED tests/test_dashboard.py::test_a_refused_payment_read_says_WHY_not_merely_that_it_was_not_read
+CAUGHT               project switch never told to the server
+                     FAILED tests/test_dashboard.py::test_the_project_list_renders_and_can_be_switched
+CAUGHT               connection is guessed instead of measured
+                     [scruple] 10:10:04 WARN projects: list failed (online) -- Connection refused (mock opener is offline)
+                     FAILED tests/test_dashboard.py::test_an_unreachable_server_raises_the_banner
+CAUGHT               tracker shown with no captures
+                     FAILED tests/test_dashboard.py::test_the_tracker_is_ABSENT_before_the_first_capture
+CAUGHT               error region never clears
+                     FAILED tests/test_dashboard.py::test_signed_in_draws_the_header_and_NOT_the_gate
