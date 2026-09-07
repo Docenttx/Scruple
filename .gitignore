@@ -46,3 +46,6 @@ __pycache__/
 # to them as date-stamped archives — local-only.
 external/scruple-nodes/seedvr2_videoupscaler/
 external/scruple-nodes/_upstream-snapshots/
+
+# scratch build dir for a second dev server (see scripts/overnight-blender-l2.sh)
+.next-blender-l2/
