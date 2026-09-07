@@ -43,13 +43,25 @@ SERVER notices counter n+1 arriving when n never did.
 `GET /api/v2/components/status` already implements it -- gaps, open and
 resolved, plus a heartbeat window and a silence state -- and
 `component_status()` below reads it. It reports `not_configured` today,
-because the addon cannot put a component envelope on the wire: the SDK's
-`witness_flow.witness()` has no `component` / `mac` parameter to pass one
-through, and an adapter may not assemble its own request (CANON_SKELETON
-§5). Measured, not assumed --- see
-`docs/canon/blender-l2/04-STORE-AND-FORWARD.md`, which shows the same
-witness route accepting a MACed envelope from this addon's own vendored
-`Ratchet` and reporting the gap, over curl.
+because nothing in this ADAPTER provisions a component or attaches an
+envelope --- which is no longer the same statement as "the SDK cannot".
+
+WO-B4 recorded the blocker as a missing SDK parameter. WO-S1(b) added it
+hours later, and WO-B6 re-vendored at `b6cb1fd`, which is after S1, so the
+copy in `vendor/` ALREADY carries `witness_flow.witness(component=, mac=,
+ratchet=, capture=)` and `server_library.provision_component()` /
+`component_status()`. Measured against the scratch app from `vendor/`
+alone at WO-B7: counters 0,1,2 -> gap 0; counter 3 spent and never sent,
+counter 4 -> gap 1; `/components/status` -> `{open: 1, missing: 1,
+list: [{from_counter: 3, missing_count: 1}]}`; an envelope with no MAC
+refused client-side with no counter spent. Evidence:
+`docs/canon/blender-l2/07-h4-vendored-evidence.json`, and
+`test_the_vendored_sdk_carries_the_h4_surface` fails if a re-vendor ever
+takes the parameters back out.
+
+So what is left is adapter wiring plus the provisioning ceremony (no route
+mints a provisioning token; see `docs/canon/blender-l2/STATE.md`), NOT a
+capability. The reason strings below must not say otherwise.
 """
 
 from __future__ import annotations
@@ -321,17 +333,21 @@ def component_status(client, component_id: Optional[str] = None) -> Dict[str, An
     It always answers `available: False` here, with one of two reasons, and
     both are facts about the API rather than about this addon's diligence:
 
-      `not_configured`  -- the addon holds no component identity, because it
-                           cannot send a component envelope (see below), so
-                           there is no id to ask about.
-      `no_sdk_route`    -- an id was supplied and there is still no way to
-                           ask: `scruple_host_sdk.Client` exposes `receipt()`
-                           and `verify()` and no `component_status()`, and
-                           CANON_SKELETON §5 forbids an adapter constructing
-                           the request itself. The change belongs in
-                           `packages/scruple-host-sdk` (docs/developer.md,
-                           "Adding a scruple-web endpoint"), which this work
-                           order may not edit.
+      `not_configured`  -- the addon holds no component identity, because
+                           nothing in the adapter provisions one, so there
+                           is no id to ask about. Not a capability limit:
+                           the vendored SDK can provision and can carry an
+                           envelope (see this module's header).
+      `not_wired`       -- an id was supplied from outside, and this
+                           adapter still has no code path that reads the
+                           standing account. `scruple_host_sdk.Client`
+                           exposes no `component_status()`, but
+                           `scruple_host_sdk.server_library.component_status()`
+                           does exist in `vendor/` and goes through the
+                           SDK's own transport, so §5 is not what is
+                           stopping this --- WO-B7 measured that call
+                           working. It is unwired, and saying so is the
+                           point of this field.
 
     A dict with `available` always present, rather than an empty one: "not
     asked" and "asked and told nothing" are different, and a caller
@@ -343,21 +359,25 @@ def component_status(client, component_id: Optional[str] = None) -> Dict[str, An
             "reason": "not_configured",
             "detail": (
                 "This addon sends no H-4 component envelope, so the server holds no "
-                "counter sequence for it and its gap detection cannot apply. "
-                "docs/canon/blender-l2/04-STORE-AND-FORWARD.md shows the same witness "
-                "route accepting a MACed envelope built from this addon's own vendored "
-                "Ratchet, and reporting the gap -- what is missing is a parameter on "
-                "scruple_host_sdk.witness_flow.witness(), not a mechanism."
+                "counter sequence for it and its gap detection cannot apply. What is "
+                "missing is adapter wiring and a provisioning ceremony, NOT a "
+                "capability: the SDK in vendor/ already carries the envelope "
+                "parameters and the provisioning call, and WO-B7 drove the full "
+                "sequence -- gap 0, then a skipped counter reported as gap 1 -- "
+                "from vendor/ alone. See docs/canon/blender-l2/STATE.md."
             ),
         }
     return {
         "available": False,
-        "reason": "no_sdk_route",
+        "reason": "not_wired",
         "component_id": component_id,
         "detail": (
-            "scruple_host_sdk.Client exposes no components/status call and an adapter "
-            "may not construct one (CANON_SKELETON §5). The addition belongs in "
-            "packages/scruple-host-sdk."
+            "This adapter has no code path that reads the standing account. "
+            "scruple_host_sdk.Client exposes no component_status(), but "
+            "scruple_host_sdk.server_library.component_status() does, in vendor/, "
+            "through the SDK's own transport -- so CANON_SKELETON §5 is not what "
+            "is stopping this. It is unwired. WO-B7 measured that call returning "
+            "this server's counters, gaps and liveness."
         ),
     }
 

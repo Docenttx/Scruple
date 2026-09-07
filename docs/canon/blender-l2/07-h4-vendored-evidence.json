@@ -1,0 +1,85 @@
+{
+ "component_id": "7695c397-daa7-4dd2-ab1a-ea6626c57050",
+ "sdk": "/data/scruple-blender/vendor/scruple_host_sdk/witness_flow.py",
+ "vendor_commit": "b6cb1fd5f7cbee8815ca2a17675ebd31a3e34e5c",
+ "leaves": {
+  "a": {
+   "leaf_id": "87",
+   "content_hash": "37cc15a0d32a47ddd55c374522c7ea5587b50254df0b4f0f31cec3931ff426a5",
+   "counter": 0,
+   "gap": 0
+  },
+  "b": {
+   "leaf_id": "88",
+   "content_hash": "58621172415f033c093ce81d6a2e383b062e51b9e923b78319adf3c74c01ed05",
+   "counter": 1,
+   "gap": 0
+  },
+  "c": {
+   "leaf_id": "89",
+   "content_hash": "bf28af744a7c7b0c77faf33a667d7aeb2ae649cd19e09dddf23340a31d7234b9",
+   "counter": 2,
+   "gap": 0
+  },
+  "e": {
+   "leaf_id": "90",
+   "content_hash": "67876a86f20680bdf18059845d5ffd1aaf3900ac7a09dc43cab97ee68e78d30e",
+   "counter": 4,
+   "gap": 1
+  }
+ },
+ "status": {
+  "component": {
+   "component_id": "7695c397-daa7-4dd2-ab1a-ea6626c57050",
+   "label": "Blender B7 close-out \u2014 vendored SDK",
+   "status": "active",
+   "provisioned_at": "2026-09-07T10:55:16.358Z",
+   "counters": {
+    "last_verified": 4,
+    "last_verified_at": "2026-09-07T10:55:16.483Z",
+    "delivered": 4,
+    "backfilled": 0,
+    "acceptance_window_counters": 1000,
+    "window_floor": 0
+   },
+   "gaps": {
+    "open": 1,
+    "missing": 1,
+    "resolved": 0,
+    "list": [
+     {
+      "id": 5,
+      "from_counter": 3,
+      "to_counter": 3,
+      "missing_count": 1,
+      "observed_at": "2026-09-07T10:55:16.483Z",
+      "resolved_at": null
+     }
+    ]
+   },
+   "liveness": {
+    "state": "live",
+    "last_seen_at": "2026-09-07T10:55:16.483Z",
+    "seconds_since": 0,
+    "heartbeat_window_seconds": 900,
+    "went_silent_at": null,
+    "ever_witnessed": true,
+    "episodes": []
+   },
+   "attestation": {
+    "provider": "none",
+    "status": "passthrough",
+    "quote_ref": null
+   },
+   "build": {
+    "provisioned": "sha256:0de437930c4203375534bd98ba082b3befbc776ec1c2700ecd276a92ed449e15",
+    "claimed_latest": "sha256:0de437930c4203375534bd98ba082b3befbc776ec1c2700ecd276a92ed449e15",
+    "claimed_distinct": [
+     "sha256:0de437930c4203375534bd98ba082b3befbc776ec1c2700ecd276a92ed449e15"
+    ],
+    "changed": false,
+    "check": "drift_only"
+   }
+  }
+ }
+}

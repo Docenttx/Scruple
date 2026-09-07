@@ -289,3 +289,54 @@ def test_the_build_script_stages_the_vendor_directory():
     assert re.search(r"^\s+vendor \\$", script, re.M), "vendor/ is not in the rsync list"
     assert re.search(r"^\s+adapter \\$", script, re.M), "adapter/ is not in the rsync list"
     assert " lib \\" not in script, "the packager still stages the deleted lib/"
+
+
+# ---- WO-B7: what the vendored SDK can do, and what the addon says it can
+
+def test_the_vendored_sdk_carries_the_h4_surface():
+    """WO-B4 recorded H-4 as blocked on a missing SDK parameter. WO-S1(b)
+    added it and WO-B6 re-vendored at b6cb1fd, which is after S1 -- so the
+    copy that ships inside the zip can carry a component envelope today.
+
+    This is the pin: re-vendor from a pre-S1 commit and it goes red, which
+    is the only way the reason strings in adapter/reconcile.py could
+    become true again without anyone noticing."""
+    import inspect
+    from scruple_host_sdk import witness_flow, server_library
+
+    params = inspect.signature(witness_flow.witness).parameters
+    for name in ("component", "capture", "mac", "ratchet"):
+        assert name in params, f"vendored witness() has no {name!r} parameter"
+        assert params[name].default is None, f"{name} must be optional"
+
+    for name in ("provision_component", "component_status", "component_preimage"):
+        assert hasattr(server_library, name), f"vendored server_library has no {name}"
+
+
+def test_no_reason_string_claims_the_sdk_cannot_carry_an_envelope():
+    """The control for the test above, and the reason it exists.
+
+    Until WO-B7 this addon told its user that the SDK had no parameter for
+    an H-4 envelope and no way to read the standing account. Both were
+    true when written and both were false by the time the SDK in vendor/
+    was re-vendored. A false sentence about our own shipped bytes is the
+    kind of thing an L2 close-out exists to catch, so it is asserted."""
+    from adapter import reconcile as _r
+
+    text = open(_r.__file__, encoding="utf-8").read()
+    for claim in (
+        "has no `component` / `mac` parameter",
+        "no components/status call",
+        "there is still no way to ask",
+        "not a mechanism",
+    ):
+        assert claim not in text, f"reconcile.py still claims: {claim!r}"
+
+    # …and the live payloads say the same thing.
+    absent = _r.component_status(None, None)
+    supplied = _r.component_status(None, "some-component-id")
+    assert absent["reason"] == "not_configured"
+    assert supplied["reason"] == "not_wired"
+    for payload in (absent, supplied):
+        assert payload["available"] is False          # still unwired: say so
+        assert "capability" in payload["detail"] or "unwired" in payload["detail"]

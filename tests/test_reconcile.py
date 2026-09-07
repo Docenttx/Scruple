@@ -403,10 +403,16 @@ def test_component_accounting_is_reported_as_unavailable_with_a_reason(
     assert "component envelope" in rec.component["detail"]
 
 
-def test_component_accounting_with_an_id_still_has_no_route(attached_client, tmp_path):
+def test_component_accounting_with_an_id_is_reported_as_unwired(attached_client, tmp_path):
+    """WO-B7 renamed this reason. `no_sdk_route` said the SDK had no way to
+    ask; the vendored SDK's `server_library.component_status()` does, and
+    WO-B7 drove it against the scratch app. What is true is that this
+    adapter does not call it -- so the payload says `not_wired`, and does
+    not blame an API that is no longer the obstacle."""
     status = _reconcile.component_status(attached_client, "some-component-id")
     assert status["available"] is False
-    assert status["reason"] == "no_sdk_route"
+    assert status["reason"] == "not_wired"
+    assert "unwired" in status["detail"]
 
 
 def test_no_session_means_no_settlement_not_a_clean_one(fresh_state):
