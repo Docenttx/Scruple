@@ -281,3 +281,79 @@ def test_the_addon_entry_point_registers_every_module(with_bpy, fresh_state):
     importlib.reload(addon)
     addon.register()
     addon.unregister()
+
+
+# ---- WO-B3: the verify operator ----------------------------------------
+
+def test_verify_last_fetches_the_receipt_and_reports_the_claim_as_a_claim(
+    attached_client, http_opener, tmp_path, bpy_installed
+):
+    from tests.conftest import reload_addon_modules
+    reload_addon_modules(["operators.verify"])
+    from adapter import flow as _wf
+    from adapter import state as _state
+    from operators import verify as _op
+
+    scene = bpy_mock.Scene()
+    scene.render.filepath = str(tmp_path / "v.png")
+    (tmp_path / "v.png").write_bytes(b"pixels")
+    _wf.witness_render(attached_client, scene)
+
+    op = _op.SCRUPLE_OT_verify_last()
+    op.report = lambda level, msg: op.reported.append((level, msg))
+    op.reported = []
+    assert op.execute(None) == {"FINISHED"}
+
+    text = " | ".join(m for _, m in op.reported)
+    assert "/api/v2/receipt/" in " ".join(r.path for r in http_opener.recorded)
+    assert "scruple.ai says independently verifiable" in text
+    assert "This addon has not checked it" in text
+
+
+def test_verify_last_refuses_when_there_is_no_leaf_to_verify(
+    attached_client, tmp_path, bpy_installed, fresh_state
+):
+    """CONTROL: a queued or refused capture has no leaf id, and the
+    operator must say so rather than fetching a receipt for None."""
+    from tests.conftest import reload_addon_modules
+    reload_addon_modules(["operators.verify"])
+    from adapter import assurance as _a
+    from adapter import state as _state
+    from operators import verify as _op
+
+    _state.record_assurance(_a.refused("no baseline", kind="render"))
+    op = _op.SCRUPLE_OT_verify_last()
+    op.report = lambda level, msg: op.reported.append((level, msg))
+    op.reported = []
+    assert op.execute(None) == {"CANCELLED"}
+    assert "Refused here" in " ".join(m for _, m in op.reported)
+
+
+def test_the_panel_row_never_says_witnessed_for_a_capture_that_was_not(bpy_installed):
+    from tests.conftest import reload_addon_modules
+    reload_addon_modules(["panels.main"])
+    from adapter import assurance as _a
+    from panels import main as _panel
+
+    witnessed = _a.LeafAssurance(state=_a.WITNESSED, kind="render", mime="image/png", leaf_id="7")
+    assert "witnessed" in _panel.assurance_line(witnessed)
+    # CONTROL: every other state must NOT produce the word "witnessed".
+    for state in (_a.QUEUED, _a.REJECTED, _a.REFUSED_LOCALLY):
+        rec = _a.LeafAssurance(state=state, kind="render", mime="image/png", leaf_id="7")
+        assert "witnessed" not in _panel.assurance_line(rec), state
+    # `delivered not witnessed` contains the word, and must read as a
+    # negation rather than as a claim.
+    dnw = _a.LeafAssurance(state=_a.DELIVERED_NOT_WITNESSED, kind="render", mime="image/png", leaf_id="7")
+    assert "not witnessed" in _panel.assurance_line(dnw)
+
+
+def test_the_panel_shows_the_tier_and_it_is_undisclosed_today(bpy_installed):
+    from tests.conftest import reload_addon_modules
+    reload_addon_modules(["panels.main"])
+    from adapter import assurance as _a
+    from panels import main as _panel
+
+    rec = _a.LeafAssurance(state=_a.WITNESSED, kind="render", mime="image/png", leaf_id="7")
+    line = _panel.assurance_line(rec)
+    assert "undisclosed" in line
+    assert "verified" not in line

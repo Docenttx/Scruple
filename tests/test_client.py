@@ -57,12 +57,12 @@ def test_witness_without_a_baseline_is_refused_before_any_network_call(sdk_clien
     """D-3. The refusal is client-side; the control is that the opener
     recorded nothing at all."""
     with pytest.raises(NoBaselineError):
-        sdk_client.witness(kind="render", content_hash="a" * 64, mime="image/png")
+        sdk_client.witness(kind="artifact", content_hash="a" * 64, mime="image/png")
     assert http_opener.recorded == []
 
 
 def test_witness_posts_v2_and_reads_witnessed_out_by_name(attached_client, http_opener):
-    outcome = attached_client.witness(kind="render", content_hash="b" * 64, mime="image/png")
+    outcome = attached_client.witness(kind="artifact", content_hash="b" * 64, mime="image/png")
     assert outcome.witnessed is True
     assert outcome.leaf_id
     post = [r for r in http_opener.recorded if r.path == "/api/v2/witness"][0]
@@ -75,7 +75,7 @@ def test_a_delivered_but_unwitnessed_response_is_not_reported_as_witnessed(sdk_c
     """D-8: witnessed is read from the body, never inferred from a 200."""
     v2.register_v2(http_opener, witnessed=False)
     sdk_client.attach(code_paths=[])
-    outcome = sdk_client.witness(kind="render", content_hash="c" * 64, mime="image/png")
+    outcome = sdk_client.witness(kind="artifact", content_hash="c" * 64, mime="image/png")
     assert outcome.witnessed is False
     assert outcome.queued is False
     assert outcome.leaf_id, "the server did return a leaf id; only `witnessed` was false"
@@ -85,7 +85,7 @@ def test_a_5xx_on_witness_is_queued_before_the_caller_hears_about_it(attached_cl
     """Queue-by-construction. The entry is on disk by the time witness()
     returns -- not because a caller remembered to enqueue it."""
     http_opener.register("POST", "/api/v2/witness", {"error": "db offline"}, status=503)
-    outcome = attached_client.witness(kind="render", content_hash="d" * 64, mime="image/png")
+    outcome = attached_client.witness(kind="artifact", content_hash="d" * 64, mime="image/png")
     assert outcome.queued is True
     assert outcome.witnessed is False
     assert attached_client.queue_depth == 1
@@ -106,7 +106,7 @@ def test_a_failed_query_is_NOT_queued(attached_client, http_opener):
 
 def test_detach_drains_what_the_outage_queued(attached_client, http_opener):
     http_opener.register("POST", "/api/v2/witness", {"error": "db offline"}, status=503)
-    attached_client.witness(kind="render", content_hash="e" * 64, mime="image/png")
+    attached_client.witness(kind="artifact", content_hash="e" * 64, mime="image/png")
     assert attached_client.queue_depth == 1
 
     v2.register_v2(http_opener)  # server comes back

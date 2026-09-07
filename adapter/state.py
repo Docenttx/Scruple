@@ -21,9 +21,15 @@ and a field the panel reads must exist in that state too.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from collections import deque
+from typing import Any, Deque, Dict, List, Optional
 
 from . import sdk as _sdk
+
+
+#: How many captures the tracker remembers. Larger than the SDK's five
+#: receipts because a Blender session renders animation frames in bursts.
+MAX_ASSURANCES = 50
 
 
 class BlenderState:
@@ -47,6 +53,19 @@ class BlenderState:
         self.last_content_hash: Optional[str] = None
 
         self.last_error: Optional[str] = None
+
+        # WO-B3. One LeafAssurance per capture this session, newest first,
+        # INCLUDING the ones that never reached the server.
+        #
+        # It is a second list beside the SDK's `SessionState.recent_receipts`
+        # rather than an extension of it, and that is deliberate: the SDK
+        # records a receipt only inside `witness_file()`, so a capture the
+        # adapter refused before calling the SDK -- an unmappable kind, an
+        # undeclarable MIME, no baseline -- produces no receipt at all. A
+        # tracker built on receipts alone would show a quiet afternoon
+        # where there were four refusals, which is the exact shape of the
+        # silence vendor floor item 5 exists to make visible.
+        self.assurances: Deque[Any] = deque(maxlen=MAX_ASSURANCES)
 
     def clear(self) -> None:
         self.__init__()  # one definition of what the fields are
@@ -96,3 +115,47 @@ def queue_depth() -> int:
     no Client has never enqueued anything."""
     client = _sdk.peek_client()
     return client.queue_depth if client is not None else 0
+
+
+def record_assurance(record, *, replace_leaf_id: Optional[str] = None) -> None:
+    """Remember one capture's assurance record, newest first.
+
+    `replace_leaf_id` updates in place instead of appending -- used when
+    `flow.resolve_assurance()` folds a receipt and a verification into a
+    record that is already in the tracker. Appending a second entry for
+    the same leaf would make one capture look like two, and a tracker
+    that miscounts captures is worse than no tracker.
+    """
+    if replace_leaf_id:
+        for i, existing in enumerate(STATE.assurances):
+            if getattr(existing, "leaf_id", None) == replace_leaf_id:
+                STATE.assurances[i] = record
+                return
+    STATE.assurances.appendleft(record)
+
+
+def assurances() -> List[Any]:
+    """Every capture this session, newest first, refusals included."""
+    return list(STATE.assurances)
+
+
+def last_assurance():
+    """The most recent capture, or None before the first one."""
+    return STATE.assurances[0] if STATE.assurances else None
+
+
+def assurance_for(leaf_id: str):
+    for rec in STATE.assurances:
+        if getattr(rec, "leaf_id", None) == leaf_id:
+            return rec
+    return None
+
+
+def state_counts() -> Dict[str, int]:
+    """How many captures are in each measurement state. What a tracker
+    header shows, and what makes "three queued, one rejected" legible
+    without expanding the list."""
+    counts: Dict[str, int] = {}
+    for rec in STATE.assurances:
+        counts[rec.state] = counts.get(rec.state, 0) + 1
+    return counts

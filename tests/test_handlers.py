@@ -139,7 +139,7 @@ def test_a_dispatch_that_cannot_reach_the_server_leaves_the_capture_on_disk(
 
 def test_drain_queue_replays_what_the_outage_spooled(attached_client, http_opener, tmp_path):
     http_opener.register("POST", "/api/v2/witness", {"error": "down"}, status=503)
-    attached_client.witness(kind="render", content_hash="a" * 64, mime="image/png")
+    attached_client.witness(kind="artifact", content_hash="a" * 64, mime="image/png")
     assert attached_client.queue_depth == 1
 
     v2.register_v2(http_opener)

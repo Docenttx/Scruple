@@ -73,7 +73,7 @@ def test_save_declares_the_blend_type(attached_client, http_opener, tmp_path):
     assert outcome.witnessed
     posted = [r for r in http_opener.recorded if r.path == "/api/v2/witness"][0].body
     assert posted["mime"] == "application/x-blender"
-    assert posted["kind"] == "save"
+    assert posted["kind"] == "document_save"
 
 
 def test_export_declares_the_gltf_variant(attached_client, http_opener, tmp_path):

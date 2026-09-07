@@ -72,6 +72,25 @@ cutting a zip. Nothing in this repository edits it by hand.
    and the N-panel picks it up on the next draw; an undelivered one is
    already spooled to `vendor`-independent JSONL on disk by
    `http.submit()` before the caller hears about it.
+7. `adapter/assurance.py` records what is actually known about the leaf
+   — one of five measurement states, the H-1 signature triple *and where
+   it came from*, the canonicalization profile, and the assurance tier.
+   `scruple.verify_last` fetches `/api/v2/receipt/{leaf_id}` and runs
+   `/api/v2/verify/{content_hash}`.
+
+Two things about step 7 are load-bearing and are argued in
+`docs/canon/blender-l2/03-V2-WITNESS-L2.md`:
+
+- The leaf `kind` is a **closed enum** on `/api/v2/witness`.
+  `adapter/flow.py:CAPTURE_KIND` maps Blender's word onto it and refuses
+  an unmapped one client-side. Before WO-B3 the addon sent `render` and
+  every capture came back `invalid_body` — which is not queued, so the
+  capture was lost rather than delayed.
+- A field the server does not send is recorded as `not_disclosed`, never
+  as absent and never as null. Today that is every leaf signature, so
+  every assurance tier reads `undisclosed` — the app tier drops the
+  signature the witness server produced, and `/api/v2/verify` reports
+  independent verifiability from an HMAC.
 
 ## Paid actions
 

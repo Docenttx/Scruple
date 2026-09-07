@@ -24,6 +24,7 @@ try:
 except ImportError:
     bpy = None
 
+from adapter import assurance as _assurance
 from adapter import preferences as _prefs
 from adapter import sdk as _sdk
 from adapter import state as _state
@@ -44,6 +45,22 @@ def _load_stripe_config_once():
         return
     cfg = _payment.get_payment_config(client)
     _state.get().payment_method_summary = _payment.payment_method_summary(cfg)
+
+
+def assurance_line(rec) -> str:
+    """One tracker row: what state the capture is in and what its
+    evidence actually amounts to.
+
+    WO-B3. The old row could say "witnessed" and nothing else, so a leaf
+    nobody can verify and a leaf signed in an HSM rendered identically.
+    The tier here is `LeafAssurance.assurance_tier`, which is
+    `undisclosed` on every leaf today because the server sends no
+    signature field -- and `undisclosed` is the honest word for that.
+    """
+    label = (rec.leaf_id or rec.content_hash or rec.filename or "-")[:16]
+    if rec.state == _assurance.WITNESSED:
+        return f"{label}  [witnessed · {rec.assurance_tier}]"
+    return f"{label}  [{rec.state.replace('_', ' ')}]"
 
 
 def receipt_line(r: dict) -> str:
@@ -126,13 +143,27 @@ if bpy is not None:
                 )
                 op.tier = "pinned"
 
-            receipts = _state.recent_receipts()
-            if receipts:
+            # WO-B3: the tracker is the assurance list, not the SDK's
+            # receipt list. It is a superset -- a capture refused before
+            # the SDK was called produces no receipt, and a tracker that
+            # showed only receipts would show nothing at all for it.
+            records = _state.assurances()
+            if records:
                 layout.separator()
                 box = layout.box()
-                box.label(text="Recent captures", icon="TEXT")
-                for r in receipts:
-                    box.row().label(text=receipt_line(r))
+                counts = _state.state_counts()
+                summary = "  ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(counts.items()))
+                box.label(text=f"Captures this session — {summary}", icon="TEXT")
+                for rec in records[:8]:
+                    box.row().label(text=assurance_line(rec))
+                last = records[0]
+                if last.leaf_id:
+                    box.operator("scruple.verify_last", text="Fetch receipt & verify", icon="CHECKMARK")
+                    if last.signature.source == _assurance.NOT_DISCLOSED:
+                        # Said once, at the bottom, rather than on every
+                        # row: the reason every tier above reads
+                        # `undisclosed` is the API, not the leaf.
+                        box.label(text="No leaf signature is disclosed by this server.", icon="INFO")
 
             if st.last_error:
                 layout.separator()

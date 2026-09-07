@@ -36,13 +36,110 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
+from . import assurance as _assurance
 from . import log as _log
 from . import scene as _scene
 from . import sdk as _sdk
 from . import state as _state
 
+from scruple_api import canonical as _canonical
 from scruple_api.outcomes import MarkOutcome, Outstanding, WitnessOutcome
 from scruple_host_sdk import capture as _capture
+
+
+# ---- the v2 leaf `kind` vocabulary (WO-B3) -----------------------------
+#
+# THE REASON NO LEAF THIS ADDON PRODUCED HAS EVER LANDED.
+#
+# `kind` is a CLOSED enum on /api/v2/witness -- z.enum(['document_save',
+# 'artifact', 'graph_execute', 'model_write']) at route.ts:110. This
+# addon sent Blender's own words: 'render', 'save', 'export'. gap.json
+# flagged it (endpoints row 4, "the addon's trigger labels are not
+# members of it") and WO-B2 did not close it, because every test ran
+# against a mock that accepted any string.
+#
+# Measured against the scratch app on 2026-09-07:
+#
+#     kind=render         -> invalid_body
+#     kind=save           -> invalid_body
+#     kind=export         -> invalid_body
+#     kind=document_save  -> OK leaf_id=4
+#     kind=artifact       -> OK leaf_id=5
+#
+# So the mapping below is not a tidy-up. Without it the addon cannot
+# witness anything at all, and the 400 it gets back is NOT queued
+# (http.py:162 queues transport failures and 5xx only) -- the capture is
+# simply gone.
+#
+# Blender's own word is not thrown away: it stays in the workflow graph
+# as `kind` (`blender_render` / `blender_save` / `blender_export`) and as
+# `trigger`, both of which enter workflow_hash. The leaf says what class
+# of event it was in the server's vocabulary; the graph says what Blender
+# called it.
+LEAF_KINDS = ("document_save", "artifact", "graph_execute", "model_write")
+
+CAPTURE_KIND = {
+    # A render is an artifact the pipeline produced, not a document the
+    # user saved. `document_save` would be wrong even though it is the
+    # friendlier-sounding member.
+    "render": "artifact",
+    # A .blend save is exactly what `document_save` is for.
+    "save": "document_save",
+    # An export writes a new artifact from the document.
+    "export": "artifact",
+}
+
+
+class UnknownCaptureKind(ValueError):
+    """Raised client-side, before any request, for a capture this adapter
+    has no v2 leaf kind for. Refusing here rather than letting the server
+    answer 400 is the difference between a bug that is visible in one
+    place and a capture that vanishes: a 400 is not queued and not
+    retried."""
+
+
+def leaf_kind_for(capture_kind: str) -> str:
+    try:
+        kind = CAPTURE_KIND[capture_kind]
+    except KeyError:
+        raise UnknownCaptureKind(
+            f"No /api/v2/witness leaf kind is mapped for capture {capture_kind!r}. "
+            f"`kind` is a closed enum {LEAF_KINDS}; sending an unmapped value "
+            f"produces invalid_body, which is NOT queued and NOT retried."
+        ) from None
+    # Belt and braces: a future edit to CAPTURE_KIND that introduces a
+    # value outside the enum fails here rather than at the server.
+    if kind not in LEAF_KINDS:
+        raise UnknownCaptureKind(f"{kind!r} is not one of {LEAF_KINDS}")
+    return kind
+
+
+# ---- what leaves this machine ------------------------------------------
+
+def graph_for_wire(workflow: Dict[str, Any]) -> Dict[str, Any]:
+    """The workflow, with local filesystem paths reduced to basenames.
+
+    WO-B3 starts SENDING the workflow as `graph` so the server computes
+    `workflow_hash` and stamps a canonicalization profile on the row --
+    before this, the workflow was only ever hashed into
+    machine_manifest_hash and never transmitted. That changes what leaves
+    the user's machine, so it gets a redaction rather than a shrug:
+    `build_save_workflow` and `build_export_workflow` put an ABSOLUTE
+    path in `filepath`, and /api/v2/witness is a zero-content surface
+    whose whole argument is that the user's material stays put. A
+    directory layout is the user's material.
+
+    The basename is kept because it is already in the leaf's `filename`
+    and in the render workflow, so redacting it would remove nothing an
+    observer does not have.
+    """
+    out: Dict[str, Any] = {}
+    for k, v in workflow.items():
+        if k in ("filepath", "path", "directory") and isinstance(v, str) and v:
+            out["filename"] = os.path.basename(v)
+            continue
+        out[k] = v
+    return out
 
 
 def _refused(reason: str) -> WitnessOutcome:
@@ -102,34 +199,140 @@ def _witness_path(
     kind: str,
     workflow: Dict[str, Any],
 ) -> WitnessOutcome:
+    """Witness one file and record what is actually known about the leaf.
+
+    `kind` is Blender's word ('render' / 'save' / 'export'); it is
+    translated to the closed v2 enum by `leaf_kind_for()` and refused
+    here if it has no member (see that function for why a server-side
+    refusal is not good enough).
+    """
+    try:
+        leaf_kind = leaf_kind_for(kind)
+    except UnknownCaptureKind as e:
+        return _refused_with_assurance(str(e), kind=kind, mime=mime)
+
     if os.path.getsize(path) > _capture.INLINE_PAYLOAD_LIMIT_BYTES:
-        return _refused(
+        return _refused_with_assurance(
             f"{os.path.basename(path)} is over the "
-            f"{_capture.INLINE_PAYLOAD_LIMIT_BYTES}-byte inline limit and was not witnessed."
+            f"{_capture.INLINE_PAYLOAD_LIMIT_BYTES}-byte inline limit and was not witnessed.",
+            kind=kind, mime=mime,
         )
     if not ensure_attached(client):
-        return _refused(_state.get().last_error or "No baseline; nothing was witnessed.")
+        return _refused_with_assurance(
+            _state.get().last_error or "No baseline; nothing was witnessed.",
+            kind=kind, mime=mime,
+        )
+
+    # The graph is what makes the server compute workflow_hash and stamp a
+    # canonicalization profile on the row; before WO-B3 the workflow was
+    # only ever folded into machine_manifest_hash and the leaf carried no
+    # workflow at all. Redacted for the wire -- see graph_for_wire().
+    graph = graph_for_wire(workflow)
+    try:
+        client_workflow_hash = _canonical.hash_workflow(graph)
+    except Exception as e:
+        # scruple_api.canonical REFUSES documents with no canonical form
+        # (NaN, Infinity, a stray object) rather than hashing them to
+        # something meaningless. A workflow that cannot be canonicalized
+        # must not be sent: the server would compute a DIFFERENT
+        # workflow_hash or refuse, and either way the leaf would commit to
+        # something this client cannot reproduce.
+        return _refused_with_assurance(
+            f"Workflow has no canonical form and was not sent: {e}", kind=kind, mime=mime,
+        )
 
     outcome = client.witness_file(
         path,
         mime=mime,
-        kind=kind,
+        kind=leaf_kind,
         workflow=workflow,
+        graph=graph,
         project_id=_state.get().active_project_id,
         machine_manifest_hash=machine_manifest_hash(client, workflow),
     )
-    _state.remember_leaf(
-        leaf_id=outcome.leaf_id,
+
+    content_hash = _last_content_hash(client)
+    record = _assurance.from_outcome(
+        outcome,
+        kind=kind,
         mime=mime,
-        content_hash=_last_content_hash(client),
+        content_hash=content_hash,
+        filename=os.path.basename(path),
+        client_workflow_hash=client_workflow_hash,
+        queue_depth_after=client.queue_depth,
     )
+    _state.remember_leaf(leaf_id=outcome.leaf_id, mime=mime, content_hash=content_hash)
+    _state.record_assurance(record)
     if outcome.error:
         _state.set_error(outcome.error)
     _log.info(
-        f"witness {kind} {os.path.basename(path)} -> "
-        f"leaf={outcome.leaf_id} witnessed={outcome.witnessed} queued={outcome.queued}"
+        f"witness {kind}->{leaf_kind} {os.path.basename(path)} -> "
+        f"leaf={outcome.leaf_id} state={record.state} tier={record.assurance_tier}"
     )
     return outcome
+
+
+def _refused_with_assurance(reason: str, *, kind: str, mime: Optional[str]) -> WitnessOutcome:
+    """A local refusal, recorded on the assurance surface as well as the
+    error line. A capture that never left the machine must be visible as
+    REFUSED_LOCALLY and not merely as a missing row -- silence and refusal
+    read the same otherwise, which is the failure vendor floor item 5 is
+    about."""
+    _state.record_assurance(_assurance.refused(reason, kind=kind, mime=mime))
+    return _refused(reason)
+
+
+# ---- reading the record back (WO-B3) -----------------------------------
+
+def fetch_receipt(client, leaf_id: str) -> Optional[Dict[str, Any]]:
+    """GET /api/v2/receipt/{leaf_id}. Public and unauthenticated by
+    design, and per its own header "deliberately unflattering" -- which is
+    why it is worth fetching rather than rendering the addon's own idea of
+    what happened. Returns None and records the error rather than raising:
+    every caller is an operator or a handler."""
+    try:
+        return client.receipt(leaf_id)
+    except Exception as e:
+        _log.warn(f"receipt({leaf_id}) failed: {e}")
+        _state.set_error(f"Could not fetch receipt for leaf {leaf_id}: {e}")
+        return None
+
+
+def verify_content(client, content_hash: str) -> Optional[Dict[str, Any]]:
+    """GET /api/v2/verify/{content_hash} -- the third-party check, run
+    from here so a user can see it without leaving Blender.
+
+    What comes back is a CLAIM, not a verification this client performed.
+    `assurance.with_verification` keeps those two apart deliberately; read
+    its docstring before trusting `independently_verifiable`."""
+    try:
+        return client.verify(content_hash)
+    except Exception as e:
+        _log.warn(f"verify({content_hash[:16]}) failed: {e}")
+        _state.set_error(f"Could not verify {content_hash[:16]}...: {e}")
+        return None
+
+
+def resolve_assurance(client, record) -> "_assurance.LeafAssurance":
+    """Fold the receipt and the verification into an assurance record.
+
+    Both calls are queries, not operations -- http.submit gives them
+    queue_kind=None, so a failure here is reported and never spooled.
+    A leaf that is not on the record yet (queued, rejected, refused) has
+    nothing to fetch and is returned unchanged rather than being asked
+    about.
+    """
+    if not record.leaf_id:
+        return record
+    receipt = fetch_receipt(client, record.leaf_id)
+    if receipt is not None:
+        record = _assurance.with_receipt(record, receipt)
+    if record.content_hash:
+        verification = verify_content(client, record.content_hash)
+        if verification is not None:
+            record = _assurance.with_verification(record, verification)
+    _state.record_assurance(record, replace_leaf_id=record.leaf_id)
+    return record
 
 
 def machine_manifest_hash(client, workflow: Dict[str, Any]) -> str:
@@ -172,7 +375,10 @@ def witness_render(
     try:
         mime = _scene.mime_for_render(scene)
     except Exception as e:
-        return _refused(str(e))
+        # An undeclarable format is a REFUSAL, and it goes on the tracker
+        # as one. Property 1 forbids guessing a MIME; it does not licence
+        # dropping the capture silently.
+        return _refused_with_assurance(str(e), kind="render", mime=None)
     settings = _scene.read_render_settings(scene)
     workflow = _scene.build_render_workflow(
         filename=os.path.basename(path),
@@ -226,7 +432,7 @@ def witness_export(
     try:
         declared = _scene.mime_for_export(format, output_path, declared=mime)
     except Exception as e:
-        return _refused(str(e))
+        return _refused_with_assurance(str(e), kind="export", mime=mime)
     workflow = _scene.build_export_workflow(
         filepath=output_path,
         format=format,

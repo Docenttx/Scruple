@@ -1,0 +1,74 @@
+════════ CONTROL: render maps back to the non-enum kind 'render' ════════
+FAILED tests/test_assurance.py::test_verify_reports_independently_verifiable_as_a_claim_not_a_check
+FAILED tests/test_assurance.py::test_the_claim_is_still_not_a_check_even_when_a_signature_is_disclosed
+FAILED tests/test_assurance.py::test_a_disclosed_profile_is_compared_and_the_divergence_shows
+FAILED tests/test_flow.py::test_witness_render_witnesses_and_records_a_receipt
+FAILED tests/test_handlers.py::test_render_complete_dispatches_witness - asse...
+FAILED tests/test_operators.py::test_witness_now_operator_reports_witnessed
+FAILED tests/test_operators.py::test_local_lock_charges_then_marks - Assertio...
+FAILED tests/test_operators.py::test_chain_lock_charges_then_marks_with_tier
+FAILED tests/test_operators.py::test_no_payment_method_surfaces_the_setup_prompt_and_charges_nothing
+FAILED tests/test_operators.py::test_a_mark_that_fails_after_a_charge_reports_the_payment_intent
+FAILED tests/test_operators.py::test_outstanding_modalities_are_reported_not_hidden
+20 failed, 190 passed in 8.52s
+
+════════ CONTROL: assurance_tier always returns 'verified' ════════
+>           assert rec.assurance_tier == "not witnessed"
+E           AssertionError: assert 'verified' == 'not witnessed'
+E             
+E             - not witnessed
+E             + verified
+
+tests/test_assurance.py:211: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_assurance.py::test_a_surrogate_signed_leaf_is_never_recorded_as_verified
+FAILED tests/test_assurance.py::test_the_tier_is_never_verified_without_both_an_attestation_and_a_signature
+FAILED tests/test_assurance.py::test_a_capture_that_was_not_witnessed_has_no_tier_at_all
+3 failed, 207 passed in 8.59s
+
+════════ CONTROL: verify's claim is promoted to 'checked' ════════
+        _wf.witness_render(sdk_client, _render_scene(tmp_path))
+        rec = _wf.resolve_assurance(sdk_client, _state.last_assurance())
+        assert rec.signature.present
+>       assert rec.independently_verifiable_checked is False
+E       AssertionError: assert True is False
+E        +  where True = LeafAssurance(state='witnessed', kind='render', mime='image/png', content_hash='6ec9c2b0eb14010746c8bce8939303b382344b...mmetric_leaf_signature', seal_state='undeclared', claims_standard=False, component_verified=False, queue_depth_after=0).independently_verifiable_checked
+
+tests/test_assurance.py:253: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_assurance.py::test_verify_reports_independently_verifiable_as_a_claim_not_a_check
+FAILED tests/test_assurance.py::test_the_claim_is_still_not_a_check_even_when_a_signature_is_disclosed
+2 failed, 208 passed in 8.30s
+
+════════ CONTROL: graph_for_wire stops redacting the absolute path ════════
+        surface."""
+        p = tmp_path / "private.blend"
+        p.write_bytes(b"BLENDER-fake")
+        _wf.witness_save(attached_client, bpy_mock.Scene(), str(p))
+        body = _posted(http_opener)
+>       assert "filepath" not in body["graph"]
+E       AssertionError: assert 'filepath' not in {'kind': 'blender_save', 'filepath': '/mnt/corpus/scruple-blender-l2/tmp/pytest-of-ubuntu/pytest-43/test_an_absolute_path_is_not_s0/private.blend', 'scene': 'Scene', 'object_count': 0, ...}
+
+tests/test_assurance.py:351: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_assurance.py::test_an_absolute_path_is_not_sent_to_the_server
+1 failed, 209 passed in 7.83s
+
+════════ CONTROL: a local refusal is not recorded on the tracker ════════
+            lambda **kw: {"kind": "blender_render", "samples": float("nan")},
+        )
+        before = len([r for r in http_opener.recorded if r.path == "/api/v2/witness"])
+        _wf.witness_render(attached_client, _render_scene(tmp_path))
+>       assert _state.last_assurance().state == _a.REFUSED_LOCALLY
+E       AttributeError: 'NoneType' object has no attribute 'state'
+
+tests/test_assurance.py:332: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_assurance.py::test_a_local_refusal_is_visible_and_not_a_silence
+FAILED tests/test_assurance.py::test_a_workflow_with_no_canonical_form_is_refused_rather_than_hashed
+2 failed, 208 passed in 7.09s
+
+════════ REVERTED — the suite must be green again ════════
+........................................................................ [ 68%]
+..................................................................       [100%]
+210 passed in 6.75s
