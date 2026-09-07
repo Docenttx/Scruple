@@ -1,10 +1,10 @@
 {
   "vendored_by": "build/vendor_sdk.sh",
-  "vendored_at": "2026-09-07T09:08:34Z",
+  "vendored_at": "2026-09-07T10:42:54Z",
   "why_vendored": "A Blender addon cannot pip install; the SDK ships inside the zip. Both packages are pure standard library, so this is cp -r, not a dependency resolver.",
   "source_repo": "/data/scruple-web",
-  "source_commit": "4683e0a65158fda9bf013c02ff806ba9a1359147",
-  "source_commit_subject": "Name the repo the WO reports land in \u2014 B1 had to guess, and guessed well",
+  "source_commit": "b6cb1fd5f7cbee8815ca2a17675ebd31a3e34e5c",
+  "source_commit_subject": "WO-B6: the C2PA signer can use the surrogate, and the SDK can fetch the key",
   "source_tree_dirty_at_copy": false,
   "packages": [
     {
@@ -19,24 +19,24 @@
     }
   ],
   "files": {
-    "scruple_api/__init__.py": "00e07aac21e14e337aef9ff4ed9d4fbf0a99026174f248f4c98817aa3fee5c34",
+    "scruple_api/__init__.py": "b7507cd7c457f9ad7a7c1e7b4f52c6123f510e0c9f1e60b1f1cc6ee45e1b20a5",
     "scruple_api/canonical.py": "128d2f2bb55e73372efe75f465f393c81629068f59de106fc5f477ee4dd2e695",
     "scruple_api/capture.py": "c0cc7f1ca12e0cbd2018ed4d033fead5b549eacf46550d89a0b404632c030b70",
     "scruple_api/errors.py": "9e07bed6da18c1f84da088570837345ddee8f41279021010ec1210b54ac2680f",
     "scruple_api/manifest.py": "a5fce4db0e5d91d500bb6fd23721d25b1cb0cdcc90da4e005f3394caa8edccfc",
     "scruple_api/modality.py": "4130388ef3eafcdb439904f1f3bf7b633fa392eacb14c6c6a2543f6ae57db00f",
     "scruple_api/model_write.py": "54c404a9c70cb4163d278d798a7bc2bb027a3ed57b99922a8dc5f75679acf834",
-    "scruple_api/outcomes.py": "964222dcf18d39017486e09adeac1abe7cebb1061e9a808662fc437ec8da38da",
+    "scruple_api/outcomes.py": "5c5b7636f2ea89f599d0f5fdc7a196fa94dcaede9e7023255240ee946d19d890",
     "scruple_api/provider.py": "578f035ae6ad66f61e61d15be0e70f3f44ec6d01b18b867b53200e510f0af3af",
     "scruple_api/surface.py": "75b327dc21f3bc732c3d89a0b280c15e8ce197f0a87d2a9201189fdca331afa1",
     "scruple_host_sdk/__init__.py": "579ce905bc3339f346d0e3b22011ab956644de16ab62b8d0a3ffea43e1a6a2c9",
     "scruple_host_sdk/auth.py": "62fcffbf4cc5e74b5b9a9768fb648bb5da2a02541f09cee47957fe774b9d5d0b",
     "scruple_host_sdk/capabilities.py": "d7a68c0d5948eb816f544ecdaf8af7b64a7be4464b6416a46be1bab9d56e49c1",
     "scruple_host_sdk/capture.py": "7eeef8f97b270bce9562f9e711925f5770295a72238d92fbe219b8dd1d16b364",
-    "scruple_host_sdk/client.py": "567978c03150a8042f7ba5c056eaadf9f100c248aa2e7bb4bc3f3ce5b36fdda0",
+    "scruple_host_sdk/client.py": "50997e955f0a5dc22583b684e0825f131555da61d5c226da50b44e1c40f36f00",
     "scruple_host_sdk/envelope.py": "900d9e77642b7273297f48be257752c016739f598cef0eeec25a1ca4fede804f",
     "scruple_host_sdk/errors.py": "05a43c32fed568cc7076eb5a383b94b3b289d8c858cf69af48fddf6df82461eb",
-    "scruple_host_sdk/http.py": "318125054e33464fd7ab0ca7d4c1bd47eabaf266dc12c6cd83db14ca775b6f6d",
+    "scruple_host_sdk/http.py": "32f0e4ea89d2e07f3f7c7670b2da81669746f8266bceda5edb7b752f3a66fb9d",
     "scruple_host_sdk/manifest.py": "8455d889981fdfde58fc96bb7cb1c46d182cd4c46fcbf4c0289f754428cd0602",
     "scruple_host_sdk/model_write.py": "bfa03207bbe1a771fe19cf30976743c7d9eed18bfbb0e119429cccf8db69a7eb",
     "scruple_host_sdk/payment.py": "d8322522c8109f950042c697a3e5caad194f2115cac9b4862eeeb9818e90375a",
@@ -44,9 +44,9 @@
     "scruple_host_sdk/provider.py": "7245618530d5300c8ea4a28de3df824f4d00f4098bfa332b04a34f0869053fe6",
     "scruple_host_sdk/queue.py": "a1a1c7c6bbce9934869d01658ad368dbe5dadc0bf4aa5561cccdfc934858cf03",
     "scruple_host_sdk/ratchet.py": "a878006fe10592c94044295343543ce664347ef86a62d1a529b0c06aa2e51d95",
-    "scruple_host_sdk/server_library.py": "cf60ce895ff61e35805539c45a562d137cfc8e16d1623caaec7ff5227b14fc27",
+    "scruple_host_sdk/server_library.py": "5c5a24cca72dfcb06ef3f96f2d4c06cde7f657d4b3bfb2affe8fdc72fa984841",
     "scruple_host_sdk/state.py": "32a7fe038160e9addfd5fafb5f71f2790bb3343fbda104b93e04b139cb6c1f27",
     "scruple_host_sdk/surface.py": "ddcfe3c43482ed765075316146b5ae0cc15d8288cdc3d9e6a54b468132570ad5",
-    "scruple_host_sdk/witness_flow.py": "14cf2efeca59a032fff4d67d507aba0da17233163e061f994a3d3b65d771ef32"
+    "scruple_host_sdk/witness_flow.py": "be2a217cc89df03012178f16e5e806804494e8e4777d1251c332e3813e5c9449"
   }
 }

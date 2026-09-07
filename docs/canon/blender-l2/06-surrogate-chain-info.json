@@ -1,0 +1,12 @@
+{
+  "chain_path": "/mnt/corpus/scruple-blender-l2/b6/certs/surrogate-chain.pem",
+  "leaf_subject": "CN=Scruple CVM Surrogate Signer,OU=CVM_SURROGATE_SOFTWARE_KEY,O=Scruple B6 Surrogate Signing Cert,L=Somewhere,ST=CA,C=US",
+  "leaf_issuer": "CN=Scruple B6 Surrogate Root CA,OU=CVM_SURROGATE_SOFTWARE_KEY,O=Scruple B6 Surrogate Root CA,L=Somewhere,ST=CA,C=US",
+  "leaf_serial": "395846038770771775598561291271084589013422968543",
+  "key_ocid": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+  "surrogate_protection_mode": "SOFTWARE",
+  "surrogate_key_algorithm": "ECDSA",
+  "surrogate_curve": "NIST_P256",
+  "hardware_backed": false,
+  "hardware_backed_basis": "the surrogate reports protectionMode='SOFTWARE' for ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey. A certificate cannot attest key custody, so nothing in this chain claims any."
+}

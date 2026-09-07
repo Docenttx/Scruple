@@ -1,0 +1,415 @@
+{
+  "graded_at": "2026-09-07T10:45:42.694Z",
+  "addon_commit": "018c5fc7f98538dbfd58d11cd211ed4012f743c8 (WORKING TREE — dirty)",
+  "web_commit": "b6cb1fd5f7cbee8815ca2a17675ebd31a3e34e5c (WORKING TREE — dirty)",
+  "profile": {
+    "host": "Blender add-on",
+    "hooks": [
+      "attach",
+      "detach",
+      "document.save",
+      "artifact.produced"
+    ],
+    "surfaces": [
+      "host-api-callback",
+      "filesystem-watch"
+    ],
+    "fidelity": "as-written",
+    "declaredPlacement": "attested-client",
+    "enforcement": "none",
+    "attestation": "none",
+    "capabilityClasses": [
+      "authoring-application"
+    ],
+    "custodyLocus": "tenant-custody"
+  },
+  "grade": {
+    "path": "Blender add-on",
+    "assurance": {
+      "host": "Blender add-on",
+      "resolution": {
+        "declared": "attested-client",
+        "enforcement": "none",
+        "effective": "unattested-client",
+        "honoured": false,
+        "reason": "'attested-client' requires enforcement 'host-enforced-signature'; got 'none'. Degraded to unattested-client — an unenforced placement is a declaration, not a boundary."
+      },
+      "custody": {
+        "locus": "tenant-custody",
+        "resolution": {
+          "declared": "tenant-custody",
+          "effective": "tenant-custody",
+          "honoured": true,
+          "reason": "nothing to earn"
+        },
+        "placement": "unattested-client",
+        "claim": "none",
+        "sentence": "",
+        "mustNotImply": [
+          "this is the complete history of the project",
+          "these states were witnessed at these times",
+          "nothing was retained that could be altered between events"
+        ],
+        "canClaim": false,
+        "conditions": [],
+        "reason": "unattested-client + tenant-custody: the measured party can modify the code that would report a mutation. No custody claim survives that, and `ephemeral` least of all — it is a claim about persistence, not about isolation, and isolation is what this placement lacks. Events may be RECORDED as declared, never as witnessed (D-8)."
+      },
+      "placement": "unattested-client",
+      "attestation": "none",
+      "p1": "fails",
+      "p3": "fails",
+      "leaf": null,
+      "canClaim": false,
+      "conditions": [],
+      "reason": "unattested-client: the measured party can modify the capture code and reach its key. Cannot claim the standard. Events may be RECORDED as declared, never as witnessed (D-8). Attestation is ignored at this placement by design."
+    },
+    "classScope": {
+      "declared": [
+        "authoring-application"
+      ],
+      "audited": [
+        "authoring-application"
+      ],
+      "ambiguityResolved": false,
+      "hooks": [
+        {
+          "item": "artifact.produced",
+          "status": "required",
+          "outcome": "satisfied",
+          "reason": "required by `authoring-application` and declared"
+        },
+        {
+          "item": "attach",
+          "status": "permitted",
+          "outcome": "satisfied",
+          "reason": "permitted by the class and declared by the profile"
+        },
+        {
+          "item": "detach",
+          "status": "permitted",
+          "outcome": "satisfied",
+          "reason": "permitted by the class and declared by the profile"
+        },
+        {
+          "item": "document.close",
+          "status": "permitted",
+          "outcome": "not-applicable",
+          "reason": "permitted by the class and not declared; nothing turns on it"
+        },
+        {
+          "item": "document.open",
+          "status": "permitted",
+          "outcome": "not-applicable",
+          "reason": "permitted by the class and not declared; nothing turns on it"
+        },
+        {
+          "item": "document.save",
+          "status": "required",
+          "outcome": "satisfied",
+          "reason": "required by `authoring-application` and declared"
+        },
+        {
+          "item": "graph.execute",
+          "status": "not-applicable",
+          "outcome": "not-applicable",
+          "reason": "there is no server-side graph execution. The compute is the artist's own machine and the unit of work is a document, not a prompt."
+        },
+        {
+          "item": "idle.tick",
+          "status": "permitted",
+          "outcome": "not-applicable",
+          "reason": "permitted by the class and not declared; nothing turns on it"
+        },
+        {
+          "item": "model.write",
+          "status": "not-applicable",
+          "outcome": "not-applicable",
+          "reason": "no checkpoints are produced; a rendered frame is an artifact, not a model."
+        }
+      ],
+      "surfaces": [
+        {
+          "item": "filesystem-watch",
+          "status": "permitted",
+          "outcome": "satisfied",
+          "reason": "permitted by the class and declared by the profile"
+        },
+        {
+          "item": "host-api-callback",
+          "status": "required",
+          "outcome": "satisfied",
+          "reason": "required by `authoring-application` and declared"
+        },
+        {
+          "item": "in-process-callback",
+          "status": "permitted",
+          "outcome": "not-applicable",
+          "reason": "permitted by the class and not declared; nothing turns on it"
+        },
+        {
+          "item": "network-gate",
+          "status": "not-applicable",
+          "outcome": "not-applicable",
+          "reason": "there is no network chokepoint to install one on. The artist's application writes to the artist's disk; nothing crosses a boundary the vendor controls, and a gate would have to be placed on a machine the vendor does not own — where it would be unattested-client by construction."
+        }
+      ],
+      "probes": [
+        {
+          "item": "P-01",
+          "status": "not-applicable",
+          "outcome": "not-applicable",
+          "reason": "reach the workload bypassing the gate — there is no gate to bypass. The capture position is a callback inside an application the vendor does not run; there is no route \"around\" it because there is no route \"through\" it."
+        },
+        {
+          "item": "P-02",
+          "status": "not-applicable",
+          "outcome": "not-applicable",
+          "reason": "reach the component admin/provisioning surface — there is no vendor-side component admin surface reachable from the measured party's position, because the measured party IS the operator of the machine. The provisioning boundary here is the account, not the network, and P-04/P-06 are where that is tested."
+        },
+        {
+          "item": "P-03",
+          "status": "required",
+          "outcome": "unmeasured",
+          "reason": "read the sealed identity key from the tenant position — APPLICABLE AND NOT MEASURED. Nobody looked, or the vantage could not support the claim. This is not a pass and never aggregates as one (WO-14)."
+        },
+        {
+          "item": "P-04",
+          "status": "permitted",
+          "outcome": "not-applicable",
+          "reason": "write into the output volume without producing a leaf — APPLICABLE AND NOT MEASURED. Nobody looked, or the vantage could not support the claim. This is not a pass and never aggregates as one (WO-14)."
+        },
+        {
+          "item": "P-05",
+          "status": "not-applicable",
+          "outcome": "not-applicable",
+          "reason": "retrieve output over the non-file path without producing a leaf — there is no server and no retrieval channel. The artifact is written by the host application to local disk; there is no socket down which it could arrive instead."
+        },
+        {
+          "item": "P-06",
+          "status": "required",
+          "outcome": "unmeasured",
+          "reason": "replay or forge a counter against the ingest — APPLICABLE AND NOT MEASURED. Nobody looked, or the vantage could not support the claim. This is not a pass and never aggregates as one (WO-14)."
+        },
+        {
+          "item": "P-07",
+          "status": "not-applicable",
+          "outcome": "not-applicable",
+          "reason": "open an egress the deployment policy should deny — the artist's machine has ordinary internet access by design. There is no vendor network policy to measure, and a probe reporting open egress here would be reporting that a laptop is a laptop."
+        }
+      ],
+      "pItems": {
+        "P1": "required",
+        "P2": "required",
+        "P3": "required",
+        "P4": "required",
+        "P5": "required",
+        "P6": "required",
+        "P7": "required",
+        "P8": "required"
+      },
+      "custody": {
+        "locus": "tenant-custody",
+        "resolution": {
+          "declared": "tenant-custody",
+          "effective": "tenant-custody",
+          "honoured": true,
+          "reason": "nothing to earn"
+        },
+        "placement": "unattested-client",
+        "claim": "none",
+        "sentence": "",
+        "mustNotImply": [
+          "this is the complete history of the project",
+          "these states were witnessed at these times",
+          "nothing was retained that could be altered between events"
+        ],
+        "canClaim": false,
+        "conditions": [],
+        "reason": "unattested-client + tenant-custody: the measured party can modify the code that would report a mutation. No custody claim survives that, and `ephemeral` least of all — it is a claim about persistence, not about isolation, and isolation is what this placement lacks. Events may be RECORDED as declared, never as witnessed (D-8)."
+      },
+      "permittedClaims": [
+        "Scruple-witnessed authorship"
+      ],
+      "forbiddenClaims": [
+        "Scruple-witnessed inference",
+        "Scruple-witnessed training",
+        "this is the complete history of the project",
+        "this work contains no AI-generated content",
+        "these states were witnessed at these times",
+        "nothing was retained that could be altered between events"
+      ],
+      "findings": [
+        {
+          "id": "CF-08",
+          "blocking": false,
+          "title": "2 applicable probe(s) not measured",
+          "detail": "P-03, P-06 are required by `authoring-application` and no admissible result is attached. Recorded as unmeasured, which aggregates as NOT PASSED everywhere. There is no configuration in which a skip becomes a pass."
+        },
+        {
+          "id": "CF-09",
+          "blocking": false,
+          "title": "custody claim refused at placement 'unattested-client'",
+          "detail": "unattested-client + tenant-custody: the measured party can modify the code that would report a mutation. No custody claim survives that, and `ephemeral` least of all — it is a claim about persistence, not about isolation, and isolation is what this placement lacks. Events may be RECORDED as declared, never as witnessed (D-8)."
+        }
+      ],
+      "unmeasured": [
+        "P-03",
+        "P-06"
+      ],
+      "inScope": true
+    },
+    "items": {
+      "P1": {
+        "item": "P1",
+        "disposition": "FAIL",
+        "basis": "derived",
+        "reason": "unattested-client: the measured party can modify the capture code and reach its key. Cannot claim the standard. Events may be RECORDED as declared, never as witnessed (D-8). Attestation is ignored at this placement by design.",
+        "conditions": [],
+        "citations": [
+          "placement resolution: 'attested-client' requires enforcement 'host-enforced-signature'; got 'none'. Degraded to unattested-client — an unenforced placement is a declaration, not a boundary."
+        ]
+      },
+      "P2": {
+        "item": "P2",
+        "disposition": "FAIL",
+        "qualifier": "never sealed",
+        "basis": "declared+checked",
+        "reason": "Nothing in this evidence describes a seal state for this deployment. The pipeline has never been measured and no configuration has been approved, so everything true of it is true by reading the source and unprovable to a third party — which is the gap P2 exists to close. This is an ordinary state to be in: it is where every integration starts, and the sequence is integrate, test end to end, THEN seal.",
+        "conditions": [],
+        "citations": [
+          "adapter/flow.py, adapter/handlers.py, adapter/scene.py, adapter/assurance.py, adapter/sdk.py"
+        ]
+      },
+      "P3": {
+        "item": "P3",
+        "disposition": "FAIL",
+        "basis": "declared+checked",
+        "reason": "The credential lives at a file on the user's own machine, written by the addon under its cache dir. The measured party owns the interpreter, the process and the disk., which the measured party reaches. P3 is about custody, not scope: narrowing the blast radius of a secret in a shell the witnessed party controls does not move it out of that shell.",
+        "conditions": [],
+        "citations": [
+          "vendor/scruple_host_sdk/auth.py (the API key store)"
+        ]
+      },
+      "P4": {
+        "item": "P4",
+        "disposition": "FAIL",
+        "qualifier": "derived from P3",
+        "basis": "derived-from-P3",
+        "reason": "Identity arrives as a bearer API key presented by the addon on every request, and the only thing preventing forgery is a MAC whose key P3 already found in the measured party's hands. They can supply the value AND the signature over it.",
+        "conditions": [],
+        "citations": [
+          "vendor/scruple_host_sdk/http.py (Authorization: Bearer)",
+          "vendor/scruple_host_sdk/auth.py (the API key store)"
+        ]
+      },
+      "P5": {
+        "item": "P5",
+        "disposition": "PASS",
+        "basis": "declared+checked",
+        "reason": "Nothing mutates or deletes prior leaves.",
+        "conditions": [],
+        "citations": [
+          "adapter/flow.py -> vendor/scruple_host_sdk/witness_flow.py (POST /api/v2/witness)"
+        ]
+      },
+      "P6": {
+        "item": "P6",
+        "disposition": "PASS",
+        "basis": "declared+checked",
+        "reason": "Hashes and small metadata only (content_hash, mime, kind, workflow, baseline_ref). No payload bytes leave.",
+        "conditions": [],
+        "citations": [
+          "vendor/scruple_host_sdk/capture.py (hashes the file, sends no bytes)"
+        ]
+      },
+      "P7": {
+        "item": "P7",
+        "disposition": "FAIL",
+        "basis": "derived-from-P2",
+        "reason": "A baseline manifest (computed at runtime over the installed addon files) exists and declares no attestation provider. `none` is a correct VALUE and P7 permits it; what is missing is the declaration itself. P2 is failing for a separate reason, so this one does NOT close for free when P2 does.",
+        "conditions": [],
+        "citations": [
+          "adapter/sdk.py (tamper surface) + vendor/scruple_host_sdk/state.py"
+        ]
+      },
+      "P8": {
+        "item": "P8",
+        "disposition": "n/a",
+        "basis": "declared+checked",
+        "reason": "This integration imports no external attestations.",
+        "conditions": [],
+        "citations": [
+          "adapter/assurance.py (attestation_status is rendered, never imported as evidence)"
+        ]
+      }
+    },
+    "compliant": false,
+    "lifecycle": "integrating",
+    "liveness": {
+      "verdict": "not-applicable",
+      "gaps": null,
+      "reason": "No counter chain on this path: The addon sends no §4.3 component envelope. `adapter/assurance.py` records `component_verified = False` on every leaf and says so in terms. There is no counter chain on this path, so there are no gaps to account for.. There is nothing to be silent with, so liveness is unavailable here and that is not a coverage failure. Reading it as one is what made a componentless path look permanently non-compliant.",
+      "citations": [
+        "adapter/assurance.py (component_verified: bool = False)"
+      ]
+    }
+  },
+  "mutations": [
+    {
+      "mutation": "the addon zip is host-signed, so the declared attested-client placement survives",
+      "cell": "P1",
+      "before": "FAIL",
+      "after": "PASS-CONDITIONAL",
+      "moved": true
+    },
+    {
+      "mutation": "placement fixed AND the key is out of the measured party's reach",
+      "cell": "P3",
+      "before": "FAIL",
+      "after": "PASS",
+      "moved": true
+    },
+    {
+      "mutation": "the principal comes from a server-side session instead of the client",
+      "cell": "P4",
+      "before": "FAIL",
+      "after": "PASS",
+      "moved": true
+    },
+    {
+      "mutation": "the capture carries payload bytes",
+      "cell": "P6",
+      "before": "PASS",
+      "after": "FAIL",
+      "moved": true
+    },
+    {
+      "mutation": "no leaf is created at all",
+      "cell": "P5",
+      "before": "PASS",
+      "after": "FAIL",
+      "moved": true
+    },
+    {
+      "mutation": "INERT: attestation becomes verified while the zip stays unsigned",
+      "cell": "P1",
+      "before": "FAIL",
+      "after": "FAIL",
+      "moved": true
+    },
+    {
+      "mutation": "INERT: the key moves out of reach while the zip stays unsigned",
+      "cell": "P3",
+      "before": "FAIL",
+      "after": "FAIL",
+      "moved": true
+    },
+    {
+      "mutation": "the grade itself must not come out compliant",
+      "cell": "compliant",
+      "before": "false",
+      "after": "false (expected)",
+      "moved": true
+    }
+  ]
+}

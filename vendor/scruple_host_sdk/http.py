@@ -113,6 +113,66 @@ def _transport(
         return status, raw.decode("utf-8", errors="replace")
 
 
+def fetch_published_key(
+    session: Any,
+    url: str,
+    *,
+    allowed_schemes: tuple = ("http", "https"),
+) -> bytes:
+    """GET a verifying key from an address the SERVER published. Bytes, raw.
+
+    WO-B6. A receipt now carries an ECDSA leaf signature and instructions
+    naming where the verifying key lives
+    (lib/leaf/signatureDisclosure.ts, `verification.public_key_url`). A
+    vendor integration that cannot fetch that key holds a signature it
+    can never check, which is `independently_verifiable` as a claim
+    rather than a fact -- the exact gap WO-S1 opened this surface to
+    close.
+
+    THREE THINGS THIS DOES NOT DO, EACH ON PURPOSE.
+
+    IT SENDS NO API KEY. The key server is a different host from the
+    application tier -- the witness, in the reference deployment -- and
+    forwarding a tenant credential to an absolute URL out of a response
+    body is credential leakage with extra steps. The published key is
+    public; that is what published means.
+
+    IT IS NOT QUEUED. Like /receipt and /verify, this is a query. There
+    is nothing to replay.
+
+    IT DOES NOT CHOOSE THE URL. The caller passes what the receipt said.
+    A signature checked against a key of the checker's choosing is not a
+    check, so there is no default, no fallback and no configuration knob.
+    The scheme allowlist is the one restriction: `file://` would turn a
+    server-supplied string into a local file read.
+    """
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in allowed_schemes:
+        raise ScrupleTransportError(
+            f"refusing to fetch a verifying key over {scheme or '(no scheme)'}: "
+            f"the receipt's public_key_url must be one of {allowed_schemes}"
+        )
+
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/x-pem-file, */*", "User-Agent": USER_AGENT},
+        method="GET",
+    )
+    opener = getattr(session, "opener", None) or urllib.request
+    timeout = getattr(session, "timeout", DEFAULT_TIMEOUT)
+    try:
+        with opener.urlopen(req, timeout=timeout) as resp:
+            if resp.getcode() != 200:
+                raise ScrupleTransportError(f"key server returned HTTP {resp.getcode()}")
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        raise ScrupleTransportError(f"key server returned HTTP {e.code}") from None
+    except urllib.error.URLError as e:
+        raise ScrupleTransportError(str(e.reason)) from None
+    except OSError as e:
+        raise ScrupleTransportError(str(e)) from None
+
+
 def submit(
     session: Any,
     method: str,

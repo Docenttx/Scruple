@@ -650,3 +650,47 @@ def provision_component(
         ratchet.seal_to_file(seal_path, component_id=component_id)
         os.chmod(seal_path, 0o600)
     return identity, ratchet
+
+
+def component_status(
+    client: Any,
+    *,
+    component_id: Optional[str] = None,
+    include_retired: bool = False,
+) -> Dict[str, Any]:
+    """GET /api/v2/components/status -- the reconciliation read.
+
+    WO-S1(b). ``witness()`` reports the gap the SERVER computed for the one
+    event it just accepted; this is the standing account across every
+    component in the tenant, which is what a settlement check needs. Both
+    halves existed server-side and neither was reachable from the SDK, so a
+    vendor could produce the evidence and not read it back.
+
+    A gap is a counter a component spent and never delivered. Per §4.2 it
+    does NOT invalidate the leaves around it -- a suppressed event must not
+    be able to attack the vendor's whole record -- so this is a REPORT, and
+    an empty one is a claim in its own right: `open: 0` means we looked.
+
+    ``queue_kind`` is deliberately absent, as in ``provision_component``: a
+    queued read would answer at an unknown later time about a state that
+    has moved on, which is worse than failing now.
+    """
+    # Through `query=`, not by string-building a URL here. `_transport` is
+    # the one place in this package that constructs a request, and
+    # `test_queue_construction.py` pins the set of socket-capable modules at
+    # exactly two -- importing `urllib.parse` to escape a component id would
+    # make this a third, for pure string work that seam already does.
+    result = _http.submit(
+        client,
+        "GET",
+        "/api/v2/components/status",
+        query={
+            "component_id": component_id,
+            "include_retired": "1" if include_retired else None,
+        },
+    )
+    if not result.ok or not isinstance(result.body, dict):
+        raise ScrupleAPIError(
+            f"component_status() failed: {result.error}", status=result.status
+        )
+    return result.body.get("data", result.body)

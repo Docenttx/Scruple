@@ -497,6 +497,12 @@ def resolve_assurance(client, record) -> "_assurance.LeafAssurance":
     receipt = fetch_receipt(client, record.leaf_id)
     if receipt is not None:
         record = _assurance.with_receipt(record, receipt)
+        # WO-B6. Check the seal here, against the key the RECEIPT names.
+        # Nothing else in this addon may decide where the verifying key
+        # lives; when the receipt publishes no address the check does not
+        # run and says so, which is a different record from a check that
+        # ran and failed.
+        record = _assurance.check_signature(record, fetch_key=client.published_key)
     if record.content_hash:
         verification = verify_content(client, record.content_hash)
         if verification is not None:

@@ -1,0 +1,883 @@
+{
+  "phase": "key-address-published",
+  "app": "http://127.0.0.1:3902",
+  "python": "3.10.12",
+  "leaves": [
+    {
+      "state": "witnessed",
+      "kind": "render",
+      "mime": "image/png",
+      "content_hash": "71ea39c250fce8a11828224f18236f27de0d65c882926123f067b81ed88ca8aa",
+      "leaf_id": "76",
+      "leaf_hash": "0625408262cef8bd7092e3ff19df4703501027e5c02a320dc1ff128325e8cf53",
+      "leaf_scheme": "v2.2",
+      "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+      "filename": "torus.png",
+      "error": null,
+      "signature": {
+        "leaf_signature": "MEQCIDsj3sEXssJ8uAIZc4wnCFC+JmCW2g/dV1rAd7Gmob3FAiA3CWHheQJTpNE3eU72lKBAjwi6vZu7/zI+NFwuP+r0Vg==",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "signer_surrogate": true,
+        "source": "receipt",
+        "state": "signed",
+        "key_protection": "software",
+        "verification": {
+          "signed_over": "leaf_hash",
+          "message": "the 32 raw bytes of leaf_hash 0625408262cef8bd7092e3ff19df4703501027e5c02a320dc1ff128325e8cf53 (hex-decoded), SHA-256'd by the signer",
+          "message_type": "RAW",
+          "signature_encoding": "base64(DER(ECDSA))",
+          "public_key_url": "http://127.0.0.1:5899/api/signer/pubkey",
+          "public_key_path": "/api/signer/pubkey"
+        },
+        "checked_ok": true,
+        "check_note": null,
+        "explanation": "ECDSA leaf signature present (ECDSA_SHA_256; SOFTWARE key -- NOT hardware-backed; checked by this client against the published key)."
+      },
+      "canonicalization": {
+        "client": "jcs-1",
+        "server": "jcs-2",
+        "source": "receipt",
+        "client_workflow_hash": "7a51e75da2a27cb52f4c68805ed71f517a5175b78623c22956764d9d37c2542c",
+        "agrees": false
+      },
+      "attestation_status": null,
+      "attestation_source": "receipt",
+      "independently_verifiable_claimed": true,
+      "independently_verifiable_checked": true,
+      "verification_basis_kind": "asymmetric_leaf_signature",
+      "seal_state": "undeclared",
+      "claims_standard": false,
+      "component_verified": false,
+      "queue_depth_after": 0,
+      "assurance_tier": "passthrough (software-signed)",
+      "sentence": "Witnessed. The server confirmed a leaf was written.",
+      "artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/torus.png",
+      "artifact_bytes": 10496,
+      "sha256_of_bytes_on_disk": "71ea39c250fce8a11828224f18236f27de0d65c882926123f067b81ed88ca8aa",
+      "artifact_exists": true,
+      "content_hash_matches_bytes": true,
+      "app_row": {
+        "id": 76,
+        "leaf_hash": "0625408262cef8bd7092e3ff19df4703501027e5c02a320dc1ff128325e8cf53",
+        "output_hash": "71ea39c250fce8a11828224f18236f27de0d65c882926123f067b81ed88ca8aa",
+        "output_content_type": "image/png",
+        "witnessed": 1,
+        "leaf_scheme": "v2.2",
+        "canonicalization_profile": "jcs-2",
+        "workflow_hash": "7a51e75da2a27cb52f4c68805ed71f517a5175b78623c22956764d9d37c2542c",
+        "platform_attestation_status": null,
+        "leaf_signature": "MEQCIDsj3sEXssJ8uAIZc4wnCFC+JmCW2g/dV1rAd7Gmob3FAiA3CWHheQJTpNE3eU72lKBAjwi6vZu7/zI+NFwuP+r0Vg==",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1,
+        "leaf_signature_state": "signed",
+        "modalities_requested": null,
+        "modalities_applied": null,
+        "modalities_outstanding": null
+      },
+      "witness_row": {
+        "leaf_hash": "0625408262cef8bd7092e3ff19df4703501027e5c02a320dc1ff128325e8cf53",
+        "leaf_signature": "MEQCIDsj3sEXssJ8uAIZc4wnCFC+JmCW2g/dV1rAd7Gmob3FAiA3CWHheQJTpNE3eU72lKBAjwi6vZu7/zI+NFwuP+r0Vg==",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1
+      },
+      "app_signature_equals_witness_signature": true
+    },
+    {
+      "state": "witnessed",
+      "kind": "render",
+      "mime": "image/png",
+      "content_hash": "d4480d7e011b5c9307c885f3a66d711cc38470ea91c976ff33826cff75ad2080",
+      "leaf_id": "77",
+      "leaf_hash": "79565d2db390a462185077e2101ef72379f7b90fcb53641b7dc741e13a888d2d",
+      "leaf_scheme": "v2.2",
+      "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+      "filename": "monkey.png",
+      "error": null,
+      "signature": {
+        "leaf_signature": "MEYCIQDSALRTYU8bKh2om9foQqXFHvs4LxKFQRYvM7vw3JG5/QIhAMI3LYnLWVKTpDa0Bwx98PBAoqSPmqgYuGzaSr7JKWA+",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "signer_surrogate": true,
+        "source": "receipt",
+        "state": "signed",
+        "key_protection": "software",
+        "verification": {
+          "signed_over": "leaf_hash",
+          "message": "the 32 raw bytes of leaf_hash 79565d2db390a462185077e2101ef72379f7b90fcb53641b7dc741e13a888d2d (hex-decoded), SHA-256'd by the signer",
+          "message_type": "RAW",
+          "signature_encoding": "base64(DER(ECDSA))",
+          "public_key_url": "http://127.0.0.1:5899/api/signer/pubkey",
+          "public_key_path": "/api/signer/pubkey"
+        },
+        "checked_ok": true,
+        "check_note": null,
+        "explanation": "ECDSA leaf signature present (ECDSA_SHA_256; SOFTWARE key -- NOT hardware-backed; checked by this client against the published key)."
+      },
+      "canonicalization": {
+        "client": "jcs-1",
+        "server": "jcs-2",
+        "source": "receipt",
+        "client_workflow_hash": "1d7f3fc06763776f4eedc1c5106680e85844eec772e490b821c9764d74c531ca",
+        "agrees": false
+      },
+      "attestation_status": null,
+      "attestation_source": "receipt",
+      "independently_verifiable_claimed": true,
+      "independently_verifiable_checked": true,
+      "verification_basis_kind": "asymmetric_leaf_signature",
+      "seal_state": "undeclared",
+      "claims_standard": false,
+      "component_verified": false,
+      "queue_depth_after": 0,
+      "assurance_tier": "passthrough (software-signed)",
+      "sentence": "Witnessed. The server confirmed a leaf was written.",
+      "artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/monkey.png",
+      "artifact_bytes": 15851,
+      "sha256_of_bytes_on_disk": "d4480d7e011b5c9307c885f3a66d711cc38470ea91c976ff33826cff75ad2080",
+      "artifact_exists": true,
+      "content_hash_matches_bytes": true,
+      "app_row": {
+        "id": 77,
+        "leaf_hash": "79565d2db390a462185077e2101ef72379f7b90fcb53641b7dc741e13a888d2d",
+        "output_hash": "d4480d7e011b5c9307c885f3a66d711cc38470ea91c976ff33826cff75ad2080",
+        "output_content_type": "image/png",
+        "witnessed": 1,
+        "leaf_scheme": "v2.2",
+        "canonicalization_profile": "jcs-2",
+        "workflow_hash": "1d7f3fc06763776f4eedc1c5106680e85844eec772e490b821c9764d74c531ca",
+        "platform_attestation_status": null,
+        "leaf_signature": "MEYCIQDSALRTYU8bKh2om9foQqXFHvs4LxKFQRYvM7vw3JG5/QIhAMI3LYnLWVKTpDa0Bwx98PBAoqSPmqgYuGzaSr7JKWA+",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1,
+        "leaf_signature_state": "signed",
+        "modalities_requested": null,
+        "modalities_applied": null,
+        "modalities_outstanding": null
+      },
+      "witness_row": {
+        "leaf_hash": "79565d2db390a462185077e2101ef72379f7b90fcb53641b7dc741e13a888d2d",
+        "leaf_signature": "MEYCIQDSALRTYU8bKh2om9foQqXFHvs4LxKFQRYvM7vw3JG5/QIhAMI3LYnLWVKTpDa0Bwx98PBAoqSPmqgYuGzaSr7JKWA+",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1
+      },
+      "app_signature_equals_witness_signature": true
+    },
+    {
+      "state": "witnessed",
+      "kind": "render",
+      "mime": "image/png",
+      "content_hash": "dddd53c56a8346bdf25053753bc94e4cb9c757b03e586e12c9c1df79a224e219",
+      "leaf_id": "78",
+      "leaf_hash": "ad474cee3d4aacf5eafaf9a5cd97a40940c1c0335221816291fca8757c488069",
+      "leaf_scheme": "v2.2",
+      "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+      "filename": "cone.png",
+      "error": null,
+      "signature": {
+        "leaf_signature": "MEUCIQCcMn1iM191Mkp2ZJr7tT4VFK6y2EmFq48HG08oR52ElwIgODjiyAzHf//9cfgY5dIZie8Y3tesus4aO6xpJ68K5PQ=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "signer_surrogate": true,
+        "source": "receipt",
+        "state": "signed",
+        "key_protection": "software",
+        "verification": {
+          "signed_over": "leaf_hash",
+          "message": "the 32 raw bytes of leaf_hash ad474cee3d4aacf5eafaf9a5cd97a40940c1c0335221816291fca8757c488069 (hex-decoded), SHA-256'd by the signer",
+          "message_type": "RAW",
+          "signature_encoding": "base64(DER(ECDSA))",
+          "public_key_url": "http://127.0.0.1:5899/api/signer/pubkey",
+          "public_key_path": "/api/signer/pubkey"
+        },
+        "checked_ok": true,
+        "check_note": null,
+        "explanation": "ECDSA leaf signature present (ECDSA_SHA_256; SOFTWARE key -- NOT hardware-backed; checked by this client against the published key)."
+      },
+      "canonicalization": {
+        "client": "jcs-1",
+        "server": "jcs-2",
+        "source": "receipt",
+        "client_workflow_hash": "684d6635b8c281bc02a70f2fa5786b5f8692fd4fd28364d964b22efc11678e5b",
+        "agrees": false
+      },
+      "attestation_status": null,
+      "attestation_source": "receipt",
+      "independently_verifiable_claimed": true,
+      "independently_verifiable_checked": true,
+      "verification_basis_kind": "asymmetric_leaf_signature",
+      "seal_state": "undeclared",
+      "claims_standard": false,
+      "component_verified": false,
+      "queue_depth_after": 0,
+      "assurance_tier": "passthrough (software-signed)",
+      "sentence": "Witnessed. The server confirmed a leaf was written.",
+      "artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/cone.png",
+      "artifact_bytes": 9067,
+      "sha256_of_bytes_on_disk": "dddd53c56a8346bdf25053753bc94e4cb9c757b03e586e12c9c1df79a224e219",
+      "artifact_exists": true,
+      "content_hash_matches_bytes": true,
+      "app_row": {
+        "id": 78,
+        "leaf_hash": "ad474cee3d4aacf5eafaf9a5cd97a40940c1c0335221816291fca8757c488069",
+        "output_hash": "dddd53c56a8346bdf25053753bc94e4cb9c757b03e586e12c9c1df79a224e219",
+        "output_content_type": "image/png",
+        "witnessed": 1,
+        "leaf_scheme": "v2.2",
+        "canonicalization_profile": "jcs-2",
+        "workflow_hash": "684d6635b8c281bc02a70f2fa5786b5f8692fd4fd28364d964b22efc11678e5b",
+        "platform_attestation_status": null,
+        "leaf_signature": "MEUCIQCcMn1iM191Mkp2ZJr7tT4VFK6y2EmFq48HG08oR52ElwIgODjiyAzHf//9cfgY5dIZie8Y3tesus4aO6xpJ68K5PQ=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1,
+        "leaf_signature_state": "signed",
+        "modalities_requested": null,
+        "modalities_applied": null,
+        "modalities_outstanding": null
+      },
+      "witness_row": {
+        "leaf_hash": "ad474cee3d4aacf5eafaf9a5cd97a40940c1c0335221816291fca8757c488069",
+        "leaf_signature": "MEUCIQCcMn1iM191Mkp2ZJr7tT4VFK6y2EmFq48HG08oR52ElwIgODjiyAzHf//9cfgY5dIZie8Y3tesus4aO6xpJ68K5PQ=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1
+      },
+      "app_signature_equals_witness_signature": true
+    },
+    {
+      "state": "witnessed",
+      "kind": "render",
+      "mime": "image/jpeg",
+      "content_hash": "7b2ec17ea9b431f21067a375a1aca2d8613eaaf4fe28e3eae1298871e4a0e0d3",
+      "leaf_id": "79",
+      "leaf_hash": "07125901810ceb93fd697fa511829af0157961ed115a8cae65ac94a8709c83c1",
+      "leaf_scheme": "v2.2",
+      "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+      "filename": "sphere.jpg",
+      "error": null,
+      "signature": {
+        "leaf_signature": "MEQCIE5UbX5bCc3xzWnnxKkKkhvBfhNuhIF4XB7s3XBUEVIuAiAmxtg/bZTSL8wqe+rh3OkSgRd+B8FFJqo+DqpeyDVwnQ==",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "signer_surrogate": true,
+        "source": "receipt",
+        "state": "signed",
+        "key_protection": "software",
+        "verification": {
+          "signed_over": "leaf_hash",
+          "message": "the 32 raw bytes of leaf_hash 07125901810ceb93fd697fa511829af0157961ed115a8cae65ac94a8709c83c1 (hex-decoded), SHA-256'd by the signer",
+          "message_type": "RAW",
+          "signature_encoding": "base64(DER(ECDSA))",
+          "public_key_url": "http://127.0.0.1:5899/api/signer/pubkey",
+          "public_key_path": "/api/signer/pubkey"
+        },
+        "checked_ok": true,
+        "check_note": null,
+        "explanation": "ECDSA leaf signature present (ECDSA_SHA_256; SOFTWARE key -- NOT hardware-backed; checked by this client against the published key)."
+      },
+      "canonicalization": {
+        "client": "jcs-1",
+        "server": "jcs-2",
+        "source": "receipt",
+        "client_workflow_hash": "a2761fa167823c2f849f81966f1aca8883b283d2387ee66d5547b4e3372c9980",
+        "agrees": false
+      },
+      "attestation_status": null,
+      "attestation_source": "receipt",
+      "independently_verifiable_claimed": true,
+      "independently_verifiable_checked": true,
+      "verification_basis_kind": "asymmetric_leaf_signature",
+      "seal_state": "undeclared",
+      "claims_standard": false,
+      "component_verified": false,
+      "queue_depth_after": 0,
+      "assurance_tier": "passthrough (software-signed)",
+      "sentence": "Witnessed. The server confirmed a leaf was written.",
+      "artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/sphere.jpg",
+      "artifact_bytes": 1534,
+      "sha256_of_bytes_on_disk": "7b2ec17ea9b431f21067a375a1aca2d8613eaaf4fe28e3eae1298871e4a0e0d3",
+      "artifact_exists": true,
+      "content_hash_matches_bytes": true,
+      "app_row": {
+        "id": 79,
+        "leaf_hash": "07125901810ceb93fd697fa511829af0157961ed115a8cae65ac94a8709c83c1",
+        "output_hash": "7b2ec17ea9b431f21067a375a1aca2d8613eaaf4fe28e3eae1298871e4a0e0d3",
+        "output_content_type": "image/jpeg",
+        "witnessed": 1,
+        "leaf_scheme": "v2.2",
+        "canonicalization_profile": "jcs-2",
+        "workflow_hash": "a2761fa167823c2f849f81966f1aca8883b283d2387ee66d5547b4e3372c9980",
+        "platform_attestation_status": null,
+        "leaf_signature": "MEQCIE5UbX5bCc3xzWnnxKkKkhvBfhNuhIF4XB7s3XBUEVIuAiAmxtg/bZTSL8wqe+rh3OkSgRd+B8FFJqo+DqpeyDVwnQ==",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1,
+        "leaf_signature_state": "signed",
+        "modalities_requested": null,
+        "modalities_applied": null,
+        "modalities_outstanding": null
+      },
+      "witness_row": {
+        "leaf_hash": "07125901810ceb93fd697fa511829af0157961ed115a8cae65ac94a8709c83c1",
+        "leaf_signature": "MEQCIE5UbX5bCc3xzWnnxKkKkhvBfhNuhIF4XB7s3XBUEVIuAiAmxtg/bZTSL8wqe+rh3OkSgRd+B8FFJqo+DqpeyDVwnQ==",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1
+      },
+      "app_signature_equals_witness_signature": true
+    },
+    {
+      "state": "witnessed",
+      "kind": "save",
+      "mime": "application/x-blender",
+      "content_hash": "9cd211a19ee700df07dbea9ddc2d33f09f3a26dbc74c0f4e8140e81fb4724127",
+      "leaf_id": "80",
+      "leaf_hash": "a69ed38187e00f13884af8a68516f00fdef06112186c38f8a2fd0479b72fbda0",
+      "leaf_scheme": "v2.2",
+      "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+      "filename": "b6-scene.blend",
+      "error": null,
+      "signature": {
+        "leaf_signature": "MEUCIQDIcQKNUOa8E+E+Q0mcAlKMOj3kdthHp87TE8tIFnYOVwIgXak7l38PhTVuuakyjR4YfP52WBtoyrKS6ic5WAisgKc=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "signer_surrogate": true,
+        "source": "receipt",
+        "state": "signed",
+        "key_protection": "software",
+        "verification": {
+          "signed_over": "leaf_hash",
+          "message": "the 32 raw bytes of leaf_hash a69ed38187e00f13884af8a68516f00fdef06112186c38f8a2fd0479b72fbda0 (hex-decoded), SHA-256'd by the signer",
+          "message_type": "RAW",
+          "signature_encoding": "base64(DER(ECDSA))",
+          "public_key_url": "http://127.0.0.1:5899/api/signer/pubkey",
+          "public_key_path": "/api/signer/pubkey"
+        },
+        "checked_ok": true,
+        "check_note": null,
+        "explanation": "ECDSA leaf signature present (ECDSA_SHA_256; SOFTWARE key -- NOT hardware-backed; checked by this client against the published key)."
+      },
+      "canonicalization": {
+        "client": "jcs-1",
+        "server": "jcs-2",
+        "source": "receipt",
+        "client_workflow_hash": "b620a7ab8269c6e466efe7a3e8fdfc379198c7f23c11dbc78bf26e77831d288e",
+        "agrees": false
+      },
+      "attestation_status": null,
+      "attestation_source": "receipt",
+      "independently_verifiable_claimed": true,
+      "independently_verifiable_checked": true,
+      "verification_basis_kind": "asymmetric_leaf_signature",
+      "seal_state": "undeclared",
+      "claims_standard": false,
+      "component_verified": false,
+      "queue_depth_after": 0,
+      "assurance_tier": "passthrough (software-signed)",
+      "sentence": "Witnessed. The server confirmed a leaf was written.",
+      "artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/b6-scene.blend",
+      "artifact_bytes": 429620,
+      "sha256_of_bytes_on_disk": "9cd211a19ee700df07dbea9ddc2d33f09f3a26dbc74c0f4e8140e81fb4724127",
+      "artifact_exists": true,
+      "content_hash_matches_bytes": true,
+      "app_row": {
+        "id": 80,
+        "leaf_hash": "a69ed38187e00f13884af8a68516f00fdef06112186c38f8a2fd0479b72fbda0",
+        "output_hash": "9cd211a19ee700df07dbea9ddc2d33f09f3a26dbc74c0f4e8140e81fb4724127",
+        "output_content_type": "application/x-blender",
+        "witnessed": 1,
+        "leaf_scheme": "v2.2",
+        "canonicalization_profile": "jcs-2",
+        "workflow_hash": "b620a7ab8269c6e466efe7a3e8fdfc379198c7f23c11dbc78bf26e77831d288e",
+        "platform_attestation_status": null,
+        "leaf_signature": "MEUCIQDIcQKNUOa8E+E+Q0mcAlKMOj3kdthHp87TE8tIFnYOVwIgXak7l38PhTVuuakyjR4YfP52WBtoyrKS6ic5WAisgKc=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1,
+        "leaf_signature_state": "signed",
+        "modalities_requested": null,
+        "modalities_applied": null,
+        "modalities_outstanding": null
+      },
+      "witness_row": {
+        "leaf_hash": "a69ed38187e00f13884af8a68516f00fdef06112186c38f8a2fd0479b72fbda0",
+        "leaf_signature": "MEUCIQDIcQKNUOa8E+E+Q0mcAlKMOj3kdthHp87TE8tIFnYOVwIgXak7l38PhTVuuakyjR4YfP52WBtoyrKS6ic5WAisgKc=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1
+      },
+      "app_signature_equals_witness_signature": true
+    },
+    {
+      "state": "witnessed",
+      "kind": "export",
+      "mime": "model/obj",
+      "content_hash": "a00621fbda5f77fa8b5a3f3fb9c90586d746ec83f804b6611a568718f7ac3584",
+      "leaf_id": "81",
+      "leaf_hash": "72efc41af2ebde89e40d4937693ef97518d44a48d1abb7bfccec7f53c2d9b1e9",
+      "leaf_scheme": "v2.2",
+      "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+      "filename": "b6-scene.obj",
+      "error": null,
+      "signature": {
+        "leaf_signature": "MEUCIQCREhiLX4GhM0jmPN04FZOiMoA9YDUynMQ6/IMsAzlhEQIgLSn9+Sx2NFQ0jsdQP2syLOtmEl9fdfCfonoFt6jtekA=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "signer_surrogate": true,
+        "source": "receipt",
+        "state": "signed",
+        "key_protection": "software",
+        "verification": {
+          "signed_over": "leaf_hash",
+          "message": "the 32 raw bytes of leaf_hash 72efc41af2ebde89e40d4937693ef97518d44a48d1abb7bfccec7f53c2d9b1e9 (hex-decoded), SHA-256'd by the signer",
+          "message_type": "RAW",
+          "signature_encoding": "base64(DER(ECDSA))",
+          "public_key_url": "http://127.0.0.1:5899/api/signer/pubkey",
+          "public_key_path": "/api/signer/pubkey"
+        },
+        "checked_ok": true,
+        "check_note": null,
+        "explanation": "ECDSA leaf signature present (ECDSA_SHA_256; SOFTWARE key -- NOT hardware-backed; checked by this client against the published key)."
+      },
+      "canonicalization": {
+        "client": "jcs-1",
+        "server": "jcs-2",
+        "source": "receipt",
+        "client_workflow_hash": "bad278d2048d435f83ff47a4c673a1580914852df34e6b78e4daf5b4bfd759bf",
+        "agrees": false
+      },
+      "attestation_status": null,
+      "attestation_source": "receipt",
+      "independently_verifiable_claimed": true,
+      "independently_verifiable_checked": true,
+      "verification_basis_kind": "asymmetric_leaf_signature",
+      "seal_state": "undeclared",
+      "claims_standard": false,
+      "component_verified": false,
+      "queue_depth_after": 0,
+      "assurance_tier": "passthrough (software-signed)",
+      "sentence": "Witnessed. The server confirmed a leaf was written.",
+      "artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/b6-scene.obj",
+      "artifact_bytes": 6961,
+      "sha256_of_bytes_on_disk": "a00621fbda5f77fa8b5a3f3fb9c90586d746ec83f804b6611a568718f7ac3584",
+      "artifact_exists": true,
+      "content_hash_matches_bytes": true,
+      "app_row": {
+        "id": 81,
+        "leaf_hash": "72efc41af2ebde89e40d4937693ef97518d44a48d1abb7bfccec7f53c2d9b1e9",
+        "output_hash": "a00621fbda5f77fa8b5a3f3fb9c90586d746ec83f804b6611a568718f7ac3584",
+        "output_content_type": "model/obj",
+        "witnessed": 1,
+        "leaf_scheme": "v2.2",
+        "canonicalization_profile": "jcs-2",
+        "workflow_hash": "bad278d2048d435f83ff47a4c673a1580914852df34e6b78e4daf5b4bfd759bf",
+        "platform_attestation_status": null,
+        "leaf_signature": "MEUCIQCREhiLX4GhM0jmPN04FZOiMoA9YDUynMQ6/IMsAzlhEQIgLSn9+Sx2NFQ0jsdQP2syLOtmEl9fdfCfonoFt6jtekA=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1,
+        "leaf_signature_state": "signed",
+        "modalities_requested": null,
+        "modalities_applied": null,
+        "modalities_outstanding": null
+      },
+      "witness_row": {
+        "leaf_hash": "72efc41af2ebde89e40d4937693ef97518d44a48d1abb7bfccec7f53c2d9b1e9",
+        "leaf_signature": "MEUCIQCREhiLX4GhM0jmPN04FZOiMoA9YDUynMQ6/IMsAzlhEQIgLSn9+Sx2NFQ0jsdQP2syLOtmEl9fdfCfonoFt6jtekA=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1
+      },
+      "app_signature_equals_witness_signature": true
+    },
+    {
+      "state": "witnessed",
+      "kind": "export",
+      "mime": "model/stl",
+      "content_hash": "bd8a187bc00fb18dbbcbaa44068d46ae53e4d7fa51e8c68043944c2ee8ffab5b",
+      "leaf_id": "82",
+      "leaf_hash": "3f9870d266fc38757b915d7a06138de8fcb390a9bda70855f230bdd42dec4c42",
+      "leaf_scheme": "v2.2",
+      "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+      "filename": "b6-scene.stl",
+      "error": null,
+      "signature": {
+        "leaf_signature": "MEUCIQCV4HtP6A3DUEdtUf906TGgptRX2PHXpCnPLuacICL/kAIgKUafQreLz8fkxz6uqkpUlCt4ke9CnKkTbLnRiducT70=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "signer_surrogate": true,
+        "source": "receipt",
+        "state": "signed",
+        "key_protection": "software",
+        "verification": {
+          "signed_over": "leaf_hash",
+          "message": "the 32 raw bytes of leaf_hash 3f9870d266fc38757b915d7a06138de8fcb390a9bda70855f230bdd42dec4c42 (hex-decoded), SHA-256'd by the signer",
+          "message_type": "RAW",
+          "signature_encoding": "base64(DER(ECDSA))",
+          "public_key_url": "http://127.0.0.1:5899/api/signer/pubkey",
+          "public_key_path": "/api/signer/pubkey"
+        },
+        "checked_ok": true,
+        "check_note": null,
+        "explanation": "ECDSA leaf signature present (ECDSA_SHA_256; SOFTWARE key -- NOT hardware-backed; checked by this client against the published key)."
+      },
+      "canonicalization": {
+        "client": "jcs-1",
+        "server": "jcs-2",
+        "source": "receipt",
+        "client_workflow_hash": "652ca18edfceedacda73b7cd9013b0a7349aeb89c253339e32c2cc4e5f12ea3d",
+        "agrees": false
+      },
+      "attestation_status": null,
+      "attestation_source": "receipt",
+      "independently_verifiable_claimed": true,
+      "independently_verifiable_checked": true,
+      "verification_basis_kind": "asymmetric_leaf_signature",
+      "seal_state": "undeclared",
+      "claims_standard": false,
+      "component_verified": false,
+      "queue_depth_after": 0,
+      "assurance_tier": "passthrough (software-signed)",
+      "sentence": "Witnessed. The server confirmed a leaf was written.",
+      "artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/b6-scene.stl",
+      "artifact_bytes": 4084,
+      "sha256_of_bytes_on_disk": "bd8a187bc00fb18dbbcbaa44068d46ae53e4d7fa51e8c68043944c2ee8ffab5b",
+      "artifact_exists": true,
+      "content_hash_matches_bytes": true,
+      "app_row": {
+        "id": 82,
+        "leaf_hash": "3f9870d266fc38757b915d7a06138de8fcb390a9bda70855f230bdd42dec4c42",
+        "output_hash": "bd8a187bc00fb18dbbcbaa44068d46ae53e4d7fa51e8c68043944c2ee8ffab5b",
+        "output_content_type": "model/stl",
+        "witnessed": 1,
+        "leaf_scheme": "v2.2",
+        "canonicalization_profile": "jcs-2",
+        "workflow_hash": "652ca18edfceedacda73b7cd9013b0a7349aeb89c253339e32c2cc4e5f12ea3d",
+        "platform_attestation_status": null,
+        "leaf_signature": "MEUCIQCV4HtP6A3DUEdtUf906TGgptRX2PHXpCnPLuacICL/kAIgKUafQreLz8fkxz6uqkpUlCt4ke9CnKkTbLnRiducT70=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1,
+        "leaf_signature_state": "signed",
+        "modalities_requested": null,
+        "modalities_applied": null,
+        "modalities_outstanding": null
+      },
+      "witness_row": {
+        "leaf_hash": "3f9870d266fc38757b915d7a06138de8fcb390a9bda70855f230bdd42dec4c42",
+        "leaf_signature": "MEUCIQCV4HtP6A3DUEdtUf906TGgptRX2PHXpCnPLuacICL/kAIgKUafQreLz8fkxz6uqkpUlCt4ke9CnKkTbLnRiducT70=",
+        "leaf_signer_key_id": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+        "leaf_signature_alg": "ECDSA_SHA_256",
+        "leaf_signer_surrogate": 1
+      },
+      "app_signature_equals_witness_signature": true
+    }
+  ],
+  "c2pa": [
+    {
+      "source_artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/torus.png",
+      "leaf_id": "76",
+      "signed": true,
+      "signing_mode": "kms-http",
+      "signer_identity": "kms-http:http://127.0.0.1:8799:...arealkey surrogate=true message_type=RAW",
+      "error": null,
+      "output": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/torus.png.c2pa.png",
+      "output_bytes": 45508,
+      "output_sha256": "63d6e5321ab69e484bfed33bf42863eec8cf0a3f37de1c3375b719e7cddaeddc",
+      "differs_from_witnessed_bytes": true,
+      "readback": {
+        "validation_state": "Valid",
+        "signature_info": {
+          "alg": "Es256",
+          "issuer": "Scruple B6 Surrogate Signing Cert",
+          "common_name": "Scruple CVM Surrogate Signer",
+          "cert_serial_number": "395846038770771775598561291271084589013422968543"
+        },
+        "assertions": [
+          {
+            "label": "c2pa.actions.v2",
+            "data": {
+              "actions": [
+                {
+                  "action": "c2pa.created",
+                  "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCreation"
+                }
+              ]
+            },
+            "created": true
+          },
+          {
+            "label": "ai.scruple.provenance",
+            "data": {
+              "assurance_tier": "passthrough (software-signed)",
+              "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+              "content_hash": "71ea39c250fce8a11828224f18236f27de0d65c882926123f067b81ed88ca8aa",
+              "hardware_backed": false,
+              "leaf_hash": "0625408262cef8bd7092e3ff19df4703501027e5c02a320dc1ff128325e8cf53",
+              "leaf_id": "76",
+              "note": "the surrogate reports protectionMode='SOFTWARE' for ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey. A certificate cannot attest key custody, so nothing in this chain claims any.",
+              "signer_key_ocid": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+              "signer_protection_mode": "SOFTWARE"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "source_artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/monkey.png",
+      "leaf_id": "77",
+      "signed": true,
+      "signing_mode": "kms-http",
+      "signer_identity": "kms-http:http://127.0.0.1:8799:...arealkey surrogate=true message_type=RAW",
+      "error": null,
+      "output": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/monkey.png.c2pa.png",
+      "output_bytes": 59097,
+      "output_sha256": "1e83d77a108cd965d4e64adfe0938dfd6617d8a0eb8b83485fa14a2dbf9b43fa",
+      "differs_from_witnessed_bytes": true,
+      "readback": {
+        "validation_state": "Valid",
+        "signature_info": {
+          "alg": "Es256",
+          "issuer": "Scruple B6 Surrogate Signing Cert",
+          "common_name": "Scruple CVM Surrogate Signer",
+          "cert_serial_number": "395846038770771775598561291271084589013422968543"
+        },
+        "assertions": [
+          {
+            "label": "c2pa.actions.v2",
+            "data": {
+              "actions": [
+                {
+                  "action": "c2pa.created",
+                  "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCreation"
+                }
+              ]
+            },
+            "created": true
+          },
+          {
+            "label": "ai.scruple.provenance",
+            "data": {
+              "assurance_tier": "passthrough (software-signed)",
+              "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+              "content_hash": "d4480d7e011b5c9307c885f3a66d711cc38470ea91c976ff33826cff75ad2080",
+              "hardware_backed": false,
+              "leaf_hash": "79565d2db390a462185077e2101ef72379f7b90fcb53641b7dc741e13a888d2d",
+              "leaf_id": "77",
+              "note": "the surrogate reports protectionMode='SOFTWARE' for ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey. A certificate cannot attest key custody, so nothing in this chain claims any.",
+              "signer_key_ocid": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+              "signer_protection_mode": "SOFTWARE"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "source_artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/cone.png",
+      "leaf_id": "78",
+      "signed": true,
+      "signing_mode": "kms-http",
+      "signer_identity": "kms-http:http://127.0.0.1:8799:...arealkey surrogate=true message_type=RAW",
+      "error": null,
+      "output": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/cone.png.c2pa.png",
+      "output_bytes": 43361,
+      "output_sha256": "cc82cfc2d3f68fc3decd258ecb197d773110b86554095ae4a823a4a32e32085a",
+      "differs_from_witnessed_bytes": true,
+      "readback": {
+        "validation_state": "Valid",
+        "signature_info": {
+          "alg": "Es256",
+          "issuer": "Scruple B6 Surrogate Signing Cert",
+          "common_name": "Scruple CVM Surrogate Signer",
+          "cert_serial_number": "395846038770771775598561291271084589013422968543"
+        },
+        "assertions": [
+          {
+            "label": "c2pa.actions.v2",
+            "data": {
+              "actions": [
+                {
+                  "action": "c2pa.created",
+                  "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCreation"
+                }
+              ]
+            },
+            "created": true
+          },
+          {
+            "label": "ai.scruple.provenance",
+            "data": {
+              "assurance_tier": "passthrough (software-signed)",
+              "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+              "content_hash": "dddd53c56a8346bdf25053753bc94e4cb9c757b03e586e12c9c1df79a224e219",
+              "hardware_backed": false,
+              "leaf_hash": "ad474cee3d4aacf5eafaf9a5cd97a40940c1c0335221816291fca8757c488069",
+              "leaf_id": "78",
+              "note": "the surrogate reports protectionMode='SOFTWARE' for ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey. A certificate cannot attest key custody, so nothing in this chain claims any.",
+              "signer_key_ocid": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+              "signer_protection_mode": "SOFTWARE"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "source_artifact": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/sphere.jpg",
+      "leaf_id": "79",
+      "signed": true,
+      "signing_mode": "kms-http",
+      "signer_identity": "kms-http:http://127.0.0.1:8799:...arealkey surrogate=true message_type=RAW",
+      "error": null,
+      "output": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/sphere.jpg.c2pa.jpg",
+      "output_bytes": 38276,
+      "output_sha256": "2258f4804dc23b7a93de82c5ffa2007d0cd175173e73ad594356d8d726a50c2f",
+      "differs_from_witnessed_bytes": true,
+      "readback": {
+        "validation_state": "Valid",
+        "signature_info": {
+          "alg": "Es256",
+          "issuer": "Scruple B6 Surrogate Signing Cert",
+          "common_name": "Scruple CVM Surrogate Signer",
+          "cert_serial_number": "395846038770771775598561291271084589013422968543"
+        },
+        "assertions": [
+          {
+            "label": "c2pa.actions.v2",
+            "data": {
+              "actions": [
+                {
+                  "action": "c2pa.created",
+                  "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCreation"
+                }
+              ]
+            },
+            "created": true
+          },
+          {
+            "label": "ai.scruple.provenance",
+            "data": {
+              "assurance_tier": "passthrough (software-signed)",
+              "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+              "content_hash": "7b2ec17ea9b431f21067a375a1aca2d8613eaaf4fe28e3eae1298871e4a0e0d3",
+              "hardware_backed": false,
+              "leaf_hash": "07125901810ceb93fd697fa511829af0157961ed115a8cae65ac94a8709c83c1",
+              "leaf_id": "79",
+              "note": "the surrogate reports protectionMode='SOFTWARE' for ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey. A certificate cannot attest key custody, so nothing in this chain claims any.",
+              "signer_key_ocid": "ocid1.key.oc1.us-surrogate-1.surrogate.aaaaaaaaSURROGATEKEYnotarealkey",
+              "signer_protection_mode": "SOFTWARE"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "checks": {
+    "baseline_established": true,
+    "C1_original_verifies": true,
+    "C1_altered_does_NOT_verify": true,
+    "C2_a_tampered_signature_is_rejected": true,
+    "C3_signed_credential_is_Valid": true,
+    "C3_tampered_credential_is_NOT_Valid": true,
+    "C4_the_wrong_key_does_NOT_read_back_as_Valid": true,
+    "at_least_5_leaves": true,
+    "at_least_3_distinct_renders": true,
+    "every_artifact_exists_on_disk": true,
+    "every_content_hash_matches_the_bytes": true,
+    "every_receipt_fetched": true,
+    "every_leaf_in_the_app_db": true,
+    "every_leaf_in_the_witness_db": true,
+    "the_app_copied_the_witness_signature": true,
+    "no_leaf_claims_verified": true,
+    "no_leaf_claims_hardware_backing": true,
+    "every_signed_leaf_is_marked_software": true,
+    "no_leaf_failed_its_signature_check": true,
+    "every_c2pa_signature_used_the_surrogate": true
+  },
+  "controls": {
+    "one_pixel_altered": {
+      "original": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/torus.png",
+      "original_hash": "71ea39c250fce8a11828224f18236f27de0d65c882926123f067b81ed88ca8aa",
+      "altered": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/altered-one-pixel.png",
+      "altered_hash": "a16b245372d06edc06dbfec913f32896d958c6311631c110a106c3468f8491cd",
+      "hashes_differ": true,
+      "original_found": true,
+      "altered_found": false
+    },
+    "tampered_signature": {
+      "leaf_id": "76",
+      "good_checked_ok": true,
+      "tampered_checked_ok": false,
+      "tampered_tier": "SIGNATURE DID NOT VERIFY",
+      "note": "the published key did not verify this signature"
+    },
+    "tampered_c2pa": {
+      "signed": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/torus.png.c2pa.png",
+      "signed_validation_state": "Valid",
+      "tampered": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/c2pa-tampered.png",
+      "tampered_validation_state": "Invalid"
+    },
+    "surrogate_cert_with_local_key": {
+      "signer_result": {
+        "ok": true,
+        "output_path": "/mnt/corpus/scruple-blender-l2/b6/key-address-published/wrong-key.png",
+        "bytes": 44667,
+        "signing_mode": "local",
+        "signer_identity": "local:/data/scruple-web/services/c2pa-signer/keys/signer.key",
+        "signer_age_guard": {
+          "refuse": false,
+          "reason": "IMDS unreachable \u2014 dev-mode signing permitted",
+          "age_days": null,
+          "max_age_days": null,
+          "imds_available": false
+        },
+        "os_patch_guard": {
+          "refuse": false,
+          "reason": "OS patch age 2.16d within max 90d",
+          "patch_date": "2026-09-05T06:56:01+00:00",
+          "patch_age_days": 2.159,
+          "max_age_days": 90.0,
+          "source": "apt/history.log",
+          "detection_available": true
+        },
+        "assertion_partition": {
+          "created_count": 0,
+          "gathered_count": 0,
+          "rejected_count": 0,
+          "created_labels": [],
+          "gathered_labels": [],
+          "rejected_labels": [],
+          "rejected_reason": ""
+        }
+      },
+      "signer_reported_ok": true,
+      "readback_validation_state": "Invalid",
+      "finding": "the signer returned ok:true for a credential whose certificate does not bind the key that signed it. verify_after_sign is off under SCRUPLE_C2PA_DEV=1, so the mismatch is caught only by the reader."
+    }
+  },
+  "blender": "3.0.1",
+  "sdk_is_vendored": true,
+  "vendor_commit": "b6cb1fd5f7cb",
+  "baseline_ref": "a3a4934623aa090ff9b9141ae543ef0aa2ba8c69124800dfbe57ebba9aed242c",
+  "mark_c2pa_through_the_product_path": {
+    "leaf_id": "76",
+    "modalities_applied": [
+      "local"
+    ],
+    "outstanding": [
+      {
+        "modality": "c2pa",
+        "reason": "The Signer CVM is not running. Nothing was signed and nothing was charged. This is reported rather than downgraded \u2014 a local lock is not a content credential."
+      }
+    ],
+    "surrogate_was_reachable": true
+  },
+  "tiers": [
+    "passthrough (software-signed)"
+  ],
+  "ok": true
+}

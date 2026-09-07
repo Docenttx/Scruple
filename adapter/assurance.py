@@ -111,10 +111,16 @@ NOT_DISCLOSED = "not_disclosed"
 class SignatureRecord:
     """The H-1 triple, and where it came from.
 
-    All three values are `None` today for every leaf this addon produces,
-    with `source = NOT_DISCLOSED`. That is a statement about the API, not
-    about the leaf -- the witness signed it, and the app tier did not pass
-    the signature on. Anything rendering this must not print "unsigned".
+    Until WO-S1 all three were `None` for every leaf this addon produced,
+    with `source = NOT_DISCLOSED` -- a statement about the API, not about
+    the leaf: the witness signed it and the app tier did not pass the
+    signature on. Anything rendering that state must not print "unsigned".
+
+    WO-S1 landed migration 052 and the disclosure, so against a server
+    carrying it these are populated and `state` says which of the three
+    reasons a null means. Against an older server they are still None and
+    the sentence above still applies, which is why both readers survive in
+    `_signature_from_receipt`.
     """
 
     leaf_signature: Optional[str] = None
@@ -128,6 +134,29 @@ class SignatureRecord:
     signer_surrogate: Optional[bool] = None
     source: str = NOT_DISCLOSED
 
+    #: WO-B6. `signed` | `unsigned` | `unknown`, verbatim from the receipt's
+    #: `signature.state` (lib/leaf/signatureDisclosure.ts). Three, not two:
+    #: `unsigned` is "the witness answered and had none" and `unknown` is
+    #: "nobody asked". Collapsing them is what this addon did until WO-S1
+    #: gave it something to read.
+    state: Optional[str] = None
+    #: `software` | `undeclared` | `unknown`, verbatim. NOT a boolean, and
+    #: `undeclared` is not `hardware`: the witness does not transmit the
+    #: key's OCI protection mode, so a non-surrogate key supports no claim
+    #: about hardware either way.
+    key_protection: Optional[str] = None
+    #: How to check the signature, as the server described it. Held so the
+    #: check below uses the server's instructions rather than this client's
+    #: assumption about what was signed over.
+    verification: Optional[Dict[str, Any]] = None
+
+    #: WO-B6, the client's OWN verdict, not the server's claim. None until
+    #: `check_signature` has run.
+    checked_ok: Optional[bool] = None
+    #: Why the check did not run, when it did not. An unchecked signature
+    #: and a failed one are not the same fact.
+    check_note: Optional[str] = None
+
     @property
     def present(self) -> bool:
         return bool(self.leaf_signature)
@@ -135,19 +164,36 @@ class SignatureRecord:
     @property
     def explanation(self) -> str:
         if self.present:
-            backing = (
-                "software surrogate key -- NOT hardware-backed"
-                if self.signer_surrogate
-                else "signer backing not stated by the server"
+            if self.key_protection == "software" or self.signer_surrogate:
+                backing = "SOFTWARE key -- NOT hardware-backed"
+            elif self.key_protection == "undeclared":
+                backing = "key protection undeclared; no claim either way"
+            else:
+                backing = "signer backing not stated by the server"
+            checked = {
+                True: "checked by this client against the published key",
+                False: "CHECKED BY THIS CLIENT AND IT DID NOT VERIFY",
+                None: f"not checked here ({self.check_note or 'no reason recorded'})",
+            }[self.checked_ok]
+            return (
+                f"ECDSA leaf signature present "
+                f"({self.leaf_signature_alg or 'algorithm not stated'}; {backing}; {checked})."
             )
-            return f"ECDSA leaf signature present ({self.leaf_signature_alg or 'algorithm not stated'}; {backing})."
+        if self.state == "unsigned":
+            return (
+                "The witness answered and held no asymmetric signature for "
+                "this leaf. It rests on Scruple's audit record alone."
+            )
         if self.source == NOT_DISCLOSED:
             return (
-                "No leaf signature was disclosed. /api/v2/witness and "
-                "/api/v2/receipt return no signature field, so this client "
-                "cannot tell a signed leaf from an unsigned one."
+                "No leaf signature was disclosed. This client was told "
+                "nothing, so it cannot tell a signed leaf from an unsigned "
+                "one."
             )
-        return "The server reported no leaf signature for this leaf."
+        return (
+            "This tier holds no record of whether the leaf was signed. That "
+            "is NOT a statement that it is unsigned."
+        )
 
 
 @dataclass(frozen=True)
@@ -163,8 +209,10 @@ class CanonicalizationRecord:
     in the LABEL, which is the thing an auditor reads to know which rule
     to replay. Recording one number would be picking a side.
 
-    `server` is `None` on every leaf today: no v2 route returns the
-    profile it stored.
+    `server` was `None` on every leaf until WO-S1 added
+    `canonicalization_profile` to the receipt. It is now populated for any
+    leaf whose row records one -- and NULL, honestly, for a leaf where no
+    document was canonicalized at all.
     """
 
     client: str = CLIENT_CANONICALIZATION_PROFILE
@@ -239,20 +287,36 @@ class LeafAssurance:
         """The one line a panel shows. Never better than what was proven.
 
         'verified' requires BOTH an attestation the server verified AND a
-        signature this client can point at. Neither is achievable today,
-        and a tier computed from one of them alone would read as the
-        other."""
+        signature this client can point at. WO-S1 made the second half
+        reachable; the first is not -- Blender declares no attestation
+        provider, so `verified` is still unreachable here and a tier
+        computed from the signature alone would read as the attestation."""
         if self.state != WITNESSED:
             return "not witnessed"
+        # WO-B6. A signature this client checked and could NOT verify is
+        # the one case that must never read as a passthrough: passthrough
+        # means "unchecked evidence, carried honestly", and this is
+        # checked evidence that failed. Ordered first so no later branch
+        # can dress it up.
+        if self.signature.checked_ok is False:
+            return "SIGNATURE DID NOT VERIFY"
         if self.attestation_status == "verified" and self.signature.present:
             return "verified"
-        if self.signature.present and self.signature.signer_surrogate:
+        if self.signature.present and (
+            self.signature.signer_surrogate or self.signature.key_protection == "software"
+        ):
             return "passthrough (software-signed)"
         if self.signature.present:
             return "passthrough"
-        if self.signature.source == NOT_DISCLOSED:
+        # WO-B6. Below here the leaf carries no signature, and the three
+        # reasons are three different tiers. Before S1 they collapsed into
+        # `passthrough`, which claimed evidence that does not exist for a
+        # leaf the witness explicitly told us it had none for.
+        if self.signature.state == "unsigned":
+            return "unsigned (Scruple audit record only)"
+        if self.signature.source == NOT_DISCLOSED or self.signature.state == "unknown":
             return "undisclosed"
-        return "passthrough"
+        return "undisclosed"
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -353,6 +417,55 @@ def refused(reason: str, *, kind: str = "", mime: Optional[str] = None) -> LeafA
     return LeafAssurance(state=REFUSED_LOCALLY, kind=kind, mime=mime, error=reason)
 
 
+def _signature_from_receipt(receipt: Dict[str, Any], current: SignatureRecord) -> SignatureRecord:
+    """Read the seal off a receipt, in either shape the server has used.
+
+    WO-B6, AND THE REASON IT IS A BUG AND NOT A FEATURE REQUEST.
+
+    WO-B3 wrote the flat reader below against a server that disclosed
+    nothing, guessing that the fields would one day arrive at the top
+    level. WO-S1 landed them NESTED, under `signature`, together with a
+    `state` and a `key_protection` the flat guess had no place for. The
+    flat reader then matched nothing, `source` stayed `not_disclosed`, and
+    every leaf this addon produced was reported `undisclosed` while the
+    receipt in the same function's argument said `state: "signed"`,
+    `key_protection: "software"` and carried the signature itself.
+
+    That is not a conservative failure. `undisclosed` says "nobody told
+    us"; the server did tell us, and it told us the key was SOFTWARE. An
+    addon that cannot read a disclosure cannot report the two-tier
+    honesty H-5 exists to provide -- which is exactly the direction the
+    sandbox rule points: never record a surrogate leaf as anything it is
+    not, in EITHER direction.
+
+    Both shapes are read. The nested one wins where they overlap.
+    """
+    nested = receipt.get("signature")
+    if isinstance(nested, dict):
+        return SignatureRecord(
+            leaf_signature=nested.get("leaf_signature"),
+            leaf_signer_key_id=nested.get("leaf_signer_key_id"),
+            leaf_signature_alg=nested.get("leaf_signature_alg"),
+            signer_surrogate=nested.get("leaf_signer_surrogate"),
+            state=nested.get("state"),
+            key_protection=nested.get("key_protection"),
+            verification=nested.get("verification"),
+            source=FROM_RECEIPT,
+        )
+    # The flat shape. Kept because a deployment on the pre-S1 build is
+    # still a deployment, and dropping the path would turn a working read
+    # into a silent `not_disclosed` for it.
+    if any(k in receipt for k in ("leaf_signature", "leaf_signer_key_id", "leaf_signature_alg")):
+        return SignatureRecord(
+            leaf_signature=receipt.get("leaf_signature"),
+            leaf_signer_key_id=receipt.get("leaf_signer_key_id"),
+            leaf_signature_alg=receipt.get("leaf_signature_alg"),
+            signer_surrogate=receipt.get("leaf_signer_surrogate"),
+            source=FROM_RECEIPT,
+        )
+    return current
+
+
 def with_receipt(rec: LeafAssurance, receipt: Dict[str, Any]) -> LeafAssurance:
     """Fold in GET /api/v2/receipt/{leaf_id}.
 
@@ -366,18 +479,7 @@ def with_receipt(rec: LeafAssurance, receipt: Dict[str, Any]) -> LeafAssurance:
     att = receipt.get("attestation")
     status = att.get("status") if isinstance(att, dict) else None
 
-    sig = rec.signature
-    if any(k in receipt for k in ("leaf_signature", "leaf_signer_key_id", "leaf_signature_alg")):
-        # Not reachable against today's server. Written anyway so that the
-        # day the route carries the field, this client reads it instead of
-        # needing a change -- and so a test can drive the path.
-        sig = SignatureRecord(
-            leaf_signature=receipt.get("leaf_signature"),
-            leaf_signer_key_id=receipt.get("leaf_signer_key_id"),
-            leaf_signature_alg=receipt.get("leaf_signature_alg"),
-            signer_surrogate=receipt.get("leaf_signer_surrogate"),
-            source=FROM_RECEIPT,
-        )
+    sig = _signature_from_receipt(receipt, rec.signature)
 
     canon = rec.canonicalization
     if receipt.get("canonicalization_profile") is not None:
@@ -402,15 +504,105 @@ def with_receipt(rec: LeafAssurance, receipt: Dict[str, Any]) -> LeafAssurance:
     )
 
 
+#: Why a signature check did not run. Each is a different fact and none
+#: of them is "the signature is bad".
+NO_SIGNATURE = "no signature was disclosed for this leaf"
+NO_KEY_ADDRESS = (
+    "the receipt published no address for the verifying key "
+    "(signature.verification.public_key_url is null), so this client has "
+    "nothing to fetch. It will not guess one: a client that invents the "
+    "key server is checking a signature against a key of its own choosing."
+)
+NO_LEAF_HASH = "no leaf_hash to check the signature over"
+UNSUPPORTED_SCHEME = "the receipt describes a signature shape this client cannot check"
+
+
+def check_signature(rec: LeafAssurance, *, fetch_key) -> LeafAssurance:
+    """Verify the disclosed ECDSA signature HERE, against the published key.
+
+    WO-B6. Until WO-S1 this was impossible and `independently_verifiable_
+    checked` was hardcoded False with a docstring explaining why. The
+    receipt now carries the signature, the algorithm, and instructions
+    naming what was signed over -- so the honest value is no longer a
+    constant, and a constant that happens to be right is the thing this
+    module exists to avoid.
+
+    THE INSTRUCTIONS ARE THE SERVER'S, THE VERDICT IS OURS. What gets
+    hashed comes from `signature.verification`, because "the leaf hash"
+    has two readings -- the 32 raw bytes or the 64-character hex spelling
+    of them -- and picking the wrong one produces a clean failure that is
+    indistinguishable from tampering. Where the key comes from is also
+    the server's to say; `fetch_key` is injected so this module never
+    opens a socket and a test can drive both outcomes.
+
+    A FAILURE HERE IS NOT AN ERROR TO SWALLOW. `checked_ok=False` reaches
+    `assurance_tier` as SIGNATURE DID NOT VERIFY.
+    """
+    from dataclasses import replace
+
+    sig = rec.signature
+    if not sig.present:
+        return replace(rec, signature=replace(sig, check_note=NO_SIGNATURE))
+    if not rec.leaf_hash:
+        return replace(rec, signature=replace(sig, check_note=NO_LEAF_HASH))
+
+    instructions = sig.verification or {}
+    if (
+        instructions.get("signed_over") != "leaf_hash"
+        or instructions.get("message_type") != "RAW"
+        or instructions.get("signature_encoding") != "base64(DER(ECDSA))"
+    ):
+        return replace(rec, signature=replace(sig, check_note=UNSUPPORTED_SCHEME))
+
+    url = instructions.get("public_key_url")
+    if not url:
+        return replace(rec, signature=replace(sig, check_note=NO_KEY_ADDRESS))
+
+    try:
+        import base64
+
+        from cryptography.hazmat.primitives import hashes as _h, serialization as _ser
+        from cryptography.hazmat.primitives.asymmetric import ec as _ec
+
+        pub = _ser.load_pem_public_key(fetch_key(url))
+        # The 32 RAW bytes the KMS was handed, not their hex spelling.
+        pub.verify(
+            base64.b64decode(sig.leaf_signature),
+            bytes.fromhex(rec.leaf_hash),
+            _ec.ECDSA(_h.SHA256()),
+        )
+        ok, note = True, None
+    except Exception as e:
+        # InvalidSignature and "the key server was unreachable" are not the
+        # same fact, and reporting the second as a failed check would
+        # accuse a good leaf. Only a signature that was actually tested
+        # and rejected gets checked_ok=False.
+        from cryptography.exceptions import InvalidSignature
+
+        if isinstance(e, InvalidSignature):
+            ok, note = False, "the published key did not verify this signature"
+        else:
+            return replace(
+                rec,
+                signature=replace(sig, check_note=f"the check could not run: {type(e).__name__}: {e}"),
+            )
+
+    return replace(
+        rec,
+        signature=replace(sig, checked_ok=ok, check_note=note),
+        independently_verifiable_checked=ok,
+    )
+
+
 def with_verification(rec: LeafAssurance, verify: Dict[str, Any]) -> LeafAssurance:
     """Fold in GET /api/v2/verify/{content_hash}.
 
     `independently_verifiable_claimed` is exactly what the server said.
-    `independently_verifiable_checked` is NOT set here and cannot be: this
-    client holds no leaf signature and no verifying key, so it has checked
-    nothing. Keeping the two apart is the whole point -- the server's claim
-    has been observed to be true for a leaf that carries no asymmetric
-    signature at all.
+    `independently_verifiable_checked` is never set HERE -- only
+    `check_signature` may set it, from a verification this client actually
+    performed. Keeping the two apart is the whole point: the server's
+    claim has been observed to be true for a leaf that carries no
+    asymmetric signature at all (WO-B3, leaf 3).
     """
     from dataclasses import replace
 
@@ -419,5 +611,8 @@ def with_verification(rec: LeafAssurance, verify: Dict[str, Any]) -> LeafAssuran
         rec,
         independently_verifiable_claimed=verify.get("independently_verifiable"),
         verification_basis_kind=basis.get("kind") if isinstance(basis, dict) else None,
-        independently_verifiable_checked=False,
+        # WO-B6: preserved, not zeroed. `check_signature` is the only thing
+        # that may set this true, and folding in the server's CLAIM must
+        # not erase this client's own verdict -- in either direction.
+        independently_verifiable_checked=rec.independently_verifiable_checked,
     )

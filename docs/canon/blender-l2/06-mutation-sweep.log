@@ -1,0 +1,28 @@
+baseline: the whole addon suite
+  306 passed in 10.46s
+CAUGHT  the nested S1 disclosure is ignored again
+        test_the_nested_disclosure_is_read
+        -> 1 failed in 0.13s
+CAUGHT  check_signature never calls verify -- it just decodes the base64
+        test_CONTROL_a_tampered_signature_is_REJECTED
+        -> 1 failed in 0.13s
+CAUGHT  a network outage is reported as a bad signature
+        test_CONTROL_an_unreachable_key_server_does_not_accuse_the_leaf
+        -> 1 failed in 0.12s
+CAUGHT  a failed check no longer changes the tier
+        test_CONTROL_a_tampered_signature_is_REJECTED
+        -> 1 failed in 0.13s
+CAUGHT  the server's claim zeroes the client's own check
+        test_CONTROL_verification_claim_does_not_erase_the_clients_verdict
+        -> 1 failed in 0.16s
+CAUGHT  `unsigned` collapses back into the generic tier
+        test_CONTROL_unsigned_is_not_undisclosed_and_not_passthrough
+        -> 1 failed in 0.15s
+CAUGHT  the key fetch accepts file://
+        test_the_key_fetch_refuses_a_file_url
+        -> 1 failed in 0.18s
+CAUGHT  the key fetch forwards the tenant API key
+        test_the_key_fetch_sends_no_api_key
+        -> 1 failed in 0.18s
+
+after revert, whole suite: 306 passed in 10.17s
