@@ -1,6 +1,6 @@
 {
   "vendored_by": "build/vendor_sdk.sh",
-  "vendored_at": "2026-09-07T08:46:39Z",
+  "vendored_at": "2026-09-07T08:49:02Z",
   "why_vendored": "A Blender addon cannot pip install; the SDK ships inside the zip. Both packages are pure standard library, so this is cp -r, not a dependency resolver.",
   "source_repo": "/data/scruple-web",
   "source_commit": "4683e0a65158fda9bf013c02ff806ba9a1359147",

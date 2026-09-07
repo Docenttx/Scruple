@@ -42,7 +42,7 @@ The fastest inner loop is:
 ## Adding an operator
 
 1. Create `operators/<name>.py`. Follow the pattern in
-   `operators/witness.py` (free) or `operators/checkpoint.py` (paid).
+   `operators/witness.py` (free) or `operators/c2pa.py` (paid).
 2. Register the class in the module's `register()` function.
 3. Add the import + `register()` / `unregister()` calls to
    `_load_modules()` in `__init__.py`.
@@ -50,13 +50,37 @@ The fastest inner loop is:
 
 ## Adding a scruple-web endpoint
 
-1. Extend `lib/scruple_client.py` with a thin method matching the
-   signature pattern of the existing methods.
-2. Add a request-shape test in `tests/test_client.py`.
-3. Add or extend a payment/lock/flow test as needed.
+Not here. `CANON_SKELETON.md` §5 lists what an adapter may not do —
+construct HTTP requests, handle payment, decide MIME, decide
+applicability, write its own retry — and every one of them is a method
+on `scruple_host_sdk.Client` instead. There is deliberately no
+`client.request(...)` escape hatch.
 
-Never bake business logic into the client. The client is dumb about
-what the server does; higher-level modules compose the calls.
+So a new endpoint is a change to `packages/scruple-host-sdk` in
+`/data/scruple-web`, followed by:
+
+1. `build/vendor_sdk.sh` to refresh `vendor/` and re-record the source
+   commit in `VENDOR.json`.
+2. A test in `tests/test_client.py` for the shape the addon depends on.
+3. If the addon needs to reach it from Blender, a function in
+   `adapter/flow.py` that maps Blender's vocabulary onto it — and
+   nothing else.
+
+`tests/test_sdk_adoption.py` fails if any of that is bypassed: it AST-scans
+every source file for a direct network call, and greps for the class and
+function definitions the SDK owns coming back under a new name.
+
+## Refreshing the vendored SDK
+
+```
+build/vendor_sdk.sh              # refresh from $SCRUPLE_WEB_ROOT
+build/vendor_sdk.sh --verify     # check vendor/ against VENDOR.json
+build/build_addon.sh             # refreshes-or-verifies, then zips
+```
+
+Never edit anything under `vendor/` in place. `verify_vendor.py`
+compares every file against the sha256 recorded when it was vendored and
+fails the build if one has moved.
 
 ## Coding rules
 

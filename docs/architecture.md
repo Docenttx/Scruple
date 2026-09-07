@@ -12,36 +12,48 @@ never talks directly to the witness server — every call goes through
 scruple.ai routes, which authenticate the user by bearer token and
 forward to the witness backend as needed.
 
+Since WO-B2 (2026-09-07) it does not implement that surface itself. The
+client, the retry queue, canonical JSON, the tamper-surface hash, auth
+storage, payment and the witness/mark calls are `scruple_host_sdk`,
+vendored under `vendor/`. What is left in this repository is the part
+that touches bpy. See `docs/canon/blender-l2/02-SDK-ADOPTION.md`.
+
 ## Modules
 
 ```
 scruple_blender/
   __init__.py               register / unregister; bl_info fallback
   blender_manifest.toml     Extensions manifest (4.2+)
-  lib/
-    auth.py                 URL scheme + local callback + disk cache
-    preferences.py          AddonPreferences UI
-    scruple_client.py       urllib HTTP client (bearer auth)
-    manifest.py             canonical leaf preimage builders
-    capture.py              hash + inventory + workflow snapshot
+  adapter/                  the Blender half, and only that
+    __init__.py             puts vendor/ on sys.path ahead of everything
+    sdk.py                  one Client per session; reads VENDOR.json
+    scene.py                paths, render settings, inventory, MIME
+    flow.py                 Blender's vocabulary -> SDK witness/mark
     handlers.py             bpy.app.handlers wiring + background worker
-    witness_flow.py         capture -> POST -> receipt state
-    payment.py              off-session charge orchestration
-    paid_action.py          spine of every paid operator
-    queue_store.py          offline retry queue (JSONL, backoff)
-    state.py                cross-module in-memory state
-    logging.py              verbosity toggle
+    preferences.py          AddonPreferences UI
+    state.py                what the panel shows (the SDK holds the rest)
+    log.py                  verbosity toggle
   operators/
     auth.py                 sign in / sign out
     witness.py              free re-witness
-    checkpoint.py           paid soft-lock
-    c2pa.py                 paid C2PA sign
-    chain_lock.py           paid chain anchor
+    witness_export.py       witness an exported file
+    checkpoint.py           refuses: no /api/v2 equivalent
+    c2pa.py                 paid local lock (mark, modalities: [])
+    chain_lock.py           paid chain anchor (mark, modalities: [chain])
     open_receipt.py         open scruple.ai receipt page
     payment_setup.py        open scruple.ai payment settings
+    resume_payment.py       finish a mark after a 3DS challenge
   panels/
     main.py                 3D Viewport N-panel
+  vendor/                   vendored at build time, never edited here
+    VENDOR.json             source commit + sha256 per file
+    scruple_host_sdk/       the SDK: http, queue, auth, payment, client
+    scruple_api/            interfaces, capture, manifest, modality
 ```
+
+`vendor/` is refreshed by `build/vendor_sdk.sh` and checked by
+`build/verify_vendor.py`, which `build/build_addon.sh` runs before
+cutting a zip. Nothing in this repository edits it by hand.
 
 ## Event flow
 
@@ -49,10 +61,17 @@ scruple_blender/
 2. Blender fires the matching `bpy.app.handlers` hook on the main thread.
 3. The addon's handler enqueues a job on the background worker thread
    so the UI stays responsive.
-4. The worker calls `capture.py` to hash the file and build the leaf
-   payload, then POSTs to `/api/witness/cad`.
-5. On success, the receipt is appended to the in-memory state and the
-   N-panel picks it up on the next draw.
+4. The worker calls `adapter/flow.py`, which resolves the path Blender
+   wrote, declares the MIME from Blender's own format enum, builds the
+   workflow snapshot, and hands all three to `Client.witness_file()`.
+5. The SDK establishes or verifies the session baseline first (a leaf
+   without one is refused client-side, D-3), then POSTs
+   `/api/v2/witness`.
+6. The outcome carries `witnessed` and `queued` as separate fields. A
+   witnessed leaf is appended to the SDK's `SessionState.recent_receipts`
+   and the N-panel picks it up on the next draw; an undelivered one is
+   already spooled to `vendor`-independent JSONL on disk by
+   `http.submit()` before the caller hears about it.
 
 ## Paid actions
 
