@@ -257,6 +257,15 @@ class Client:
             raise ScrupleAPIError(f"receipt({leaf_id}) failed: {result.error}", status=result.status)
         return result.body or {}
 
+    def published_key(self, url: str) -> bytes:
+        """The verifying key at the address a receipt published (WO-B6).
+
+        `url` comes from `receipt["signature"]["verification"]
+        ["public_key_url"]` and from nowhere else. Unauthenticated: see
+        `http.fetch_published_key`.
+        """
+        return _http.fetch_published_key(self, url)
+
     def verify(self, content_hash: str) -> Dict[str, Any]:
         result = _http.submit(self, "GET", f"/api/v2/verify/{content_hash}")
         if not result.ok:

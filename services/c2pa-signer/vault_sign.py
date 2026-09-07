@@ -9,6 +9,24 @@ signature so `sign.py` never changes when we swap:
     (Instance-principal auth via the compute instance's Dynamic Group.
      Requires `pip install oci` on the host.)
 
+  KMS-HTTP MODE (sandbox / surrogate): set
+    SCRUPLE_C2PA_VAULT_KEY_OCID=ocid1.key.oc1.us-surrogate-1.surrogate.xxx
+    SCRUPLE_C2PA_KMS_ENDPOINT=http://127.0.0.1:8799
+    POSTs {endpoint}/20180608/sign with no request signing. Wire-identical
+    to the OCI KMS Crypto Sign API, which is exactly what the witness
+    server's leaf_signer.js already does for H-1 leaf signatures
+    (/opt/scruple-witness/leaf_signer.js:26-29, mode `kms-http`). It exists
+    for the same reason: services/cvm-surrogate speaks that wire, the real
+    Vault needs draft-cavage instance-principal credentials, and until
+    those land there was NO WAY to produce a C2PA credential whose key
+    this process does not hold. WO-B6 needed one.
+
+    THE MODE IS NEVER `vault`. signing_mode() returns 'kms-http' and
+    signer_identity() carries `surrogate=` for a surrogate OCID, so
+    nothing downstream can mistake a software-signed credential for an
+    HSM-backed one. That distinction is the whole reason the surrogate
+    reports protectionMode SOFTWARE truthfully.
+
   LOCAL-FILE MODE (development / interop testing): default when the vault
   env vars are unset. Loads the PEM named by local_key_path() —
   SCRUPLE_C2PA_LOCAL_KEY_PATH, or keys/signer.key — and signs with
@@ -137,6 +155,78 @@ def _vault_signer_from_env() -> Callable[[bytes], bytes]:
     return _sign
 
 
+#: OCI's documented ceiling for `messageType: RAW`. Past it the service
+#: requires the caller to hash and send `DIGEST`. The surrogate accepts
+#: both, so honouring the real limit here is what keeps a sandbox run
+#: predictive of production rather than merely green.
+_KMS_RAW_MAX_BYTES = 4096
+
+#: Which message_type the last kms-http signature used. Reported by
+#: signer_identity() because RAW and DIGEST are two different things the
+#: signer did, and a reader of the manifest is entitled to know which.
+_kms_last_message_type: str | None = None
+
+
+def _kms_http_signer_from_env() -> Callable[[bytes], bytes]:
+    """ES256 raw-R||S signer that POSTs to an OCI-KMS-shaped Sign endpoint.
+
+    No request signing, which is precisely why this is not the production
+    path and why `signing_mode()` refuses to call it `vault`.
+    """
+    import base64
+    import json
+    import urllib.request
+
+    key_ocid = os.environ["SCRUPLE_C2PA_VAULT_KEY_OCID"]
+    endpoint = os.environ["SCRUPLE_C2PA_KMS_ENDPOINT"].rstrip("/")
+
+    def _sign(data: bytes) -> bytes:
+        global _kms_last_message_type
+        # RAW means the service SHA-256s the message. Over the limit that
+        # is not an option, so hash here and send DIGEST -- the same
+        # signature over the same bytes either way. Silently truncating,
+        # or sending RAW and letting the service refuse, would both end
+        # as an unexplained signing outage.
+        if len(data) <= _KMS_RAW_MAX_BYTES:
+            message, message_type = data, "RAW"
+        else:
+            message = hashes.Hash(hashes.SHA256())
+            message.update(data)
+            message, message_type = message.finalize(), "DIGEST"
+        payload = json.dumps({
+            "keyId": key_ocid,
+            "message": base64.b64encode(message).decode("ascii"),
+            "messageType": message_type,
+            "signingAlgorithm": "ECDSA_SHA_256",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{endpoint}/20180608/sign",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = json.loads(resp.read())
+        sig_b64 = body.get("signature")
+        if not sig_b64:
+            raise RuntimeError(
+                f"KMS Sign at {endpoint} returned no signature field: {body!r}"
+            )
+        der = base64.b64decode(sig_b64)
+        r, s = decode_dss_signature(der)
+        _kms_last_message_type = message_type
+        return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+    return _sign
+
+
+def is_surrogate_key(ocid: str) -> bool:
+    """Is this OCID the CVM surrogate's? Same test leaf_signer.js uses
+    (leaf_signer.js:219), so the two tiers cannot disagree about which
+    leaves are software-signed."""
+    return ".surrogate." in ocid or "us-surrogate-1" in ocid
+
+
 _cached_signer: Callable[[bytes], bytes] | None = None
 _active_local_key: Path | None = None
 
@@ -145,7 +235,10 @@ def vault_sign_es256(data: bytes) -> bytes:
     """The Signer.from_callback callback. Dispatch on env var presence."""
     global _cached_signer
     if _cached_signer is None:
-        if os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID"):
+        mode = signing_mode()
+        if mode == "kms-http":
+            _cached_signer = _kms_http_signer_from_env()
+        elif mode == "vault":
             _cached_signer = _vault_signer_from_env()
         else:
             _cached_signer = _local_signer_from_env_or_default()
@@ -153,8 +246,19 @@ def vault_sign_es256(data: bytes) -> bytes:
 
 
 def signing_mode() -> str:
-    """Return 'vault' or 'local' — useful for logs + audit trail."""
-    return "vault" if os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID") else "local"
+    """Return 'vault', 'kms-http' or 'local' — for logs + audit trail.
+
+    `kms-http` is checked FIRST and is a separate value rather than a
+    flavour of `vault`, because sign.py prints this string into its
+    result and app/api/scruple/c2pa/sign/route.ts folds it into the
+    canonical payload whose sha256 becomes a witness leaf. Reporting an
+    unauthenticated HTTP call to a software surrogate as `vault` would
+    commit a false claim about key custody into an append-only record —
+    the exact failure signer_identity()'s docstring is about.
+    """
+    if not os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID"):
+        return "local"
+    return "kms-http" if os.environ.get("SCRUPLE_C2PA_KMS_ENDPOINT") else "vault"
 
 
 def signer_identity() -> str:
@@ -175,7 +279,20 @@ def signer_identity() -> str:
     It now reports the key that actually signed, or refuses. There is no
     third answer.
     """
-    if signing_mode() == "vault":
+    mode = signing_mode()
+    if mode == "kms-http":
+        ocid = os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID", "")
+        endpoint = os.environ.get("SCRUPLE_C2PA_KMS_ENDPOINT", "")
+        # `surrogate=` is stated on EVERY kms-http identity, true or
+        # false, because an absent flag reads as "not a surrogate" and
+        # this string is the only place the distinction survives into the
+        # signed record.
+        return (
+            f"kms-http:{endpoint}:...{ocid[-8:]}"
+            f" surrogate={str(is_surrogate_key(ocid)).lower()}"
+            f" message_type={_kms_last_message_type or 'none-yet'}"
+        )
+    if mode == "vault":
         ocid = os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID", "")
         # Mask everything except the last 8 chars for public logs.
         return f"vault:...{ocid[-8:]}" if ocid else "vault:unknown"

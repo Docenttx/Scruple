@@ -96,12 +96,36 @@ def _is_production_signer() -> bool:
          (Vault or in-CVM SoftHSM or local dev key preserved for cert-chain
          continuity during resubmission signing).
 
+    SIGNAL 1 IS DISARMED BY kms-http, AND THIS IS THE POINT (WO-B6).
+    Signal 1 reads the OCID as a proxy for "signing routes through OCI
+    Vault". `kms-http` mode sets the same OCID and does NOT route through
+    Vault — it POSTs, unauthenticated, to services/cvm-surrogate. Left
+    alone the proxy misfires twice over, and the second way is worse than
+    the first:
+
+      * the age guard measured THIS host's IMDS — an app-tier VM, 156 days
+        old — and refused to sign. Observable: WO-B6 hit exactly that.
+      * `runtime_assertion()` would then have stamped this host's instance
+        OCID and image OCID into a signed C2PA manifest as the signing
+        runtime. That is a false claim about the signing environment,
+        signed, inside a credential a third party verifies — the thing
+        the surrogate reporting `protectionMode: SOFTWARE` truthfully
+        exists to prevent, one layer up.
+
+    So a surrogate is never a production signer, and the escape hatch is
+    not the answer: SCRUPLE_C2PA_FORCE_DEV=1 would also disarm signal 2,
+    which is the one that is actually about hardware.
+
     Escape hatch: SCRUPLE_C2PA_FORCE_DEV=1 unconditionally forces dev mode
     (turns off runtime assertion + age guard). Use only when signing
     reference material on a CVM but explicitly want to omit the assertion.
     """
     if os.environ.get("SCRUPLE_C2PA_FORCE_DEV") == "1":
         return False
+    if os.environ.get("SCRUPLE_C2PA_KMS_ENDPOINT"):
+        # kms-http. Signal 2 still decides: on a real CVM /dev/sev-guest is
+        # present and the guards stay armed even in surrogate mode.
+        return os.path.exists("/dev/sev-guest")
     if os.environ.get("SCRUPLE_C2PA_VAULT_KEY_OCID"):
         return True
     return os.path.exists("/dev/sev-guest")
