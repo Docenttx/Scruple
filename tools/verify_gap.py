@@ -16,6 +16,18 @@ Two roots, because the gap spans two repos:
   repo="addon"  -> this repository
   repo="server" -> /data/scruple-web (override with SCRUPLE_WEB_ROOT)
 
+AND TWO POINTS IN TIME. gap.json is an inventory of two trees at two
+named commits -- it records `addon.commit` and `server.commit` -- not a
+description of whatever HEAD happens to be. WO-B2 deletes most of the
+addon files this inventory cites, which is the whole point of having
+taken the inventory; resolving `lib/scruple_client.py:36` against the
+working tree afterwards would turn a correct historical citation into a
+failure. So each citation is read at the commit gap.json pins for its
+repo (via `git show <commit>:<path>`), falling back to the working tree
+when the object is not in the repository -- an uncommitted file, or a
+checkout with no git. The fallback is why the four citation-rot controls
+in tests/test_gap_inventory.py still fire.
+
 Usage:  python3 tools/verify_gap.py [path/to/gap.json]
 Exit 0 clean, 1 with a numbered list of what failed.
 """
@@ -24,8 +36,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 ADDON_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVER_ROOT = os.environ.get("SCRUPLE_WEB_ROOT", "/data/scruple-web")
@@ -59,7 +72,54 @@ def _lines(path: str) -> List[str]:
     return _line_cache[path]
 
 
-def check_citation(cite: Any, where: str, errors: List[str]) -> None:
+class PinnedTree:
+    """Reads a cited file as it stood at the commit gap.json pins.
+
+    `pins` maps repo name -> commit. A repo with no pin, or a path git
+    does not have at that commit, falls back to the working tree.
+    """
+
+    def __init__(self, pins: Dict[str, str]) -> None:
+        self.pins = {k: v for k, v in pins.items() if v}
+        self._cache: Dict[Tuple[str, str], Optional[List[str]]] = {}
+
+    def _from_git(self, repo: str, relpath: str) -> Optional[List[str]]:
+        commit = self.pins.get(repo)
+        if not commit:
+            return None
+        key = (repo, relpath)
+        if key not in self._cache:
+            try:
+                blob = subprocess.run(
+                    ["git", "-C", _root_for(repo), "show", f"{commit}:{relpath}"],
+                    capture_output=True, check=False,
+                )
+                self._cache[key] = (
+                    blob.stdout.decode("utf-8", errors="replace").splitlines()
+                    if blob.returncode == 0
+                    else None
+                )
+            except (OSError, KeyError):
+                self._cache[key] = None
+        return self._cache[key]
+
+    def lines(self, repo: str, relpath: str) -> Optional[List[str]]:
+        """Cited file's lines, or None if it exists in neither the pinned
+        commit nor the working tree."""
+        pinned = self._from_git(repo, relpath)
+        if pinned is not None:
+            return pinned
+        path = os.path.join(_root_for(repo), relpath)
+        if not os.path.isfile(path):
+            return None
+        return _lines(path)
+
+    def source_of(self, repo: str, relpath: str) -> str:
+        commit = self.pins.get(repo)
+        return f"{commit[:7]}:" if commit and self._from_git(repo, relpath) is not None else "worktree:"
+
+
+def check_citation(cite: Any, where: str, errors: List[str], tree: "PinnedTree") -> None:
     """A citation is {repo, file, line, quote} and all four must hold."""
     if not isinstance(cite, dict):
         errors.append(f"{where}: citation is not an object: {cite!r}")
@@ -69,17 +129,18 @@ def check_citation(cite: Any, where: str, errors: List[str]) -> None:
             errors.append(f"{where}: citation missing `{field}`")
             return
     try:
-        root = _root_for(cite["repo"])
+        _root_for(cite["repo"])
     except KeyError:
         errors.append(f"{where}: unknown repo {cite['repo']!r} (want addon|server)")
         return
 
-    path = os.path.join(root, cite["file"])
-    if not os.path.isfile(path):
-        errors.append(f"{where}: no such file {cite['repo']}:{cite['file']}")
+    lines = tree.lines(cite["repo"], cite["file"])
+    if lines is None:
+        errors.append(
+            f"{where}: no such file {cite['repo']}:{cite['file']} "
+            f"(neither at the pinned commit nor in the working tree)"
+        )
         return
-
-    lines = _lines(path)
     n = cite["line"]
     if not isinstance(n, int) or n < 1 or n > len(lines):
         errors.append(
@@ -124,6 +185,11 @@ def verify(gap_path: str) -> List[str]:
     except json.JSONDecodeError as e:
         return [f"gap.json does not parse: {e}"]
 
+    tree = PinnedTree({
+        "addon": (gap.get("addon") or {}).get("commit", ""),
+        "server": (gap.get("server") or {}).get("commit", ""),
+    })
+
     for table, name_key in TABLES:
         rows = gap.get(table)
         if not isinstance(rows, list) or not rows:
@@ -140,7 +206,7 @@ def verify(gap_path: str) -> List[str]:
                 errors.append(f"{where}: row cites nothing -- every row must cite file:line")
                 continue
             for key, cite in cites:
-                check_citation(cite, f"{where}.{key}", errors)
+                check_citation(cite, f"{where}.{key}", errors, tree)
 
     baseline = gap.get("baseline_suite")
     if not isinstance(baseline, dict) or "passed" not in baseline:

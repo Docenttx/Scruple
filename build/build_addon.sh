@@ -22,6 +22,16 @@ ZIP_NAME="scruple-blender-${VERSION}.zip"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR" "$OUT_DIR"
 
+# The SDK travels inside the zip. Blender ships its own interpreter and
+# users install an archive, not a wheel -- there is no pip step in which
+# `scruple-host-sdk` could be resolved. Refresh the vendored copy from
+# the source repo when it is on this machine, verify the committed copy
+# when it is not, and abort either way if vendor/ no longer matches its
+# own manifest. vendor/VENDOR.json carries the source commit and a
+# sha256 per file, so a zip in a user's hands can be traced back to the
+# tree it was cut from.
+build/vendor_sdk.sh --if-available
+
 # The Extensions system expects the addon at the top of the zip, in a
 # folder whose name matches the manifest id. We stage into that folder
 # and zip it so the archive expands cleanly under
@@ -41,9 +51,10 @@ rsync -a \
   README.md \
   LICENSE \
   VERSION \
-  lib \
+  adapter \
   panels \
   operators \
+  vendor \
   "$STAGE_DIR/"
 
 # Compile-check every .py so a syntax error trips the packager, not the user.
@@ -61,7 +72,8 @@ zip -qr "../../${OUT_DIR}/${ZIP_NAME}" "$(basename "$STAGE_DIR")"
 popd >/dev/null
 
 echo "Built: ${OUT_DIR}/${ZIP_NAME}"
-unzip -l "${OUT_DIR}/${ZIP_NAME}" | head -30
+echo "Vendored SDK: $(python3 -c 'import json;m=json.load(open("vendor/VENDOR.json"));print(m["source_repo"], m["source_commit"][:12], "dirty" if m["source_tree_dirty_at_copy"] else "clean", len(m["files"]), "files")')"
+unzip -l "${OUT_DIR}/${ZIP_NAME}" | head -40
 
 if [[ "${1:-}" == "--publish" ]]; then
   echo
