@@ -146,6 +146,19 @@ document at the top level beside `model_fingerprints`:
 runs when there is no adapter and cannot be forgotten by an adapter that is not
 there.
 
+⚑ **And "a component" is doing more work in that sentence than it looks.** A
+leaf submitted by a PLUGIN — the standalone Blender add-on, the CAD shells,
+canvas — has no capture block at all, so all five of these columns read NULL,
+which migration 058 defines as *"the question was never asked of this leaf"*.
+WO-E7 measured what that costs: the add-on alone, witnessing a render whose
+pixels came out of a ComfyUI generation it never saw, produces a leaf whose
+every provenance-bearing field is **invariant under the AI step** and whose
+`host_semantics` is NULL rather than `blind`. Nothing on it is false; the
+distinction this document exists to hold open simply has no member for "a
+product with no gate in it". Finding **E7-1** in `docs/WO-E7.md`, options and a
+recommendation in `docs/STATE.md` §4.7, and it is a change to this contract
+rather than to any host.
+
 ### Why three values and not two
 
 `declined` — an adapter **was** registered and had nothing to say about **this**
@@ -257,3 +270,9 @@ meaning is host-supplied" means when it is code rather than a sentence.
   composition, rule 7 and the route.
 - `scripts/d6-gate.sh` — including stage 1, which asks the pre-change tree the
   same two questions and shows both controls red.
+- `scripts/e7-leaf-diff.py` — **WO-E7, and it is about the gap above**. Three
+  leaves from three products, compared over every one of the 105 columns of
+  `iterations`, with an unclassified column scored as a failure and a
+  self-control that feeds the same leaf in twice. It is the measurement that
+  `blind` and `supplied` and `declined` are three of the values this field can
+  hold, and that NULL — the fourth — is the one nobody designed.

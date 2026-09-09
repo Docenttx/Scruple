@@ -66,6 +66,41 @@ Blender output, and it must **not** imply anything about the AI step it did not
 observe. "Something was imported here and we do not know what it was" is the
 true statement, and it needs to be on the leaf, not in a footnote.
 
+_WO-E7, 2026-09-09: **all four rows have now been put on the table at once**,
+one real leaf each, compared column by column — and two cells of the table above
+are wrong._
+
+- ⚑ **Row 1's flagged sentence is NOT satisfied.** The add-on-alone leaf does
+  not imply anything about the AI step; it says **nothing** about it, and
+  nothing is not the same as the true statement above. `host_semantics` reads
+  **NULL** rather than `blind` — migration 058's *"the question was never asked
+  of this leaf"* — because the add-on is a plugin and not a component, so it has
+  no capture block at all. Measured by rendering the **same scene** around two
+  **different** AI outputs: every provenance-bearing column is byte-identical
+  across the two leaves and only the digest of the pixels moves. Finding
+  **E7-1**, `docs/WO-E7.md`, and it is the finding the E-series ends on.
+- ⚑ **"the graph: no" in row 1 is wrong at the column level.** The add-on sends
+  a graph too — its own nine-key render-settings dict — and `workflow_hash` is
+  non-null on all three products, in the same column, under the same
+  `canonicalization_profile`, on the same `leaf_kind`. The route hashes the
+  graph and **discards it**, so nothing on the leaf says which kind it was. What
+  the row means is "no *ComfyUI* graph"; what the record says is less.
+- **What the table gets right and the measurement confirms**: byte coverage,
+  model fingerprints and scene semantics all read exactly as predicted, and
+  `model_fingerprints_hash` is **byte-identical** between rows 2 and 3 — the two
+  products that see the weights agree on them.
+- **Two differences the table does not predict at all**, asserted by the gate so
+  they stay visible: `leaf_scheme` is `v2.2` from the add-on and `v2` from the
+  component (**E7-5** — two differently *constructed* leaves, not two
+  differently populated ones), and `machine_manifest_hash` is set by the add-on
+  and NULL from the component (**E7-6** — on that one column the standalone
+  product records *more*).
+
+The comparison is `python3 scripts/e7-leaf-diff.py`, and it does not list the
+columns that came out interesting: **every one of the 105 columns of
+`iterations` is in exactly one of five classes and an unclassified column is a
+failure**, so the next migration that adds one forces somebody to decide.
+
 ## Blender on this box
 
 _Rewritten by WO-E3, 2026-09-09, from measurements. What stood here before was
@@ -189,3 +224,36 @@ database, from a run in which **this repository submitted nothing**:
 `scenarios/blender-generate.json`, and `scripts/e6-gate.sh` reads it back with
 `sha256sum` and `sqlite3` from the shell, outside node, because a driver that
 grades its own run is a log line with extra steps.
+
+## The mirror, and the two places it is cracked
+
+_WO-E7, 2026-09-09, and this is where the E-series stops._
+
+The product decision at the top of this document — *"the plugin alone stays a
+product"* — was tested rather than restated. The add-on was run on its own,
+against the server, with no gate anywhere in the path, on a scene built around
+an AI output it never saw; and the leaf it produced was put beside a
+Desktop-Studio-only leaf and a both leaf, **column by column, all 105 of them**.
+
+The mirror holds. Both halves work alone, both reach a leaf, and the leaf says
+which product made it — `baseline_hash` is the tamper surface of the integration
+that submitted, and it is the one column a verifier can use to tell them apart.
+
+Two cracks, both measured, neither fixed here:
+
+1. ⚑ **The standalone leaf does not declare its blindness.** Above, and
+   `docs/WO-E7.md` finding **E7-1**. This is a change to the server's leaf, so
+   it is not the add-on's to take, and `docs/STATE.md` §4.7 names the three
+   options and recommends one.
+2. ⚑ **The add-on's own Settings UI does not bind on the path it ships on.**
+   `ScrupleAddonPreferences.bl_idname` is the legacy module name, so through
+   `blender_manifest.toml` — the path WO-E3 made work and the one every 4.2+
+   user gets — `addons[module].preferences` is **None**: no API-key field, no
+   base-URL field, and `get_base_url()` falling back to `https://scruple.ai`.
+   Measured with a control, same zip on both install paths
+   (`scripts/e7-prefs-probe.py`). Finding **E7-2**, and it is one line.
+
+Neither crack is in the *claim* this document is about. The first is the claim
+being incompletely expressible; the second is the standalone product being
+harder to use than anyone intended. Both are named here rather than left in a
+report nobody reads.

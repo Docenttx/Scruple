@@ -179,3 +179,66 @@
            exactly what they target. Regressions: WO-E4 blender-host PASSED,
            WO-D4 comfy-generate PASSED, addon suite 330 passed. Transcript
            .run/e6/gate-final.txt. app/comfy/ and the SDK are untouched.
+20:54:07Z  DONE   WO-E6  (47m)  desktop=7854616 web=01a8a55
+20:54:07Z  START  WO-E7
+21:05:00Z  ⚑ E7-1 IS THE FINDING THE SERIES ENDS ON, and it is the one the work
+           order flagged. The add-on alone does NOT imply anything about the AI
+           step — it says NOTHING about it. Measured by rendering the SAME
+           scene around TWO DIFFERENT AI outputs: output_hash moves and
+           workflow_hash, machine_manifest_hash, model_fingerprints, input_hash,
+           host_semantics, leaf_scheme and leaf_kind are all byte-identical.
+           host_semantics is NULL, not `blind` — migration 058's "the question
+           was never asked of this leaf". docs/BLENDER.md's row 1 asks for
+           "something was imported here and we do not know what it was" to be
+           ON THE LEAF; it is not. Three options and a recommendation in
+           STATE.md §4.7. NOT fixed: it is a change to the server's leaf.
+21:05:00Z  ⚑ and BLENDER.md's table is wrong in a second cell: "the graph: no"
+           for row 1. workflow_hash is non-null on ALL THREE products, same
+           column, same jcs-2, same leaf_kind — and the route hashes the graph
+           and DISCARDS it, so nothing on the leaf says which kind it was. The
+           gate asserts the measurement, not the prediction (the E6-5 rule
+           applied to this WO's own source document).
+21:20:00Z  ⚑ E7-2 found with a control: the add-on's Settings UI does NOT bind
+           on the path it ships on. bl_idname is the legacy module name, so
+           through blender_manifest.toml (module bl_ext.user_default.
+           scruple_blender) addons[module].preferences is None — no API key
+           field, no base URL field, and get_base_url() falling back to
+           https://scruple.ai. Same zip on the LEGACY path binds fine. One
+           line to fix; NOT taken — it is the addon repo's product surface and
+           it moves every baseline in the E fixtures.
+21:20:00Z  ⚑ E7-3: WitnessWorker.stop() DROPS QUEUED CAPTURES, and they never
+           reached the SDK's on-disk spool either. Measured on the real class
+           outside Blender. It bit this WO first: 2 captures reported where the
+           same Blender, waiting for quiescence, reports 3.
+21:20:00Z  ⚑ E7-4 one still render lands TWO leaves with two different graphs
+           (render_write carries the frame, render_complete does not).
+           E7-5 the two products emit different LEAF SCHEMES (v2.2 vs v2).
+           E7-6 machine_manifest_hash is set by the ADD-ON and NULL from the
+           component — on that one column the standalone product records MORE.
+           E7-7 the addon's live modules are top-level, not attributes of the
+           extension package; the dotted import loads a second dead copy.
+21:22:00Z  ⚑ E5-x AGAIN, and it was mine: editing the gate script WHILE BASH
+           WAS RUNNING IT shifted the file under bash's byte offsets and killed
+           run 1 at stage 8. Kept unedited as .run/e7/gate-run1-selfcorrupted.txt;
+           the gate was committed and re-run untouched.
+21:26:00Z  the comparator does not list the columns that came out interesting:
+           EVERY ONE OF THE 105 COLUMNS of `iterations` is in exactly one of
+           five classes and an unclassified column is a FAILURE, so the next
+           migration that adds one forces a decision. --self-control feeds the
+           same leaf in as A and as B: 33 checks go red, and the five host
+           columns correctly stay GREEN because they never told A from B.
+21:26:00Z  DONE   WO-E7  gate PASSED — 13 stages, 58 shell checks ok / 0 FAIL /
+           0 inconclusive; the three-way leaf comparison 98 ok / 0 FAIL over
+           105 columns; controls: self-control 33 red, model-swap moves the
+           fingerprint c6c3638a→58d20177, blender-does-not-announce moves
+           supplied→declined while B stays blind and A still says nothing.
+           Regressions: WO-E4 blender-host PASSED, addon suite 330 passed.
+           app/ is byte-identical to WO-E6; server and addon repos untouched.
+           Transcript .run/e7/gate-final.txt.
+21:26:00Z  ⚑ not covered: E7-1 is measured and NOT fixed; only three of the
+           add-on's capture points were exercised (save_post, render_write,
+           render_complete); the comparison is of three LEAVES and each product
+           emits more than one per run; npm run gate (D1…D7) was not re-run.
+           Every Blender measurement is still on an emulated CPU (E3-2), every
+           leaf is `stale` or NULL, and every leaf is `signature.state:
+           unsigned` (STATE.md §4.1).
