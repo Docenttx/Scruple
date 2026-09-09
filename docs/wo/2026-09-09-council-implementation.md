@@ -7,11 +7,21 @@ _2026-09-09. The Blender×ComfyUI council closed at 35 rounds (artifact
 ## The rail that governs this whole series
 
 🔴 **`/opt/scruple-witness` IS NOT TO BE MODIFIED BY ANY WO IN THIS SERIES.**
-It serves `witness.scruple.ai` and holds an append-only audit log. Already-minted
-chain locks are anchored on RVN and Arweave against the OLD Merkle root and
-**those anchors cannot be recomputed**. Canonicalisation must be *versioned*,
-never retroactive, and the decision is the founder's. WO-C6 produces a plan and
-test vectors; it changes nothing.
+It serves `witness.scruple.ai` and is live. WO-C6 produces a plan and test
+vectors; it changes nothing.
+
+⚑ **CORRECTED 2026-09-09 by the founder, and it changes WO-C6 substantially.**
+An earlier draft of this document said already-minted chain locks are anchored
+on RVN/Arweave against the old root and cannot be recomputed, so
+canonicalisation had to be versioned rather than retroactive. **That is wrong.
+There are no real provenance packages — every anchored artefact to date is test
+work.** So there is no irreversible history to preserve and no reason to carry
+two rules. Pick the correct construction, apply it everywhere, and **delete the
+others** rather than maintaining a legacy path for records that were never real.
+
+The version stamp still ships — but as **forward insurance**, so that a future
+change to the construction is survivable once real packages exist. That is the
+cheap half of the original plan without the expensive half.
 
 Everything else from the standing rails still applies: never contact
 `127.0.0.1:5799` (production witness) or `:3001` (live site); the sandbox is the
@@ -154,11 +164,21 @@ Three facts the plan must address:
    not a well-defined value today.
 
 **Deliverables:** one canonical preimage, tree ordering, domain separation and
-proof format; a shared test-vector file both implementations must pass; a
+proof format; a shared test-vector file every implementation must pass; a
 conformance runner that executes those vectors against all three; and a
-**versioned** migration plan that leaves existing anchors valid under their
-original algorithm. Already-minted RVN/Arweave anchors cannot be recomputed —
-version, never retrofit.
+**cutover** plan.
+
+⚑ **A cutover, not a migration.** There is no real history to preserve (see the
+correction at the top of this document), so do NOT design a dual-rule scheme,
+a legacy verification path, or a per-record compatibility branch. Say plainly
+which of the three constructions survives, and which files should be **deleted**
+once it does — a wrong implementation left in the tree is a future caller's
+default.
+
+Do still specify a `merkle_version` field stamped on each record. Its purpose is
+forward insurance for a change made after real packages exist, not compatibility
+with the test artefacts we are discarding. Say that explicitly in the plan, so
+nobody later mistakes it for evidence that a legacy path once existed.
 
 **Gate:** the vector file exists, the runner executes it against all three
 implementations, and the report states plainly which pass and which fail today.
