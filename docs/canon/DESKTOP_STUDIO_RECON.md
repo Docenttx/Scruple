@@ -79,9 +79,54 @@ spending keys is a different security posture from a capture gate holding a
 signing key, and it should be assessed on its own terms rather than inherited
 because it was already in the box.
 
+## ⚑ AMENDMENT — the UI is canon, and my first verdict overreached
+
+_Added 2026-09-09 on founder correction._
+
+The verdict below was written after reading `lock/` and the server routes, and
+then generalised to the whole application. **I never opened the UI layer.** The
+founder's correction: the UI is canon dashboard work and **the web studio UI was
+cloned from it**. It is maintained, not deleted.
+
+What is actually there, measured:
+
+| | |
+|---|---|
+| `index-final.html` | 28 lines — a shell with `id="root"` and a loading screen |
+| `renderer/styles/main.css` | **2,175 lines** |
+| `renderer/styles/wallet.css` | 776 lines |
+| `render-main.js` / `render-workspace.js` / `render-wallet.js` (+ testnet, `api.js`, `state.js`, `handlers.js`) | ~1,900 lines |
+| **total UI** | **~4,862 lines**, of which **~2,951 is CSS** |
+
+That is a design system, not a prototype. The interface is built in JS into a
+single root; the CSS is where the canon lives.
+
+### The drift is already total, at the level that matters
+
+| | desktop studio | web studio |
+|---|---|---|
+| styling | hand-written CSS, **21 design tokens** (`--*`) | **Tailwind** (`tailwind.config.ts`, `@tailwind` in a 52-line `globals.css`) |
+| UI code | ~1,900 lines vanilla JS renderers | **48 `.tsx` components, 6,581 lines**, 14 pages |
+| **shared design tokens** | — | **ZERO** |
+
+The clone carried the *design* across and left the *implementation* behind, with
+no shared source of truth between them. So "harmonized and mirrors" cannot mean
+shared stylesheets today — there is nothing shared to drift from.
+
+⚑ **This is the same failure shape as the two SDKs and the three Merkle
+constructions**: one intent, two implementations, kept in step by nobody. It
+went unnoticed for the same reason — nothing ever compared them.
+
+**The fix has the same shape too:** a single design-token source both consume —
+the desktop's CSS custom properties generated from it, Tailwind's theme
+generated from it — so a divergence becomes a build failure rather than a thing
+someone notices in a screenshot. Until that exists, every UI change has to be
+made twice by hand, and the second one is the one that gets forgotten.
+
 ## Verdict
 
-Not "stale in places" — **pre-v1 throughout, with one good idea inside it.**
+**On the provenance machinery only** — not the UI, which is canon and stays:
+pre-v1 throughout, with one good idea inside it.
 The vault model is genuinely complementary to the sidecar and is the right
 primitive for hosts with no history of their own. Extract it; rebuild it on the
 current SDK, the current leaf, the current basis; delete the rest rather than
@@ -105,3 +150,8 @@ exists today.
    `verified`.
 5. **Review the wallet separately** before any of it is revived.
 6. **Only then, the Blender tab.**
+
+⚑ Steps 2-5 are about the provenance machinery. **The UI is not in that list
+because it is not being replaced** — it is the canon the web UI was cloned from.
+Its own item is: establish the shared design-token source, so desktop and web
+stop drifting silently.
