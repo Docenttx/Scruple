@@ -58,6 +58,7 @@ import {
   resolutionPreimageFields,
   type ResolutionHandles,
 } from '@/lib/leaf/resolutionHandles';
+import type { HostSemanticsState } from '@/lib/capture/hostRegistry';
 
 /** What the component saw, as distinct from what the leaf commits to. */
 export interface ComponentCaptureBlock {
@@ -147,6 +148,34 @@ export interface ComponentCaptureBlock {
   upstream_low_watermark_close?: number | null;
   upstream_uncaptured_reason?: UncapturedReason | null;
   upstream_source?: UpstreamSource | null;
+  /**
+   * WO-D6. WHO SUPPLIED THE MEANING, AND WHETHER ANYBODY DID.
+   *
+   * `lib/capture/hostRegistry.ts` splits every host integration in two:
+   * Level 1 is a host pointing its ComfyUI address at the gate and getting a
+   * record that is honestly semantically blind, Level 2 is a registered
+   * adapter supplying what a wire cannot carry. `host_semantics` is which,
+   * three-valued, and never null on a leaf a component emits.
+   *
+   * ⚑ ALL FIVE ARE IN THE PREIMAGE, and the reason is the one `profile` and
+   * `confinement` already give: the value of a leaf saying "this record is
+   * semantically blind" is entirely that nobody between the component and
+   * this route can change it into "a registered Blender adapter said this was
+   * scene X, frame 240, camera CAM_hero". `host_evidence_hash` binds the
+   * document to the claim, so the two cannot be separated in flight either.
+   *
+   * ⚑ AND 'declined' IS NOT A DEGRADED 'blind'. An adapter that was
+   * registered and had nothing to say about THIS observation is a different
+   * operational condition from no adapter at all, with a different fix: the
+   * first is an integration that is not working, the second is one that was
+   * never done. WO-C5's `not_queried` holds the same distinction open one
+   * field over, and for the same reason.
+   */
+  host?: string | null;
+  host_adapter?: string | null;
+  host_evidence_type?: string | null;
+  host_semantics?: HostSemanticsState | null;
+  host_evidence_hash?: string | null;
 }
 
 export interface ComponentEnvelope {
@@ -166,6 +195,17 @@ export interface ComponentSubmission {
   input_hash?: string | null;
   model_fingerprints_hash?: string | null;
   machine_manifest_hash?: string | null;
+  /**
+   * WO-D6. The host's own evidence document, whose digest rides in
+   * `capture.host_evidence_hash`. TOP-LEVEL, not a capture field, for the
+   * reason `model_fingerprints` is: `capture` is what the COMPONENT saw and
+   * this is what the HOST said. It is NOT in the preimage — the hash is,
+   * exactly as `graph` is excluded and `workflow_hash` included, because a
+   * host-shaped document is full of floats (a frame time, a focal length) and
+   * a float in a MAC preimage is a MAC that fails unreproducibly and only
+   * sometimes (§10 C-1).
+   */
+  host_evidence?: Record<string, unknown> | null;
   capture?: ComponentCaptureBlock | null;
   /**
    * WO-C2. THE RESOLUTION HANDLES, AND THEY ARE IN THE MAC.
@@ -228,6 +268,16 @@ export function componentPreimage(s: ComponentSubmission): PreimageFields {
     upstream_low_watermark_close: c.upstream_low_watermark_close ?? null,
     upstream_uncaptured_reason: c.upstream_uncaptured_reason ?? null,
     upstream_source: c.upstream_source ?? null,
+    // WO-D6. Five keys, null when the submission carried none — the same
+    // absent-is-null discipline. Note that a COMPONENT never sends null for
+    // `host_semantics`: `buildLeaf` defaults it to 'blind'. The null here is
+    // for a submission with no capture block at all, where the question was
+    // not asked rather than answered.
+    host: c.host ?? null,
+    host_adapter: c.host_adapter ?? null,
+    host_evidence_type: c.host_evidence_type ?? null,
+    host_semantics: c.host_semantics ?? null,
+    host_evidence_hash: c.host_evidence_hash ?? null,
     // WO-C2. Always five keys, prefixed `resolution_`, null when the block is
     // absent. The absence is therefore SIGNED: a party between the component
     // and this route can no more add a witness endpoint than rewrite one.

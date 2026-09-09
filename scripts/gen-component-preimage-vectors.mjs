@@ -88,6 +88,21 @@ const cases = [
         upstream_low_watermark_close: null,
         upstream_uncaptured_reason: 'not_queried',
         upstream_source: 'unknown',
+        // WO-D6. LEVEL 1, DECLARED. The vendor's own handler is the
+        // observation and no host adapter was registered on it, so nothing
+        // named these bytes. `blind` is the accurate answer and it costs
+        // nothing to say, which is exactly why the ABSENCE of the field is
+        // refused rather than read as Level 1: a leaf that merely lacked the
+        // semantics would be indistinguishable from a Level-2 leaf whose
+        // adapter is broken, and from a leaf written before the field
+        // existed. The four siblings are nulls in a stable shape so that a
+        // Level-1 and a Level-2 leaf produce the same preimage KEY SET and
+        // the difference between them is a VALUE the MAC covers.
+        host: null,
+        host_adapter: null,
+        host_evidence_type: null,
+        host_semantics: 'blind',
+        host_evidence_hash: null,
       },
       // WO-C2. The resolution handles, in the signed preimage. This case has
       // an authority enrolled and a preceding checkpoint with its quote time
@@ -171,6 +186,24 @@ const cases = [
         upstream_low_watermark_close: 4103,
         upstream_uncaptured_reason: 'evicted_or_restarted',
         upstream_source: 'measured',
+        // WO-D6. LEVEL 2, and this is the vector that makes the other one
+        // mean something. A registered host adapter supplied what the gate
+        // structurally could not see — the gate observes a wire, and a wire
+        // does not carry the fact that these pixels were a named camera in a
+        // named scene at a named frame.
+        //
+        // ⚑ THE HASH IS HERE AND THE DOCUMENT IS NOT, which is the same split
+        // `workflow_hash`/`graph` already uses and for the same reason: a
+        // host-shaped document is full of floats (a frame time, a focal
+        // length) and a float in a MAC preimage is a MAC that fails
+        // unreproducibly and only sometimes (§10 C-1). The document travels
+        // top level as `host_evidence`, and the route recomputes this digest
+        // from it and refuses a pair that disagrees.
+        host: 'phantom-cam',
+        host_adapter: 'viewport@1.0.0',
+        host_evidence_type: 'scruple.dev/evidence/phantom-cam-viewport/v1',
+        host_semantics: 'supplied',
+        host_evidence_hash: 'a'.repeat(64),
       },
       // WO-C2. An endpoint with NO authority enrolled. Carried as a null
       // rather than as a plausible-looking string, because inventing the

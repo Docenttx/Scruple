@@ -157,6 +157,52 @@ import {
   type ConfinementSource,
   type StorageConfinement,
 } from '@/lib/capture/storageConfinement';
+// ---------------------------------------------------------------------------
+// RULE 7 — THE HOST HOOK'S LEVEL IS DECLARED, AND LEVEL 2 CANNOT BE CLAIMED
+//          BY A DEPLOYMENT THAT REGISTERED NOBODY
+// ---------------------------------------------------------------------------
+//
+// WO-D6. `lib/capture/hostRegistry.ts` splits every host integration in two.
+// LEVEL 1 is a host pointing its ComfyUI address at the gate: no code from us,
+// full byte coverage, and a record that is honestly SEMANTICALLY BLIND. LEVEL 2
+// is a registered adapter supplying the meaning a wire cannot carry — that
+// these pixels were the viewport of scene X at frame Y through camera Z.
+//
+// The design's whole claim is that the difference is VISIBLE ON THE LEAF, and
+// visible in the strong direction: a Level-1 leaf declares its blindness
+// rather than being merely thinner than a Level-2 one. Five refusals, and each
+// is a way that declaration could be present and worth nothing:
+//
+//   a. a capture-bearing leaf with NO `host_semantics`. Rule 2's argument
+//      exactly. A component emitting under this design must say which level it
+//      ran at, and 'blind' is available and free — `buildLeaf` defaults to it,
+//      so absent here means something rewrote the field out on the way.
+//   b. 'supplied' or 'declined' with NO `host_adapter`. Both are Level-2
+//      statements and Level 2 means an adapter was registered. A leaf claiming
+//      a host supplied its meaning while naming no adapter is a coverage claim
+//      with nobody behind it.
+//   c. 'blind' carrying ANY host field. Blind means nobody was asked; a host
+//      id, an adapter, an evidence type or an evidence hash beside it is two
+//      statements that cannot both be true.
+//   d. 'supplied' with no `host_evidence_hash`, or 'declined' WITH one. These
+//      are the two halves of the same collapse: the first supplies nothing and
+//      calls it supplied, the second declines and ships a document anyway. If
+//      an adapter had nothing to say, the value for that is 'declined' and it
+//      carries no manifest.
+//   e. a host field sent ONE LEVEL UP. `componentPreimage()` reads these out
+//      of `capture` and would silently skip a top-level copy — a field outside
+//      the MAC that looks exactly like a signed one. `host_evidence` is the
+//      exception and is REQUIRED to be top level, for the reason
+//      `model_fingerprints` is: it is the host's document, not the component's
+//      observation, and only its hash is signed.
+//
+// ⚑ WHAT IS *NOT* REFUSED: 'declined'. An adapter that was registered and had
+// nothing to say about this observation is telling the truth, and it is a
+// DIFFERENT truth from 'blind' — one is an integration that is not working,
+// the other is an integration that was never done. Refusing 'declined' would
+// force a Level-2 host to choose between two lies. Same shape as WO-C5's
+// deliberate non-refusal of `upstream_continuity: 'unknown'`.
+
 import {
   isUncapturedReason,
   isUpstreamContinuity,
@@ -165,6 +211,13 @@ import {
   type UpstreamContinuity,
   type UpstreamSource,
 } from '@/lib/capture/upstreamEpoch';
+import {
+  HOST_SEMANTICS_STATES,
+  hostCaptureLevel,
+  isHostSemanticsState,
+  type HostCaptureLevel,
+  type HostSemanticsState,
+} from '@/lib/capture/hostRegistry';
 import {
   CHECKPOINT_BLOCKER_REASON,
   CHECKPOINT_VECTORS_SETTLED,
@@ -181,7 +234,9 @@ export type CaptureClaimCode =
   | 'storage_confinement_required'
   | 'storage_confinement_refused'
   | 'upstream_epoch_required'
-  | 'upstream_epoch_refused';
+  | 'upstream_epoch_refused'
+  | 'host_semantics_required'
+  | 'host_semantics_refused';
 
 export interface CaptureClaimRefusal {
   ok: false;
@@ -200,6 +255,20 @@ export interface CaptureClaimAccepted {
   confinementSource: ConfinementSource | null;
   /** WO-C5. null on a legacy leaf, same reason again. */
   upstream: UpstreamClaims | null;
+  /** WO-D6. null on a legacy leaf; never null on a leaf carrying a capture
+   *  block, because the level is not a question a component may leave open. */
+  host: HostClaims | null;
+}
+
+/** WO-D6. Which level the host hook ran at, and who said so. */
+export interface HostClaims {
+  semantics: HostSemanticsState;
+  /** DERIVED from `semantics`, never read off the wire. */
+  level: HostCaptureLevel;
+  host: string | null;
+  adapter: string | null;
+  evidenceType: string | null;
+  evidenceHash: string | null;
 }
 
 /** WO-C5. What the component said about the process it is watching. */
@@ -270,6 +339,7 @@ export function validateCaptureClaims(
       confinement: null,
       confinementSource: null,
       upstream: null,
+      host: null,
     };
   }
 
@@ -354,6 +424,10 @@ export function validateCaptureClaims(
   const up = validateUpstream(body, capture);
   if (!up.ok) return up;
 
+  // ---- Rule 7 -------------------------------------------------------
+  const host = validateHost(body, capture);
+  if (!host.ok) return host;
+
   return {
     ok: true,
     basis,
@@ -361,6 +435,156 @@ export function validateCaptureClaims(
     confinement: conf.confinement,
     confinementSource: conf.confinementSource,
     upstream: up.upstream,
+    host: host.host,
+  };
+}
+
+/** Rule 7, split out for the reason Rules 5 and 6 are: five refusals and one
+ *  accept do not read as a rule when they are inline. */
+function validateHost(
+  body: Record<string, unknown>,
+  capture: Record<string, unknown>,
+): CaptureClaimAccepted | CaptureClaimRefusal {
+  // (e) sent one level up, where the preimage does not read it.
+  //
+  // `host_evidence` is deliberately absent from this list: it MUST be top
+  // level. `componentPreimage()` never reads it — only its hash is signed —
+  // and putting the document inside `capture` would smuggle a host-shaped
+  // blob full of floats into a MAC preimage, which §10 C-1 refuses.
+  const misplaced = [
+    'host',
+    'host_adapter',
+    'host_evidence_type',
+    'host_semantics',
+    'host_evidence_hash',
+  ].filter((k) => k in body);
+  if (misplaced.length > 0) {
+    return {
+      ok: false,
+      code: 'host_semantics_refused',
+      message:
+        `${misplaced.join(' and ')} sent at the top level. The host-hook fields are CAPTURE ` +
+        'fields — `componentPreimage()` reads them out of `capture`, so a copy one level up ' +
+        'is outside the MAC while looking exactly like a signed declaration. Send them inside ' +
+        '`capture`. The one exception is `host_evidence`, which is the host\'s DOCUMENT rather ' +
+        'than the component\'s observation and belongs at the top level beside ' +
+        '`model_fingerprints`, with only its hash signed.',
+      detail: { misplaced },
+    };
+  }
+
+  const raw = capture.host_semantics;
+
+  // (a) absent.
+  if (!isHostSemanticsState(raw)) {
+    return {
+      ok: false,
+      code: 'host_semantics_required',
+      message:
+        'A leaf carrying a `capture` block must declare `capture.host_semantics` as one of ' +
+        '"blind" | "declined" | "supplied". It was ' +
+        (raw === undefined ? 'absent' : JSON.stringify(raw)) +
+        '. "blind" is available and costs nothing — the leaf builder DEFAULTS to it — so a ' +
+        'component running at Level 1 has a true value to send. Absent is not Level 1; absent ' +
+        'is a leaf that will not say whether anybody named what it captured, and a record that ' +
+        'is merely thinner than an enriched one is the failure this field exists to refuse.',
+      detail: { received: raw ?? null, accepted: [...HOST_SEMANTICS_STATES] },
+    };
+  }
+  const semantics: HostSemanticsState = raw;
+
+  const str = (k: string): string | null => {
+    const v = capture[k];
+    return typeof v === 'string' && v !== '' ? v : null;
+  };
+  const host = str('host');
+  const adapter = str('host_adapter');
+  const evidenceType = str('host_evidence_type');
+  const evidenceHash = str('host_evidence_hash');
+
+  // (b) Level 2 with nobody registered.
+  if (semantics !== 'blind' && adapter === null) {
+    return {
+      ok: false,
+      code: 'host_semantics_refused',
+      message:
+        `\`host_semantics: "${semantics}"\` with no \`capture.host_adapter\` is refused. Both ` +
+        'non-blind values are LEVEL-2 statements, and Level 2 means an adapter was registered ' +
+        'through `registerHost()`. A leaf asserting that a host supplied — or was asked for — ' +
+        'its meaning while naming nobody is a coverage claim with nothing behind it.',
+      detail: { semantics, host, adapter, evidence_type: evidenceType },
+    };
+  }
+
+  // (c) blind, and yet somebody is named.
+  if (semantics === 'blind') {
+    const present = Object.entries({
+      host,
+      host_adapter: adapter,
+      host_evidence_type: evidenceType,
+      host_evidence_hash: evidenceHash,
+    })
+      .filter(([, v]) => v !== null)
+      .map(([k]) => k);
+    if (present.length > 0 || body.host_evidence !== undefined) {
+      return {
+        ok: false,
+        code: 'host_semantics_refused',
+        message:
+          '`host_semantics: "blind"` with ' +
+          (present.length ? present.join(', ') : 'a `host_evidence` document') +
+          ' beside it is refused. Blind means nobody was registered and nothing named these ' +
+          'bytes. A host id, an adapter, an evidence type, a hash or a document alongside it ' +
+          'are two statements that cannot both be true, and the wrong one of the two would be ' +
+          'the one a reader believes.',
+        detail: { semantics, present, has_evidence: body.host_evidence !== undefined },
+      };
+    }
+  }
+
+  // (d) the two halves of the same collapse.
+  if (semantics === 'supplied' && evidenceHash === null) {
+    return {
+      ok: false,
+      code: 'host_semantics_refused',
+      message:
+        '`host_semantics: "supplied"` with no `capture.host_evidence_hash` is refused. It ' +
+        'supplies nothing and calls it supplied. An adapter that was reached and had nothing ' +
+        'to say has a value of its own — "declined" — and that value carries no manifest.',
+      detail: { semantics, evidence_hash: null },
+    };
+  }
+  if (semantics === 'declined' && (evidenceHash !== null || body.host_evidence !== undefined)) {
+    return {
+      ok: false,
+      code: 'host_semantics_refused',
+      message:
+        '`host_semantics: "declined"` with an evidence hash or an evidence document is ' +
+        'refused. Declined means the adapter had nothing to say about THIS observation; a ' +
+        'document beside it says it had something.',
+      detail: {
+        semantics,
+        evidence_hash: evidenceHash,
+        has_evidence: body.host_evidence !== undefined,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    basis: null,
+    profile: null,
+    confinement: null,
+    confinementSource: null,
+    upstream: null,
+    host: {
+      semantics,
+      level: hostCaptureLevel(semantics),
+      host,
+      adapter,
+      evidenceType,
+      evidenceHash,
+    },
   };
 }
 
@@ -453,6 +677,7 @@ function validateConfinement(
     confinement: rawConf,
     confinementSource: rawSource,
     upstream: null,
+    host: null,
   };
 }
 
@@ -612,6 +837,7 @@ function validateUpstream(
       uncapturedReason: reason,
       source,
     },
+    host: null,
   };
 }
 

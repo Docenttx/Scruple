@@ -282,7 +282,7 @@ function basenameOf(name: string): string {
  * second caller arriving during the (remote, slow) witness call would compute
  * the same N. Reserving a row makes the number taken.
  */
-function reserveRunSequence(projectId: number): number {
+export function reserveRunSequence(projectId: number): number {
   const db = conn();
   return db.transaction(() => {
     // MAX over BOTH tables. A reservation is a number already taken by an
@@ -310,7 +310,7 @@ function reserveRunSequence(projectId: number): number {
 
 /** Release a reservation once the real row exists. A failure to release burns
  *  one number and is harmless; reusing one a witness may have signed is not. */
-function releaseRunSequence(projectId: number, runSequence: number): void {
+export function releaseRunSequence(projectId: number, runSequence: number): void {
   try {
     conn()
       .prepare(`DELETE FROM run_sequence_reservations WHERE project_id = ? AND run_sequence = ?`)

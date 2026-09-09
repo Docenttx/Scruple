@@ -412,6 +412,16 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
             "upstream_identity", "upstream_epoch", "upstream_continuity",
             "upstream_low_watermark_open", "upstream_low_watermark_close",
             "upstream_uncaptured_reason", "upstream_source",
+            # WO-D6. Which LEVEL the host hook ran at, and who supplied the
+            # meaning. Five keys, listed by hand for the reason every field
+            # above is: this placement is Level 1 — nobody registered an
+            # adapter, so nothing named these bytes — and a `blind` that
+            # quietly left the preimage would let a party in the middle turn
+            # "nobody named this" into "a registered host said it was scene X
+            # at frame 240", which is the one substitution this field set
+            # exists to prevent.
+            "host", "host_adapter", "host_evidence_type", "host_semantics",
+            "host_evidence_hash",
         )},
         # WO-C2. The resolution handles, prefixed, INSIDE the MAC. Spelled out
         # here by hand for the same reason every other field above is: this

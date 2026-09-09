@@ -37,7 +37,12 @@
           "upstream_low_watermark_open": null,
           "upstream_low_watermark_close": null,
           "upstream_uncaptured_reason": "not_queried",
-          "upstream_source": "unknown"
+          "upstream_source": "unknown",
+          "host": null,
+          "host_adapter": null,
+          "host_evidence_type": null,
+          "host_semantics": "blind",
+          "host_evidence_hash": null
         },
         "resolution": {
           "witness_endpoint": "https://witness.example.vendor/api",
@@ -92,6 +97,11 @@
         "upstream_low_watermark_close": null,
         "upstream_uncaptured_reason": "not_queried",
         "upstream_source": "unknown",
+        "host": null,
+        "host_adapter": null,
+        "host_evidence_type": null,
+        "host_semantics": "blind",
+        "host_evidence_hash": null,
         "resolution_witness_endpoint": "https://witness.example.vendor/api",
         "resolution_witness_authority": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
         "resolution_checkpoint_id": null,
@@ -100,8 +110,8 @@
         "resolution_settlement_deadline": "2026-08-31T00:00:00.000Z",
         "resolution_retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"unknown\",\"confinement_source\":\"unknown\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":\"ckpt-2026-08-29-0001\",\"resolution_prev_checkpoint_quote_time\":\"2026-08-29T23:59:00.000Z\",\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:00.000Z\",\"resolution_witness_authority\":\"sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"resolution_witness_endpoint\":\"https://witness.example.vendor/api\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"upstream_continuity\":\"unknown\",\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":\"unknown\",\"upstream_uncaptured_reason\":\"not_queried\",\"workflow_hash\":null}",
-      "mac_hex": "8a7be9c7130b0b74832ac55a3b934228dfa3164f8c1cdaf7ffe5d7a20c9f2aec"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"unknown\",\"confinement_source\":\"unknown\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"host\":null,\"host_adapter\":null,\"host_evidence_hash\":null,\"host_evidence_type\":null,\"host_semantics\":\"blind\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":\"ckpt-2026-08-29-0001\",\"resolution_prev_checkpoint_quote_time\":\"2026-08-29T23:59:00.000Z\",\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:00.000Z\",\"resolution_witness_authority\":\"sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"resolution_witness_endpoint\":\"https://witness.example.vendor/api\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"upstream_continuity\":\"unknown\",\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":\"unknown\",\"upstream_uncaptured_reason\":\"not_queried\",\"workflow_hash\":null}",
+      "mac_hex": "9b6178f84e873696e8cf5a55de089f03df5939fd623d9c8a759f825fd0d3cb97"
     },
     {
       "name": "no mime — H-4 §7 probe 4, an unattributed write",
@@ -132,7 +142,12 @@
           "upstream_low_watermark_open": 4096,
           "upstream_low_watermark_close": 4103,
           "upstream_uncaptured_reason": "evicted_or_restarted",
-          "upstream_source": "measured"
+          "upstream_source": "measured",
+          "host": "phantom-cam",
+          "host_adapter": "viewport@1.0.0",
+          "host_evidence_type": "scruple.dev/evidence/phantom-cam-viewport/v1",
+          "host_semantics": "supplied",
+          "host_evidence_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "resolution": {
           "witness_endpoint": "http://127.0.0.1:8080",
@@ -187,6 +202,11 @@
         "upstream_low_watermark_close": 4103,
         "upstream_uncaptured_reason": "evicted_or_restarted",
         "upstream_source": "measured",
+        "host": "phantom-cam",
+        "host_adapter": "viewport@1.0.0",
+        "host_evidence_type": "scruple.dev/evidence/phantom-cam-viewport/v1",
+        "host_semantics": "supplied",
+        "host_evidence_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "resolution_witness_endpoint": "http://127.0.0.1:8080",
         "resolution_witness_authority": null,
         "resolution_checkpoint_id": null,
@@ -195,8 +215,8 @@
         "resolution_settlement_deadline": "2026-08-31T00:00:01.000Z",
         "resolution_retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"degraded_shared_storage\",\"confinement_source\":\"measured\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:01.000Z\",\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":\"http://127.0.0.1:8080\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"upstream_continuity\":\"restarted\",\"upstream_epoch\":\"epoch:9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a\",\"upstream_identity\":\"sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef\",\"upstream_low_watermark_close\":4103,\"upstream_low_watermark_open\":4096,\"upstream_source\":\"measured\",\"upstream_uncaptured_reason\":\"evicted_or_restarted\",\"workflow_hash\":null}",
-      "mac_hex": "d4d4fe165a363eace80570551460a1b27060a2067b97f22edd844ad688548191"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"degraded_shared_storage\",\"confinement_source\":\"measured\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"host\":\"phantom-cam\",\"host_adapter\":\"viewport@1.0.0\",\"host_evidence_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"host_evidence_type\":\"scruple.dev/evidence/phantom-cam-viewport/v1\",\"host_semantics\":\"supplied\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:01.000Z\",\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":\"http://127.0.0.1:8080\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"upstream_continuity\":\"restarted\",\"upstream_epoch\":\"epoch:9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a\",\"upstream_identity\":\"sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef\",\"upstream_low_watermark_close\":4103,\"upstream_low_watermark_open\":4096,\"upstream_source\":\"measured\",\"upstream_uncaptured_reason\":\"evicted_or_restarted\",\"workflow_hash\":null}",
+      "mac_hex": "1a58b01c46972b3b94c6d586d784c290741a4049859d9a8e84a4f237e0fd8779"
     },
     {
       "name": "no capture block and no resolution block — nulls in a stable shape, not a different shape",
@@ -245,6 +265,11 @@
         "upstream_low_watermark_close": null,
         "upstream_uncaptured_reason": null,
         "upstream_source": null,
+        "host": null,
+        "host_adapter": null,
+        "host_evidence_type": null,
+        "host_semantics": null,
+        "host_evidence_hash": null,
         "resolution_witness_endpoint": null,
         "resolution_witness_authority": null,
         "resolution_checkpoint_id": null,
@@ -253,8 +278,8 @@
         "resolution_settlement_deadline": null,
         "resolution_retention_policy_digest": null
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":null,\"confinement_source\":null,\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":null,\"resolution_settlement_deadline\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"upstream_continuity\":null,\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":null,\"upstream_uncaptured_reason\":null,\"workflow_hash\":null}",
-      "mac_hex": "3f02600d22b288adf7336db70c36b2c1c25dbab0ae0ec7f5a7c198d8b90dd93d"
+      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":null,\"confinement_source\":null,\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"host\":null,\"host_adapter\":null,\"host_evidence_hash\":null,\"host_evidence_type\":null,\"host_semantics\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":null,\"resolution_settlement_deadline\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"upstream_continuity\":null,\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":null,\"upstream_uncaptured_reason\":null,\"workflow_hash\":null}",
+      "mac_hex": "9e0d68d8e59bafa8ed9ad3d6f35b9245b7482c7630b1ca79e1fb1548eb6bf97f"
     }
   ]
 }

@@ -41,6 +41,7 @@ import {
   type ResolutionHandles,
 } from '../../../lib/leaf/resolutionHandles';
 import type { CaptureObservation, PlacementEnforcement } from '../../../lib/capture/surface';
+import type { HostSemanticsState } from '../../../lib/capture/hostRegistry';
 import type {
   ConfinementSource,
   StorageConfinement,
@@ -210,6 +211,30 @@ export interface ObservationEvidence {
    *  reaches the wire can be covered later; one the component never sent
    *  cannot be recovered at all. */
   header_hash?: string | null;
+  /**
+   * WO-D6. WHO SUPPLIED THE MEANING, AND WHETHER ANYBODY DID.
+   *
+   * The gate observes a wire. A wire carries bytes and a workflow; it does not
+   * carry the fact that those pixels were the viewport of scene X at frame Y
+   * through camera Z. `lib/capture/hostRegistry.ts` is the two-level hook that
+   * closes that: Level 1 is a host pointing its ComfyUI address at the gate
+   * and getting a record that is honestly semantically blind, Level 2 is a
+   * registered adapter supplying what the gate cannot see.
+   *
+   * ⚑ `host_semantics` IS NOT OPTIONAL ON THE LEAF EVEN THOUGH IT IS OPTIONAL
+   * HERE. `buildLeaf` defaults it to 'blind', so a component with no adapter
+   * emits a leaf that DECLARES it had nobody to ask rather than one that is
+   * quietly thinner than a Level-2 leaf. Optional here, three-valued there.
+   */
+  host?: string | null;
+  host_adapter?: string | null;
+  host_evidence_type?: string | null;
+  host_semantics?: HostSemanticsState | null;
+  /** The manifest behind `host_evidence_hash`. Only the hash enters the MAC;
+   *  the manifest is what makes the stored leaf legible — the same split
+   *  `model_fingerprints` / `model_fingerprints_hash` already uses. */
+  host_evidence?: Record<string, unknown> | null;
+  host_evidence_hash?: string | null;
 }
 
 export type LeafKind = 'document_save' | 'artifact' | 'graph_execute' | 'model_write';
@@ -291,6 +316,26 @@ export interface CaptureBlock {
    *  ObservationEvidence.header_hash. `preimageOf()` below does not read it,
    *  and neither does the server's `componentPreimage()`. */
   header_hash?: string | null;
+  /**
+   * WO-D6. THE HOST HOOK'S LEVEL, ON EVERY LEAF, AND ALL FIVE ARE SIGNED.
+   *
+   * They are in the preimage for the reason `profile` and `confinement` are:
+   * the value of saying "this record is semantically blind" is entirely that
+   * a party in the middle cannot quietly change it to "a registered Blender
+   * adapter said this was scene X" — nor the reverse, which is the attack
+   * that matters more. `host_evidence_hash` binds the manifest so the
+   * document and the claim cannot be separated.
+   *
+   * `host_semantics` is three-valued and NEVER null on a leaf this component
+   * emits. 'blind' is Level 1 — nobody was registered. 'declined' is Level 2
+   * with nothing to say about THIS observation, which is a different
+   * operational condition with a different fix and must not read as 'blind'.
+   */
+  host: string | null;
+  host_adapter: string | null;
+  host_evidence_type: string | null;
+  host_semantics: HostSemanticsState;
+  host_evidence_hash: string | null;
 }
 
 export interface ComponentEnvelope {
@@ -312,6 +357,12 @@ export interface Submission {
   /** The manifest the hash above covers. The route recomputes the hash from
    *  it and REFUSES if the two disagree, which is the point of sending both. */
   model_fingerprints?: Record<string, Record<string, unknown>>;
+  /** WO-D6. The host's own evidence document, whose digest rides in
+   *  `capture.host_evidence_hash`. TOP-LEVEL, not a capture field, for the
+   *  reason `model_fingerprints` is: `capture` is what the COMPONENT saw, and
+   *  this is what the HOST said. The route recomputes the hash from it and
+   *  refuses a submission whose two halves disagree. */
+  host_evidence?: Record<string, unknown>;
   machine_manifest_hash?: string;
   /** The route recomputes workflow_hash from this (lib/leaf/hashes.ts), so a
    *  verifier can check it against capture.workflow_hash. */
@@ -382,6 +433,15 @@ export function preimageOf(s: Submission): PreimageFields {
     upstream_low_watermark_close: s.capture.upstream_low_watermark_close,
     upstream_uncaptured_reason: s.capture.upstream_uncaptured_reason,
     upstream_source: s.capture.upstream_source,
+    // WO-D6. Five keys, always present, and 'blind' is a VALUE rather than an
+    // absence — a leaf that said nothing about its level would be read as
+    // Level 1 by a verifier and as "the field had not shipped yet" by an
+    // older one, and those must not be the same reading.
+    host: s.capture.host,
+    host_adapter: s.capture.host_adapter,
+    host_evidence_type: s.capture.host_evidence_type,
+    host_semantics: s.capture.host_semantics,
+    host_evidence_hash: s.capture.host_evidence_hash,
     // WO-C2. Five keys, always present, null when unknown — so a party in the
     // middle can neither rewrite a handle nor add one. Architect's settle
     // condition: moving the proof out of the leaf makes the pointer to the
@@ -464,6 +524,7 @@ export function buildLeaf(
     ...(ev.model_fingerprints_hash ? { model_fingerprints_hash: ev.model_fingerprints_hash } : {}),
     ...(ev.model_fingerprints ? { model_fingerprints: ev.model_fingerprints } : {}),
     ...(ev.machine_manifest_hash ? { machine_manifest_hash: ev.machine_manifest_hash } : {}),
+    ...(ev.host_evidence ? { host_evidence: ev.host_evidence } : {}),
     ...(graph ? { graph } : {}),
     capture: {
       surface: o.surface,
@@ -489,6 +550,17 @@ export function buildLeaf(
       // seven keys, and a second field list here would be a second answer to
       // drift against `UpstreamObservation`.
       ...upstream,
+      // WO-D6. ⚑ DEFAULTED TO 'blind', WHICH IS THE WHOLE POINT OF PUTTING IT
+      // HERE RATHER THAN IN THE ADAPTER. An adapter cannot forget to declare
+      // its absence, because the absence is declared by the code that runs
+      // when there is no adapter. A Level-1 deployment therefore emits a leaf
+      // that SAYS it is semantically blind, instead of one that is merely
+      // thinner than a Level-2 leaf in ways only a comparison would reveal.
+      host: ev.host ?? null,
+      host_adapter: ev.host_adapter ?? null,
+      host_evidence_type: ev.host_evidence_type ?? null,
+      host_semantics: ev.host_semantics ?? 'blind',
+      host_evidence_hash: ev.host_evidence_hash ?? null,
       ...(ev.fs_diagnostic ? { fs_diagnostic: ev.fs_diagnostic } : {}),
       ...(ev.header_hash ? { header_hash: ev.header_hash } : {}),
     },

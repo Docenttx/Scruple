@@ -96,12 +96,14 @@ import { validateResolutionHandles } from '@/lib/leaf/resolutionHandles';
 import { bindSettlement, evaluateSettlement } from '@/lib/leaf/settlement';
 import { basisForTrust } from '@/lib/leaf/attestationBasis';
 import { witness } from '@/lib/scruple/witness';
+import { hashHostEvidence } from '@/lib/capture/hostRegistry';
 import {
   hashGraphOrTraining,
   hashModelFingerprints,
   hashRunInputs,
 } from '@/lib/leaf/hashes';
 import { CANONICALIZATION_PROFILE } from '@/lib/leaf/canonicalJson';
+import { releaseRunSequence, reserveRunSequence } from '@/lib/iterations/ingest';
 import { discloseLeafSignature } from '@/lib/leaf/signatureDisclosure';
 import { checkDeploymentSeal, componentDeployment } from '@/lib/seal/registry';
 
@@ -148,6 +150,14 @@ const Body = z.object({
   input_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   model_fingerprints: z.record(z.record(z.unknown())).optional(),
   model_fingerprints_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  // WO-D6. The HOST's own evidence document — what the gate could not see.
+  // Top level rather than inside `capture` for the reason `model_fingerprints`
+  // is: `capture` is what the COMPONENT observed, this is what the HOST said,
+  // and only the document's hash rides in the MAC. `capture.host_semantics`
+  // and its three siblings are validated by validateCaptureClaims() rather
+  // than here, because `capture` is a free record on this route and every
+  // rule that matters about those fields is cross-field.
+  host_evidence: z.record(z.unknown()).optional(),
   attestation: z.object({ type: z.string().min(1), report: z.string().min(1) }).optional(),
   continuity: z
     .object({
@@ -253,7 +263,9 @@ export async function POST(req: NextRequest) {
   //   2. a capture-bearing leaf must declare one of the three bases, and
   //      `attestation_status: null` is not one of them;
   //   3. `verified` is unreachable on the desktop profile by construction,
-  //      and while the Merkle blocker stands `stale` is the only basis.
+  //      and while the Merkle blocker stands `stale` is the only basis;
+  //   ...and, since WO-D6, 7. a capture-bearing leaf must say which LEVEL its
+  //      host hook ran at, and a Level-2 claim needs an adapter behind it.
   //
   // lib/leaf/captureClaims.ts carries the argument for each.
   const claims = validateCaptureClaims(raw);
@@ -504,10 +516,27 @@ export async function POST(req: NextRequest) {
   // The first call always worked, so nothing short of witnessing twice
   // would have found it — which is precisely what a unit test with a
   // mocked database does not do.
-  const seqRow = conn()
-    .prepare(`SELECT COALESCE(MAX(run_sequence), 0) + 1 AS next FROM iterations WHERE project_id = ?`)
-    .get(projectId) as { next: number };
-  const runSequence = seqRow?.next ?? 1;
+  //
+  // AND `MAX(run_sequence) + 1` WAS STILL WRONG, WHICH WO-D6 FOUND LIVE.
+  // Migration 051 wrote the argument in full: allocate unlocked, make a
+  // REMOTE witness call, then insert — two concurrent ingests in one project
+  // both read N, both obtain a SIGNED LEAF for N, and the loser's INSERT
+  // aborts, leaving an orphan leaf on an append-only log. The migration fixed
+  // `lib/iterations/ingest.ts` and this route, the estate's OTHER door, kept
+  // the unlocked read.
+  //
+  // It was not theoretical and it is not "Studio has no concurrency today".
+  // A single ComfyUI generation produces TWO observations of the same bytes —
+  // the HTTP gate's `as-delivered` copy and the output-volume watcher's
+  // `as-written` one, which is H-4 §2's whole two-surface claim — and the
+  // component submits them concurrently. WO-D6's host-adapter scenario hit
+  // the collision on its second run: counter 1 spent, leaf witnessed, INSERT
+  // aborted, 500 with an empty body and the event held in the queue.
+  //
+  // `reserveRunSequence` TAKES the number inside a write transaction, so a
+  // second caller serialises there rather than at the INSERT — by which point
+  // a leaf already exists and the loss is unretractable.
+  const runSequence = reserveRunSequence(projectId);
 
   // ---- the evidence package (WO-1) ----------------------------------
   // Every hash below is defined in lib/leaf/registry.yaml, including the
@@ -550,6 +579,34 @@ export async function POST(req: NextRequest) {
   }
   const modelFingerprintsHash = body.model_fingerprints_hash ?? fingerprints?.hash ?? null;
   const modelFingerprintsJson = fingerprints?.json ?? null;
+
+  // host_evidence_hash. WO-D6, and the same arrangement as the manifest above
+  // for the same reason: the caller sends BOTH halves, and the route
+  // recomputes one from the other and REFUSES rather than picking a winner.
+  //
+  // It matters more here than there. `capture.host_evidence_hash` is inside
+  // the MAC and `host_evidence` is not, so a host adapter whose document and
+  // digest disagreed would ship a SIGNED claim about a document nobody can
+  // reproduce — the leaf would say "camera CAM_hero" is committed to and the
+  // stored manifest would say something else, with the signature vouching for
+  // neither. Recomputing here is what keeps the unsigned half honest.
+  //
+  // The declared half is read off `claims.host`, which validateCaptureClaims()
+  // already checked for internal consistency — so by the time control reaches
+  // here, 'blind' cannot be carrying a hash and 'declined' cannot be carrying
+  // a document. What is left to check is arithmetic.
+  const hostEvidence = hashHostEvidence(body.host_evidence as Record<string, unknown> | undefined);
+  const declaredHostEvidenceHash = claims.host?.evidenceHash ?? null;
+  if (hostEvidence && declaredHostEvidenceHash && hostEvidence.hash !== declaredHostEvidenceHash) {
+    return v2Error(
+      'invalid_body',
+      'host_evidence and capture.host_evidence_hash disagree. The hash is inside the MAC and ' +
+        'the document is not, so accepting a pair that does not match would sign a claim about ' +
+        'a document nobody can reproduce.',
+      { computed: hostEvidence.hash, supplied: declaredHostEvidenceHash },
+    );
+  }
+
 
   // ---- witness (non-blocking by design) -----------------------------
   let leafHash = body.content_hash;
@@ -649,13 +706,15 @@ export async function POST(req: NextRequest) {
           upstream_identity, upstream_epoch, upstream_continuity,
           upstream_low_watermark_open, upstream_low_watermark_close,
           upstream_uncaptured_reason, upstream_source,
+          host, host_adapter, host_evidence_type, host_semantics,
+          host_evidence, host_evidence_hash,
           resolution_witness_endpoint, resolution_witness_authority,
           resolution_checkpoint_id, resolution_prev_checkpoint_id,
           resolution_prev_checkpoint_quote_time,
           resolution_settlement_deadline, resolution_retention_policy_digest,
           settlement_clock, settlement_clock_authority, settlement_observed_at,
           evidence_retained_until)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -741,6 +800,28 @@ export async function POST(req: NextRequest) {
       claims.upstream?.lowWatermarkClose ?? null,
       claims.upstream?.uncapturedReason ?? null,
       claims.upstream?.source ?? null,
+      // Migration 058, WO-D6. WHO SUPPLIED THE MEANING, AND WHETHER ANYBODY
+      // DID. NULL for a leaf with no capture block, for 056's and 057's
+      // reason: NULL is "the question was never asked of this leaf" — canvas
+      // and the plugins have no host hook to ask — while 'blind' is "there
+      // was a hook and nobody was registered on it". A leaf that came through
+      // a component ALWAYS has a value here, because the component's leaf
+      // builder defaults to 'blind' rather than leaving the field out, which
+      // is what stops a Level-1 record from being merely thinner than a
+      // Level-2 one. Rule 7 above has already refused every combination these
+      // columns must never hold, and 058's cross-column CHECK refuses them
+      // again for a writer that arrives without going through it.
+      //
+      // The manifest is stored as the CANONICAL BYTES THAT WERE HASHED, not
+      // as a re-serialization of the parsed body — so a verifier holding this
+      // column can reproduce `host_evidence_hash` directly. Same correction
+      // `hashModelFingerprints` carries in its own header.
+      claims.host?.host ?? null,
+      claims.host?.adapter ?? null,
+      claims.host?.evidenceType ?? null,
+      claims.host?.semantics ?? null,
+      hostEvidence?.json ?? null,
+      claims.host?.evidenceHash ?? hostEvidence?.hash ?? null,
       // Migration 054, WO-C2. WHAT THE COMPONENT SIGNED, not what this server
       // knows about itself. The endpoint is self-asserted by the emitter and
       // is deliberately NOT overwritten with our own address: a compromised
@@ -768,6 +849,12 @@ export async function POST(req: NextRequest) {
       settlement.binding?.observed_at ?? null,
       settlement.binding?.evidence_retained_until ?? null,
     );
+
+  // The reservation has done its job: the real row now holds the number.
+  // A failure to release burns one number and is harmless; reusing one a
+  // witness may already have signed is not — migration 051 says so in full,
+  // and this route is now the second caller to obey it.
+  releaseRunSequence(projectId, runSequence);
 
   return v2Ok(
     {

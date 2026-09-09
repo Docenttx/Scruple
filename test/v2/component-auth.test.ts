@@ -144,6 +144,20 @@ const CAPTURE = {
   upstream_low_watermark_close: 0 as const,
   upstream_uncaptured_reason: 'enumerated' as const,
   upstream_source: 'measured' as const,
+  // WO-D6 rule 7. A capture-bearing leaf must say which LEVEL its host
+  // hook ran at, and these fixtures are Level 1: no adapter was
+  // registered, so nothing named the bytes. 'blind' is the honest value
+  // and it is free — which is exactly why ABSENT is refused rather than
+  // read as Level 1.
+  host_semantics: 'blind' as const,
+  // And the four siblings, present as nulls rather than omitted — the
+  // absent-is-null discipline every capture field follows, so that a
+  // Level-1 leaf and a Level-2 one produce the same preimage SHAPE and
+  // the difference between them is a VALUE a MAC covers.
+  host: null,
+  host_adapter: null,
+  host_evidence_type: null,
+  host_evidence_hash: null,
 };
 
 /**

@@ -309,5 +309,27 @@ export const CANVAS_BASELINE = {
   //
   // The previous value, for the record: 53b4f837aad3560c6450678463cee004
   // 9326d8e36b54d46bc9e873cb8d0066ba (WO-S1(a), above).
-  tamper_surface_hash: '7f0d12a70483a882971b784b188a81bad29756d602cc30ded548842d75eb82a1',
+  //
+  // ── Re-recorded by WO-D6, and THIS TIME IT IS THE INGEST PATH ──────────
+  //
+  // `lib/iterations/ingest.ts` gained two `export` keywords, on
+  // `reserveRunSequence` and `releaseRunSequence`. Nothing inside either
+  // function changed, no preimage moved, and canvas's own behaviour is
+  // byte-for-byte what it was.
+  //
+  // WHY THEY WERE EXPORTED IS WORTH THE PARAGRAPH. Migration 051 fixed the
+  // "allocate unlocked, witness, then insert" race HERE and left the estate's
+  // OTHER door — `app/api/v2/witness/route.ts` — on `MAX(run_sequence) + 1`.
+  // The migration's own note said "Studio has no concurrency today"; that was
+  // true of canvas and false of the capture component, because ONE ComfyUI
+  // generation produces two observations of the same bytes (the HTTP gate's
+  // `as-delivered` copy and the output-volume watcher's `as-written` one —
+  // H-4 §2's two-surface claim) and the component submits them concurrently.
+  // WO-D6's host-adapter scenario hit the collision live: counter spent, leaf
+  // witnessed, INSERT aborted on the UNIQUE index, 500 with an empty body.
+  // The v2 route now calls the same reservation this file has used since 051.
+  //
+  // Recorded as what it is: a real change to a file on the shared ingest path,
+  // caught by the mechanism that exists to catch it.
+  tamper_surface_hash: '0fc212d71163f0185873888abc01c58e0700fbacef64bc41da66aeaf00a32d8a',
 } as const;

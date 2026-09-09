@@ -75,6 +75,22 @@ export type V2ErrorCode =
   //                            an upstream field sent outside the MAC
   | 'upstream_epoch_required'
   | 'upstream_epoch_refused'
+  // WO-D6. The host hook has exactly two levels: a host that points its
+  // ComfyUI address at the gate (blind, and it says so) and a host that
+  // registered an adapter to supply the meaning a wire cannot carry. 422 for
+  // both, for the reason above: the caller authenticated and the JSON parsed;
+  // what is refused is a claim about who named the bytes.
+  //
+  //   host_semantics_required  a capture-bearing leaf that will not say which
+  //                            level it ran at — and "blind" is free, so
+  //                            absent is not Level 1, it is a leaf that is
+  //                            merely thinner than an enriched one
+  //   host_semantics_refused   a Level-2 claim with no adapter behind it, a
+  //                            blind leaf naming a host anyway, a `supplied`
+  //                            that supplied nothing, a `declined` shipping a
+  //                            document, or a host field sent outside the MAC
+  | 'host_semantics_required'
+  | 'host_semantics_refused'
   // WO-C3. The other half of Architect's settle: a handle must say how long
   // the thing it points at will be there, and a deadline must be bound to a
   // clock somebody named. Two codes, because the two failures have different
@@ -108,6 +124,8 @@ const STATUS: Record<V2ErrorCode, number> = {
   storage_confinement_refused: 422,
   upstream_epoch_required: 422,
   upstream_epoch_refused: 422,
+  host_semantics_required: 422,
+  host_semantics_refused: 422,
   retention_policy_unresolvable: 422,
   settlement_deadline_unbound: 422,
   signer_unavailable: 503,

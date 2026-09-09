@@ -222,6 +222,33 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         "upstream_low_watermark_close": c.get("upstream_low_watermark_close"),
         "upstream_uncaptured_reason": c.get("upstream_uncaptured_reason"),
         "upstream_source": c.get("upstream_source"),
+        # WO-D6. WHO SUPPLIED THE MEANING, AND WHETHER ANYBODY DID.
+        #
+        # ``lib/capture/hostRegistry.ts`` splits every host integration in
+        # two. LEVEL 1 is a host pointing its ComfyUI address at the gate: it
+        # costs the host nothing, captures everything on the wire, and
+        # produces a record that is honestly SEMANTICALLY BLIND — an anonymous
+        # PNG was uploaded. LEVEL 2 is a registered adapter supplying what a
+        # wire cannot carry, that those pixels were the viewport of scene X at
+        # frame Y through camera Z.
+        #
+        # Five keys, always present, null when this placement carried none.
+        # A `server-library` component fills them with nulls and that is
+        # correct: there is no separate host, so there is no host to ask.
+        #
+        # ⚑ IN THE PREIMAGE, because the entire value of a leaf saying "this
+        # record is semantically blind" is that nobody between the component
+        # and the route can change it into "a registered Blender adapter said
+        # this was scene X". ``host_evidence_hash`` binds the document to the
+        # claim so the two cannot be separated in flight either — and the
+        # DOCUMENT stays out, for the reason ``graph`` does: it is host-shaped
+        # and full of floats (a frame time, a focal length), and a float in a
+        # MAC preimage is a MAC that fails unreproducibly and only sometimes.
+        "host": c.get("host"),
+        "host_adapter": c.get("host_adapter"),
+        "host_evidence_type": c.get("host_evidence_type"),
+        "host_semantics": c.get("host_semantics"),
+        "host_evidence_hash": c.get("host_evidence_hash"),
         # WO-C2. THE RESOLUTION HANDLES, and this is Architect's first settle
         # condition, verbatim: the handles "must sit inside the signed
         # preimage, or an attacker who can rewrite an unsigned endpoint
@@ -656,6 +683,25 @@ class ServerLibraryIntegration:
             "upstream_low_watermark_close": None,
             "upstream_uncaptured_reason": _upstream.NOT_QUERIED,
             "upstream_source": _upstream.SOURCE_UNKNOWN,
+            # WO-D6. `blind`, AND IT IS THE ACCURATE ANSWER RATHER THAN A
+            # PLACEHOLDER. The host hook has two levels: Level 1 is a host
+            # whose bytes reach us with nobody naming them, Level 2 is a host
+            # that registered an adapter to supply the meaning the observation
+            # cannot carry. At `server-library` the vendor's own handler is
+            # the observation and no adapter was registered on it, so nothing
+            # named these bytes and the leaf says exactly that.
+            #
+            # ⚑ SENT RATHER THAN OMITTED, and the four siblings are sent as
+            # None rather than left out. A leaf that merely LACKED the
+            # semantics would be indistinguishable from a Level-2 leaf whose
+            # adapter is broken and from a leaf written before the field
+            # existed; `lib/leaf/captureClaims.ts` rule 7 refuses the absence
+            # for that reason, and "blind" costs nothing to say.
+            "host": None,
+            "host_adapter": None,
+            "host_evidence_type": None,
+            "host_semantics": "blind",
+            "host_evidence_hash": None,
         }
 
         # 3. The submission, assembled BEFORE the MAC, because the MAC is
