@@ -1,0 +1,15 @@
+{
+  "name": "scruple-desktop-studio",
+  "version": "3.1.0-dev",
+  "private": true,
+  "description": "Scruple Desktop Studio — a local agent with a dashboard. Hosts the served Next UI in a BrowserWindow.",
+  "main": "app/main-modular.js",
+  "scripts": {
+    "start": "electron .",
+    "headless": "xvfb-run -a -s \"-screen 0 1280x900x24\" electron .",
+    "d1": "node scripts/d1-ipc-ping.mjs"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0"
+  }
+}
