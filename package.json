@@ -23,6 +23,8 @@
     "e6:install": "bash scripts/e6-install-bridge.sh",
     "e6": "bash scripts/e6-gate.sh",
     "e6:scenario": "node scripts/desktop-run.mjs blender-generate --timeout 900000",
+    "e7": "bash scripts/e7-gate.sh",
+    "e7:diff": "python3 scripts/e7-leaf-diff.py",
     "gate": "bash scripts/d1-gate.sh && bash scripts/d2-gate.sh && bash scripts/d3-gate.sh && bash scripts/d4-gate.sh && bash scripts/d5-gate.sh && bash scripts/d6-gate.sh && bash scripts/d7-gate.sh",
     "d7": "node scripts/desktop-run.mjs full-flow --timeout 600000"
   },
