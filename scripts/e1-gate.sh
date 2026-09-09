@@ -157,6 +157,16 @@ verdict() { if [ "$1" = "0" ]; then echo "   PASS  $2"; PASS=$((PASS+1)); else e
 
 capture_env || exit 2
 echo "[e1] app env captured to $ENVFILE"
+
+# WHERE THE ROUTE WRITES. `signed_path` comes from fs.mkdtemp(os.tmpdir()),
+# so the directory to search for a stray output asset is the APP's TMPDIR,
+# not this shell's -- they differ here, and searching the wrong one returned
+# a confident, meaningless zero the first time stage 2 ran. Stage 1
+# calibrates it: if the probe cannot see an asset where one certainly was
+# written, stage 2's zero proves nothing and the gate says so.
+APP_TMPDIR="$(sed -n "s/^export TMPDIR=//p" "$ENVFILE" | tr -d \"\' | head -1)"
+APP_TMPDIR="${APP_TMPDIR:-${TMPDIR:-/tmp}}"
+echo "[e1] the app writes signed assets under $APP_TMPDIR"
 echo "[e1] project $PROJECT on $APP_URL, surrogate $SURROGATE"
 [ -f "$SURR_CERT" ] || { echo "[e1] issuing the paired surrogate cert"; bash "$DESKTOP/scripts/d7-surrogate-cert.sh" >/dev/null || exit 2; }
 
@@ -190,7 +200,7 @@ PY
   # Calibrate the filesystem probe stage 2 uses. `no signed asset was
   # written` only means something if the same find WOULD have found one, so
   # run it here where an asset certainly was written.
-  WROTE=$(find "${TMPDIR:-/tmp}" -maxdepth 2 -name '*.c2pa.png' -newer "$RUN/red.png" 2>/dev/null | wc -l)
+  WROTE=$(find "$APP_TMPDIR" -maxdepth 2 -name '*.c2pa.png' -newer "$RUN/red.png" 2>/dev/null | wc -l)
   echo "   calibration: signed assets the stage-2 probe would have seen here: $WROTE"
   [ "$WROTE" -ge 1 ] || { echo "   !! the stage-2 filesystem probe is blind; its 0 would prove nothing"; R=1; }
   verdict $R "RED: the route called it ok and the manifest reads claimSignature.mismatch"
@@ -218,7 +228,7 @@ sys.exit(1 if bad else 0)
 PY
   R=$?
   # And no asset anywhere under the route's mkdtemp prefix from this run.
-  STRAY=$(find "${TMPDIR:-/tmp}" -maxdepth 2 -name '*.c2pa.png' -newer "$RUN/green.png" 2>/dev/null | wc -l)
+  STRAY=$(find "$APP_TMPDIR" -maxdepth 2 -name '*.c2pa.png' -newer "$RUN/green.png" 2>/dev/null | wc -l)
   echo "   signed assets written since the request: $STRAY"
   [ "$STRAY" = "0" ] || R=1
   verdict $R "GREEN: refusal with code=certificate_key_mismatch and no output asset"
