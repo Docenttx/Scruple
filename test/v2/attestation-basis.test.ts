@@ -71,6 +71,21 @@ function captureBlock(over: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
+/**
+ * WO-C2. Every capture-bearing leaf now carries its resolution handles, and
+ * they are in the MAC. Present here so that WO-C1's controls keep testing what
+ * they were written to test: without them the route refuses on
+ * `resolution_handles_required` and the basis rules are never reached, which
+ * would turn six controls into six passes for the wrong reason.
+ */
+const RESOLUTION = {
+  witness_endpoint: 'https://witness.example.vendor/api',
+  witness_authority: 'sha256:' + 'cd'.repeat(32),
+  checkpoint_id: null,
+  prev_checkpoint_id: null,
+  prev_checkpoint_quote_time: null,
+};
+
 function submission(componentId: string, counter: number, capture: Record<string, unknown>) {
   const body: Record<string, unknown> = {
     baseline_ref: BASELINE,
@@ -78,6 +93,7 @@ function submission(componentId: string, counter: number, capture: Record<string
     content_hash: crypto.randomBytes(32).toString('hex'),
     mime: 'image/png',
     capture,
+    resolution: RESOLUTION,
     component: {
       component_id: componentId,
       build_measurement: BUILD,

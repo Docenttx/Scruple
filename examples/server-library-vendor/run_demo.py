@@ -297,6 +297,18 @@ def main() -> int:
             "attestation_status": "stale",
             "profile": "server-managed",
         },
+        # WO-C2. The resolution handles, mirrored here for the same reason the
+        # two fields above are: this forgery must differ from an honest leaf
+        # ONLY in the content hash. Leave them out and the route refuses on
+        # `resolution_handles_required` before the ratchet is consulted, and
+        # the demo would report a refusal it did not earn.
+        "resolution": {
+            "witness_endpoint": integ4.client.base_url,
+            "witness_authority": None,
+            "checkpoint_id": None,
+            "prev_checkpoint_id": None,
+            "prev_checkpoint_quote_time": None,
+        },
         "component": {
             "component_id": integ4.component.component_id,
             "build_measurement": BUILD,

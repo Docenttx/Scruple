@@ -242,6 +242,18 @@ function forgedSubmission(componentId: string, counter: number): Record<string, 
       attestation_status: 'stale',
       profile: 'isolated-sidecar',
     },
+    // WO-C2. The resolution handles, for the same reason the two fields above
+    // are here: a forged replay must be indistinguishable from a real leaf in
+    // every respect EXCEPT the counter. Omit them and the route refuses on
+    // `resolution_handles_required` before the ratchet is ever consulted, and
+    // this probe would report a green counter-replay refusal it never tested.
+    resolution: {
+      witness_endpoint: 'https://witness.example.vendor/api',
+      witness_authority: null,
+      checkpoint_id: null,
+      prev_checkpoint_id: null,
+      prev_checkpoint_quote_time: null,
+    },
     component: {
       component_id: componentId,
       build_measurement: 'probe-06-forged',

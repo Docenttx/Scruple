@@ -77,6 +77,7 @@ function captureConfig(roots: ComponentRoots): CaptureConfig {
     provisioningToken: process.env.SCRUPLE_CAPTURE_PROVISIONING_TOKEN || null,
     baselineRef: process.env.SCRUPLE_CAPTURE_BASELINE_REF || null,
     outputVolumeDeclaredMime: process.env.SCRUPLE_KOHYA_VOLUME_MIME || null,
+    witnessAuthority: process.env.SCRUPLE_CAPTURE_WITNESS_AUTHORITY || null,
     settleMs: 15_000,
     correlationTtlMs: 0,
     heartbeatWindowSeconds: 900,

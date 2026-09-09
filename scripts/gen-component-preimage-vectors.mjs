@@ -67,6 +67,17 @@ const cases = [
         attestation_status: 'stale',
         profile: 'server-managed',
       },
+      // WO-C2. The resolution handles, in the signed preimage. This case has
+      // an authority enrolled and a preceding checkpoint with its quote time
+      // — Architect's interval bound — and `checkpoint_id: null`, because no
+      // checkpoint can be claimed settled while the Merkle blocker stands.
+      resolution: {
+        witness_endpoint: 'https://witness.example.vendor/api',
+        witness_authority: 'sha256:' + 'cd'.repeat(32),
+        checkpoint_id: null,
+        prev_checkpoint_id: 'ckpt-2026-08-29-0001',
+        prev_checkpoint_quote_time: '2026-08-29T23:59:00.000Z',
+      },
       component: {
         component_id: COMPONENT_ID,
         build_measurement: BUILD,
@@ -105,6 +116,17 @@ const cases = [
         attestation_status: 'stale',
         profile: 'isolated-sidecar',
       },
+      // WO-C2. An endpoint with NO authority enrolled. Carried as a null
+      // rather than as a plausible-looking string, because inventing the
+      // identity is inventing exactly what it exists to prove — and the
+      // route then refuses to let this leaf name a `checkpoint_id` at all.
+      resolution: {
+        witness_endpoint: 'http://127.0.0.1:8080',
+        witness_authority: null,
+        checkpoint_id: null,
+        prev_checkpoint_id: null,
+        prev_checkpoint_quote_time: null,
+      },
       component: {
         component_id: COMPONENT_ID,
         build_measurement: BUILD,
@@ -114,10 +136,13 @@ const cases = [
     },
   },
   {
-    name: 'no capture block — nulls in a stable shape, not a different shape',
+    name: 'no capture block and no resolution block — nulls in a stable shape, not a different shape',
     note:
       'A key dropped from the object changes the canonical JSON and therefore the MAC. This ' +
-      'case and the ones above must produce the same KEY SET.',
+      'case and the ones above must produce the same KEY SET. WO-C2: the five ' +
+      '`resolution_*` keys are null here, which is what makes "this leaf named no witness" ' +
+      'a SIGNED statement — a party in the middle can no more add a witness endpoint than ' +
+      'rewrite one, because both change the canonical JSON.',
     submission: {
       baseline_ref: null,
       kind: 'graph_execute',

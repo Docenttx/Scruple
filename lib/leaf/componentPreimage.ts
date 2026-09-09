@@ -45,6 +45,10 @@
 
 import type { PreimageFields } from '@/lib/ratchet/ratchet';
 import type { AttestationBasis, CaptureProfile } from '@/lib/leaf/attestationBasis';
+import {
+  resolutionPreimageFields,
+  type ResolutionHandles,
+} from '@/lib/leaf/resolutionHandles';
 
 /** What the component saw, as distinct from what the leaf commits to. */
 export interface ComponentCaptureBlock {
@@ -103,6 +107,21 @@ export interface ComponentSubmission {
   model_fingerprints_hash?: string | null;
   machine_manifest_hash?: string | null;
   capture?: ComponentCaptureBlock | null;
+  /**
+   * WO-C2. THE RESOLUTION HANDLES, AND THEY ARE IN THE MAC.
+   *
+   * Architect's first settle condition, verbatim: the handles "must sit
+   * inside the signed preimage, or an attacker who can rewrite an unsigned
+   * endpoint redirects resolution to a service that will happily confirm
+   * anything — the handle becomes the attack surface the proof used to
+   * close."
+   *
+   * A TOP-LEVEL BLOCK, NOT A CAPTURE FIELD, because it is not an observation.
+   * `capture` is what the component SAW; these say where the evidence for
+   * what it saw is fetched and whose signature counts when you get there.
+   * `lib/leaf/resolutionHandles.ts` refuses a handle sent anywhere else.
+   */
+  resolution?: Partial<ResolutionHandles> | null;
   component: ComponentEnvelope;
 }
 
@@ -133,5 +152,9 @@ export function componentPreimage(s: ComponentSubmission): PreimageFields {
     observed_at: c.observed_at ?? null,
     attestation_status: c.attestation_status ?? null,
     profile: c.profile ?? null,
+    // WO-C2. Always five keys, prefixed `resolution_`, null when the block is
+    // absent. The absence is therefore SIGNED: a party between the component
+    // and this route can no more add a witness endpoint than rewrite one.
+    ...resolutionPreimageFields(s.resolution),
   };
 }

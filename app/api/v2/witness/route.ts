@@ -92,6 +92,7 @@ import { v2Error, v2Ok } from '@/lib/v2/http';
 import { verifySubmission } from '@/lib/ratchet/verify';
 import { componentPreimage } from '@/lib/leaf/componentPreimage';
 import { validateCaptureClaims } from '@/lib/leaf/captureClaims';
+import { validateResolutionHandles } from '@/lib/leaf/resolutionHandles';
 import { basisForTrust } from '@/lib/leaf/attestationBasis';
 import { witness } from '@/lib/scruple/witness';
 import {
@@ -179,6 +180,12 @@ const Body = z.object({
   // lib/leaf/componentPreimage.ts is the only thing that reads it, so a
   // new capture field is one edit and not two.
   capture: z.record(z.unknown()).optional(),
+  // WO-C2. THE RESOLUTION HANDLES. Declared here so the parsed body carries
+  // them into `componentPreimage()`, and validated out of the RAW json by
+  // `lib/leaf/resolutionHandles.ts` — which is where the field-by-field rules
+  // live, because a zod schema can say a key is a string and cannot say that
+  // a key sent one level up is an unsigned redirect.
+  resolution: z.record(z.unknown()).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -251,6 +258,7 @@ export async function POST(req: NextRequest) {
   const claims = validateCaptureClaims(raw);
   if (!claims.ok) return v2Error(claims.code, claims.message, claims.detail);
 
+
   // ---- the component envelope (H-4 §4.3), verified — or its absence
   // ---- recorded (WO-6, §10 C-6) -------------------------------------
   //
@@ -277,6 +285,29 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ---- WO-C2: the handles are only handles when they are SIGNED ----
+  //
+  // AFTER the envelope/MAC pairing check above and BEFORE `verifySubmission`,
+  // and both halves of that position are deliberate. After, because "an
+  // envelope with no MAC" is a more specific diagnosis of the same fault and
+  // a caller told `resolution_handles_unsigned` would go looking at the wrong
+  // field. Before, because this refuses content and must leave no row —
+  // nothing below has written anything yet, and nothing above has ratcheted.
+  //
+  // Read from the RAW json, not the parsed body, for the reason WO-C1 found
+  // the hard way one file over: zod strips undeclared top-level keys, so a
+  // rule about a handle sent where the preimage does not read it cannot see
+  // the very key it is about.
+  //
+  // Architect's first settle condition. Moving the Merkle path and the raw
+  // quote OUT of the leaf is only tenable if the pointer to them cannot be
+  // moved — "an attacker who can rewrite an unsigned endpoint redirects
+  // resolution to a service that will happily confirm anything." The five
+  // handles are in the preimage of all three implementations; this refuses
+  // every shape that would put one somewhere else.
+  const handles = validateResolutionHandles(raw);
+  if (!handles.ok) return v2Error(handles.code, handles.message, handles.detail);
+
   let componentVerified = false;
   let componentGap = 0;
   let componentAttestation: 'verified' | 'passthrough' | null = null;
@@ -302,6 +333,10 @@ export async function POST(req: NextRequest) {
           model_fingerprints_hash: body.model_fingerprints_hash,
           machine_manifest_hash: body.machine_manifest_hash,
           capture: body.capture as Record<string, never> | undefined,
+          // WO-C2. The handles enter the MAC here, on the server's side of
+          // the same one function the component called. A byte changed in
+          // flight lands as `component_unverified`.
+          resolution: body.resolution as Record<string, never> | undefined,
           component: body.component,
         }),
         buildMeasurement: body.component.build_measurement ?? null,
@@ -579,8 +614,11 @@ export async function POST(req: NextRequest) {
           canonicalization_profile,
           leaf_signature, leaf_signer_key_id, leaf_signature_alg,
           leaf_signer_surrogate, leaf_signature_state,
-          attestation_basis, attestation_profile)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          attestation_basis, attestation_profile,
+          resolution_witness_endpoint, resolution_witness_authority,
+          resolution_checkpoint_id, resolution_prev_checkpoint_id,
+          resolution_prev_checkpoint_quote_time)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -640,6 +678,17 @@ export async function POST(req: NextRequest) {
       // the component said, not what the server decided it meant.
       claims.basis,
       claims.profile,
+      // Migration 054, WO-C2. WHAT THE COMPONENT SIGNED, not what this server
+      // knows about itself. The endpoint is self-asserted by the emitter and
+      // is deliberately NOT overwritten with our own address: a compromised
+      // component naming somewhere else is a fact, and rewriting the column
+      // would destroy the only record of it. `validateResolutionHandles()`
+      // above has already refused every shape this column must never hold.
+      handles.handles?.witness_endpoint ?? null,
+      handles.handles?.witness_authority ?? null,
+      handles.handles?.checkpoint_id ?? null,
+      handles.handles?.prev_checkpoint_id ?? null,
+      handles.handles?.prev_checkpoint_quote_time ?? null,
     );
 
   return v2Ok(
@@ -684,6 +733,18 @@ export async function POST(req: NextRequest) {
         basis: basisForTrust(claims.basis),
         profile: claims.profile,
       },
+      // WO-C2. Echoed back so a caller can see that the handles it signed are
+      // the handles that were stored — and, when it sent none, that the leaf
+      // records none rather than one this server filled in for it.
+      //
+      // `signed: true` is the whole claim of this block: these values are
+      // inside the ratchet MAC, so a party between the component and this
+      // route cannot rewrite an endpoint, add an authority or forge a
+      // checkpoint id without producing `component_unverified`. It is null on
+      // a leaf with no handles, which is every leaf written before WO-C2.
+      resolution: handles.handles
+        ? { ...handles.handles, signed: componentVerified }
+        : null,
       // What this leaf actually commits to. A caller that sent a graph
       // is entitled to see that it was folded in rather than dropped —
       // which is exactly what could not be seen before WO-1.

@@ -148,7 +148,15 @@ COPY lib/ratchet/ratchet.ts ./lib/ratchet/
 # so the container needs the resolver. It is a pure function of (profile,
 # enforcement, quote, blocker) with no database import and no BDK — the same
 # closure check that admitted `ratchet.ts` admits it.
-COPY lib/leaf/hashes.ts lib/leaf/canonicalJson.ts lib/leaf/attestationBasis.ts ./lib/leaf/
+#
+# WO-C2 adds `resolutionHandles.ts` on the same terms: `src/leaf.ts` now folds
+# the five resolution handles into the MAC preimage, so the container needs
+# `resolutionPreimageFields()`. It imports only `attestationBasis.ts`, holds
+# the validator as a pure function of the submission, and touches no database
+# and no BDK. Named as a FILE, like every entry on this line — `lib/leaf/`
+# also holds the server's `componentPreimage.ts` and the registry, and neither
+# belongs in a tenant container.
+COPY lib/leaf/hashes.ts lib/leaf/canonicalJson.ts lib/leaf/attestationBasis.ts lib/leaf/resolutionHandles.ts ./lib/leaf/
 COPY lib/scruple/hash.ts ./lib/scruple/
 COPY tsconfig.json ./
 # tsx is a devDependency, and the component is run through it — so this is

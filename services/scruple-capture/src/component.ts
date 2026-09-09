@@ -109,6 +109,10 @@ export class CaptureComponent {
       baselineRef: cfg.baselineRef,
       profile: trustProfile,
       enforcement: assurance.resolution.enforcement,
+      // WO-C2. The authority identity that rides in the MAC preimage beside
+      // the endpoint. null when the deployment enrolled none — see
+      // CaptureConfig.witnessAuthority for why that is not defaulted.
+      witnessAuthority: cfg.witnessAuthority,
       // No quote source: this component has no attestable compute. That is
       // `passthrough` once the Merkle blocker lifts, and `stale` until then.
       // `sealToMeasurement()` in identity.ts is the seam where a real one

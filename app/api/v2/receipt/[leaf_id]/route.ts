@@ -41,6 +41,12 @@ interface Row {
   component_id: string | null;
   component_counter: number | null;
   component_verified: number | null;
+  // WO-C2 / migration 054.
+  resolution_witness_endpoint: string | null;
+  resolution_witness_authority: string | null;
+  resolution_checkpoint_id: string | null;
+  resolution_prev_checkpoint_id: string | null;
+  resolution_prev_checkpoint_quote_time: string | null;
 }
 
 const parse = (s: string | null): unknown => {
@@ -63,7 +69,10 @@ export async function GET(
               leaf_signature, leaf_signer_key_id, leaf_signature_alg,
               leaf_signer_surrogate, leaf_signature_state,
               canonicalization_profile,
-              component_id, component_counter, component_verified
+              component_id, component_counter, component_verified,
+              resolution_witness_endpoint, resolution_witness_authority,
+              resolution_checkpoint_id, resolution_prev_checkpoint_id,
+              resolution_prev_checkpoint_quote_time
          FROM iterations WHERE id = ?`,
     )
     .get(Number(leaf_id)) as Row | undefined;
@@ -146,6 +155,40 @@ export async function GET(
           component_id: row.component_id,
           counter: row.component_counter,
           verified: row.component_verified === 1,
+        }
+      : null,
+
+    // ── WO-C2. WHERE THIS LEAF'S EVIDENCE IS RESOLVED. ────────────────
+    //
+    // The council split what a leaf CLAIMS from what it CARRIES AS EVIDENCE:
+    // the Merkle inclusion path and the raw quote stay in the checkpoint
+    // store, and the leaf carries the handles that say where to fetch them.
+    // A receipt that disclosed the claims and not the handles would leave a
+    // reader knowing what is asserted and having no way to go and check it.
+    //
+    // `signed` IS THE POINT, AND IT IS COMPUTED, NOT ASSERTED. The handles
+    // are only safe because they are inside the ratchet MAC — otherwise "an
+    // attacker who can rewrite an unsigned endpoint redirects resolution to
+    // a service that will happily confirm anything." So this reports whether
+    // the component envelope that covered them actually verified, and a
+    // reader who sees `signed: false` beside a `witness_endpoint` knows to
+    // follow nothing.
+    //
+    // ⚑ THE ENDPOINT IS WHAT THE COMPONENT SIGNED, not this server's own
+    // address. It is never overwritten at ingest: a component naming
+    // somewhere else is a fact, and rewriting it would destroy the only
+    // record of it.
+    //
+    // null on a leaf that carries no handles — every leaf written before
+    // migration 054, and every component-less caller since.
+    resolution: row.resolution_witness_endpoint
+      ? {
+          witness_endpoint: row.resolution_witness_endpoint,
+          witness_authority: row.resolution_witness_authority,
+          checkpoint_id: row.resolution_checkpoint_id,
+          prev_checkpoint_id: row.resolution_prev_checkpoint_id,
+          prev_checkpoint_quote_time: row.resolution_prev_checkpoint_quote_time,
+          signed: row.component_verified === 1,
         }
       : null,
   });

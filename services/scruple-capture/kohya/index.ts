@@ -181,6 +181,11 @@ function asCaptureConfig(cfg: KohyaCaptureConfig): CaptureConfig {
     provisioningToken: cfg.provisioningToken,
     baselineRef: cfg.baselineRef,
     outputVolumeDeclaredMime: cfg.declaredMime,
+    // WO-C2. The authority identity that rides in the MAC preimage beside
+    // the witness endpoint. null because none is enrolled here — never a
+    // plausible-looking default, which is the cooperating liar the field
+    // exists to exclude.
+    witnessAuthority: null,
     settleMs: cfg.settleMs,
     correlationTtlMs: 0,
     heartbeatWindowSeconds: 900,

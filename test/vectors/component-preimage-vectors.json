@@ -30,6 +30,13 @@
           "attestation_status": "stale",
           "profile": "server-managed"
         },
+        "resolution": {
+          "witness_endpoint": "https://witness.example.vendor/api",
+          "witness_authority": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "checkpoint_id": null,
+          "prev_checkpoint_id": "ckpt-2026-08-29-0001",
+          "prev_checkpoint_quote_time": "2026-08-29T23:59:00.000Z"
+        },
         "component": {
           "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
           "build_measurement": "sha256:abababababababababababababababababababababababababababababababab",
@@ -64,10 +71,15 @@
         "workflow_hash": null,
         "observed_at": "2026-08-30T00:00:00.000Z",
         "attestation_status": "stale",
-        "profile": "server-managed"
+        "profile": "server-managed",
+        "resolution_witness_endpoint": "https://witness.example.vendor/api",
+        "resolution_witness_authority": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "resolution_checkpoint_id": null,
+        "resolution_prev_checkpoint_id": "ckpt-2026-08-29-0001",
+        "resolution_prev_checkpoint_quote_time": "2026-08-29T23:59:00.000Z"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"workflow_hash\":null}",
-      "mac_hex": "7550a8c425ae51270e062ddeed92a76d436f230ea72bbf7e23e686d80ccfc638"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":\"ckpt-2026-08-29-0001\",\"resolution_prev_checkpoint_quote_time\":\"2026-08-29T23:59:00.000Z\",\"resolution_witness_authority\":\"sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"resolution_witness_endpoint\":\"https://witness.example.vendor/api\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"workflow_hash\":null}",
+      "mac_hex": "f077a31783a026fe6ea5064917f6317b3d77aff5781ccdb7a20d5110b37252f9"
     },
     {
       "name": "no mime — H-4 §7 probe 4, an unattributed write",
@@ -90,6 +102,13 @@
           "observed_at": "2026-08-30T00:00:01.000Z",
           "attestation_status": "stale",
           "profile": "isolated-sidecar"
+        },
+        "resolution": {
+          "witness_endpoint": "http://127.0.0.1:8080",
+          "witness_authority": null,
+          "checkpoint_id": null,
+          "prev_checkpoint_id": null,
+          "prev_checkpoint_quote_time": null
         },
         "component": {
           "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
@@ -125,14 +144,19 @@
         "workflow_hash": null,
         "observed_at": "2026-08-30T00:00:01.000Z",
         "attestation_status": "stale",
-        "profile": "isolated-sidecar"
+        "profile": "isolated-sidecar",
+        "resolution_witness_endpoint": "http://127.0.0.1:8080",
+        "resolution_witness_authority": null,
+        "resolution_checkpoint_id": null,
+        "resolution_prev_checkpoint_id": null,
+        "resolution_prev_checkpoint_quote_time": null
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"workflow_hash\":null}",
-      "mac_hex": "cc095ab5085702b26f620dc8744dcaad69837b8e79229e3383ef3932c5f744eb"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":\"http://127.0.0.1:8080\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"workflow_hash\":null}",
+      "mac_hex": "a51a76a1b0c9d102ea88a28e5216d57537d85bf6afc7264d51caead74cf7ed40"
     },
     {
-      "name": "no capture block — nulls in a stable shape, not a different shape",
-      "note": "A key dropped from the object changes the canonical JSON and therefore the MAC. This case and the ones above must produce the same KEY SET.",
+      "name": "no capture block and no resolution block — nulls in a stable shape, not a different shape",
+      "note": "A key dropped from the object changes the canonical JSON and therefore the MAC. This case and the ones above must produce the same KEY SET. WO-C2: the five `resolution_*` keys are null here, which is what makes \"this leaf named no witness\" a SIGNED statement — a party in the middle can no more add a witness endpoint than rewrite one, because both change the canonical JSON.",
       "submission": {
         "baseline_ref": null,
         "kind": "graph_execute",
@@ -167,10 +191,15 @@
         "workflow_hash": null,
         "observed_at": null,
         "attestation_status": null,
-        "profile": null
+        "profile": null,
+        "resolution_witness_endpoint": null,
+        "resolution_witness_authority": null,
+        "resolution_checkpoint_id": null,
+        "resolution_prev_checkpoint_id": null,
+        "resolution_prev_checkpoint_quote_time": null
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"size_bytes\":null,\"surface\":null,\"workflow_hash\":null}",
-      "mac_hex": "be23832f395be4b216465b742384bacbfdde987737a65c08856258b68afd672f"
+      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"workflow_hash\":null}",
+      "mac_hex": "4ef4b96dad164d804078364758800adbf9b8beb3aaefd41c94276411e8207c72"
     }
   ]
 }

@@ -161,6 +161,11 @@ async function harness(opts: { outputVolumeMime?: string | null } = {}): Promise
       provisioningToken: null,
       baselineRef: BASELINE,
       outputVolumeDeclaredMime: opts.outputVolumeMime ?? null,
+      // WO-C2. The authority identity that rides in the MAC preimage beside
+      // the witness endpoint. null because none is enrolled here — never a
+      // plausible-looking default, which is the cooperating liar the field
+      // exists to exclude.
+      witnessAuthority: null,
       settleMs: 40,
       correlationTtlMs: 60_000,
       heartbeatWindowSeconds: 900,
@@ -672,6 +677,34 @@ describe('§4.2 — the MAC verifies on the server that holds the BDK', () => {
       });
       assert.equal(bad.ok, false);
       if (!bad.ok) assert.equal(bad.reason, 'bad_mac');
+
+      // WO-C2. THE SIDECAR ACTUALLY EMITS ITS RESOLUTION HANDLES, and they
+      // are covered by the MAC that just verified. Asserted end to end here
+      // rather than only against a hand-built submission in
+      // test/v2/resolution-handles.test.ts: a component that carried the
+      // fields in its types and never put them on the wire would satisfy
+      // every preimage test and leave every real leaf unresolvable.
+      //
+      // The endpoint is `apiBaseUrl` — the service this component submits to
+      // — and the authority is null because the harness enrols none. Null is
+      // a signed statement, not a gap: rewriting it to a value breaks the MAC
+      // exactly as rewriting a value does.
+      assert.equal(sub.resolution.witness_endpoint, h.ingest.url);
+      assert.equal(sub.resolution.witness_authority, null);
+      assert.equal(sub.resolution.checkpoint_id, null);
+      const forged = {
+        ...sub,
+        resolution: { ...sub.resolution, witness_endpoint: 'http://attacker.example' },
+        component: { ...sub.component, counter: 2 },
+      };
+      const redirected = M.verifySubmission(PRINCIPAL, {
+        componentId,
+        counter: 2,
+        mac: sub.mac!,
+        preimage: M.preimageOf(forged),
+      });
+      assert.equal(redirected.ok, false);
+      if (!redirected.ok) assert.equal(redirected.reason, 'bad_mac');
     } finally {
       await h.stop();
     }

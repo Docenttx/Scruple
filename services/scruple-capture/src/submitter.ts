@@ -51,6 +51,18 @@ export interface SubmitterOptions {
   enforcement: PlacementEnforcement;
   /** Per-emission quote binding. See LeafContext.quoteFor. */
   quoteFor?: (o: CaptureObservation) => QuoteBinding | null;
+  /**
+   * WO-C2. The authority identity whose signature counts at `apiBaseUrl` —
+   * the witness's signing key id. null when none is enrolled, which the
+   * route reads as "this leaf may not name a checkpoint". Never defaulted to
+   * a plausible-looking string: an authority nobody enrolled is exactly the
+   * cooperating liar the field exists to exclude.
+   *
+   * THE ENDPOINT IS NOT AN OPTION HERE. It is `apiBaseUrl` — the service this
+   * component actually submits to — because a separately configured endpoint
+   * is a second answer to "where does this resolve" and the two drift.
+   */
+  witnessAuthority?: string | null;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -81,6 +93,10 @@ export class Submitter implements ObservationSink {
       baselineRef: opts.baselineRef,
       profile: opts.profile,
       enforcement: opts.enforcement,
+      // WO-C2. Where this leaf's evidence resolves, and whose signature
+      // counts there — both inside the MAC preimage from here on.
+      witnessEndpoint: opts.apiBaseUrl,
+      witnessAuthority: opts.witnessAuthority ?? null,
       ...(opts.quoteFor ? { quoteFor: opts.quoteFor } : {}),
     };
   }

@@ -301,6 +301,11 @@ export async function startConformant(opts: FixtureOptions): Promise<Deployment>
       provisioningToken: null,
       baselineRef: 'ab'.repeat(32),
       outputVolumeDeclaredMime: 'image/png',
+      // WO-C2. The authority identity that rides in the MAC preimage beside
+      // the witness endpoint. null because none is enrolled here — never a
+      // plausible-looking default, which is the cooperating liar the field
+      // exists to exclude.
+      witnessAuthority: null,
       settleMs: 40,
       correlationTtlMs: 60_000,
       heartbeatWindowSeconds: 900,

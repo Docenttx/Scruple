@@ -148,6 +148,7 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
     that block than a sidecar does, and the difference has to be a value.
     """
     c = submission.get("capture") or {}
+    r = submission.get("resolution") or {}
     comp = submission["component"]
     att = comp.get("attestation") or {}
     return {
@@ -187,6 +188,30 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         # rewrites, and `verified` is refused on `desktop` by the same
         # validator that would then be reading a forgeable field.
         "profile": c.get("profile"),
+        # WO-C2. THE RESOLUTION HANDLES, and this is Architect's first settle
+        # condition, verbatim: the handles "must sit inside the signed
+        # preimage, or an attacker who can rewrite an unsigned endpoint
+        # redirects resolution to a service that will happily confirm
+        # anything — the handle becomes the attack surface the proof used to
+        # close."
+        #
+        # ALWAYS FIVE KEYS, prefixed, null when the block is absent — so the
+        # ABSENCE of a witness endpoint is signed too and a party in the
+        # middle can no more add a handle than rewrite one. The TypeScript
+        # counterpart is `resolutionPreimageFields()` in
+        # `lib/leaf/resolutionHandles.ts`, and
+        # `test/vectors/component-preimage-vectors.json` is what stops the
+        # two drifting.
+        **{
+            f"resolution_{k}": (None if r.get(k) is None else str(r[k]))
+            for k in (
+                "witness_endpoint",
+                "witness_authority",
+                "checkpoint_id",
+                "prev_checkpoint_id",
+                "prev_checkpoint_quote_time",
+            )
+        },
     }
 
 
@@ -286,6 +311,7 @@ class ServerLibraryIntegration:
         declared_properties: Optional[Mapping[str, str]] = None,
         envelope_signers: Sequence[EnvelopeSigner] = (),
         seal_path: Optional[str] = None,
+        witness_authority: Optional[str] = None,
     ) -> None:
         self.client = client
         self.component = component
@@ -323,6 +349,23 @@ class ServerLibraryIntegration:
         # declared one. A profile a host assigns itself is DEFECT-1 one
         # level up.
         self.trust_profile = profile_for(self.resolution.effective)
+
+        # WO-C2. The AUTHORITY IDENTITY that rides in the MAC preimage beside
+        # the endpoint — the witness's signing key id, as a verifier following
+        # the endpoint would check it.
+        #
+        # None unless the vendor enrolled one, and never defaulted to
+        # something plausible. Hand round 8: an endpoint is self-asserted by
+        # the emitter, so "the field has to carry the witness's key/authority
+        # identity alongside the URL, or a verifier following it just gets a
+        # cooperating liar at a valid address." Manufacturing that identity
+        # here would be manufacturing exactly what the sentence is about, and
+        # the route refuses to let a leaf with no authority name a checkpoint.
+        #
+        # The ENDPOINT is not a separate setting: it is ``client.base_url``,
+        # the service this integration actually submits to. Two settings for
+        # one fact is two answers.
+        self.witness_authority = witness_authority
 
     # -- posture ----------------------------------------------------------
 
@@ -504,11 +547,25 @@ class ServerLibraryIntegration:
                 "quote_ref": self.quote_ref,
             },
         }
+        # WO-C2. WHERE THIS LEAF'S EVIDENCE RESOLVES — inside the MAC, and a
+        # top-level block rather than a capture field because it is not an
+        # observation. The checkpoint half is None on every leaf today: no
+        # checkpoint can be claimed settled while the Merkle blocker stands,
+        # and the route refuses a `checkpoint_id` that says otherwise.
+        resolution_block: Dict[str, Any] = {
+            "witness_endpoint": getattr(self.client, "base_url", None),
+            "witness_authority": self.witness_authority,
+            "checkpoint_id": None,
+            "prev_checkpoint_id": None,
+            "prev_checkpoint_quote_time": None,
+        }
+
         body: Dict[str, Any] = {
             "baseline_ref": self.client.state.baseline_ref,
             "kind": kind,
             "content_hash": content_hash,
             "capture": capture_block,
+            "resolution": resolution_block,
             "component": component_envelope,
         }
         # MIME IS SENT WHEN IT WAS DECLARED AND OMITTED WHEN IT WAS NOT.

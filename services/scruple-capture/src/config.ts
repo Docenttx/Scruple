@@ -164,6 +164,26 @@ export interface CaptureConfig {
   baselineRef: string | null;
 
   /**
+   * WO-C2. The AUTHORITY IDENTITY whose signature counts at `apiBaseUrl` —
+   * the witness's signing key id, as a verifier following the endpoint would
+   * check it.
+   *
+   * OPTIONAL AND NULL WHEN UNSET, never a plausible default. Hand round 8:
+   * "an endpoint field in the leaf is self-asserted by the emitter, so a
+   * compromised gate names its own witness — the field has to carry the
+   * witness's key/authority identity alongside the URL, or a verifier
+   * following it just gets a cooperating liar at a valid address." Inventing
+   * a value here would manufacture the very identity that sentence is about.
+   * A component with none enrolled emits null, the leaf says so, and the
+   * route refuses to let that leaf name a checkpoint.
+   *
+   * The endpoint itself is NOT configurable separately: it is `apiBaseUrl`,
+   * the service this component actually submits to. Two settings for one
+   * fact is two answers.
+   */
+  witnessAuthority: string | null;
+
+  /**
    * OPTIONAL VENDOR DECLARATION for bytes that appear in the output volume
    * with no producing node to declare their type — a tenant's shell write,
    * H-4 §7 probe 4.
@@ -264,6 +284,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CaptureConfig 
     apiKey: req('SCRUPLE_API_KEY'),
     provisioningToken: env.SCRUPLE_CAPTURE_PROVISIONING_TOKEN || null,
     baselineRef: env.SCRUPLE_CAPTURE_BASELINE_REF || null,
+    witnessAuthority: env.SCRUPLE_CAPTURE_WITNESS_AUTHORITY || null,
     outputVolumeDeclaredMime: env.SCRUPLE_CAPTURE_OUTPUT_VOLUME_MIME || null,
     settleMs: Number(env.SCRUPLE_CAPTURE_SETTLE_MS ?? 250),
     correlationTtlMs: Number(env.SCRUPLE_CAPTURE_CORRELATION_TTL_MS ?? 30 * 60 * 1000),

@@ -36,6 +36,10 @@ import {
   type CaptureProfile,
   type QuoteBinding,
 } from '../../../lib/leaf/attestationBasis';
+import {
+  resolutionPreimageFields,
+  type ResolutionHandles,
+} from '../../../lib/leaf/resolutionHandles';
 import type { CaptureObservation, PlacementEnforcement } from '../../../lib/capture/surface';
 import type { PreimageFields } from '../../../lib/ratchet/ratchet';
 
@@ -62,6 +66,36 @@ export interface LeafContext {
    * compute: that is `passthrough`, not a failure.
    */
   quoteFor?: (o: CaptureObservation) => QuoteBinding | null;
+  /**
+   * WO-C2. WHERE THIS LEAF'S EVIDENCE RESOLVES, and whose signature counts
+   * when a verifier gets there. Both ride in the MAC preimage.
+   *
+   * The endpoint is the /v2 API this component submits to — the service that
+   * fronts the witness and holds the `checkpoints` table the Merkle path and
+   * the raw quote are fetched from. It is required, because a leaf that names
+   * no witness cannot have its evidence resolved by anybody and the whole
+   * point of leaving the proof out of the leaf was that the leaf says where
+   * the proof is.
+   */
+  witnessEndpoint: string;
+  /**
+   * The authority identity — the witness's signing key id. null when none has
+   * been enrolled with this component, which is a real state and not a
+   * default: the route then refuses any `checkpoint_id` on this leaf, because
+   * an endpoint with no authority resolves to whoever answers the URL.
+   */
+  witnessAuthority: string | null;
+  /**
+   * PER EMISSION, for the reason `quoteFor` is: a checkpoint id read once at
+   * startup could only ever describe the startup. Returns nulls today —
+   * nothing can name a checkpoint while the Merkle blocker stands (WO-C6),
+   * and `lib/leaf/resolutionHandles.ts` rule 7 refuses one that tries.
+   */
+  checkpointsFor?: (o: CaptureObservation) => {
+    checkpointId: string | null;
+    prevCheckpointId: string | null;
+    prevCheckpointQuoteTime: string | null;
+  } | null;
 }
 
 /** What the surface put on the observation's `evidence`. */
@@ -160,6 +194,14 @@ export interface Submission {
    *  verifier can check it against capture.workflow_hash. */
   graph?: Record<string, unknown>;
   capture: CaptureBlock;
+  /**
+   * WO-C2. The resolution handles, top-level and inside the MAC. Never a
+   * capture field: `capture` is what the component SAW, and these say where
+   * the evidence for it is fetched. The server refuses a handle sent
+   * anywhere else — including inside `capture`, where the preimage reads by
+   * key and would silently skip it.
+   */
+  resolution: ResolutionHandles;
   component: ComponentEnvelope;
   mac?: string;
 }
@@ -198,6 +240,11 @@ export function preimageOf(s: Submission): PreimageFields {
     observed_at: s.capture.observed_at,
     attestation_status: s.capture.attestation_status,
     profile: s.capture.profile,
+    // WO-C2. Five keys, always present, null when unknown — so a party in the
+    // middle can neither rewrite a handle nor add one. Architect's settle
+    // condition: moving the proof out of the leaf makes the pointer to the
+    // proof security-critical.
+    ...resolutionPreimageFields(s.resolution),
   };
 }
 
@@ -234,6 +281,8 @@ export function buildLeaf(
     enforcement: ctx.enforcement,
     quote: ctx.quoteFor ? ctx.quoteFor(o) : null,
   });
+
+  const checkpoints = ctx.checkpointsFor ? ctx.checkpointsFor(o) : null;
 
   const submission: Submission = {
     baseline_ref: ctx.baselineRef,
@@ -273,6 +322,15 @@ export function buildLeaf(
       profile: ctx.profile,
       ...(ev.fs_diagnostic ? { fs_diagnostic: ev.fs_diagnostic } : {}),
       ...(ev.header_hash ? { header_hash: ev.header_hash } : {}),
+    },
+    // WO-C2. Resolved per emission like the basis, and for the same reason.
+    // Today the checkpoint half is null on every leaf.
+    resolution: {
+      witness_endpoint: ctx.witnessEndpoint,
+      witness_authority: ctx.witnessAuthority,
+      checkpoint_id: checkpoints?.checkpointId ?? null,
+      prev_checkpoint_id: checkpoints?.prevCheckpointId ?? null,
+      prev_checkpoint_quote_time: checkpoints?.prevCheckpointQuoteTime ?? null,
     },
     component: {
       component_id: ctx.componentId,

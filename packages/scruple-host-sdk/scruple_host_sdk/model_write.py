@@ -206,11 +206,18 @@ class ModelWriteIntegration:
         declared_properties: Optional[Mapping[str, str]] = None,
         envelope_signers: Sequence[EnvelopeSigner] = (),
         seal_path: Optional[str] = None,
+        witness_authority: Optional[str] = None,
     ) -> None:
         self.client = client
         self.component = component
         self.ratchet = ratchet
         self.profile = surface_profile
+        # WO-C2. The authority identity that rides in the MAC preimage beside
+        # the witness endpoint, and None unless the vendor enrolled one — see
+        # server_library.ServerLibraryIntegration for the argument. The
+        # ENDPOINT is ``client.base_url``, the service this integration
+        # submits to; two settings for one fact is two answers.
+        self.witness_authority = witness_authority
         self.envelope_signers = list(envelope_signers)
         self.seal_path = seal_path
         self.attestation_provider = attestation_provider
@@ -437,11 +444,25 @@ class ModelWriteIntegration:
                 "quote_ref": self.quote_ref,
             },
         }
+        # WO-C2. WHERE THIS LEAF'S EVIDENCE RESOLVES — inside the MAC, and a
+        # top-level block rather than a capture field because it is not an
+        # observation. The route REQUIRES it on any capture-bearing leaf, and
+        # `checkpoint_id` is None on every leaf while the Merkle blocker
+        # stands (WO-C6).
+        resolution_block: Dict[str, Any] = {
+            "witness_endpoint": getattr(self.client, "base_url", None),
+            "witness_authority": self.witness_authority,
+            "checkpoint_id": None,
+            "prev_checkpoint_id": None,
+            "prev_checkpoint_quote_time": None,
+        }
+
         body: Dict[str, Any] = {
             "baseline_ref": self.client.state.baseline_ref,
             "kind": kind,
             "content_hash": facts.content_hash,
             "capture": capture_block,
+            "resolution": resolution_block,
             "component": component_envelope,
         }
         if mime is not None:

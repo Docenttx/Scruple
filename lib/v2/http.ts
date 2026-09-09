@@ -33,6 +33,20 @@ export type V2ErrorCode =
   | 'close_detection_rejected'
   | 'attestation_basis_required'
   | 'attestation_basis_refused'
+  // WO-C2. The resolution handles, and the rule that they are handles only
+  // when the ratchet MAC covers them. Architect settled the claims-versus-
+  // evidence split on exactly this condition: moving the Merkle path and the
+  // raw quote out of the leaf makes the POINTER to them security-critical,
+  // because "an attacker who can rewrite an unsigned endpoint redirects
+  // resolution to a service that will happily confirm anything." 422 again —
+  // the caller authenticated and the JSON parsed; the handle is refused.
+  //
+  //   resolution_handles_unsigned  a handle where the preimage does not read it
+  //   resolution_handles_required  a leaf under this design that names no witness
+  //   resolution_handles_refused   a handle this leaf is not entitled to claim
+  | 'resolution_handles_unsigned'
+  | 'resolution_handles_required'
+  | 'resolution_handles_refused'
   | 'signer_unavailable'
   | 'conflict'
   | 'internal';
@@ -49,6 +63,9 @@ const STATUS: Record<V2ErrorCode, number> = {
   close_detection_rejected: 422,
   attestation_basis_required: 422,
   attestation_basis_refused: 422,
+  resolution_handles_unsigned: 422,
+  resolution_handles_required: 422,
+  resolution_handles_refused: 422,
   signer_unavailable: 503,
   conflict: 409,
   internal: 500,

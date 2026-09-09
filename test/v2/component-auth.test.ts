@@ -126,6 +126,21 @@ const CAPTURE = {
 };
 
 /**
+ * WO-C2. The resolution handles a leaf under this design carries, and they
+ * are inside the MAC preimage — Architect's settle condition, because moving
+ * the Merkle path and the raw quote OUT of the leaf makes the pointer to them
+ * the thing worth attacking. `checkpoint_id` is null on every leaf while the
+ * Merkle blocker stands (WO-C6).
+ */
+const RESOLUTION = {
+  witness_endpoint: 'https://witness.example.vendor/api',
+  witness_authority: 'sha256:' + 'cd'.repeat(32),
+  checkpoint_id: null,
+  prev_checkpoint_id: null,
+  prev_checkpoint_quote_time: null,
+};
+
+/**
  * Build a submission body, MACed at `counter` by a ratchet positioned
  * there. `honest: false` positions the ratchet at 0 and lies about the
  * counter — the shape an attacker sends, and the one that must cost
@@ -143,6 +158,7 @@ function submission(
     kind: 'artifact',
     content_hash: contentHash,
     capture: CAPTURE,
+    resolution: RESOLUTION,
     component: {
       component_id: componentId,
       build_measurement: BUILD,

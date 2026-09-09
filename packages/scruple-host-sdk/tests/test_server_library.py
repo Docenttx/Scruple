@@ -398,6 +398,18 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
             "correlation_method", "egress", "close_detection", "workflow_hash", "observed_at",
             "attestation_status", "profile",
         )},
+        # WO-C2. The resolution handles, prefixed, INSIDE the MAC. Spelled out
+        # here by hand for the same reason every other field above is: this
+        # test exists to derive the MAC without calling the function under
+        # test, so a handle that quietly left the preimage would show up as a
+        # mismatch rather than as two agreeing implementations of a mistake.
+        **{
+            f"resolution_{k}": body["resolution"][k]
+            for k in (
+                "witness_endpoint", "witness_authority", "checkpoint_id",
+                "prev_checkpoint_id", "prev_checkpoint_quote_time",
+            )
+        },
     }
     k0 = derive_ik(BDK, COMPONENT_ID)
     m0 = hkdf_expand(bytes(k0), INFO_MAC, 32)
