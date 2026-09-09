@@ -60,6 +60,10 @@ import {
   readDevice,
   startupDecision,
 } from '../../lib/capture/storageConfinement';
+import {
+  DEFAULT_UPSTREAM_ANCHOR_WINDOW,
+  DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+} from '../../lib/capture/upstreamEpoch';
 
 if (!process.env.SCRUPLE_DB_PATH || !/tmp|test/i.test(process.env.SCRUPLE_DB_PATH)) {
   throw new Error('Refusing to run: set SCRUPLE_DB_PATH to a throwaway path. Use `npm run test:v2`.');
@@ -121,6 +125,16 @@ function captureBlock(over: Record<string, unknown> = {}): Record<string, unknow
     attestation_status: 'stale',
     confinement: 'confined',
     confinement_source: 'measured',
+    // WO-C5. Which upstream run this leaf came from. Rule 6 refuses a
+    // capture-bearing leaf without them, so they are here for the same
+    // reason the confinement pair is here in WO-C4's own fixtures.
+    upstream_identity: 'sha256:' + 'ef'.repeat(32),
+    upstream_epoch: 'epoch:' + '9a'.repeat(16),
+    upstream_continuity: 'continuous',
+    upstream_low_watermark_open: 0,
+    upstream_low_watermark_close: 0,
+    upstream_uncaptured_reason: 'enumerated',
+    upstream_source: 'measured',
     ...over,
   };
 }
@@ -261,6 +275,12 @@ function componentConfig(o: {
     settleMs: 40,
     correlationTtlMs: 60_000,
     heartbeatWindowSeconds: 900,
+    // WO-C5. The upstream bracket cadence. Explicit here rather than
+    // defaulted in the type, because `CaptureConfig` has no defaults by
+    // design (config.ts header: "no defaults for anything load-bearing").
+    upstreamPollIntervalMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+    upstreamMaxReadingAgeMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS * 2,
+    upstreamAnchorWindow: DEFAULT_UPSTREAM_ANCHOR_WINDOW,
   };
 }
 

@@ -27,6 +27,11 @@ import {
 } from '../../../lib/leaf/retentionPolicy';
 // WO-C4. The floor the startup gate and every emission compare against.
 import { DEFAULT_MIN_RESERVABLE_BYTES } from '../../../lib/capture/storageConfinement';
+// WO-C5. The bracket cadence, and how many retained prompts are witnessed.
+import {
+  DEFAULT_UPSTREAM_ANCHOR_WINDOW,
+  DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+} from '../../../lib/capture/upstreamEpoch';
 
 /**
  * The three directories §10 C-8 names, plus the honest label for a root whose
@@ -259,6 +264,38 @@ export interface CaptureConfig {
    */
   outputVolumeDeclaredMime: string | null;
 
+  /**
+   * WO-C5. HOW OFTEN THE UPSTREAM'S IDENTITY AND HISTORY EPOCH ARE BRACKETED.
+   *
+   * The council owned this one: "nothing in the component tracks upstream
+   * identity — no call to /system_stats, no upstream id, no version pin ... we
+   * never ask ComfyUI who it is", and so a silent ComfyUI restart resets the
+   * in-memory history ring and currently masquerades as a normal short
+   * history.
+   *
+   * ⚑ THIS INTERVAL IS THE BOUND ON THE CLAIM, not a performance knob. A
+   * restart entirely inside one interval, with no prompt at either end, leaves
+   * no evidence anywhere — so `continuous` is never claimed for a gap longer
+   * than `upstreamMaxReadingAgeMs`, and the leaf says `interval_not_covered`
+   * instead. Shortening this is exactly the operator action the council said
+   * the eviction signal exists to prompt.
+   */
+  upstreamPollIntervalMs: number;
+  /**
+   * WO-C5. How old the newest bracket may be and still describe a leaf's
+   * interval. Beyond it the leaf carries `unknown` / `interval_not_covered`.
+   * Defaults to twice the poll interval, because one missed poll is the
+   * smallest gap in which a restart can hide.
+   */
+  upstreamMaxReadingAgeMs: number;
+  /**
+   * WO-C5. How many of the NEWEST history entries are witnessed as continuity
+   * anchors per bracket. The newest are the last to be evicted, so they are
+   * the strongest overlap set obtainable from one request — and the overlap is
+   * the only rule that catches a restart both watermarks agree about.
+   */
+  upstreamAnchorWindow: number;
+
   /** How long a path must be quiet before the watcher treats the write as
    *  closed. See surfaces/fs-watch.ts — Node cannot see IN_CLOSE_WRITE. */
   settleMs: number;
@@ -367,6 +404,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CaptureConfig 
     stateMinReservableBytes: Number(
       env.SCRUPLE_CAPTURE_STATE_MIN_RESERVABLE_BYTES ?? DEFAULT_MIN_RESERVABLE_BYTES,
     ),
+    // WO-C5. 15s and 30s: a bracket is four small GETs against a loopback
+    // upstream, and the pair fixes the largest gap a restart can hide in.
+    // Neither is a fact about anything, which is why both are configurable and
+    // why the leaf discloses the age rather than assuming it.
+    upstreamPollIntervalMs: Number(
+      env.SCRUPLE_CAPTURE_UPSTREAM_POLL_MS ?? DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+    ),
+    upstreamMaxReadingAgeMs: Number(
+      env.SCRUPLE_CAPTURE_UPSTREAM_MAX_READING_AGE_MS ??
+        Number(env.SCRUPLE_CAPTURE_UPSTREAM_POLL_MS ?? DEFAULT_UPSTREAM_POLL_INTERVAL_MS) * 2,
+    ),
+    upstreamAnchorWindow: Number(
+      env.SCRUPLE_CAPTURE_UPSTREAM_ANCHOR_WINDOW ?? DEFAULT_UPSTREAM_ANCHOR_WINDOW,
+    ),
     settleMs: Number(env.SCRUPLE_CAPTURE_SETTLE_MS ?? 250),
     correlationTtlMs: Number(env.SCRUPLE_CAPTURE_CORRELATION_TTL_MS ?? 30 * 60 * 1000),
     heartbeatWindowSeconds: Number(env.SCRUPLE_CAPTURE_HEARTBEAT_SECONDS ?? 900),
@@ -374,6 +425,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CaptureConfig 
 
   if (!Number.isInteger(cfg.listenPort) || cfg.listenPort < 0 || cfg.listenPort > 65535) {
     throw new ConfigError(`SCRUPLE_CAPTURE_LISTEN_PORT=${env.SCRUPLE_CAPTURE_LISTEN_PORT} is not a port.`);
+  }
+
+  // WO-C5. Refused rather than clamped. A zero or negative poll interval is a
+  // tracker that never brackets, and a component whose restart detector is
+  // silently off is the exact condition this work order exists to remove — it
+  // would emit `not_queried` on every leaf while looking configured.
+  for (const [name, value] of [
+    ['SCRUPLE_CAPTURE_UPSTREAM_POLL_MS', cfg.upstreamPollIntervalMs],
+    ['SCRUPLE_CAPTURE_UPSTREAM_MAX_READING_AGE_MS', cfg.upstreamMaxReadingAgeMs],
+    ['SCRUPLE_CAPTURE_UPSTREAM_ANCHOR_WINDOW', cfg.upstreamAnchorWindow],
+  ] as const) {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new ConfigError(
+        `${name}=${String(value)} is not a positive integer. Upstream epoch tracking cannot be ` +
+          'turned off by giving it a number that disables it: a component with the detector ' +
+          'silently off emits `not_queried` on every leaf and looks configured.',
+      );
+    }
+  }
+  if (cfg.upstreamMaxReadingAgeMs < cfg.upstreamPollIntervalMs) {
+    throw new ConfigError(
+      `SCRUPLE_CAPTURE_UPSTREAM_MAX_READING_AGE_MS (${cfg.upstreamMaxReadingAgeMs}) is below ` +
+        `SCRUPLE_CAPTURE_UPSTREAM_POLL_MS (${cfg.upstreamPollIntervalMs}). Every reading would ` +
+        'be stale on arrival and every leaf would say `interval_not_covered`, which is a ' +
+        'measurement nobody can act on.',
+    );
   }
 
   // The one topology check the component can make about itself. It cannot

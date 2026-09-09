@@ -52,6 +52,10 @@ import { Identity } from '../src/identity';
 import { QueueStore } from '../src/queue';
 import { Submitter } from '../src/submitter';
 import { StudioJobRunner } from './job-runner';
+import {
+  DEFAULT_UPSTREAM_ANCHOR_WINDOW,
+  DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+} from '../../../lib/capture/upstreamEpoch';
 
 const PORT = Number(process.env.SCRUPLE_KOHYA_JOB_API_PORT ?? 8899);
 
@@ -99,6 +103,12 @@ function captureConfig(roots: ComponentRoots): CaptureConfig {
     settleMs: 15_000,
     correlationTtlMs: 0,
     heartbeatWindowSeconds: 900,
+    // WO-C5. The upstream bracket cadence. Explicit here rather than
+    // defaulted in the type, because `CaptureConfig` has no defaults by
+    // design (config.ts header: "no defaults for anything load-bearing").
+    upstreamPollIntervalMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+    upstreamMaxReadingAgeMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS * 2,
+    upstreamAnchorWindow: DEFAULT_UPSTREAM_ANCHOR_WINDOW,
   };
 }
 

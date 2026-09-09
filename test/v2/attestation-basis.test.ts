@@ -78,6 +78,20 @@ function captureBlock(over: Record<string, unknown> = {}): Record<string, unknow
     // checked". A capture-bearing leaf without them is refused by rule 5.
     confinement: 'confined',
     confinement_source: 'measured',
+    // WO-C5. Which upstream run this leaf came from, and whether its
+    // in-memory history ring survived. `upstream_identity` is the
+    // /system_stats digest and is NOT a restart signal — it is
+    // byte-identical across one — while `upstream_epoch` is derived from
+    // the volatile /history ring and is. Both low watermarks, because
+    // /history is paged and non-atomic. A capture-bearing leaf without
+    // them is refused by rule 6.
+    upstream_identity: 'sha256:' + 'ef'.repeat(32),
+    upstream_epoch: 'epoch:' + '9a'.repeat(16),
+    upstream_continuity: 'continuous',
+    upstream_low_watermark_open: 0,
+    upstream_low_watermark_close: 0,
+    upstream_uncaptured_reason: 'enumerated',
+    upstream_source: 'measured',
     ...over,
   };
 }

@@ -31,6 +31,7 @@ import type {
 } from '../../../lib/capture/surface';
 import type { CaptureProfile, QuoteBinding } from '../../../lib/leaf/attestationBasis';
 import type { StorageMeasurement } from '../../../lib/capture/storageConfinement';
+import type { UpstreamObservation } from '../../../lib/capture/upstreamEpoch';
 import { buildLeaf, type LeafContext, type Submission } from './leaf';
 import { QueueStore, isDue, type QueueEntry } from './queue';
 import type { Identity } from './identity';
@@ -87,6 +88,24 @@ export interface SubmitterOptions {
    * which is honest and is not read as a pass anywhere.
    */
   confinementFor?: () => StorageMeasurement;
+  /**
+   * WO-C5. The upstream's identity and history epoch as of the newest
+   * completed bracket, evaluated against the emission's clock.
+   *
+   * A function like `confinementFor`, but NOT for the same reason, and the
+   * difference is load-bearing enough to say here as well as in
+   * `UpstreamTracker`: the network read happens out of band on a poller,
+   * because `emit()` is the blocking half of the gate and the thing being
+   * measured IS the upstream. What this call does at emission is the
+   * STALENESS CHECK — a bracket that no longer covers the leaf's interval
+   * degrades to `unknown` / `interval_not_covered` instead of being carried
+   * forward as though it still described the present.
+   *
+   * Optional, because a placement with no upstream process has nothing to
+   * ask; a Submitter with none emits `not_queried`, which is a different
+   * operational condition from `evicted_or_restarted` and must stay so.
+   */
+  upstreamFor?: (observedAtMs: number) => UpstreamObservation;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -111,6 +130,10 @@ export class Submitter implements ObservationSink {
    *  transition into a degraded storage posture mid-session is the one line
    *  an operator must not lose in a line-per-artifact log. */
   private lastLoggedConfinement: string | null = null;
+  /** WO-C5. Same treatment again, and for the sharpest version of the reason:
+   *  the whole point of the field is that a restart must not pass unnoticed,
+   *  so the TRANSITION is what gets a line. */
+  private lastLoggedUpstream: string | null = null;
 
   constructor(private readonly opts: SubmitterOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -134,6 +157,9 @@ export class Submitter implements ObservationSink {
       // WO-C4. The device identity behind `stateDir` and the watched volumes,
       // read fresh for each leaf.
       ...(opts.confinementFor ? { confinementFor: opts.confinementFor } : {}),
+      // WO-C5. Who the upstream is and whether its history ring survived,
+      // evaluated against each leaf's observation time.
+      ...(opts.upstreamFor ? { upstreamFor: opts.upstreamFor } : {}),
     };
   }
 
@@ -176,6 +202,22 @@ export class Submitter implements ObservationSink {
     if (confinement !== this.lastLoggedConfinement) {
       this.lastLoggedConfinement = confinement;
       this.log(`storage confinement → ${confinement} (${leaf.confinementReason})`);
+    }
+
+    // WO-C5. The one line an operator must not lose. A silent upstream restart
+    // is invisible by construction — the process comes back at the same
+    // address with a byte-identical /system_stats — so the transition into
+    // `restarted`, and the epoch id it mints, are logged where a per-artifact
+    // line would be skipped. The epoch is part of the key because a second
+    // restart inside an already-`restarted` window is a second event.
+    const up = leaf.submission.capture;
+    const upKey = `${up.upstream_continuity}/${up.upstream_uncaptured_reason}/${up.upstream_epoch}`;
+    if (upKey !== this.lastLoggedUpstream) {
+      this.lastLoggedUpstream = upKey;
+      this.log(
+        `upstream ${up.upstream_continuity} · absence ${up.upstream_uncaptured_reason} ` +
+          `· epoch ${up.upstream_epoch ?? '(none)'}`,
+      );
     }
 
     // 2/3/4. MAC, RATCHET, PERSIST. One call, in that order, and it fsyncs

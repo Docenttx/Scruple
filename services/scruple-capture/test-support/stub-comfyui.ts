@@ -8,7 +8,15 @@
 // believed:
 //
 //   POST /prompt                server.py:915 — returns {prompt_id, number,
-//                               node_errors}
+//                               node_errors}, and records the queue tuple in
+//                               `history` exactly as task_done does
+//   GET  /system_stats          server.py:646 — ⚑ NO boot id, NO pid, NO
+//                               start time. Byte-identical across a restart,
+//                               which is why WO-C5 derives the epoch from
+//                               `/history` instead.
+//   GET  /history               server.py:888 → execution.py:1282, with
+//                               max_items/offset walking the dict from the
+//                               front. In memory, bounded, LOST ON RESTART.
 //   GET  /view                  server.py:501 — serves output/input/temp by
 //                               filename + type
 //   POST /upload/image          server.py:449 — multipart, returns
@@ -28,6 +36,7 @@
 // getting images "without them being saved to disk".
 
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -50,6 +59,17 @@ export interface StubComfyUI {
   dirs: StubDirs;
   /** Every prompt the stub accepted, newest last. */
   prompts: Array<{ promptId: string; graph: unknown }>;
+  /**
+   * WO-C5. WHAT `systemctl restart comfyui` LOOKS LIKE FROM OUTSIDE. The same
+   * address answers, `/system_stats` is byte-identical for every field that
+   * identifies the install, and `PromptQueue` is a NEW object —
+   * `self.number` back to 0 (server.py:217), `self.history` back to `{}`
+   * (execution.py:1197). Nothing in the wire protocol announces it, which is
+   * the entire reason the council put restart detection in the component.
+   */
+  restart(): Promise<void>;
+  /** The current `PromptServer.number`. Diagnostics only. */
+  readonly promptNumber: number;
   close(): Promise<void>;
 }
 
@@ -78,18 +98,96 @@ export async function startStubComfyUI(root: string): Promise<StubComfyUI> {
   const prompts: StubComfyUI['prompts'] = [];
   const sockets = new Set<WebSocket>();
   let promptSeq = 0;
+  // WO-C5. `PromptQueue.history` (execution.py:1197) — insertion-ordered, in
+  // memory, evicted from the front past MAXIMUM_HISTORY_SIZE, and lost on
+  // restart. A plain object is insertion-ordered for string keys, which is
+  // what a Python dict is here.
+  let history: Record<string, unknown> = {};
+
+  /** server.py:646-685. ⚑ NO BOOT ID, NO PID, NO START TIME. */
+  const systemStats = () => ({
+    system: {
+      os: 'linux',
+      ram_total: 67_000_000_000,
+      // Moves on every call, restart or not — which is why the identity
+      // digest in lib/capture/upstreamEpoch.ts excludes it.
+      ram_free: 41_000_000_000 - Math.floor(Math.random() * 1_000_000),
+      comfyui_version: '0.3.44',
+      required_frontend_version: '1.24.4',
+      installed_templates_version: '0.1.41',
+      required_templates_version: '0.1.41',
+      python_version: '3.11.9',
+      pytorch_version: '2.5.1+cu124',
+      embedded_python: false,
+      argv: ['main.py', '--listen', '127.0.0.1'],
+    },
+    devices: [
+      {
+        name: 'cuda:0 NVIDIA L4',
+        type: 'cuda',
+        index: 0,
+        vram_total: 23_000_000_000,
+        vram_free: 21_000_000_000 - Math.floor(Math.random() * 1_000_000),
+        torch_vram_total: 0,
+        torch_vram_free: 0,
+      },
+    ],
+  });
+
+  /** execution.py:1282 get_history(max_items, offset). */
+  const getHistory = (maxItemsRaw: string | null, offsetRaw: string | null) => {
+    const maxItems = maxItemsRaw === null ? null : Number(maxItemsRaw);
+    let offset = offsetRaw === null ? -1 : Number(offsetRaw);
+    const keys = Object.keys(history);
+    if (offset < 0 && maxItems !== null) offset = keys.length - maxItems;
+    const out: Record<string, unknown> = {};
+    let i = 0;
+    for (const k of keys) {
+      if (i >= offset) {
+        out[k] = history[k];
+        if (maxItems !== null && Object.keys(out).length >= maxItems) break;
+      }
+      i++;
+    }
+    return out;
+  };
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://stub.invalid');
     const p = url.pathname.replace(/^\/api/, '');
     const body = await readBody(req);
 
+    // ---- GET /system_stats (server.py:646) -------------------------
+    if (req.method === 'GET' && p === '/system_stats') {
+      json(res, 200, systemStats());
+      return;
+    }
+
+    // ---- GET /history (server.py:888) ------------------------------
+    if (req.method === 'GET' && p === '/history') {
+      json(res, 200, getHistory(url.searchParams.get('max_items'), url.searchParams.get('offset')));
+      return;
+    }
+
     // ---- POST /prompt (server.py:915) ------------------------------
     if (req.method === 'POST' && p === '/prompt') {
       const graph = JSON.parse(body.toString('utf8') || '{}') as Record<string, unknown>;
-      const promptId = `stub-prompt-${++promptSeq}`;
+      // ⚑ The id is a fresh uuid PER RUN, exactly as ComfyUI's
+      // `str(uuid.uuid4())` is (server.py:933). A per-process counter would
+      // hand the tests a stub in which a restart reuses ids, and the prompt-id
+      // overlap rule — the one that catches the restart both watermarks agree
+      // about — would then be testing something ComfyUI never does.
+      const promptId = crypto.randomUUID();
+      const n = promptSeq++;
       prompts.push({ promptId, graph });
-      json(res, 200, { prompt_id: promptId, number: promptSeq, node_errors: {} });
+      // task_done (execution.py:1237-1242) stores the queue tuple verbatim at
+      // history[prompt[1]]["prompt"], so prompt[0] is the number.
+      history[promptId] = {
+        prompt: [n, promptId, graph, {}, []],
+        outputs: {},
+        status: { status_str: 'success', completed: true, messages: [] },
+      };
+      json(res, 200, { prompt_id: promptId, number: n, node_errors: {} });
       // Execution happens after the response, as it does upstream.
       setTimeout(() => void execute(promptId, graph), 5);
       return;
@@ -217,6 +315,19 @@ export async function startStubComfyUI(root: string): Promise<StubComfyUI> {
     port,
     dirs,
     prompts,
+    get promptNumber() {
+      return promptSeq;
+    },
+    async restart() {
+      // The socket is NOT closed and reopened: what matters is that the
+      // process state behind it is new, and a test that also moved the port
+      // would be testing a reconfiguration rather than a restart. The
+      // component sees the same address answering, with the same
+      // /system_stats, and a history ring that no longer knows anything.
+      promptSeq = 0;
+      history = {};
+      prompts.length = 0;
+    },
     async close() {
       for (const ws of sockets) ws.terminate();
       wss.close();

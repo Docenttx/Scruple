@@ -66,6 +66,10 @@ import { QueueStore } from '../src/queue';
 import { Submitter } from '../src/submitter';
 import { FsWatchSurface } from '../src/surfaces/fs-watch';
 import { startStubComfyUI, type StubComfyUI } from '../test-support/stub-comfyui';
+import {
+  DEFAULT_UPSTREAM_ANCHOR_WINDOW,
+  DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+} from '../../../lib/capture/upstreamEpoch';
 
 export interface StubIngest {
   url: string;
@@ -325,6 +329,12 @@ export async function startConformant(opts: FixtureOptions): Promise<Deployment>
       settleMs: 40,
       correlationTtlMs: 60_000,
       heartbeatWindowSeconds: 900,
+      // WO-C5. The upstream bracket cadence. Explicit here rather than
+      // defaulted in the type, because `CaptureConfig` has no defaults by
+      // design (config.ts header: "no defaults for anything load-bearing").
+      upstreamPollIntervalMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+      upstreamMaxReadingAgeMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS * 2,
+      upstreamAnchorWindow: DEFAULT_UPSTREAM_ANCHOR_WINDOW,
     },
     { identity: opts.makeIdentity(stateDir), log: () => undefined },
   );

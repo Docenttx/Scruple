@@ -39,6 +39,9 @@ import {
   startupDecision,
   type StorageMeasurement,
 } from '../../../lib/capture/storageConfinement';
+// WO-C5. The council owned upstream restart detection rather than pushing it
+// into the schema: "we never ask ComfyUI who it is."
+import { UpstreamTracker } from '../../../lib/capture/upstreamEpoch';
 import type { CaptureConfig } from './config';
 import { resolveWatchedVolumes, topologyAdvisory } from './config';
 import { Correlator } from './correlation';
@@ -52,6 +55,9 @@ import { WsGate } from './surfaces/ws-gate';
 export interface ComponentDeps {
   identity?: Identity;
   fetchImpl?: typeof fetch;
+  /** WO-C5. The seam for stubbing the UPSTREAM's HTTP, kept separate from
+   *  `fetchImpl` so an API fixture cannot answer for ComfyUI. */
+  upstreamFetchImpl?: typeof fetch;
   closeWriteSource?: CloseWriteSource;
   log?: (line: string) => void;
 }
@@ -68,6 +74,13 @@ export class CaptureComponent {
     readonly fsWatch: FsWatchSurface,
     readonly server: http.Server,
     readonly assurance: HostAssurance,
+    /**
+     * WO-C5. THE POLLER, held so `stop()` can clear its timer and so an
+     * acceptance test can drive `poll()` by hand instead of racing an
+     * interval. Its readings are the component's, not the leaf's — the leaf
+     * carries what `observationFor()` said at ITS observation time.
+     */
+    readonly upstream: UpstreamTracker,
     /**
      * WO-C4. THE STARTUP READING, KEPT SO IT CAN BE COMPARED AGAINST — never
      * so it can be reused. Every leaf re-measures; this one exists only for
@@ -120,6 +133,25 @@ export class CaptureComponent {
     // read fresh by `measureStorageConfinement()` every time it is called.
     const volumePaths = resolveWatchedVolumes(cfg, 'CaptureComponent.start').map((v) => v.path);
 
+    // WO-C5. Constructed BEFORE the Submitter, because the Submitter takes its
+    // reader; started BELOW the storage gate, because a component that is
+    // about to refuse to bind should not first go and interrogate an upstream
+    // it will never proxy for.
+    const upstream = new UpstreamTracker({
+      upstreamUrl: cfg.upstreamUrl,
+      pollIntervalMs: cfg.upstreamPollIntervalMs,
+      maxReadingAgeMs: cfg.upstreamMaxReadingAgeMs,
+      anchorWindow: cfg.upstreamAnchorWindow,
+      // ⚑ `deps.fetchImpl` IS DELIBERATELY NOT PASSED HERE. That injection
+      // point exists so a test can stand in for the scruple-web API the
+      // Submitter posts to; the upstream is a different endpoint with a
+      // different owner, and handing the API's stub to the tracker would let a
+      // fixture answer `/system_stats` on ComfyUI's behalf. `deps.upstreamFetchImpl`
+      // is the seam for stubbing THIS one, and it is separate on purpose.
+      ...(deps.upstreamFetchImpl ? { fetchImpl: deps.upstreamFetchImpl } : {}),
+      log,
+    });
+
     const submitter = new Submitter({
       identity,
       queue,
@@ -149,6 +181,13 @@ export class CaptureComponent {
           volumes: volumePaths,
           minReservableBytes: cfg.stateMinReservableBytes,
         }),
+      // WO-C5. A FUNCTION for the same structural reason `confinementFor` is,
+      // and with the same consequence if someone replaces it with a value: a
+      // component that captured one observation and passed it would report the
+      // upstream it saw at startup for the rest of the session, which is the
+      // config-inherited class the council killed on `pinned_build` and is
+      // precisely the defect that makes a restart look like a quiet afternoon.
+      upstreamFor: (observedAtMs: number) => upstream.observationFor(observedAtMs).observation,
       // No quote source: this component has no attestable compute. That is
       // `passthrough` once the Merkle blocker lifts, and `stale` until then.
       // `sealToMeasurement()` in identity.ts is the seam where a real one
@@ -225,6 +264,16 @@ export class CaptureComponent {
 
     await new Promise<void>((resolve) => server.listen(cfg.listenPort, cfg.listenHost, resolve));
 
+    // WO-C5. The first bracket is AWAITED, and that is not politeness. A
+    // component that started its poller and returned would emit its earliest
+    // leaves with `not_queried` — "nobody asked" — when in fact it was about
+    // to ask, and `not_queried` is the one value the council insisted must
+    // stay distinguishable from a real enumeration failure. Awaiting one
+    // bracket means the first leaf carries a measurement or a named reason it
+    // could not be taken.
+    await upstream.poll().catch(() => undefined);
+    upstream.start();
+
     log(`component_id=${identity.componentId} counter=${identity.counter}`);
     log(`build_measurement=${identity.buildMeasurement} (drift detection only — §10 C-4)`);
     log(`assurance: ${assurance.reason}`);
@@ -248,11 +297,13 @@ export class CaptureComponent {
       fsWatch,
       server,
       assurance,
+      upstream,
       storageAtStartup,
     );
   }
 
   async stop(): Promise<void> {
+    this.upstream.stop();
     await this.fsWatch.close();
     await this.wsGate.close();
     await this.httpGate.close();

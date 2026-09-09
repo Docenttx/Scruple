@@ -133,6 +133,17 @@ const CAPTURE = {
   // value.
   confinement: 'confined' as const,
   confinement_source: 'measured' as const,
+  // WO-C5. Which upstream RUN produced this leaf. Seven keys, all in the
+  // preimage — the whole value of restart detection is that the restart
+  // becomes visible on the evidence, and a continuity a party in the middle
+  // can rewrite to `continuous` is not visible on anything.
+  upstream_identity: `sha256:${'ef'.repeat(32)}` as const,
+  upstream_epoch: `epoch:${'9a'.repeat(16)}` as const,
+  upstream_continuity: 'continuous' as const,
+  upstream_low_watermark_open: 0 as const,
+  upstream_low_watermark_close: 0 as const,
+  upstream_uncaptured_reason: 'enumerated' as const,
+  upstream_source: 'measured' as const,
 };
 
 /**

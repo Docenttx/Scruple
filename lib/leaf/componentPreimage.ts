@@ -49,6 +49,11 @@ import type {
   ConfinementSource,
   StorageConfinement,
 } from '@/lib/capture/storageConfinement';
+import type {
+  UncapturedReason,
+  UpstreamContinuity,
+  UpstreamSource,
+} from '@/lib/capture/upstreamEpoch';
 import {
   resolutionPreimageFields,
   type ResolutionHandles,
@@ -109,6 +114,39 @@ export interface ComponentCaptureBlock {
    */
   confinement?: StorageConfinement | null;
   confinement_source?: ConfinementSource | null;
+  /**
+   * WO-C5. WHO THE UPSTREAM WAS AND WHETHER ITS HISTORY RING SURVIVED, and
+   * they are in the preimage for the reason `profile` and `confinement` are.
+   *
+   * The council owned this: "nothing in the component tracks upstream
+   * identity ... we never ask ComfyUI who it is", and so a silent ComfyUI
+   * restart resets `PromptQueue.history` and reads as a normal short history.
+   * The whole value of the fix is that the restart becomes visible on the
+   * evidence — and a `upstream_continuity: 'restarted'` that a party in the
+   * middle can rewrite to `'continuous'` is not visible on anything.
+   *
+   * ⚑ `upstream_identity` IS NOT A RESTART SIGNAL AND IS A SEPARATE FIELD SO
+   * THAT NOBODY READS IT AS ONE. `/system_stats` (server.py:646-685) carries
+   * no boot id, no pid and no start time, so its digest is byte-identical
+   * across a restart. It answers "which install", and `upstream_epoch` —
+   * derived from the volatile `/history` ring — answers "which run".
+   *
+   * ⚑ BOTH LOW WATERMARKS, because `/history` is paged and non-atomic and
+   * `task_done` can evict between pages. Architect asked for "the low
+   * watermark at both query ends" by name; one number cannot carry it, and
+   * the two differing is the measurement that an enumeration is not a closure.
+   *
+   * `upstream_source` is signed separately from the values for WO-C4's
+   * reason: the values say what was seen, the source says whether anything
+   * was.
+   */
+  upstream_identity?: string | null;
+  upstream_epoch?: string | null;
+  upstream_continuity?: UpstreamContinuity | null;
+  upstream_low_watermark_open?: number | null;
+  upstream_low_watermark_close?: number | null;
+  upstream_uncaptured_reason?: UncapturedReason | null;
+  upstream_source?: UpstreamSource | null;
 }
 
 export interface ComponentEnvelope {
@@ -180,6 +218,16 @@ export function componentPreimage(s: ComponentSubmission): PreimageFields {
     // absent-is-null discipline as every key above it.
     confinement: c.confinement ?? null,
     confinement_source: c.confinement_source ?? null,
+    // WO-C5. Seven keys, null when the submission carried none — the same
+    // absent-is-null discipline, so a leaf from a placement with no upstream
+    // to ask produces the same preimage SHAPE as one from a sidecar gate.
+    upstream_identity: c.upstream_identity ?? null,
+    upstream_epoch: c.upstream_epoch ?? null,
+    upstream_continuity: c.upstream_continuity ?? null,
+    upstream_low_watermark_open: c.upstream_low_watermark_open ?? null,
+    upstream_low_watermark_close: c.upstream_low_watermark_close ?? null,
+    upstream_uncaptured_reason: c.upstream_uncaptured_reason ?? null,
+    upstream_source: c.upstream_source ?? null,
     // WO-C2. Always five keys, prefixed `resolution_`, null when the block is
     // absent. The absence is therefore SIGNED: a party between the component
     // and this route can no more add a witness endpoint than rewrite one.

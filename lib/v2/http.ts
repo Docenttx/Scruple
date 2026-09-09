@@ -61,6 +61,20 @@ export type V2ErrorCode =
   //                                 behind it, or one sent outside the MAC
   | 'storage_confinement_required'
   | 'storage_confinement_refused'
+  // WO-C5. A silent ComfyUI restart resets an in-memory history ring that
+  // does not survive it, and reads as a normal short history. The component
+  // now brackets `/system_stats` and `/history` and says which run answered.
+  // 422 for both, for the reason above: the caller authenticated and the JSON
+  // parsed; what is refused is a claim about the process being watched.
+  //
+  //   upstream_epoch_required  a capture-bearing leaf that did not say which
+  //                            upstream run it observed, or whether it asked
+  //   upstream_epoch_refused   a continuity with no measurement behind it, an
+  //                            unmeasured source wearing a recoverable
+  //                            reason, an internally contradictory pair, or
+  //                            an upstream field sent outside the MAC
+  | 'upstream_epoch_required'
+  | 'upstream_epoch_refused'
   // WO-C3. The other half of Architect's settle: a handle must say how long
   // the thing it points at will be there, and a deadline must be bound to a
   // clock somebody named. Two codes, because the two failures have different
@@ -92,6 +106,8 @@ const STATUS: Record<V2ErrorCode, number> = {
   resolution_handles_refused: 422,
   storage_confinement_required: 422,
   storage_confinement_refused: 422,
+  upstream_epoch_required: 422,
+  upstream_epoch_refused: 422,
   retention_policy_unresolvable: 422,
   settlement_deadline_unbound: 422,
   signer_unavailable: 503,

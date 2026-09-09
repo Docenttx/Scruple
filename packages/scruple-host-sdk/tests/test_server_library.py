@@ -402,6 +402,16 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
             # the preimage must show up as a MAC mismatch, not as two
             # implementations agreeing on a mistake.
             "confinement", "confinement_source",
+            # WO-C5. Which upstream run produced this leaf, and whether
+            # anything was asked. Seven keys, listed by hand for the same
+            # reason: the `server-library` placement has no upstream process
+            # to ask, so all seven carry the `not_queried` shape — and a
+            # `not_queried` that silently left the preimage would let a party
+            # in the middle turn "nobody asked" into "the ring held", which is
+            # the one substitution this field set exists to prevent.
+            "upstream_identity", "upstream_epoch", "upstream_continuity",
+            "upstream_low_watermark_open", "upstream_low_watermark_close",
+            "upstream_uncaptured_reason", "upstream_source",
         )},
         # WO-C2. The resolution handles, prefixed, INSIDE the MAC. Spelled out
         # here by hand for the same reason every other field above is: this

@@ -74,6 +74,20 @@ const cases = [
         // must not read the same to a verifier.
         confinement: 'unknown',
         confinement_source: 'unknown',
+        // WO-C5. `not_queried`, and the reason is the point of the case. The
+        // `server-library` placement has no upstream process to ask — the
+        // vendor's handler IS the observation, in-process, with no
+        // `/system_stats` to poll and no volatile `/history` ring to lose.
+        // "Nobody asked" is a different operational condition from "the
+        // enumeration failed" and from "entries were evicted", and the
+        // council's condition is that they never collapse into one another.
+        upstream_identity: null,
+        upstream_epoch: null,
+        upstream_continuity: 'unknown',
+        upstream_low_watermark_open: null,
+        upstream_low_watermark_close: null,
+        upstream_uncaptured_reason: 'not_queried',
+        upstream_source: 'unknown',
       },
       // WO-C2. The resolution handles, in the signed preimage. This case has
       // an authority enrolled and a preceding checkpoint with its quote time
@@ -139,6 +153,24 @@ const cases = [
         // both keys are in the preimage rather than only the value.
         confinement: 'degraded_shared_storage',
         confinement_source: 'measured',
+        // WO-C5. A sidecar that DID ask, and caught a restart. The epoch is
+        // the derived history-ring identity, NOT the `/system_stats` digest
+        // beside it — `upstream_identity` is byte-identical across a restart
+        // because server.py:646-685 carries no boot id, no pid and no start
+        // time, and the two are separate fields so that nobody reads one as
+        // the other.
+        //
+        // Both low watermarks, and here they DIFFER: entries left the ring
+        // between the open and the close of the bracket. Architect asked for
+        // "the low watermark at both query ends" by name, and this vector is
+        // what one number could not carry.
+        upstream_identity: 'sha256:' + 'ef'.repeat(32),
+        upstream_epoch: 'epoch:' + '9a'.repeat(16),
+        upstream_continuity: 'restarted',
+        upstream_low_watermark_open: 4096,
+        upstream_low_watermark_close: 4103,
+        upstream_uncaptured_reason: 'evicted_or_restarted',
+        upstream_source: 'measured',
       },
       // WO-C2. An endpoint with NO authority enrolled. Carried as a null
       // rather than as a plausible-looking string, because inventing the
@@ -175,7 +207,10 @@ const cases = [
       'rewrite one, because both change the canonical JSON. WO-C4 adds ' +
       '`confinement` and `confinement_source`, null here for the same reason: a ' +
       'submission that carried no measurement must produce the same key SET as one ' +
-      'that did, or the absence is not signed.',
+      'that did, or the absence is not signed. WO-C5 adds the seven `upstream_*` keys ' +
+      'on the same rule — including `upstream_continuity`, which is NULL here and is ' +
+      'not `unknown`: null is "this submission carried no such field at all", ' +
+      '`unknown` is "a component under this design asked and could not tell".',
     submission: {
       baseline_ref: null,
       kind: 'graph_execute',

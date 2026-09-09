@@ -46,6 +46,14 @@ import type {
   StorageConfinement,
   StorageMeasurement,
 } from '../../../lib/capture/storageConfinement';
+// WO-C5. Who the upstream is, and whether its history ring is the same ring.
+import {
+  UNQUERIED_UPSTREAM,
+  type UncapturedReason,
+  type UpstreamContinuity,
+  type UpstreamObservation,
+  type UpstreamSource,
+} from '../../../lib/capture/upstreamEpoch';
 import type { PreimageFields } from '../../../lib/ratchet/ratchet';
 
 export interface LeafContext {
@@ -137,6 +145,29 @@ export interface LeafContext {
    * rather than claiming a confinement nobody established.
    */
   confinementFor?: () => StorageMeasurement;
+  /**
+   * WO-C5. WHO THE UPSTREAM IS AND WHETHER ITS HISTORY RING SURVIVED, as of
+   * the newest completed bracket, evaluated against THIS emission's clock.
+   *
+   * A function, like `quoteFor`, `checkpointsFor` and `confinementFor` — but
+   * for a reason that differs from theirs in one important way, and the
+   * difference is written down in `UpstreamTracker`'s class header rather
+   * than hidden here. The network read is NOT performed inside this call:
+   * `emit()` is the blocking half of the gate, and a component that blocked
+   * its capture path on an HTTP round trip to the process it is watching
+   * would stop capturing exactly when that process misbehaves. What IS
+   * performed here is the STALENESS CHECK — the tracker degrades continuity
+   * to `unknown` and the reason to `interval_not_covered` when its newest
+   * bracket does not cover this leaf's interval. A reading with a disclosed
+   * age is a measurement; a reading whose age is silently assumed is the
+   * config-inherited pattern WO-C4 closed.
+   *
+   * Absent means this placement has no upstream process to ask — the
+   * server-library placement, where the vendor's handler IS the observation.
+   * The leaf then says `not_queried`, which the council insisted must stay
+   * distinguishable from "not enumerated because evicted/restarted".
+   */
+  upstreamFor?: (observedAtMs: number) => UpstreamObservation;
 }
 
 /** What the surface put on the observation's `evidence`. */
@@ -216,6 +247,44 @@ export interface CaptureBlock {
   /** WO-C4. `measured` or `unknown`, and there is no third. Configuration,
    *  inheritance and defaults cannot populate a fact. */
   confinement_source: ConfinementSource;
+  /**
+   * WO-C5. WHICH COMFYUI INSTALL ANSWERED, digested from /system_stats.
+   *
+   * ⚑ NOT A RESTART SIGNAL, and the field is separate from the epoch so that
+   * nobody reads it as one. server.py:646-685 returns no boot id, no pid and
+   * no start time — a /system_stats digest is BYTE-IDENTICAL across a
+   * restart. It changes when the operator upgrades ComfyUI or repoints the
+   * gate, which is worth recording for its own sake and is a different fact.
+   */
+  upstream_identity: string | null;
+  /**
+   * WO-C5. WHICH RUN ANSWERED, derived from the /history ring. THIS is the
+   * restart signal: `PromptQueue.history` is process state, so an epoch id
+   * pinned to a surviving entry cannot outlive the process that held it.
+   */
+  upstream_epoch: string | null;
+  /** WO-C5. `continuous` | `restarted` | `unknown`, never null on a leaf this
+   *  component emits. `unknown` is a real answer — an idle upstream and a
+   *  restarted idle upstream are the same reading. */
+  upstream_continuity: UpstreamContinuity;
+  /**
+   * WO-C5. The oldest retained prompt number at the OPEN and at the CLOSE of
+   * the bracket. Both, because `/history` is paged and non-atomic
+   * (server.py:888-900, execution.py:1282) and `task_done` can evict between
+   * pages: the two differing is the measurement that an enumeration is not a
+   * closure. Architect asked for "the low watermark at BOTH query ends" by
+   * name, and one number cannot carry it.
+   */
+  upstream_low_watermark_open: number | null;
+  upstream_low_watermark_close: number | null;
+  /** WO-C5. Why an absence set drawn from `/history` is or is not a closure.
+   *  Five values, and the council's condition is that `not_queried` never
+   *  collapses into `evicted_or_restarted`. */
+  upstream_uncaptured_reason: UncapturedReason;
+  /** WO-C5. `measured` or `unknown`. One source for the block, not one per
+   *  field — WO-C1's rule: twelve fields pointing at one basis still read as
+   *  twelve measurements to anyone not following the pointer. */
+  upstream_source: UpstreamSource;
   /** UNCOVERED BY THE MAC, like header_hash. Diagnostic only. */
   fs_diagnostic?: string | null;
   /** UNCOVERED BY THE MAC, and that is not an oversight — see
@@ -300,6 +369,19 @@ export function preimageOf(s: Submission): PreimageFields {
     // `unknown` to `measured`, would be worth exactly nothing.
     confinement: s.capture.confinement,
     confinement_source: s.capture.confinement_source,
+    // WO-C5. All seven, and all signed. The council moved restart detection
+    // into the component precisely so a silent restart stops looking like a
+    // quiet afternoon; an epoch or a continuity value a party in the middle
+    // could rewrite would put it straight back. `upstream_source` is signed
+    // separately from the values for WO-C4's reason: the values say what was
+    // seen, the source says whether anything was.
+    upstream_identity: s.capture.upstream_identity,
+    upstream_epoch: s.capture.upstream_epoch,
+    upstream_continuity: s.capture.upstream_continuity,
+    upstream_low_watermark_open: s.capture.upstream_low_watermark_open,
+    upstream_low_watermark_close: s.capture.upstream_low_watermark_close,
+    upstream_uncaptured_reason: s.capture.upstream_uncaptured_reason,
+    upstream_source: s.capture.upstream_source,
     // WO-C2. Five keys, always present, null when unknown — so a party in the
     // middle can neither rewrite a handle nor add one. Architect's settle
     // condition: moving the proof out of the leaf makes the pointer to the
@@ -351,6 +433,17 @@ export function buildLeaf(
   // a value the component computed at startup. See LeafContext.confinementFor.
   const storage = ctx.confinementFor ? ctx.confinementFor() : null;
 
+  // WO-C5. EVALUATED HERE, AGAINST THIS LEAF'S OBSERVATION TIME, so that a
+  // bracket which no longer covers the interval degrades to
+  // `interval_not_covered` rather than being carried forward as though it
+  // still described the present. No upstream to ask is `not_queried` — a
+  // different operational condition from every other value here, with a
+  // different fix, which is the whole reason the council asked for the
+  // distinction.
+  const upstream = ctx.upstreamFor
+    ? ctx.upstreamFor(Date.parse(o.observedAt))
+    : UNQUERIED_UPSTREAM;
+
   const submission: Submission = {
     baseline_ref: ctx.baselineRef,
     kind: ev.kind ?? 'artifact',
@@ -392,6 +485,10 @@ export function buildLeaf(
       // and the two must not read the same to a verifier.
       confinement: storage?.confinement ?? 'unknown',
       confinement_source: storage?.source ?? 'unknown',
+      // WO-C5. Spread, not assembled field by field: the observation IS the
+      // seven keys, and a second field list here would be a second answer to
+      // drift against `UpstreamObservation`.
+      ...upstream,
       ...(ev.fs_diagnostic ? { fs_diagnostic: ev.fs_diagnostic } : {}),
       ...(ev.header_hash ? { header_hash: ev.header_hash } : {}),
     },

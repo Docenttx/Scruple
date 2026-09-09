@@ -46,6 +46,10 @@ import {
   DEFAULT_RETENTION_POLICY,
   DEFAULT_RETENTION_POLICY_DIGEST,
 } from '../../lib/leaf/retentionPolicy';
+import {
+  DEFAULT_UPSTREAM_ANCHOR_WINDOW,
+  DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+} from '@/lib/capture/upstreamEpoch';
 
 const ROOT = must('HARNESS_ROOT');
 const PROFILE = must('HARNESS_PROFILE');
@@ -321,6 +325,12 @@ async function main(): Promise<void> {
     settleMs: 40,
     correlationTtlMs: 60_000,
     heartbeatWindowSeconds: 900,
+    // WO-C5. The upstream bracket cadence. Explicit here rather than
+    // defaulted in the type, because `CaptureConfig` has no defaults by
+    // design (config.ts header: "no defaults for anything load-bearing").
+    upstreamPollIntervalMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
+    upstreamMaxReadingAgeMs: DEFAULT_UPSTREAM_POLL_INTERVAL_MS * 2,
+    upstreamAnchorWindow: DEFAULT_UPSTREAM_ANCHOR_WINDOW,
   };
 
   let component: Awaited<ReturnType<typeof comp.CaptureComponent.start>> | null = null;

@@ -106,6 +106,7 @@ from .ratchet import Ratchet
 # WO-C4. Raw os.stat per emission — see the module header for why it may not
 # be hoisted to construction time.
 from . import storage_confinement as _storage
+from . import upstream_epoch as _upstream
 from .server_library import (
     PlacementRefused,
     component_preimage,
@@ -475,6 +476,15 @@ class ModelWriteIntegration:
             # `unknown`/`unknown` rather than a comparison against a path
             # invented for the purpose.
             **self._confinement_fields(facts.path),
+            # WO-C5. `not_queried`, because a training integration has no
+            # upstream process with a volatile enumeration to lose. The
+            # council's finding is specifically about ComfyUI's in-memory
+            # `PromptQueue.history` ring, which the sidecar gate reads across a
+            # process it does not own; Kohya writes checkpoints and this
+            # integration observes the writes directly. Nothing is asked, so
+            # the leaf says "nobody asked" rather than borrowing a value that
+            # would read as an enumeration.
+            **_upstream.UNQUERIED,
         }
 
         component_envelope: Dict[str, Any] = {

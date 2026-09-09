@@ -101,12 +101,70 @@
 // `capture` and would silently skip a top-level one, so a caller who moved it
 // there would be sending a field that is outside the MAC and looks inside it.
 
+// ---------------------------------------------------------------------------
+// RULE 6 — THE UPSTREAM'S IDENTITY AND EPOCH ARE DECLARED, AND `not_queried`
+//          MAY NOT STAND IN FOR `evicted_or_restarted`
+// ---------------------------------------------------------------------------
+//
+// WO-C5. The council owned restart detection in hand round 6 §2 — "nothing in
+// the component tracks upstream identity ... we never ask ComfyUI who it is"
+// — and Architect set the condition this rule enforces, in round 5:
+//
+//   "'not enumerated' is right, but the reason field needs to distinguish
+//   restart/eviction (bounded, detectable if you record the history epoch
+//   identity and the low watermark at both query ends) from 'history simply
+//   not queried' — otherwise the volatile source degrades to unknown for both
+//   the recoverable and unrecoverable cases and YOU LOSE THE ONLY SIGNAL THAT
+//   WOULD TELL AN OPERATOR TO SHORTEN THEIR QUERY INTERVAL."
+//
+// Five refusals, and each is a way the fields could be present and worth
+// nothing:
+//
+//   a. ABSENT on a capture-bearing leaf. Rule 2's and rule 5's argument
+//      exactly. `unknown`/`not_queried` is available for a placement with no
+//      upstream to ask; absent is a component that was never asked.
+//   b. A SUBSTANTIVE CONTINUITY (`continuous` or `restarted`) with
+//      `upstream_source` anything but `measured`. Both directions matter:
+//      `continuous` unmeasured claims a continuity nobody established, and
+//      `restarted` unmeasured is an alarm nobody rang.
+//   c. `unknown` PAIRED WITH `measured` IS PERMITTED HERE, and that is the one
+//      place this rule differs from rule 5 — deliberately, because the facts
+//      differ. A storage `unknown` means the stat failed, so no measurement
+//      exists. An upstream `unknown` is frequently the CONCLUSION OF a
+//      measurement: an idle history at both ends of an interval genuinely
+//      cannot distinguish a restart from a quiet afternoon, and a component
+//      that looked and found that is telling the truth. What is refused is the
+//      inverse — see (d).
+//   d. `upstream_source: "unknown"` WITH ANY REASON OTHER THAN `not_queried`
+//      or `history_unavailable`. Those two are the only reasons that describe
+//      not having a measurement. `enumerated` on an unmeasured source is an
+//      enumeration nobody performed, and `evicted_or_restarted` on one is the
+//      exact collapse Architect refused: the recoverable case wearing the
+//      unmeasured case's clothes.
+//   e. `not_queried` WITH AN EPOCH, or `enumerated` WITH NO WATERMARK AT
+//      EITHER END. Both are internally contradictory: a component that asked
+//      nothing cannot have pinned an epoch, and an enumeration that read no
+//      watermark at either end of its bracket did not bracket anything.
+//
+// And, as with `close_detection` and the confinement pair, an upstream field
+// sent ONE LEVEL UP is refused rather than ignored — `componentPreimage()`
+// reads them out of `capture`, so a copy at the top level is outside the MAC
+// while looking exactly like a signed measurement.
+
 import {
   isConfinementSource,
   isStorageConfinement,
   type ConfinementSource,
   type StorageConfinement,
 } from '@/lib/capture/storageConfinement';
+import {
+  isUncapturedReason,
+  isUpstreamContinuity,
+  isUpstreamSource,
+  type UncapturedReason,
+  type UpstreamContinuity,
+  type UpstreamSource,
+} from '@/lib/capture/upstreamEpoch';
 import {
   CHECKPOINT_BLOCKER_REASON,
   CHECKPOINT_VECTORS_SETTLED,
@@ -121,7 +179,9 @@ export type CaptureClaimCode =
   | 'attestation_basis_required'
   | 'attestation_basis_refused'
   | 'storage_confinement_required'
-  | 'storage_confinement_refused';
+  | 'storage_confinement_refused'
+  | 'upstream_epoch_required'
+  | 'upstream_epoch_refused';
 
 export interface CaptureClaimRefusal {
   ok: false;
@@ -138,6 +198,19 @@ export interface CaptureClaimAccepted {
   /** WO-C4. null on a legacy leaf, for the reason `basis` is null there. */
   confinement: StorageConfinement | null;
   confinementSource: ConfinementSource | null;
+  /** WO-C5. null on a legacy leaf, same reason again. */
+  upstream: UpstreamClaims | null;
+}
+
+/** WO-C5. What the component said about the process it is watching. */
+export interface UpstreamClaims {
+  identity: string | null;
+  epoch: string | null;
+  continuity: UpstreamContinuity;
+  lowWatermarkOpen: number | null;
+  lowWatermarkClose: number | null;
+  uncapturedReason: UncapturedReason;
+  source: UpstreamSource;
 }
 
 export type CaptureClaimResult = CaptureClaimAccepted | CaptureClaimRefusal;
@@ -190,7 +263,14 @@ export function validateCaptureClaims(
   if (!capture) {
     // A legacy leaf: canvas, the plugins, a host with no component. No basis
     // is recorded and `basisForTrust()` will read it as 'unknown'.
-    return { ok: true, basis: null, profile: null, confinement: null, confinementSource: null };
+    return {
+      ok: true,
+      basis: null,
+      profile: null,
+      confinement: null,
+      confinementSource: null,
+      upstream: null,
+    };
   }
 
   // ---- Rule 2 -------------------------------------------------------
@@ -270,12 +350,17 @@ export function validateCaptureClaims(
   const conf = validateConfinement(body, capture);
   if (!conf.ok) return conf;
 
+  // ---- Rule 6 -------------------------------------------------------
+  const up = validateUpstream(body, capture);
+  if (!up.ok) return up;
+
   return {
     ok: true,
     basis,
     profile,
     confinement: conf.confinement,
     confinementSource: conf.confinementSource,
+    upstream: up.upstream,
   };
 }
 
@@ -361,5 +446,178 @@ function validateConfinement(
     };
   }
 
-  return { ok: true, basis: null, profile: null, confinement: rawConf, confinementSource: rawSource };
+  return {
+    ok: true,
+    basis: null,
+    profile: null,
+    confinement: rawConf,
+    confinementSource: rawSource,
+    upstream: null,
+  };
+}
+
+/** Rule 6, split out for the reason rule 5 is: five refusals and one accept. */
+function validateUpstream(
+  body: Record<string, unknown>,
+  capture: Record<string, unknown>,
+): CaptureClaimAccepted | CaptureClaimRefusal {
+  const KEYS = [
+    'upstream_identity',
+    'upstream_epoch',
+    'upstream_continuity',
+    'upstream_low_watermark_open',
+    'upstream_low_watermark_close',
+    'upstream_uncaptured_reason',
+    'upstream_source',
+  ] as const;
+
+  // (f) sent one level up, where the preimage does not read it.
+  const misplaced = KEYS.filter((k) => k in body);
+  if (misplaced.length > 0) {
+    return {
+      ok: false,
+      code: 'upstream_epoch_refused',
+      message:
+        `${misplaced.join(', ')} sent at the top level. The upstream epoch fields are CAPTURE ` +
+        'fields — `componentPreimage()` reads them out of `capture`, so a copy one level up ' +
+        'is outside the MAC while looking exactly like a signed measurement. Send them inside ' +
+        '`capture` or not at all.',
+      detail: { misplaced },
+    };
+  }
+
+  const continuity = capture.upstream_continuity;
+  const reason = capture.upstream_uncaptured_reason;
+  const source = capture.upstream_source;
+
+  // (a) absent, or malformed.
+  if (!isUpstreamContinuity(continuity) || !isUncapturedReason(reason) || !isUpstreamSource(source)) {
+    return {
+      ok: false,
+      code: 'upstream_epoch_required',
+      message:
+        'A leaf carrying a `capture` block must declare `capture.upstream_continuity` as one ' +
+        'of "continuous" | "restarted" | "unknown", `capture.upstream_uncaptured_reason` as ' +
+        'one of "enumerated" | "evicted_or_restarted" | "interval_not_covered" | ' +
+        '"history_unavailable" | "not_queried", and `capture.upstream_source` as "measured" ' +
+        `or "unknown". Received ${JSON.stringify(continuity ?? null)} / ` +
+        `${JSON.stringify(reason ?? null)} / ${JSON.stringify(source ?? null)}. A silent ` +
+        'ComfyUI restart resets an in-memory history ring that does not survive it, and ' +
+        'currently masquerades as a normal short history; a placement with no upstream to ask ' +
+        'declares "unknown"/"not_queried"/"unknown", which is a different thing from a ' +
+        'component that was never asked.',
+      detail: {
+        upstream_continuity: continuity ?? null,
+        upstream_uncaptured_reason: reason ?? null,
+        upstream_source: source ?? null,
+      },
+    };
+  }
+
+  const identity = typeof capture.upstream_identity === 'string' ? capture.upstream_identity : null;
+  const epoch = typeof capture.upstream_epoch === 'string' ? capture.upstream_epoch : null;
+  const open = watermark(capture.upstream_low_watermark_open);
+  const close = watermark(capture.upstream_low_watermark_close);
+  if (open === false || close === false) {
+    return {
+      ok: false,
+      code: 'upstream_epoch_refused',
+      message:
+        'A low watermark must be a safe integer or null. A float in the MAC preimage is a MAC ' +
+        'that fails unreproducibly and only sometimes (§10 C-1), and ComfyUI takes the prompt ' +
+        "`number` FROM THE CLIENT (server.py:920: `number = float(json_data['number'])`) — so " +
+        'the component drops a non-integer from the watermark rather than carrying it here.',
+      detail: {
+        upstream_low_watermark_open: capture.upstream_low_watermark_open ?? null,
+        upstream_low_watermark_close: capture.upstream_low_watermark_close ?? null,
+      },
+    };
+  }
+
+  // (b) a substantive continuity with no measurement behind it.
+  if (continuity !== 'unknown' && source !== 'measured') {
+    return {
+      ok: false,
+      code: 'upstream_epoch_refused',
+      message:
+        `\`upstream_continuity: "${continuity}"\` with \`upstream_source: "${source}"\` is ` +
+        'refused. Both directions matter: `continuous` on an unmeasured source claims a ' +
+        'continuity nobody established, and `restarted` on one is an alarm nobody rang. ' +
+        'Declare "unknown" if nothing was measured.',
+      detail: { upstream_continuity: continuity, upstream_source: source },
+    };
+  }
+
+  // (d) an unmeasured source may only carry a reason that describes not
+  //     having a measurement. This is Architect's condition, enforced: the
+  //     recoverable case must not be able to wear the unmeasured case's
+  //     clothes, or the operator loses the signal to shorten the interval.
+  if (source === 'unknown' && reason !== 'not_queried' && reason !== 'history_unavailable') {
+    return {
+      ok: false,
+      code: 'upstream_epoch_refused',
+      message:
+        `\`upstream_source: "unknown"\` with \`upstream_uncaptured_reason: "${reason}"\` is ` +
+        'refused. Only "not_queried" and "history_unavailable" describe not having a ' +
+        'measurement. "enumerated" on an unmeasured source is an enumeration nobody ' +
+        'performed, and "evicted_or_restarted" on one collapses the recoverable, bounded, ' +
+        'detectable case into the unmeasured one — which is precisely the collapse the ' +
+        'council refused, because it is the only signal telling an operator to shorten their ' +
+        'query interval.',
+      detail: { upstream_source: source, upstream_uncaptured_reason: reason },
+    };
+  }
+
+  // (e) internally contradictory pairs.
+  if (reason === 'not_queried' && (epoch !== null || open !== null || close !== null)) {
+    return {
+      ok: false,
+      code: 'upstream_epoch_refused',
+      message:
+        '`upstream_uncaptured_reason: "not_queried"` with an epoch or a watermark is refused. ' +
+        '"not queried" means nobody asked; an epoch is pinned from a retained prompt and a ' +
+        'watermark is read off a `/history` response, so either one is evidence that somebody ' +
+        'did. Say what was actually measured.',
+      detail: {
+        upstream_epoch: epoch,
+        upstream_low_watermark_open: open,
+        upstream_low_watermark_close: close,
+      },
+    };
+  }
+  // ⚑ WHAT IS DELIBERATELY *NOT* REFUSED HERE, because a first draft of this
+  // rule did refuse it and the live gate run caught it:
+  // `upstream_uncaptured_reason: "enumerated"` WITH BOTH WATERMARKS NULL.
+  // That reads like "claims an enumeration, bracketed nothing" — but an EMPTY
+  // history ring legitimately has no watermark at either end, and the bracket
+  // immediately after a ComfyUI restart finds exactly that. Enumerating an
+  // empty ring is a real enumeration with a real (empty) result. The shape the
+  // draft was reaching for is "claims an enumeration without having measured",
+  // and (d) already refuses it: a component that never bracketed carries
+  // `upstream_source: "unknown"`, which may only pair with `not_queried` or
+  // `history_unavailable`.
+
+  return {
+    ok: true,
+    basis: null,
+    profile: null,
+    confinement: null,
+    confinementSource: null,
+    upstream: {
+      identity,
+      epoch,
+      continuity,
+      lowWatermarkOpen: open,
+      lowWatermarkClose: close,
+      uncapturedReason: reason,
+      source,
+    },
+  };
+}
+
+/** A safe integer, null, or `false` for "present and not a number we may
+ *  put in a MAC preimage". */
+function watermark(v: unknown): number | null | false {
+  if (v === undefined || v === null) return null;
+  return Number.isSafeInteger(v) ? (v as number) : false;
 }

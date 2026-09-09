@@ -106,6 +106,7 @@ from . import http as _http
 # WO-C4. The per-leaf storage measurement, shared with model_write.py so the
 # two placements cannot answer the same question two ways.
 from . import storage_confinement as _storage
+from . import upstream_epoch as _upstream
 from .envelope import (
     ComponentIdentity,
     DeclaredSurface,
@@ -203,6 +204,24 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         # distinction the measured-or-unknown invariant holds.
         "confinement": c.get("confinement"),
         "confinement_source": c.get("confinement_source"),
+        # WO-C5. WHO THE UPSTREAM WAS AND WHETHER ITS HISTORY RING SURVIVED.
+        # Seven keys, always present, null when this placement had nothing to
+        # ask — the same absent-is-null discipline as every key above, so a
+        # leaf from a `server-library` placement produces the same preimage
+        # SHAPE as one from a sidecar gate.
+        #
+        # In the MAC because the whole value of the fix is that a silent
+        # restart becomes visible on the evidence, and an
+        # `upstream_continuity` a party in the middle can rewrite to
+        # "continuous" is not visible on anything. `upstream_source` is signed
+        # separately from the values for the reason `confinement_source` is.
+        "upstream_identity": c.get("upstream_identity"),
+        "upstream_epoch": c.get("upstream_epoch"),
+        "upstream_continuity": c.get("upstream_continuity"),
+        "upstream_low_watermark_open": c.get("upstream_low_watermark_open"),
+        "upstream_low_watermark_close": c.get("upstream_low_watermark_close"),
+        "upstream_uncaptured_reason": c.get("upstream_uncaptured_reason"),
+        "upstream_source": c.get("upstream_source"),
         # WO-C2. THE RESOLUTION HANDLES, and this is Architect's first settle
         # condition, verbatim: the handles "must sit inside the signed
         # preimage, or an attacker who can rewrite an unsigned endpoint
@@ -616,6 +635,27 @@ class ServerLibraryIntegration:
             # none.
             "confinement": _storage.UNMEASURED.confinement,
             "confinement_source": _storage.UNMEASURED.source,
+            # WO-C5. `not_queried`, and it is the value the council insisted
+            # must stay distinguishable from "not enumerated because
+            # evicted/restarted". THIS PLACEMENT HAS NO UPSTREAM PROCESS TO
+            # ASK. The sidecar gate sits between a tenant and a separate
+            # ComfyUI whose in-memory `/history` ring can be silently reset
+            # under it; at `server-library` the vendor's handler IS the
+            # observation, in-process, with no `/system_stats` to poll and no
+            # history ring to lose. There is no upstream identity to record
+            # and no epoch to pin, so every one of these is None and the
+            # reason says WHY — "nobody asked", not "the enumeration failed".
+            #
+            # ⚑ `unknown`/`not_queried`/`unknown` IS NOT A WEAKER ANSWER HERE.
+            # It is the accurate one, and it is why the reason vocabulary has
+            # five values rather than a boolean.
+            "upstream_identity": None,
+            "upstream_epoch": None,
+            "upstream_continuity": _upstream.UNKNOWN,
+            "upstream_low_watermark_open": None,
+            "upstream_low_watermark_close": None,
+            "upstream_uncaptured_reason": _upstream.NOT_QUERIED,
+            "upstream_source": _upstream.SOURCE_UNKNOWN,
         }
 
         # 3. The submission, assembled BEFORE the MAC, because the MAC is

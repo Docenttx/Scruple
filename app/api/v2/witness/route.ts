@@ -646,13 +646,16 @@ export async function POST(req: NextRequest) {
           leaf_signer_surrogate, leaf_signature_state,
           attestation_basis, attestation_profile,
           storage_confinement, storage_confinement_source,
+          upstream_identity, upstream_epoch, upstream_continuity,
+          upstream_low_watermark_open, upstream_low_watermark_close,
+          upstream_uncaptured_reason, upstream_source,
           resolution_witness_endpoint, resolution_witness_authority,
           resolution_checkpoint_id, resolution_prev_checkpoint_id,
           resolution_prev_checkpoint_quote_time,
           resolution_settlement_deadline, resolution_retention_policy_digest,
           settlement_clock, settlement_clock_authority, settlement_observed_at,
           evidence_retained_until)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -721,6 +724,23 @@ export async function POST(req: NextRequest) {
       // arrives without going through it.
       claims.confinement,
       claims.confinementSource,
+      // Migration 057, WO-C5. WHICH UPSTREAM RUN THIS LEAF CAME FROM, and
+      // NULL for a leaf with no capture block, for 056's reason: NULL is "the
+      // question was never asked of this leaf", 'not_queried' is "asked, and
+      // there was nothing to ask". Two identity columns and not one, because
+      // /system_stats identifies the INSTALL and is byte-identical across a
+      // restart, while the epoch identifies the RUN — reading either as the
+      // other is the blind spot this migration closes. Rule 6 above has
+      // already refused every combination these columns must never hold, and
+      // 057's cross-column CHECK refuses them again for a writer that arrives
+      // without going through it.
+      claims.upstream?.identity ?? null,
+      claims.upstream?.epoch ?? null,
+      claims.upstream?.continuity ?? null,
+      claims.upstream?.lowWatermarkOpen ?? null,
+      claims.upstream?.lowWatermarkClose ?? null,
+      claims.upstream?.uncapturedReason ?? null,
+      claims.upstream?.source ?? null,
       // Migration 054, WO-C2. WHAT THE COMPONENT SIGNED, not what this server
       // knows about itself. The endpoint is self-asserted by the emitter and
       // is deliberately NOT overwritten with our own address: a compromised
