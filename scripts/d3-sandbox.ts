@@ -1,8 +1,8 @@
-// The sandbox this WO's gate runs against, provisioned by side effect.
+// The sandbox a WO's gate runs against, provisioned by side effect.
 //
-// Three things have to exist on the scratch app before a vault surface can put
-// a leaf anywhere, and none of them is something the surface may create for
-// itself:
+// Three things have to exist on the scratch app before a capture surface can
+// put a leaf anywhere, and none of them is something the surface may create
+// for itself:
 //
 //   1. an API key carrying `witness:write` and `baseline:write`. The second
 //      GRANTS `component:provision` (lib/v2/auth.ts V2_SCOPE_GRANTS), which is
@@ -10,9 +10,9 @@
 //      estate that returns key material.
 //   2. a BASELINE, whose ref is the tamper_surface_hash of the code being
 //      measured. D-3: a leaf with no baseline_ref is not a weaker leaf, it is
-//      not Scruple-witnessed at all. We compute it over app/vault/, which is
-//      the surface actually doing the measuring — not over the whole repo, and
-//      not over a constant.
+//      not Scruple-witnessed at all. We compute it over the SURFACE — app/vault/
+//      or app/comfy/, whichever is actually doing the measuring — not over the
+//      whole repo, and not over a constant.
 //   3. a one-time PROVISIONING TOKEN, minted through the estate's own
 //      `issueProvisioningToken()` rather than by an INSERT here, because a
 //      script that writes its own row is testing its own INSERT.
@@ -22,7 +22,7 @@
 // every time, because it is single-use and short-TTL by design and a component
 // that already sealed an identity never asks for one.
 //
-//   bash scripts/tsx.sh scripts/d3-sandbox.ts [--print-key]
+//   bash scripts/tsx.sh scripts/d3-sandbox.ts [--surface app/comfy] [--print-key]
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -33,7 +33,19 @@ import { issueProvisioningToken } from '@/lib/ratchet/provisioning';
 
 const REPO = path.resolve(__dirname, '..');
 const APP = process.env.SCRUPLE_APP_URL ?? 'http://127.0.0.1:3902';
-const STATE = path.join(REPO, '.run', 'd3', 'sandbox.json');
+
+// WO-D4 made this take a SURFACE. There are two now — `app/vault` and
+// `app/comfy` — and they must not share a baseline: the baseline_ref IS the
+// tamper surface hash of the code doing the measuring, so one ref covering two
+// surfaces would mean a change in either produced a drift attributed to both.
+// One state file per surface, keyed by the surface's own path.
+function argValue(name: string): string | null {
+  const i = process.argv.indexOf(name);
+  return i === -1 ? null : process.argv[i + 1];
+}
+const SURFACE_REL = argValue('--surface') ?? 'app/vault';
+const SURFACE_SLUG = SURFACE_REL.replace(/[^a-zA-Z0-9]+/g, '-');
+const STATE = path.join(REPO, '.run', 'sandbox', `${SURFACE_SLUG}.json`);
 
 if (APP.includes(':5799') || APP.includes(':3001')) {
   throw new Error(`refusing to provision against ${APP} — that is production`);
@@ -98,7 +110,7 @@ function mintKey(userId: string): { apiKey: string; keyId: string } {
     // baseline:write grants component:provision. Both are needed and only one
     // is stored, which is exactly the deprecation V2_SCOPE_GRANTS documents.
     JSON.stringify(['witness:write', 'baseline:write', 'read']),
-    'WO-D3 vault surface',
+    `${SURFACE_REL} surface`,
   );
   return { apiKey, keyId };
 }
@@ -109,7 +121,7 @@ async function establishBaseline(apiKey: string, tsh: string): Promise<string> {
     headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       host: 'comfyui',
-      integration_version: 'scruple-desktop-studio/vault@3.1.0-dev',
+      integration_version: `scruple-desktop-studio/${SURFACE_SLUG}@3.1.0-dev`,
       tamper_surface_hash: tsh,
     }),
   });
@@ -131,7 +143,7 @@ async function establishBaseline(apiKey: string, tsh: string): Promise<string> {
 
 export function readSandbox(): Sandbox {
   if (!fs.existsSync(STATE)) {
-    throw new Error(`no sandbox state at ${STATE}; run: bash scripts/tsx.sh scripts/d3-sandbox.ts`);
+    throw new Error(`no sandbox state at ${STATE}; run: bash scripts/tsx.sh scripts/d3-sandbox.ts --surface ${SURFACE_REL}`);
   }
   return JSON.parse(fs.readFileSync(STATE, 'utf8')) as Sandbox;
 }
@@ -142,7 +154,7 @@ export function mintProvisioningToken(userId: string, label: string): string {
 }
 
 async function main(): Promise<void> {
-  const surface = tamperSurfaceHash(path.join(REPO, 'app', 'vault'));
+  const surface = tamperSurfaceHash(path.join(REPO, SURFACE_REL));
   fs.mkdirSync(path.dirname(STATE), { recursive: true });
 
   let sb: Sandbox | null = null;
@@ -176,7 +188,7 @@ async function main(): Promise<void> {
         baselineRef: surface.hash, measuredFiles: surface.files,
       };
     } else {
-      const userId = 'wo-d3-' + crypto.randomBytes(3).toString('hex');
+      const userId = `${SURFACE_SLUG}-` + crypto.randomBytes(3).toString('hex');
       const { apiKey, keyId } = mintKey(userId);
       const baselineRef = await establishBaseline(apiKey, surface.hash);
       sb = { appUrl: APP, userId, apiKey, keyId, baselineRef, measuredFiles: surface.files };
@@ -191,7 +203,7 @@ async function main(): Promise<void> {
   if (process.argv.includes('--mint-token')) {
     // Single-use and short-TTL by design, so it is minted per run and never
     // cached. A component that already sealed an identity ignores it.
-    process.stdout.write(mintProvisioningToken(sb.userId, 'WO-D3 vault run') + '\n');
+    process.stdout.write(mintProvisioningToken(sb.userId, `${SURFACE_REL} run`) + '\n');
     return;
   }
   if (process.argv.includes('--json')) {
@@ -201,7 +213,7 @@ async function main(): Promise<void> {
   console.log(`[d3-sandbox] app          ${sb.appUrl}`);
   console.log(`[d3-sandbox] tenant       ${sb.userId}`);
   console.log(`[d3-sandbox] baseline_ref ${sb.baselineRef}`);
-  console.log(`[d3-sandbox] measured     ${sb.measuredFiles.length} files under app/vault/`);
+  console.log(`[d3-sandbox] measured     ${sb.measuredFiles.length} files under ${SURFACE_REL}/`);
   console.log(`[d3-sandbox] state        ${STATE}`);
 }
 

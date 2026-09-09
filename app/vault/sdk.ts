@@ -1,4 +1,7 @@
-// The ONE file in this repo that names a path into the server repo.
+// The VAULT SURFACE'S declaration of what it takes from the server repo.
+//
+// It was the only such file until WO-D4; `app/comfy/sdk.ts` is now its sibling
+// and its header carries the argument for why there are two rather than one.
 //
 // docs/DESIGN.md keeps the vault MODEL from app-legacy/lock/lock-local-lock.js
 // — enumerate a directory, hash the set, treat it as a unit — and replaces its

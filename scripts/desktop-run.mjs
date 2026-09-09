@@ -160,6 +160,68 @@ const MUTATIONS = {
       return `${e.path}: refused_over_ceiling → captured, in ${p}`;
     },
   },
+  // ── WO-D4's mutations. THE FIRST ONE IS THE PRODUCT CLAIM. The rest ask
+  // whether the leaf's fingerprints came from where this WO says they did:
+  // from the files, through an adapter, with the gate in the path.
+  'model-swap': {
+    when: 'before',
+    describe: "rewrite the model file's WEIGHTS, keeping its filename, its length and its safetensors header",
+    // ⚑ THE ENTIRE PRODUCT CLAIM, EXPRESSED AS A DIFFERENCE. docs/DESIGN.md:
+    // fingerprints from the store are "the only way to answer *was a
+    // proprietary LoRA used* rather than *a file with that name was
+    // referenced*". Two seeds of the same architecture give identical tensor
+    // names and shapes, so:
+    //
+    //     filename          unchanged   → every name-derived fact stays green
+    //     byte length       unchanged   → a size check would not notice
+    //     safetensors header hash  unchanged → the STRUCTURE is the same model
+    //     content hash      MOVES       → the WEIGHTS are not the same weights
+    //
+    // A record built from the workflow's names cannot tell these two runs
+    // apart. That is the difference this mutation must make visible.
+    apply(ctx) {
+      const f = ctx.fixtures.models.files.upscaler;
+      const before = f.sha256;
+      const after = makeModelFile(f.path, f.swapSeed);
+      if (after.sha256 === before) throw new Error('the swap produced identical bytes');
+      if (after.bytes !== f.bytes) throw new Error('the swap changed the file length; it must not');
+      if (after.header_hash !== f.header_hash) throw new Error('the swap changed the header; it must not');
+      return `${f.name}: content ${before.slice(0, 12)} → ${after.sha256.slice(0, 12)}, ` +
+        `header ${after.header_hash.slice(0, 12)} and length ${after.bytes} unchanged`;
+    },
+  },
+  'no-adapter': {
+    when: 'env',
+    describe: 'run the identical gate with NO host adapter in the sink path',
+    // The control for "the fingerprints came from the desktop". Same gate,
+    // same generation, same leaf — and `model_fingerprints` NULL, because
+    // nothing in the server or in the SDK invents them. See app/comfy/gate.ts.
+    apply(ctx) {
+      ctx.env.SCRUPLE_COMFY_FINGERPRINTS = 'off';
+      return 'CaptureComponent started without deps.sinkWrap';
+    },
+  },
+  'bypass-the-gate': {
+    when: 'env',
+    describe: 'send the generation straight at ComfyUI instead of through the gate',
+    // The control for "the gate is in the path". The generation still
+    // succeeds and the bytes still land on disk — an artifact with no leaf,
+    // which is the exact failure the gate exists to make impossible.
+    apply(ctx) {
+      ctx.env.SCRUPLE_COMFY_BYPASS_GATE = '1';
+      return 'the tenant path points at the upstream';
+    },
+  },
+  'upstream-listens-wide': {
+    when: 'env',
+    describe: 'launch ComfyUI on 0.0.0.0 — a second route to the tenant',
+    // The control for the ledger. If `allLoopback` were a constant rather
+    // than a reading of /proc/net/tcp, this would not move it.
+    apply(ctx) {
+      ctx.env.SCRUPLE_COMFY_LISTEN = '0.0.0.0';
+      return 'ComfyUI --listen 0.0.0.0';
+    },
+  },
   'assert-expectation': {
     when: 'spec',
     describe: "rewrite one assertion's expected value to a wrong constant",
@@ -198,6 +260,25 @@ contextBridge.exposeInMainWorld('scruple', {
     entries: [], emitted: [], queueDepth: 0,
     manifest: { path: '/nonexistent/manifest.json', digest: 'f'.repeat(64), bytes: 0 },
   }),
+  // The most flattering lie about a ComfyUI session: everything launched,
+  // everything is on loopback, nobody else is listening, and a generation
+  // happened. A stub in the page can say all of that. What it cannot do is
+  // start a process, hold a socket, put a PNG on disk or a row in a witness.
+  comfyLaunch: async () => ({
+    ...reply(null), outcome: 'launched',
+    comfy: { version: '0.18.1', pid: 1, upstreamUrl: 'http://127.0.0.1:1' },
+    modelRoot: '/nonexistent/models', modelFiles: [],
+    gate: { pid: 1, url: 'http://127.0.0.1:2', adapter: 'model-store' },
+    ledger: { gate: { count: 1, allOwnedByExpected: true, allLoopback: true },
+              upstream: { count: 1, allOwnedByExpected: true, allLoopback: true } },
+  }),
+  comfyGenerate: async () => ({
+    ...reply(null), outcome: 'generated', viaGate: true, promptId: 'stub',
+    images: [{ filename: 'stub.png', sha256: 'f'.repeat(64), bytes: 0, storePath: '/nonexistent/stub.png' }],
+    ledger: { gate: { count: 1, allOwnedByExpected: true, allLoopback: true },
+              upstream: { count: 1, allOwnedByExpected: true, allLoopback: true } },
+  }),
+  comfyStop: async () => ({ ...reply(null), outcome: 'stopped', gateResult: { queueDepth: 0, enrichments: [] } }),
 });
 `;
 
@@ -320,6 +401,79 @@ const KINDS = {
     const got = (doc.counts || {})[a.key];
     return { pass: got === a.expected, detail: { key: a.key, got, expected: a.expected } };
   },
+  // ── WO-D4. Rows in the scratch APP database, which is where a leaf's
+  // evidence package lands — a different file from the witness, written by a
+  // different service. `witness-row` above proves a leaf exists; these read
+  // what it CARRIES.
+  //
+  // The NEWEST row for the content hash, never `SELECT *`: the scratch
+  // database is persistent, and a mutation run that produced the same bytes
+  // an hour ago must not answer for this one. Every run's workflow carries a
+  // per-run integer, so in practice the hash is unique to the run; the ORDER
+  // BY is there so that stops being something to rely on.
+  'iteration-field': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const row = iterationRow(hash, [a.field]);
+    if (!row) return { pass: false, detail: { contentHash: hash, why: 'no iteration row for these bytes' } };
+    const got = row[a.field];
+    if (a.nonNull) return { pass: got !== null && got !== '', detail: { field: a.field, got } };
+    if (a.isNull) return { pass: got === null || got === '', detail: { field: a.field, got } };
+    const want = ctx.resolve(a.expected);
+    return { pass: String(got) === String(want), detail: { field: a.field, got, expected: want } };
+  },
+  // THE ONE WO-D4 EXISTS FOR. The leaf's `model_fingerprints` manifest, read
+  // out of the database HERE, for one model key, compared against a digest
+  // THIS PROCESS took of the file on disk. Two claims are separable and both
+  // are asserted, because the whole point is that they can disagree:
+  //
+  //   `key`               what the WORKFLOW called it — a name
+  //   `contentHash`       what the BYTES were — a measurement
+  //
+  // A record derived from names satisfies the first and cannot satisfy the
+  // second, which is what `model-swap` demonstrates.
+  'model-fingerprint': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const row = iterationRow(hash, ['model_fingerprints', 'model_fingerprints_hash']);
+    if (!row) return { pass: false, detail: { contentHash: hash, why: 'no iteration row for these bytes' } };
+    if (!row.model_fingerprints) {
+      return { pass: false, detail: { contentHash: hash, why: 'the leaf carries no model_fingerprints' } };
+    }
+    let manifest;
+    try { manifest = JSON.parse(row.model_fingerprints); }
+    catch (err) { return { pass: false, detail: `model_fingerprints is not JSON: ${String(err.message || err)}` }; }
+    const key = ctx.resolve(a.key);
+    const fp = manifest[key];
+    if (!fp) {
+      return { pass: false, detail: { key, why: 'not in the manifest', keys: Object.keys(manifest) } };
+    }
+    const checks = {};
+    if (a.state) checks.state = fp.state === a.state;
+    if (a.resolution) checks.resolution = fp.resolution === a.resolution;
+    if (a.declaredName !== undefined) checks.declaredName = fp.declared_name === ctx.resolve(a.declaredName);
+    if (a.sha256 !== undefined) checks.contentHash = fp.content_hash === ctx.resolve(a.sha256);
+    if (a.headerHash !== undefined) checks.headerHash = fp.header_hash === ctx.resolve(a.headerHash);
+    if (a.bytes !== undefined) checks.bytes = fp.bytes === ctx.resolve(a.bytes);
+    const pass = Object.keys(checks).length > 0 && Object.values(checks).every(Boolean);
+    return { pass, detail: { key, checks, fingerprint: fp, leafHash: row.model_fingerprints_hash } };
+  },
+  // The manifest and the hash on the leaf agree. Weak-looking and not weak:
+  // /api/v2/witness recomputes this itself and REFUSES a submission whose two
+  // halves disagree, so a green here is the server's arithmetic as well as
+  // ours — and it is recomputed with the SDK's own canonicalization, never a
+  // second implementation of the preimage.
+  'model-fingerprints-hash-agrees': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const row = iterationRow(hash, ['model_fingerprints', 'model_fingerprints_hash']);
+    if (!row) return { pass: false, detail: { contentHash: hash, why: 'no iteration row' } };
+    if (!row.model_fingerprints || !row.model_fingerprints_hash) {
+      return { pass: false, detail: { why: 'one half is missing', row } };
+    }
+    const recomputed = createHash('sha256').update(row.model_fingerprints, 'utf8').digest('hex');
+    return {
+      pass: recomputed === row.model_fingerprints_hash,
+      detail: { stored: row.model_fingerprints_hash, recomputed },
+    };
+  },
   'file-bytes': (a, ctx) => {
     const p = ctx.resolve(a.path);
     const want = ctx.resolve(a.bytes);
@@ -371,6 +525,98 @@ function witnessRows(contentHash) {
   }
 }
 
+
+/**
+ * The newest `iterations` row for one content hash, from the SCRATCH APP
+ * database — the file the Next app writes, which is not the witness's file.
+ *
+ * Read with the sqlite3 CLI in `mode=ro` for the same reasons `witnessRows`
+ * is: one dependency in this repo, and the query has to be made from outside
+ * the app, the gate and the sidecar. A query that could not run THROWS rather
+ * than returning null, so a broken sqlite3 cannot turn into a green control.
+ *
+ * 🔴 SCRUPLE_DB_PATH defaults to the scratch database. Production is never
+ * opened from here.
+ */
+function iterationRow(contentHash, fields) {
+  if (typeof contentHash !== 'string' || !/^[0-9a-f]{64}$/.test(contentHash)) return null;
+  const db = process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db';
+  const sql =
+    `SELECT ${fields.map((f) => `"${f}"`).join(', ')} FROM iterations ` +
+    `WHERE output_hash = '${contentHash}' ORDER BY rowid DESC LIMIT 1;`;
+  let out;
+  try {
+    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', '-json', sql], { encoding: 'utf8' });
+  } catch (err) {
+    throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
+  }
+  const rows = out.trim() ? JSON.parse(out) : [];
+  return rows.length ? rows[0] : null;
+}
+
+/**
+ * A REAL model file, built by scripts/d4-make-model.py.
+ *
+ * ⚑ NOT `deterministicBytes`. Every other fixture in this driver is an
+ * arbitrary blob, because for a vault or a captured file the bytes are the
+ * only thing that matters. A model is different: ComfyUI has to LOAD it, and
+ * a blob with a .safetensors extension makes `UpscaleModelLoader` throw, which
+ * means no generation, which means no leaf to carry a fingerprint. The
+ * fixture is therefore a genuine 1,700-parameter RealESRGAN Compact state
+ * dict, and the generation that produces the leaf is a real one.
+ */
+function makeModelFile(destPath, seed) {
+  const out = execFileSync('python3', [join(REPO, 'scripts', 'd4-make-model.py'), destPath, String(seed)], {
+    encoding: 'utf8',
+  });
+  return JSON.parse(out.trim().split('\n').pop());
+}
+
+/**
+ * A MODEL STORE FIXTURE: a ComfyUI base directory this run owns, with weights
+ * in it that the driver hashed before ComfyUI ever saw them.
+ *
+ * The base directory is per-run and never the reference checkout at
+ * /data/reference/ui-inspire/ComfyUI, which stays read-only: `--base-directory`
+ * moves models, input, output, temp, user and custom_nodes together, so one
+ * flag decides all of them and there is no path left over to disagree.
+ */
+function materialiseModelStore(sourceDir, id, spec) {
+  const baseDir = join(sourceDir, spec.name || id);
+  for (const d of ['models/upscale_models', 'models/loras', 'models/checkpoints', 'input', 'output', 'temp', 'user', 'custom_nodes']) {
+    mkdirSync(join(baseDir, d), { recursive: true });
+  }
+  const modelRoot = join(baseDir, 'models');
+  const files = {};
+  for (const [fid, f] of Object.entries(spec.files || {})) {
+    const p = join(modelRoot, f.subdir, f.name);
+    const built = makeModelFile(p, f.seed);
+    files[fid] = {
+      ...f, path: p, key: `${f.subdir}/${f.name}`,
+      bytes: built.bytes, sha256: built.sha256,
+      header_hash: built.header_hash, header_size: built.header_size,
+    };
+  }
+  return { ...spec, path: baseDir, baseDir, modelRoot, files };
+}
+
+/** The scratch app credentials the GATE needs, under its own baseline. The
+ *  baseline_ref is the tamper surface of app/comfy/ — the code doing the
+ *  measuring — so a change in the vault surface cannot show up as drift here
+ *  and vice versa. */
+function surfaceSandbox(surfaceRel) {
+  const run = (args) =>
+    execFileSync('bash', [join(REPO, 'scripts', 'tsx.sh'), join(REPO, 'scripts', 'd3-sandbox.ts'), '--surface', surfaceRel, ...args], {
+      cwd: REPO, encoding: 'utf8',
+      env: {
+        ...process.env,
+        SCRUPLE_DB_PATH: process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db',
+        SCRUPLE_BDK_ALLOW_DEV: process.env.SCRUPLE_BDK_ALLOW_DEV || '1',
+      },
+    }).trim().split('\n').pop().trim();
+  const sandbox = JSON.parse(run(['--json']));
+  return { ...sandbox, token: run(['--mint-token']) };
+}
 
 /**
  * A VAULT FIXTURE: a directory, its files, and the declaration that types them.
@@ -430,17 +676,7 @@ function materialiseVault(sourceDir, id, spec, salt) {
  * The token is single-use and short-TTL by design, so it is minted per run.
  */
 function vaultSandbox() {
-  const run = (args) =>
-    execFileSync('bash', [join(REPO, 'scripts', 'tsx.sh'), join(REPO, 'scripts', 'd3-sandbox.ts'), ...args], {
-      cwd: REPO, encoding: 'utf8',
-      env: {
-        ...process.env,
-        SCRUPLE_DB_PATH: process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db',
-        SCRUPLE_BDK_ALLOW_DEV: process.env.SCRUPLE_BDK_ALLOW_DEV || '1',
-      },
-    }).trim().split('\n').pop().trim();
-  const sandbox = JSON.parse(run(['--json']));
-  return { ...sandbox, token: run(['--mint-token']) };
+  return surfaceSandbox('app/vault');
 }
 
 function argValue(name, fallback) {
@@ -478,6 +714,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   const fixtures = {};
   for (const [id, f] of Object.entries(spec.fixtures || {})) {
     if (f.kind === 'vault') { fixtures[id] = materialiseVault(sourceDir, id, f, nonce); continue; }
+    if (f.kind === 'model-store') { fixtures[id] = materialiseModelStore(sourceDir, id, f); continue; }
     const bytes = deterministicBytes(f.seed || id, f.bytes);
     const path_ = join(sourceDir, f.name || id);
     writeFileSync(path_, bytes);
@@ -525,6 +762,25 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     mkdirSync(env.SCRUPLE_VAULT_STATE, { recursive: true, mode: 0o700 });
   }
 
+  if (spec.needs === 'comfy') {
+    const sandbox = surfaceSandbox('app/comfy');
+    env.SCRUPLE_COMFY_API_KEY = sandbox.apiKey;
+    env.SCRUPLE_COMFY_BASELINE_REF = sandbox.baselineRef;
+    env.SCRUPLE_COMFY_PROVISIONING_TOKEN = sandbox.token;
+    env.SCRUPLE_COMFY_STATE = join(runDir, 'comfy-state');
+    // THE MODEL ROOT AND THE COMFYUI CHECKOUT ARE CONFIGURATION, and they come
+    // from here for the same reason the vault's ceiling does: a renderer that
+    // could name the model root could point the fingerprinter at a directory
+    // it had filled itself.
+    const store = Object.values(fixtures).find((f) => f && f.kind === 'model-store');
+    if (!store) throw new Error('a scenario that needs comfy must declare a model-store fixture');
+    env.SCRUPLE_COMFY_BASE = store.baseDir;
+    env.SCRUPLE_COMFY_MAIN = process.env.SCRUPLE_COMFY_MAIN
+      || '/data/reference/ui-inspire/ComfyUI/main.py';
+    env.SCRUPLE_COMFY_PYTHON = process.env.SCRUPLE_COMFY_PYTHON || 'python3';
+    mkdirSync(env.SCRUPLE_COMFY_STATE, { recursive: true, mode: 0o700 });
+  }
+
   const ctxEarly = { fixtures, appDir, spec, runDir, env };
   for (const b of breaks) {
     const m = MUTATIONS[b];
@@ -536,7 +792,15 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   const materialised = {
     ...spec,
     fixtures,
-    driver: { nonce, appURL, expectedOrigin: new URL(appURL).origin, runDir, storeDir },
+    driver: {
+      nonce, appURL, expectedOrigin: new URL(appURL).origin, runDir, storeDir,
+      // An integer derived from the run nonce, so a scenario can make its
+      // workflow unique to THIS run. The scratch app database is persistent
+      // and a generation with an identical graph produces identical bytes;
+      // without this, a `witness-row` assertion could be satisfied by a leaf
+      // an earlier run wrote. 24 bits, because it is used as an RGB colour.
+      nonceInt: parseInt(nonce.slice(0, 6), 16),
+    },
   };
   const materialisedPath = join(runDir, 'spec.json');
   writeFileSync(materialisedPath, JSON.stringify(materialised, null, 2));

@@ -25,4 +25,7 @@ contextBridge.exposeInMainWorld('scruple', {
   ping: (nonce) => ipcRenderer.invoke('scruple:ping', nonce),
   captureFile: (req) => ipcRenderer.invoke('scruple:capture-file', req),
   vaultCapture: (req) => ipcRenderer.invoke('scruple:vault-capture', req),
+  comfyLaunch: () => ipcRenderer.invoke('scruple:comfy-launch'),
+  comfyGenerate: (req) => ipcRenderer.invoke('scruple:comfy-generate', req),
+  comfyStop: () => ipcRenderer.invoke('scruple:comfy-stop'),
 });

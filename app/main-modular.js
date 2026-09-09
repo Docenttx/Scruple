@@ -22,6 +22,7 @@ const path = require('path');
 const { registerIpc } = require('./ipc-ping');
 const { registerCaptureIpc } = require('./ipc-capture');
 const { registerVaultIpc } = require('./ipc-vault');
+const { registerComfyIpc, shutdownComfy } = require('./ipc-comfy');
 
 const APP_URL = process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902';
 
@@ -90,6 +91,7 @@ app.whenReady().then(async () => {
   registerIpc();
   registerCaptureIpc();
   registerVaultIpc();
+  registerComfyIpc();
   const { window, navigation } = createWindow();
 
   // --probe=ping drives WO-D1's scripted round trip and exits.
@@ -104,9 +106,14 @@ app.whenReady().then(async () => {
       // Exit 0 means "the scenario ran to the end", NOT "the scenario passed".
       // scripts/desktop-run.mjs decides that, from the side effects on disk.
       const completed = await runScenario(scenarioArg.slice('--scenario='.length), window, navigation);
+      // Whatever happened, nothing this process started outlives it — see
+      // shutdownComfy() in ipc-comfy.js. A scenario that failed at its second
+      // step never reached `comfyStop`.
+      shutdownComfy();
       app.exit(completed ? 0 : EXIT_SCENARIO_INCOMPLETE);
     } catch (err) {
       console.error(`[main] scenario threw: ${err && err.stack ? err.stack : err}`);
+      shutdownComfy();
       app.exit(EXIT_SCENARIO_INCOMPLETE);
     }
     return;

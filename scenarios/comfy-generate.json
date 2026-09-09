@@ -1,0 +1,314 @@
+{
+  "scenario": "comfy-generate",
+  "description": "WO-D4: the app launches a real ComfyUI with the capture gate in front of it, drives one real generation through the gate, and the leaf that covers the output bytes carries MODEL FINGERPRINTS computed from the files in the local model store. The model is a genuine 1,700-parameter RealESRGAN Compact that ComfyUI actually loads and actually runs — the output PNG is the product of those weights, which is what makes swapping them an observable.",
+  "needs": "comfy",
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "comfy-base",
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "as": "launch",
+      "call": "comfyLaunch",
+      "args": []
+    },
+    {
+      "as": "gen",
+      "call": "comfyGenerate",
+      "args": [
+        {
+          "workflow": {
+            "1": {
+              "class_type": "EmptyImage",
+              "inputs": {
+                "width": 32,
+                "height": 32,
+                "batch_size": 1,
+                "color": "${driver.nonceInt}"
+              }
+            },
+            "2": {
+              "class_type": "UpscaleModelLoader",
+              "inputs": {
+                "model_name": "scruple-tiny-x2.safetensors"
+              }
+            },
+            "3": {
+              "class_type": "ImageUpscaleWithModel",
+              "inputs": {
+                "upscale_model": [
+                  "2",
+                  0
+                ],
+                "image": [
+                  "1",
+                  0
+                ]
+              }
+            },
+            "4": {
+              "class_type": "SaveImage",
+              "inputs": {
+                "images": [
+                  "3",
+                  0
+                ],
+                "filename_prefix": "scruple-d4"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "as": "stop",
+      "call": "comfyStop",
+      "args": []
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "launch-succeeded",
+      "kind": "step-succeeded",
+      "step": "launch"
+    },
+    {
+      "id": "generate-succeeded",
+      "kind": "step-succeeded",
+      "step": "gen"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "gen",
+      "note": "a renderer-local stub cannot know the main process's pid"
+    },
+    {
+      "id": "comfy-version-measured",
+      "kind": "non-empty",
+      "actual": "${steps.launch.value.comfy.version}",
+      "note": "the app LAUNCHED it, so it knows the version — read off /system_stats on the app's own channel, not guessed from a path"
+    },
+    {
+      "id": "model-root-is-the-app's",
+      "kind": "equals",
+      "actual": "${steps.launch.value.modelRoot}",
+      "expected": "${fixtures.models.modelRoot}",
+      "note": "the model directory is the one this run made, never the read-only reference checkout"
+    },
+    {
+      "id": "gate-has-the-adapter",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.adapter}",
+      "expected": "model-store"
+    },
+    {
+      "id": "one-listener-on-the-gate-port",
+      "kind": "equals",
+      "actual": "${steps.launch.value.ledger.gate.count}",
+      "expected": 1,
+      "note": "read from /proc/net/tcp by this app, not probed by connecting"
+    },
+    {
+      "id": "gate-port-held-by-the-gate",
+      "kind": "equals",
+      "actual": "${steps.launch.value.ledger.gate.allOwnedByExpected}",
+      "expected": true
+    },
+    {
+      "id": "one-listener-on-the-upstream-port",
+      "kind": "equals",
+      "actual": "${steps.launch.value.ledger.upstream.count}",
+      "expected": 1
+    },
+    {
+      "id": "upstream-held-by-the-comfyui-we-launched",
+      "kind": "equals",
+      "actual": "${steps.launch.value.ledger.upstream.allOwnedByExpected}",
+      "expected": true
+    },
+    {
+      "id": "upstream-is-loopback-only",
+      "kind": "equals",
+      "actual": "${steps.launch.value.ledger.upstream.allLoopback}",
+      "expected": true,
+      "note": "H-4 §2's 'the only route to the tenant', MEASURED. A ComfyUI on 0.0.0.0 is reachable without passing the gate and every byte taken that way has no leaf."
+    },
+    {
+      "id": "gate-still-sole-listener-after-the-run",
+      "kind": "equals",
+      "actual": "${steps.gen.value.ledger.gate.count}",
+      "expected": 1,
+      "note": "the ledger is a snapshot, so it is taken twice — at launch and across the run"
+    },
+    {
+      "id": "generation-went-through-the-gate",
+      "kind": "equals",
+      "actual": "${steps.gen.value.viaGate}",
+      "expected": true
+    },
+    {
+      "id": "artifact-on-disk",
+      "kind": "file-exists",
+      "path": "${steps.gen.value.images.0.storePath}"
+    },
+    {
+      "id": "artifact-rehashes",
+      "kind": "file-rehashes",
+      "path": "${steps.gen.value.images.0.storePath}",
+      "sha256": "${steps.gen.value.images.0.sha256}",
+      "note": "bytes on disk, re-hashed by THIS process, against the digest the app recorded"
+    },
+    {
+      "id": "artifact-is-a-png",
+      "kind": "equals",
+      "actual": "${steps.gen.value.images.0.contentType}",
+      "expected": "image/png"
+    },
+    {
+      "id": "artifact-has-a-leaf",
+      "kind": "witness-row",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "note": "a row in the scratch witness — a different process with a different database"
+    },
+    {
+      "id": "leaf-carries-a-fingerprints-hash",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "model_fingerprints_hash",
+      "nonNull": true
+    },
+    {
+      "id": "fingerprints-hash-matches-its-manifest",
+      "kind": "model-fingerprints-hash-agrees",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "note": "/api/v2/witness recomputes this itself and refuses a submission whose halves disagree, so a green here is the server's arithmetic too"
+    },
+    {
+      "id": "fingerprint-is-of-the-bytes",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "state": "measured",
+      "resolution": "loader-registry",
+      "sha256": "${fixtures.models.files.upscaler.sha256}",
+      "bytes": "${fixtures.models.files.upscaler.bytes}",
+      "note": "⚑ THE GATE. The leaf's fingerprint for this model equals a digest the DRIVER took of the file before ComfyUI ever saw it. This is the product claim: not 'a file with that name was referenced' but 'these bytes were there'."
+    },
+    {
+      "id": "fingerprint-key-is-the-workflow's-name",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "declaredName": "scruple-tiny-x2.safetensors",
+      "note": "THE CONTRAST, and it must stay GREEN under model-swap. The name is what a name-derived record would have; it is kept, beside the measurement, precisely so the two can be seen to disagree."
+    },
+    {
+      "id": "fingerprint-header-is-the-architecture",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "headerHash": "${fixtures.models.files.upscaler.header_hash}",
+      "note": "the safetensors header — tensor names and shapes, no weights. Also green under model-swap: same architecture, different model. Three facts, three assertions, and only the middle one moves."
+    },
+    {
+      "id": "the-adapter-read-the-app's-store",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.modelStoreReport.modelRoot}",
+      "expected": "${fixtures.models.modelRoot}",
+      "note": "the sidecar's own record of which directory it hashed"
+    },
+    {
+      "id": "queue-drained",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.queueDepth}",
+      "expected": 0,
+      "note": "store-and-forward held nothing back — every MACed event reached the server"
+    }
+  ],
+  "auditNote": "What each break must do, declared here rather than in the driver, because the answer depends on which assertions THIS scenario makes. The sweep requires each set EXACTLY. Four of these are worth reading.\n\n`model-swap` IS THE PRODUCT CLAIM AND IT REDDENS EXACTLY ONE ASSERTION. New weights under the same filename, the same byte length and the same safetensors header: the leaf still exists, the artifact still re-hashes, `fingerprint-key-is-the-workflow's-name` is still green because the NAME did not move, and `fingerprint-header-is-the-architecture` is still green because the tensor names and shapes did not move either. Only `fingerprint-is-of-the-bytes` goes red. A record derived from the workflow's names cannot produce that single difference, and that difference is the entire product.\n\n`no-adapter` and `bypass-the-gate` redden the SAME SEVEN fingerprint assertions by two different routes, which is what makes both worth having. Without the adapter the gate still sees everything and nothing computes the fingerprints; around the gate the adapter is still loaded and never sees a graph. Neither the server nor the SDK invents a fingerprint in either case.\n\nAND THE FINDING FROM THE SWEEP ITSELF, which is the one that changed how this scenario reads: under `bypass-the-gate` the artifact STILL HAS A LEAF and the queue still drains. The generation went straight at ComfyUI, so the HTTP gate saw nothing — and the OUTPUT VOLUME WATCHER caught the file anyway and witnessed it. That is H-4 §2's two-surface claim happening live: 'a gate on either alone is bypassable'. What the bypassed run produces is a leaf that is SEMANTICALLY BLIND — the adapter recorded it as `no-graph`, so there is no workflow_hash, no correlation and no model fingerprints on it. Honest, and thinner, and it SAYS it is thinner. That distinction is exactly WO-D6's Level 1 versus Level 2, arriving early and by accident.\n\n`fake-bridge` is the measure of what the port ledger is worth ALONE: every ledger assertion stays GREEN under it, because a stub in the renderer can claim one listener, the right pid and loopback-only as easily as it can claim anything else. The ledger's value is not that it is unfakeable — it is that it is a reading of /proc that the app took, and `reached-main` plus the artifact, the leaf and the fingerprint are what establish that a real process took it. Same shape as WO-D2's finding about `store-exists`.",
+  "audit": {
+    "model-swap": [
+      "fingerprint-is-of-the-bytes"
+    ],
+    "no-adapter": [
+      "gate-has-the-adapter",
+      "leaf-carries-a-fingerprints-hash",
+      "fingerprints-hash-matches-its-manifest",
+      "fingerprint-is-of-the-bytes",
+      "fingerprint-key-is-the-workflow's-name",
+      "fingerprint-header-is-the-architecture",
+      "the-adapter-read-the-app's-store"
+    ],
+    "bypass-the-gate": [
+      "generation-went-through-the-gate",
+      "leaf-carries-a-fingerprints-hash",
+      "fingerprints-hash-matches-its-manifest",
+      "fingerprint-is-of-the-bytes",
+      "fingerprint-key-is-the-workflow's-name",
+      "fingerprint-header-is-the-architecture",
+      "the-adapter-read-the-app's-store"
+    ],
+    "upstream-listens-wide": [
+      "upstream-is-loopback-only"
+    ],
+    "fake-bridge": [
+      "reached-main",
+      "model-root-is-the-app's",
+      "artifact-on-disk",
+      "artifact-rehashes",
+      "artifact-is-a-png",
+      "artifact-has-a-leaf",
+      "leaf-carries-a-fingerprints-hash",
+      "fingerprints-hash-matches-its-manifest",
+      "fingerprint-is-of-the-bytes",
+      "fingerprint-key-is-the-workflow's-name",
+      "fingerprint-header-is-the-architecture",
+      "the-adapter-read-the-app's-store"
+    ],
+    "no-bridge": [
+      "app-completed",
+      "launch-succeeded",
+      "generate-succeeded",
+      "reached-main",
+      "comfy-version-measured",
+      "model-root-is-the-app's",
+      "gate-has-the-adapter",
+      "one-listener-on-the-gate-port",
+      "gate-port-held-by-the-gate",
+      "one-listener-on-the-upstream-port",
+      "upstream-held-by-the-comfyui-we-launched",
+      "upstream-is-loopback-only",
+      "gate-still-sole-listener-after-the-run",
+      "generation-went-through-the-gate",
+      "artifact-on-disk",
+      "artifact-rehashes",
+      "artifact-is-a-png",
+      "artifact-has-a-leaf",
+      "leaf-carries-a-fingerprints-hash",
+      "fingerprints-hash-matches-its-manifest",
+      "fingerprint-is-of-the-bytes",
+      "fingerprint-key-is-the-workflow's-name",
+      "fingerprint-header-is-the-architecture",
+      "the-adapter-read-the-app's-store",
+      "queue-drained"
+    ],
+    "assert-expectation": [
+      "gate-has-the-adapter"
+    ]
+  }
+}
