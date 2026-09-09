@@ -224,6 +224,13 @@ meaning is host-supplied" means when it is code rather than a sentence.
 
 - `scenarios/host-adapter.json` — a fake host, `phantom-cam`, declaring itself
   and reaching the leaf. 28 assertions.
+- `scenarios/blender-host.json` — **consumer #1, for real** (WO-E4). Blender
+  4.2.23 headless with the shipped addon zip installed: enabling it writes the
+  declaration, `bpy.ops.scruple.host_announce` writes the document, and the
+  scene, frame, camera, engine, resolution, sample count and file format reach
+  the leaf beside `model_fingerprints`. 37 assertions, six mutations, and it
+  needed **no change to this contract, to `hostRegistry.ts`, or to `app/`** —
+  which is the sentence "there is no step 4" being true rather than intended.
 - `scenarios/host-blind.json` — the same gate with nobody registered, asserting
   `blind` **positively**, with an inverse control that adds a host and turns it
   red.

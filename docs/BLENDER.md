@@ -20,10 +20,15 @@ Today those halves live in two products that do not know about each other:
 | sees the ComfyUI graph | **no** | yes |
 | sees the model bytes | **no** | yes |
 | knows the scene | **yes** | no |
-| `host_semantics` on its leaves | n/a — not a component leaf | `blind` today |
+| `host_semantics` on its leaves | n/a — not a component leaf | `blind` alone; **`supplied`** with the addon (WO-E4) |
 
 The E-series makes the addon the **Level-2 adapter** for the gate, so the two
-halves land on one leaf.
+halves land on one leaf. **WO-E4 landed that**: `adapter/host_hook.py` in the
+addon repo declares itself through the SDK's own `register_host()` when the
+addon is enabled, `bpy.ops.scruple.host_announce` writes one document per
+generation from `bpy` datablocks, and `scenarios/blender-host.json` reads them
+back off a leaf beside `model_fingerprints`. Measured, not designed:
+`scripts/e4-gate.sh`, and `docs/WO-E4.md` for what it does not cover.
 
 ## What is NOT changing
 
@@ -47,7 +52,7 @@ record** rather than in a sales conversation.
 |---|---|---|---|---|
 | addon only | **none** — the bridge talks to ComfyUI directly | no | no | yes |
 | Desktop Studio only | complete | yes | yes | **no** (`blind`) |
-| both | complete | yes | yes | yes (`supplied`) |
+| both | complete | yes | yes | yes (`supplied`) — WO-E4, measured |
 
 ⚑ **Row 1 is the one to get right.** The addon alone can sign and witness the
 Blender output, and it must **not** imply anything about the AI step it did not

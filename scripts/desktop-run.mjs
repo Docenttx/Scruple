@@ -43,7 +43,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomBytes, createHmac } from 'node:crypto';
 import {
-  cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
+  cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync,
   statSync, truncateSync, writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -276,8 +276,30 @@ const MUTATIONS = {
     // file. The leaf still NAMES the host — that is a fact about the
     // deployment, true whether or not this observation was announced.
     apply(ctx) {
-      rmSync(ctx.fixtures.phantom.announcePath, { force: true });
-      return `deleted ${ctx.fixtures.phantom.announcePath}`;
+      const h = hostFixture(ctx);
+      rmSync(h.announcePath, { force: true });
+      return `deleted ${h.announcePath}`;
+    },
+  },
+  // ── WO-E4. The control the work order calls the one that matters least
+  // obviously and matters most: the correlation is ComfyUI's `prompt_id` and
+  // THE HOST CHOOSES IT.
+  'announce-under-a-different-id': {
+    when: 'before',
+    describe: 'the host announces under one prompt id and the generation is submitted under another',
+    // ⚑ CHOOSING THE ID MUST GRANT NOTHING. A bridge that mints `X` for its
+    // announcement and posts `/prompt` with `Y` has produced a real, complete,
+    // schema-valid announcement about a real scene — and it belongs to no
+    // generation the gate saw. The leaf must therefore say LESS (`declined`,
+    // no document) and must not say something FALSE (this scene, on those
+    // bytes). A design that matched loosely — most recent announcement, only
+    // announcement, nearest timestamp — would put scene facts on an artifact
+    // nobody announced, and it would look exactly like success.
+    apply(ctx) {
+      const h = hostFixture(ctx);
+      const moved = h.announcePath.replace(/\.json$/, '-typo.json');
+      renameSync(h.announcePath, moved);
+      return `${basename(h.announcePath)} → ${basename(moved)}; the generation still submits ${h.promptId}`;
     },
   },
   'partial-announcement': {
@@ -288,11 +310,12 @@ const MUTATIONS = {
     // it has none; filling the gap with a plausible default is the defect this
     // series refuses everywhere else and would be no better here.
     apply(ctx) {
-      const p = ctx.fixtures.phantom.announcePath;
-      const doc = JSON.parse(readFileSync(p, 'utf8'));
+      const h = hostFixture(ctx);
+      const doc = JSON.parse(readFileSync(h.announcePath, 'utf8'));
       delete doc.camera;
-      writeFileSync(p, JSON.stringify(doc, null, 2));
-      return 'the announcement now satisfies two of the three required fields';
+      writeFileSync(h.announcePath, JSON.stringify(doc, null, 2));
+      const n = h.declaration.schema.required.length;
+      return `the announcement now satisfies ${n - 1} of the ${n} required fields`;
     },
   },
   'forge-the-declaration': {
@@ -305,10 +328,10 @@ const MUTATIONS = {
     // with a bad manifest must not be able to stop a tenant's ComfyUI — and
     // must not be able to get its meaning onto a leaf either.
     apply(ctx) {
-      const p = ctx.fixtures.phantom.declarationPath;
-      const doc = JSON.parse(readFileSync(p, 'utf8'));
+      const h = hostFixture(ctx);
+      const doc = JSON.parse(readFileSync(h.declarationPath, 'utf8'));
       doc.attestation = 'verified';
-      writeFileSync(p, JSON.stringify(doc, null, 2));
+      writeFileSync(h.declarationPath, JSON.stringify(doc, null, 2));
       return 'the declaration now carries attestation: "verified"';
     },
   },
@@ -460,6 +483,19 @@ const KINDS = {
     const actual = ctx.resolve(a.actual);
     const expected = ctx.resolve(a.expected);
     return { pass: Object.is(actual, expected), detail: { actual, expected } };
+  },
+  // WO-E4. `equals` is `Object.is`, which is the right strictness for a scalar
+  // and cannot compare two lists that were assembled by two different
+  // processes. This is deep equality over the JSON shape, and it is NOT a
+  // looser `equals`: order matters, because the schema's `required` list is an
+  // ordered field of a document that gets hashed.
+  'json-equals': (a, ctx) => {
+    const actual = ctx.resolve(a.actual);
+    const expected = ctx.resolve(a.expected);
+    return {
+      pass: JSON.stringify(actual) === JSON.stringify(expected),
+      detail: { actual, expected },
+    };
   },
   'at-least': (a, ctx) => {
     const actual = ctx.resolve(a.actual);
@@ -741,6 +777,30 @@ const KINDS = {
     return {
       pass: String(got) === String(want),
       detail: { field: a.field, got, expected: want, semantics: row.host_semantics },
+    };
+  },
+  // WO-E4. THE WHOLE DOCUMENT, not a field of it. Per-field assertions prove
+  // that fields survive; this proves that the document ON THE LEAF is the
+  // document the host wrote — nothing added, nothing dropped, nothing
+  // reordered into a different canonical form. `path` is the announcement file
+  // Blender itself wrote, read here at assertion time.
+  'host-evidence-equals-file': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const p = ctx.resolve(a.path);
+    const row = iterationRow(hash, ['host_evidence', 'host_semantics']);
+    if (!row) return { pass: false, detail: { contentHash: hash, why: 'no iteration row for these bytes' } };
+    if (!row.host_evidence) {
+      return { pass: false, detail: { semantics: row.host_semantics, why: 'the leaf carries no host_evidence' } };
+    }
+    if (typeof p !== 'string' || !existsSync(p)) {
+      return { pass: false, detail: { path: p, why: 'no announcement file to compare against' } };
+    }
+    const onLeaf = JSON.parse(row.host_evidence);
+    const onDisk = JSON.parse(readFileSync(p, 'utf8'));
+    const stable = (o) => JSON.stringify(o, Object.keys(o).sort());
+    return {
+      pass: stable(onLeaf) === stable(onDisk),
+      detail: { fields: Object.keys(onLeaf).sort(), onLeaf, onDisk },
     };
   },
   // The manifest and the hash on the leaf agree. Weak-looking and not weak, for
@@ -1265,6 +1325,109 @@ function materialiseHost(sourceDir, id, spec, nonce) {
   };
 }
 
+/** Whichever host fixture this scenario declared. The Level-2 mutations are
+ *  written against "the host", not against the phantom: WO-E4's host is a real
+ *  Blender and the same four mutations have to mean the same four things to
+ *  it, or the second consumer of the hook is being tested by a second gate. */
+function hostFixture(ctx) {
+  const f = Object.values(ctx.fixtures).find(
+    (x) => x && (x.kind === 'host' || x.kind === 'blender-host'),
+  );
+  if (!f) throw new Error('this scenario declares no host fixture to mutate');
+  return f;
+}
+
+/**
+ * THE REAL BLENDER, PLAYING ITSELF — WO-E4.
+ *
+ * `materialiseHost` above writes the two files a Level-2 host writes, from
+ * this driver, because WO-D6 needed a host we had NOT met. This one writes
+ * nothing at all. It installs the shipped addon zip into a Blender profile of
+ * its own and runs Blender headless; every byte in `scruple-host.json` and in
+ * `announce/<id>.json` is written by `adapter/host_hook.py` inside that
+ * process, from `bpy`.
+ *
+ * ⚑ WHAT MAKES THE ASSERTIONS NON-VACUOUS. The driver hands Blender a scene
+ * name, a frame and a camera name derived from this run's nonce, and asserts
+ * them on the leaf — a value that travelled driver → bpy datablock →
+ * announcement → gate → sink → route → sqlite. It hands Blender NOTHING about
+ * the engine, the resolution, the sample count or the file format, and those
+ * are on the leaf too: they can only have come from the running Blender, and
+ * `BLENDER_EEVEE_NEXT` is not a string this repository could have produced.
+ *
+ * The declaration is written by the addon's `register()` at ENABLE time, in a
+ * process that had already exited before the app started — which is why
+ * `SCRUPLE_COMFY_HOST_DIR` is in Blender's environment here and not set from
+ * inside the script.
+ */
+function materialiseBlenderHost(sourceDir, id, spec, nonce, runDir) {
+  const blender = spec.blender || process.env.E4_BLENDER || join(REPO, 'vendor', 'blender', 'bin', 'blender');
+  const zip = spec.zip || process.env.E4_ZIP || '/data/scruple-blender/dist/scruple-blender-0.1.0.zip';
+  if (!existsSync(blender)) throw new Error(`no Blender at ${blender} — run scripts/e3-install-blender.sh`);
+  if (!existsSync(zip)) throw new Error(`no addon zip at ${zip} — run build/build_addon.sh in the addon repo`);
+
+  const hostDir = join(sourceDir, spec.name || id);
+  mkdirSync(hostDir, { recursive: true });
+
+  // A Blender launch on this box is ~16s and an install ~40s (WO-E3 finding
+  // E3-2: aarch64, so this is qemu). A profile can be reused across runs of
+  // one gate; it is still a profile this repo made, from this repo's zip.
+  const profile = process.env.E4_BLENDER_PROFILE || join(runDir, 'blender-profile');
+  const installed = existsSync(join(profile, 'extensions', 'user_default', 'scruple_blender'));
+  if (!installed) {
+    mkdirSync(profile, { recursive: true });
+    // ⚑ Finding E3-3: this CLI exits 0 on a REFUSED install. The exit code is
+    // not the observable; the directory below is, and so is the module name
+    // the running Blender reports afterwards.
+    execFileSync(blender, ['--command', 'extension', 'install-file', '-r', 'user_default', '-e', zip], {
+      env: { ...process.env, BLENDER_USER_RESOURCES: profile },
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 300000,
+    });
+    if (!existsSync(join(profile, 'extensions', 'user_default', 'scruple_blender'))) {
+      throw new Error(`the addon is not in ${profile}/extensions/user_default after install-file`);
+    }
+  }
+
+  const promptId = `${spec.promptPrefix || 'blender'}-${nonce}`;
+  const scene = String(spec.scene || 'scruple-${nonce}').replace('${nonce}', nonce);
+  const camera = String(spec.camera || 'CAM_hero');
+  const frame = Number(spec.frame ?? parseInt(nonce.slice(0, 4), 16) % 200 + 1);
+
+  const out = execFileSync(
+    blender,
+    ['--background', '--python', join(REPO, 'scripts', 'e4-blender-host.py'), '--',
+      '--host-dir', hostDir, '--prompt-id', promptId,
+      '--scene', scene, '--frame', String(frame), '--camera', camera,
+      ...(spec.noCamera ? ['--no-camera'] : [])],
+    {
+      env: { ...process.env, BLENDER_USER_RESOURCES: profile, SCRUPLE_COMFY_HOST_DIR: hostDir },
+      encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 600000,
+    },
+  );
+  const m = out.match(/<<<E4_BLENDER\n([\s\S]*?)\nE4_BLENDER>>>/);
+  if (!m) throw new Error(`Blender produced no report:\n${out.slice(-2000)}`);
+  const report = JSON.parse(m[1]);
+
+  const declarationPath = join(hostDir, 'scruple-host.json');
+  const announcePath = join(hostDir, 'announce', `${promptId}.json`);
+  if (!existsSync(declarationPath)) {
+    throw new Error(`enabling the addon did not write ${declarationPath}`);
+  }
+  const declaration = JSON.parse(readFileSync(declarationPath, 'utf8'));
+  // READ BACK OFF DISK, not taken from the report: the assertions compare the
+  // leaf against the bytes that are actually in the announcement directory.
+  const evidence = existsSync(announcePath)
+    ? JSON.parse(readFileSync(announcePath, 'utf8'))
+    : null;
+
+  return {
+    ...spec, path: hostDir, hostDir, announceDir: join(hostDir, 'announce'),
+    declarationPath, announcePath, promptId, evidence, declaration,
+    scene, camera, frame, blenderProfile: profile, blenderReport: report,
+    blenderVersion: report.blender_version, module: report.module,
+  };
+}
+
 /** The scratch app credentials the GATE needs, under its own baseline. The
  *  baseline_ref is the tamper surface of app/comfy/ — the code doing the
  *  measuring — so a change in the vault surface cannot show up as drift here
@@ -1381,6 +1544,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     if (f.kind === 'vault') { fixtures[id] = materialiseVault(sourceDir, id, f, nonce); continue; }
     if (f.kind === 'model-store') { fixtures[id] = materialiseModelStore(sourceDir, id, f); continue; }
     if (f.kind === 'host') { fixtures[id] = materialiseHost(sourceDir, id, f, nonce); continue; }
+    if (f.kind === 'blender-host') { fixtures[id] = materialiseBlenderHost(sourceDir, id, f, nonce, runDir); continue; }
     const bytes = deterministicBytes(f.seed || id, f.bytes);
     const path_ = join(sourceDir, f.name || id);
     writeFileSync(path_, bytes);
@@ -1457,7 +1621,9 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     // A scenario with no host fixture leaves it UNSET, which is Level 1 —
     // "point ComfyUI at the gate" with nothing else, exactly as a Level-1 host
     // experiences it.
-    const host = Object.values(fixtures).find((f) => f && f.kind === 'host');
+    const host = Object.values(fixtures).find(
+      (f) => f && (f.kind === 'host' || f.kind === 'blender-host'),
+    );
     if (host) env.SCRUPLE_COMFY_HOST_DIR = host.hostDir;
     mkdirSync(env.SCRUPLE_COMFY_STATE, { recursive: true, mode: 0o700 });
     // WO-D7. The credential handler signs an artifact into the chain that holds

@@ -52,3 +52,42 @@
            NOT buy".
 17:43:00Z  DONE   WO-E2  gate 8 pass / 0 fail  server=634c66e
 17:46:00Z  DONE   WO-E2  (72m)  desktop=3ecad6a web=634c66e
+17:46:30Z  DONE   WO-E2  (72m)  desktop=f07064d web=634c66e
+17:46:30Z  START  WO-E3
+18:20:38Z  DONE   WO-E3  (34m)  desktop=8590948 web=634c66e
+18:20:38Z  START  WO-E4
+19:05:00Z  WO-E4 RED demonstrated by building the addon zip at the parent of
+           the commit that added adapter/host_hook.py and installing it into a
+           Blender of its own: declaration_exists=false, host_announce absent
+           (`RAISED: … could not be found`), announce_exists=false — GREEN on
+           all three after, on the same Blender 4.2.23.
+19:05:00Z  ⚑ found BEFORE changing anything: the scratch app database was one
+           migration behind the server tree. 059_declared_uncaptured.sql
+           (WO-E2, 17:43) had never been applied and :3902 is `next dev`, so
+           every leaf submission answered 500 and WO-D6's own scenario failed
+           11 assertions with `no iteration row` and queueDepth 2. D6's gate
+           had been silently red since 17:43 and NOTHING IN ANY GATE APPLIES
+           MIGRATIONS. Finding E4-0, docs/WO-E4.md.
+19:05:00Z  ⚑ E4-2: hostAdapterSink's schema check is presence-only in BOTH
+           languages (`k not in evidence`), so a required field present and
+           NULL is accepted, hashed and put in the MAC — a leaf reading
+           `supplied` with a null camera. NOT patched: the gate is not this
+           WO's to change. The addon refuses to emit such a document instead.
+           The next host to register hits this with nothing in between.
+19:05:00Z  ⚑ E4-4: adapter/scene.py reported CYCLES' sample count for EEVEE
+           renders — scene.cycles exists on every scene whatever the engine
+           is, so a 4.2.23 default scene announced samples: 4096. Fixed at the
+           source; it was riding in the standalone blender_render workflow
+           dict too.
+19:05:00Z  suites: addon 330 passed (306+2 failed on arrival → 308 after
+           re-vendoring at web 634c66e, closing E3-4, → 330 with +22 new);
+           d2-gate PASSED, d4-gate PASSED, d6's two scenarios PASSED as
+           stage 8; npm run e3 re-run against the new zip with no change in
+           its verdict.
+19:05:00Z  ⚑ not covered: no render happened and no bridge was involved — E6
+           owns both. The announcement is bound to the artifact by the
+           prompt_id and nothing else (E4-5), and the host's RESOLVED
+           placement is still not on the leaf, so `blender` (honest) and
+           `phantom-cam` (degraded) produce indistinguishable leaves (E4-6).
+           Every Blender measurement is on an emulated CPU (E3-2).
+19:05:00Z  DONE   WO-E4  gate 9 stages pass / 0 fail  addon=47bc3d6

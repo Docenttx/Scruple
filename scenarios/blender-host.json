@@ -1,0 +1,432 @@
+{
+  "scenario": "blender-host",
+  "description": "WO-E4. THE ADDON IS THE ADAPTER. Blender 4.2.23 is launched headless with the shipped zip installed; enabling it runs adapter/host_hook.py::declare(), which validates the addon's own static HostRegistration through the SDK's register_host() and writes scruple-host.json; then bpy.ops.scruple.host_announce writes one document per generation from bpy datablocks. Nothing in this repository writes either file. The gate is unchanged from WO-D6 — it still observes a wire, and a wire still cannot carry 'this was scene X at frame Y through camera Z, EEVEE at 1920x1080'. The driver chose the scene name, the frame and the camera; it did NOT choose the engine, the resolution, the sample count or the file format, and those are on the leaf too.",
+  "needs": "comfy",
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "comfy-base",
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    },
+    "blender": {
+      "kind": "blender-host",
+      "name": "blender-host",
+      "promptPrefix": "blender",
+      "scene": "atrium-${nonce}",
+      "camera": "CAM_hero"
+    }
+  },
+  "steps": [
+    {
+      "as": "launch",
+      "call": "comfyLaunch",
+      "args": []
+    },
+    {
+      "as": "gen",
+      "call": "comfyGenerate",
+      "args": [
+        {
+          "workflow": {
+            "1": {
+              "class_type": "EmptyImage",
+              "inputs": {
+                "width": 32,
+                "height": 32,
+                "batch_size": 1,
+                "color": "${driver.nonceInt}"
+              }
+            },
+            "2": {
+              "class_type": "UpscaleModelLoader",
+              "inputs": {
+                "model_name": "scruple-tiny-x2.safetensors"
+              }
+            },
+            "3": {
+              "class_type": "ImageUpscaleWithModel",
+              "inputs": {
+                "upscale_model": [
+                  "2",
+                  0
+                ],
+                "image": [
+                  "1",
+                  0
+                ]
+              }
+            },
+            "4": {
+              "class_type": "SaveImage",
+              "inputs": {
+                "images": [
+                  "3",
+                  0
+                ],
+                "filename_prefix": "scruple-e4"
+              }
+            }
+          },
+          "promptId": "${fixtures.blender.promptId}"
+        }
+      ]
+    },
+    {
+      "as": "stop",
+      "call": "comfyStop",
+      "args": []
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "launch-succeeded",
+      "kind": "step-succeeded",
+      "step": "launch"
+    },
+    {
+      "id": "generate-succeeded",
+      "kind": "step-succeeded",
+      "step": "gen"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "gen"
+    },
+    {
+      "id": "blender-loaded-the-addon-through-the-manifest-path",
+      "kind": "equals",
+      "actual": "${fixtures.blender.module}",
+      "expected": "bl_ext.user_default.scruple_blender",
+      "note": "WO-E3's discriminator: only the blender_manifest.toml path produces a bl_ext.<repo>.<id> module name. This is the addon we SHIP, loaded the way a 4.2+ user gets it."
+    },
+    {
+      "id": "enabling-the-addon-is-what-declared-it",
+      "kind": "equals",
+      "actual": "${fixtures.blender.blenderReport.declaration_exists}",
+      "expected": true,
+      "note": "read at the top of the announce script, before anything in it ran — so scruple-host.json was on disk because register() put it there, not because a script did"
+    },
+    {
+      "id": "the-declaration-names-the-blender-that-made-it",
+      "kind": "equals",
+      "actual": "${fixtures.blender.declaration.hostVersion}",
+      "expected": "${fixtures.blender.blenderVersion}",
+      "note": "MEASURED from bpy.app.version inside the process that declared. A leaf whose semantics came from an add-on that cannot be identified cannot be re-examined."
+    },
+    {
+      "id": "gate-registered-the-host",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.registered.host}",
+      "expected": "blender",
+      "note": "the app validated, through registerHost(), a declaration written by a Blender process that had already exited"
+    },
+    {
+      "id": "gate-is-at-level-2",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.level}",
+      "expected": 2
+    },
+    {
+      "id": "no-declaration-was-refused",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.refused}",
+      "expected": null,
+      "note": "Level 1 by absence and Level 1 because a declaration was rejected are different facts; the gate records which"
+    },
+    {
+      "id": "the-addon-declared-what-it-can-be-resolved-to",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.registered.effectivePlacement}",
+      "expected": "unattested-client"
+    },
+    {
+      "id": "and-so-there-is-no-gap-to-explain",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.registered.declaredPlacement}",
+      "expected": "unattested-client",
+      "note": "⚑ NOT the phantom host's arrangement. phantom-cam declares attested-client so the degradation can be watched happening; a real addon that asked for it would buy a finding, not a grade. A zip in a user-writable directory IS unattested-client, so declared == effective."
+    },
+    {
+      "id": "the-required-list-on-the-gate-is-the-addons-own",
+      "kind": "json-equals",
+      "actual": "${steps.launch.value.gate.hostHook.registered.required}",
+      "expected": "${fixtures.blender.declaration.schema.required}",
+      "note": "the schema the gate declines against is the one that shipped inside the zip"
+    },
+    {
+      "id": "the-model-store-adapter-is-still-there",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.adapter}",
+      "expected": "model-store",
+      "note": "two adapters through one seam — the host hook did not displace WO-D4's"
+    },
+    {
+      "id": "comfyui-honoured-the-prompt-id-the-addon-announced-against",
+      "kind": "equals",
+      "actual": "${steps.gen.value.hostChosePromptId}",
+      "expected": true
+    },
+    {
+      "id": "generation-went-through-the-gate",
+      "kind": "equals",
+      "actual": "${steps.gen.value.viaGate}",
+      "expected": true
+    },
+    {
+      "id": "artifact-on-disk",
+      "kind": "file-exists",
+      "path": "${steps.gen.value.images.0.storePath}"
+    },
+    {
+      "id": "artifact-rehashes",
+      "kind": "file-rehashes",
+      "path": "${steps.gen.value.images.0.storePath}",
+      "sha256": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "artifact-has-a-leaf",
+      "kind": "witness-row",
+      "contentHash": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_semantics",
+      "expected": "supplied",
+      "note": "THE GATE OF THIS WORK ORDER. Three-valued and inside the MAC: blind (nobody to ask), declined (asked, nothing to say), supplied."
+    },
+    {
+      "id": "leaf-names-the-host",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host",
+      "expected": "blender"
+    },
+    {
+      "id": "leaf-names-the-adapter-and-its-version",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_adapter",
+      "expected": "${fixtures.blender.declaration.adapter}@${fixtures.blender.declaration.adapterVersion}",
+      "note": "so a batch of leaves from a known-bad addon build can be found. The adapter id is separate from the host because one Blender has several: this is the ComfyUI bridge, not the render queue."
+    },
+    {
+      "id": "leaf-names-the-evidence-type",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_evidence_type",
+      "expected": "${fixtures.blender.declaration.evidenceType}"
+    },
+    {
+      "id": "⚑-leaf-carries-the-scene",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "scene",
+      "expected": "${fixtures.blender.scene}",
+      "note": "⚑ THE WHOLE OF LEVEL 2. This string was given to Blender, set on a bpy scene datablock, read back out of it by the addon, written to a file before the app was launched — and the gate could not have known it: a wire carries bytes and a graph, not a scene name."
+    },
+    {
+      "id": "leaf-carries-the-frame",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "frame",
+      "expected": "${fixtures.blender.frame}"
+    },
+    {
+      "id": "leaf-carries-the-camera",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "camera",
+      "expected": "${fixtures.blender.camera}"
+    },
+    {
+      "id": "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "engine",
+      "expected": "${fixtures.blender.blenderReport.scene_as_blender_holds_it.engine}",
+      "note": "⚑ The driver names the scene, the frame and the camera; it says NOTHING about the engine. The expected value is what the running Blender reported for scene.render.engine before the announcement was written, so this is Blender's own reading arriving on a leaf."
+    },
+    {
+      "id": "leaf-carries-the-resolution-that-determined-the-pixels",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "resolution",
+      "expected": "${fixtures.blender.evidence.resolution}"
+    },
+    {
+      "id": "leaf-carries-the-resolution-percentage",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "resolution_percentage",
+      "expected": "${fixtures.blender.evidence.resolution_percentage}",
+      "note": "1920x1080 at 50% is a 960x540 file; the pair is the setting, not the first half of it"
+    },
+    {
+      "id": "leaf-carries-the-sample-count-of-the-engine-that-is-set",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "samples",
+      "expected": "${fixtures.blender.evidence.samples}",
+      "note": "finding E4-4: scene.cycles exists even when the engine is EEVEE, so 'the first group with a .samples' put Cycles' 4096 on an EEVEE render. adapter/scene.py::render_samples dispatches on the engine."
+    },
+    {
+      "id": "leaf-carries-the-file-format-blender-declared",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "file_format",
+      "expected": "${fixtures.blender.evidence.file_format}"
+    },
+    {
+      "id": "⚑-the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "kind": "host-evidence-equals-file",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "path": "${fixtures.blender.announcePath}",
+      "note": "the per-field assertions above prove fields survive; this proves the WHOLE document did — nothing added, nothing dropped, nothing helpfully defaulted on the way"
+    },
+    {
+      "id": "host-evidence-hash-agrees",
+      "kind": "host-evidence-hash-agrees",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "note": "/api/v2/witness recomputes this from the manifest and refuses a pair that disagrees — and the HASH is inside the MAC while the document is not, so a green here is a signed claim over reproducible bytes"
+    },
+    {
+      "id": "the-adapter-recorded-what-it-did",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.hostEnrichments.0.state}",
+      "expected": "supplied",
+      "note": "the sidecar's own per-observation record, so a run where nothing was enriched cannot look like a run with no adapter"
+    },
+    {
+      "id": "model-fingerprints-still-there",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "sha256": "${fixtures.models.files.upscaler.sha256}",
+      "note": "⚑ BOTH HALVES ON ONE LEAF. The addon never saw these bytes and the gate never saw the scene. This is the claim docs/BLENDER.md opens with."
+    },
+    {
+      "id": "no-leaf-claims-verified",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "attestation_basis",
+      "expected": "stale",
+      "note": "🔴 the surrogate is SOFTWARE-backed and the profile is desktop; `verified` is unrepresentable by construction"
+    },
+    {
+      "id": "queue-drained",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.queueDepth}",
+      "expected": 0
+    }
+  ],
+  "auditNote": "The five mutations are the five ways a Blender deployment can end up with nothing, or the wrong thing, on a leaf — and the point of the design is that NO TWO OF THEM READ THE SAME.\n\n`no-host-adapter` is the work order's first control: the addon absent. The gate never sees a host directory, the leaf reads `blind`, and every Level-2 assertion goes red while the artifact, its leaf and the model fingerprints do not move. Level 1 loses meaning, never coverage.\n\n`no-announcement` is the second, and it is the one the work order calls the one that matters: the addon IS there and said nothing about THIS generation. `declined`, not `blind`. It reddens the document assertions and leaves `leaf-names-the-host` GREEN — naming the host is a fact about the deployment that stays true when an announcement is missing. An operator reading `declined` goes and looks at the add-on; an operator reading `blind` goes and installs one.\n\n`partial-announcement` drops `camera` from a document the addon wrote, which is the third control: a document that fails the host's OWN declared schema. It is DECLINED and the decline is RECORDED with its reason, and the run continues with full Level-1 coverage. ⚑ The addon itself will not produce this document — `host_hook.announce()` checks presence AND type against the same schema and writes nothing when it fails, which is why the mutation has to make one.\n\n`announce-under-a-different-id` is the correlation control. The host chooses the prompt id, so it can get it wrong: here it announces a real, complete, schema-valid document about a real scene under one id and submits the generation under another. The leaf must say LESS — `declined`, no document, no hash — and must not say something FALSE. Nothing matches loosely, so choosing the id grants nothing.\n\n`forge-the-declaration` is the registration control. A host declares what it is, never how good it is: an `attestation` key is refused by registerHost(), the run continues at Level 1, and the refusal is recorded rather than swallowed.\n\n`model-swap` is WO-D4's, unchanged, and reddens exactly one assertion — the second adapter in the sink chain did not disturb the first.\n\nAND NOTE WHAT SEPARATES THEM. `no-declaration-was-refused` is GREEN under `no-host-adapter` and RED under `forge-the-declaration`. `leaf-names-the-host` is GREEN under `no-announcement`, `partial-announcement` and `announce-under-a-different-id`, and RED under the two that leave nobody registered.",
+  "audit": {
+    "no-host-adapter": [
+      "gate-registered-the-host",
+      "gate-is-at-level-2",
+      "the-addon-declared-what-it-can-be-resolved-to",
+      "and-so-there-is-no-gap-to-explain",
+      "the-required-list-on-the-gate-is-the-addons-own",
+      "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "leaf-names-the-host",
+      "leaf-names-the-adapter-and-its-version",
+      "leaf-names-the-evidence-type",
+      "⚑-leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "leaf-carries-the-resolution-that-determined-the-pixels",
+      "leaf-carries-the-resolution-percentage",
+      "leaf-carries-the-sample-count-of-the-engine-that-is-set",
+      "leaf-carries-the-file-format-blender-declared",
+      "⚑-the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "no-announcement": [
+      "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "⚑-leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "leaf-carries-the-resolution-that-determined-the-pixels",
+      "leaf-carries-the-resolution-percentage",
+      "leaf-carries-the-sample-count-of-the-engine-that-is-set",
+      "leaf-carries-the-file-format-blender-declared",
+      "⚑-the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "partial-announcement": [
+      "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "⚑-leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "leaf-carries-the-resolution-that-determined-the-pixels",
+      "leaf-carries-the-resolution-percentage",
+      "leaf-carries-the-sample-count-of-the-engine-that-is-set",
+      "leaf-carries-the-file-format-blender-declared",
+      "⚑-the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "announce-under-a-different-id": [
+      "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "⚑-leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "leaf-carries-the-resolution-that-determined-the-pixels",
+      "leaf-carries-the-resolution-percentage",
+      "leaf-carries-the-sample-count-of-the-engine-that-is-set",
+      "leaf-carries-the-file-format-blender-declared",
+      "⚑-the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "forge-the-declaration": [
+      "gate-registered-the-host",
+      "gate-is-at-level-2",
+      "no-declaration-was-refused",
+      "the-addon-declared-what-it-can-be-resolved-to",
+      "and-so-there-is-no-gap-to-explain",
+      "the-required-list-on-the-gate-is-the-addons-own",
+      "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "leaf-names-the-host",
+      "leaf-names-the-adapter-and-its-version",
+      "leaf-names-the-evidence-type",
+      "⚑-leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "leaf-carries-the-resolution-that-determined-the-pixels",
+      "leaf-carries-the-resolution-percentage",
+      "leaf-carries-the-sample-count-of-the-engine-that-is-set",
+      "leaf-carries-the-file-format-blender-declared",
+      "⚑-the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "model-swap": [
+      "model-fingerprints-still-there"
+    ],
+    "assert-expectation": [
+      "⚑-leaf-carries-the-scene"
+    ]
+  }
+}
