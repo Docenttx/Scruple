@@ -21,6 +21,7 @@ const path = require('path');
 
 const { registerIpc } = require('./ipc-ping');
 const { registerCaptureIpc } = require('./ipc-capture');
+const { registerVaultIpc } = require('./ipc-vault');
 
 const APP_URL = process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902';
 
@@ -88,6 +89,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   registerIpc();
   registerCaptureIpc();
+  registerVaultIpc();
   const { window, navigation } = createWindow();
 
   // --probe=ping drives WO-D1's scripted round trip and exits.

@@ -24,4 +24,5 @@ contextBridge.exposeInMainWorld('scruple', {
   host: 'electron',
   ping: (nonce) => ipcRenderer.invoke('scruple:ping', nonce),
   captureFile: (req) => ipcRenderer.invoke('scruple:capture-file', req),
+  vaultCapture: (req) => ipcRenderer.invoke('scruple:vault-capture', req),
 });

@@ -40,7 +40,7 @@
  *   SCRUPLE_APP_URL   default http://127.0.0.1:3902  (the served Next UI)
  */
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomBytes, createHmac } from 'node:crypto';
 import {
   cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
@@ -109,6 +109,57 @@ const MUTATIONS = {
       return `removed preload.js from ${ctx.appDir}`;
     },
   },
+  // ── WO-D3's mutations. Two of them are INVERSE controls: they do not
+  // corrupt anything, they REMOVE the reason a file was refused, and the
+  // refusal assertions must go red. A refusal that survives its own cause
+  // being deleted was never caused by what the scenario claims.
+  'declare-the-undeclared': {
+    when: 'before',
+    describe: 'add undeclared.png to the vault declaration — the refusal must stop',
+    apply(ctx) {
+      const v = ctx.fixtures.vault;
+      const decl = JSON.parse(readFileSync(v.declarationPath, 'utf8'));
+      decl.files['undeclared.png'] = { mime: 'image/png' };
+      writeFileSync(v.declarationPath, JSON.stringify(decl, null, 2));
+      return 'undeclared.png is now declared image/png';
+    },
+  },
+  'raise-the-ceiling': {
+    when: 'env',
+    describe: 'raise the ceiling above oversize.bin — the refusal must stop',
+    apply(ctx) {
+      ctx.env.SCRUPLE_VAULT_CEILING_BYTES = String(64 * 1024 * 1024);
+      return 'ceiling raised to 64 MiB';
+    },
+  },
+  'vault-file-swap': {
+    when: 'before',
+    describe: 'rewrite an accepted vault file AFTER the driver hashed it',
+    apply(ctx) {
+      const f = ctx.fixtures.vault.files.accepted;
+      writeFileSync(f.path, deterministicBytes('swapped-in-the-vault', f.bytes));
+      return `rewrote ${f.path} with different bytes of the same length`;
+    },
+  },
+  'manifest-tamper': {
+    when: 'after',
+    describe: "rewrite one refusal in the manifest to 'captured', keeping it valid JSON",
+    // A TRUNCATION WOULD PROVE LESS. Chopping the file makes every assertion
+    // that reads it fail, including the ones about parsing, and "the record is
+    // gone" is not the interesting claim. This edits one field and leaves the
+    // document readable — so what goes red is the DIGEST, which is on a leaf,
+    // and the one fact that was edited. That is what witnessing the manifest
+    // buys: the record is tamper-evident, not tamper-proof.
+    apply(ctx) {
+      const p = ctx.resolve('${steps.vault.value.manifest.path}');
+      const doc = JSON.parse(readFileSync(p, 'utf8'));
+      const e = (doc.entries || []).find((x) => x.outcome === 'refused_over_ceiling');
+      if (!e) throw new Error('no over-ceiling refusal in the manifest to tamper with');
+      e.outcome = 'captured';
+      writeFileSync(p, JSON.stringify(doc));
+      return `${e.path}: refused_over_ceiling → captured, in ${p}`;
+    },
+  },
   'assert-expectation': {
     when: 'spec',
     describe: "rewrite one assertion's expected value to a wrong constant",
@@ -136,6 +187,17 @@ contextBridge.exposeInMainWorld('scruple', {
   host: 'electron',
   ping: async (nonce) => reply(nonce),
   captureFile: async (req) => ({ ...reply(null), sourcePath: req.path, storePath: req.path, sha256: 'f'.repeat(64), bytes: 0 }),
+  // The most flattering lie a renderer-side stub can tell about a vault: it
+  // says everything was captured and nothing was refused. Nothing here can
+  // know the main pid, cannot make a manifest exist, and cannot put a row in
+  // the witness — which is exactly what the vault assertions look at.
+  vaultCapture: async (req) => ({
+    ...reply(null), outcome: 'vaulted', vaultDir: req.vaultDir, vaultId: req.vaultId,
+    counts: { files: 5, captured: 5, refused_mime_undeclared: 0, refused_mime_declared_absent: 0,
+              refused_over_ceiling: 0, refused_unreadable: 0 },
+    entries: [], emitted: [], queueDepth: 0,
+    manifest: { path: '/nonexistent/manifest.json', digest: 'f'.repeat(64), bytes: 0 },
+  }),
 });
 `;
 
@@ -201,6 +263,63 @@ const KINDS = {
     const got = createHash('sha256').update(readFileSync(p)).digest('hex');
     return { pass: got === want, detail: { path: p, onDisk: got, recorded: want } };
   },
+  // ── WO-D3. Rows in the scratch witness, read from the witness server's own
+  // sqlite file by this process. Not from the app's reply, not from the app's
+  // database, and certainly not from a log line: the WO's observable is "leaves
+  // in the scratch witness", and the witness is a different process with a
+  // different file.
+  'witness-row': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const rows = witnessRows(hash);
+    return { pass: rows.length > 0, detail: { contentHash: hash, rows } };
+  },
+  // The other half, and the one that makes a refusal mean something: a refused
+  // file must have NO leaf. A surface that refused in its own record and
+  // witnessed the bytes anyway would pass every assertion above.
+  'witness-row-absent': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const rows = witnessRows(hash);
+    return { pass: rows.length === 0, detail: { contentHash: hash, rows } };
+  },
+  // What the app SAID happened to one file. Weak on its own — it reads the
+  // reply — and paired below with `manifest-entry`, which reads the bytes.
+  'entry-outcome': (a, ctx) => {
+    const entries = ctx.resolve(a.entries);
+    if (!Array.isArray(entries)) return { pass: false, detail: 'no entries array' };
+    const e = entries.find((x) => x && x.path === a.path);
+    return { pass: !!e && e.outcome === a.expected, detail: { path: a.path, got: e ? e.outcome : null, expected: a.expected } };
+  },
+  // THE ONE THAT MAKES A REFUSAL "A RECORDED OUTCOME". The manifest is read
+  // off disk HERE and parsed HERE; the app's reply is not consulted. A refusal
+  // that exists only in the reply is a refusal that was silently skipped.
+  'manifest-entry': (a, ctx) => {
+    const p = ctx.resolve(a.path);
+    if (typeof p !== 'string' || !existsSync(p)) return { pass: false, detail: { path: p, why: 'no manifest on disk' } };
+    let doc;
+    try { doc = JSON.parse(readFileSync(p, 'utf8')); }
+    catch (err) { return { pass: false, detail: `manifest is not JSON: ${String(err.message || err)}` }; }
+    const e = (doc.entries || []).find((x) => x && x.path === a.entry);
+    if (!e) return { pass: false, detail: { entry: a.entry, why: 'not in the manifest at all' } };
+    const checks = { outcome: e.outcome === a.expected };
+    if (a.mimeState) checks.mimeState = e.mime && e.mime.state === a.mimeState;
+    if (a.contentHashState) checks.contentHashState = e.content_hash && e.content_hash.state === a.contentHashState;
+    if (a.bytesCountedState) checks.bytesCountedState = e.bytes_counted && e.bytes_counted.state === a.bytesCountedState;
+    if (a.bytesCountedAtLeast !== undefined) {
+      checks.bytesCountedAtLeast =
+        e.bytes_counted && typeof e.bytes_counted.value === 'number' && e.bytes_counted.value >= a.bytesCountedAtLeast;
+    }
+    const pass = Object.values(checks).every(Boolean);
+    return { pass, detail: { entry: a.entry, outcome: e.outcome, expected: a.expected, checks } };
+  },
+  'manifest-count': (a, ctx) => {
+    const p = ctx.resolve(a.path);
+    if (typeof p !== 'string' || !existsSync(p)) return { pass: false, detail: { path: p, why: 'no manifest on disk' } };
+    let doc;
+    try { doc = JSON.parse(readFileSync(p, 'utf8')); }
+    catch (err) { return { pass: false, detail: `manifest is not JSON: ${String(err.message || err)}` }; }
+    const got = (doc.counts || {})[a.key];
+    return { pass: got === a.expected, detail: { key: a.key, got, expected: a.expected } };
+  },
   'file-bytes': (a, ctx) => {
     const p = ctx.resolve(a.path);
     const want = ctx.resolve(a.bytes);
@@ -222,6 +341,106 @@ function deterministicBytes(seed, n) {
     filled += block.length;
   }
   return out;
+}
+
+
+/**
+ * Rows in the SCRATCH WITNESS for one content hash.
+ *
+ * Read with the sqlite3 CLI in read-only mode rather than through a driver,
+ * because this repo has one dependency (electron) and the point of the query is
+ * that it is made from OUTSIDE both the app and the sidecar. The URI form is
+ * `mode=ro` so nothing here can write to a database this process does not own.
+ *
+ * 🔴 The path comes from SCRUPLE_WITNESS_DB and defaults to the scratch file.
+ * The production witness at :5799 has its own database and is never opened.
+ */
+function witnessRows(contentHash) {
+  if (typeof contentHash !== 'string' || !/^[0-9a-f]{64}$/.test(contentHash)) return [];
+  const db = process.env.SCRUPLE_WITNESS_DB
+    || '/mnt/corpus/scruple-council-impl/witness-scratch.db';
+  const sql = `SELECT id || '|' || leaf_hash FROM witnesses WHERE content_hash = '${contentHash}';`;
+  try {
+    const out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', sql], { encoding: 'utf8' });
+    return out.split('\n').map((l) => l.trim()).filter(Boolean);
+  } catch (err) {
+    // A query that could not run is NOT an absent row. Returning [] here would
+    // make `witness-row-absent` pass on a broken sqlite3 and turn a harness
+    // fault into a green control.
+    throw new Error(`witness query failed against ${db}: ${String(err.message || err)}`);
+  }
+}
+
+
+/**
+ * A VAULT FIXTURE: a directory, its files, and the declaration that types them.
+ *
+ * Written and hashed HERE, before the app exists, for the same reason the flat
+ * fixtures are: the digest the app reports has to be compared against one it
+ * did not produce.
+ *
+ * ⚑ THE CONTROLS LIVE IN THE SHAPE OF THIS DIRECTORY. `accepted.png` is
+ * declared and `undeclared.png` is not, and THEY HAVE THE SAME EXTENSION. Any
+ * extension table, `mimetypes` import or "sensible default" in the surface
+ * makes the second one pass, and the second one passing is the failure. A
+ * fixture pair that differed in extension as well would not be able to tell
+ * the difference.
+ */
+function materialiseVault(sourceDir, id, spec, salt) {
+  const dir = join(sourceDir, spec.name || id);
+  mkdirSync(dir, { recursive: true });
+  const declaration = { vault_declaration: 'v1', declared_by: spec.declaredBy || 'desktop-run fixture', files: {} };
+  // KEYED BY A DOT-FREE ID, not by the filename. `${fixtures.vault.files.accepted.sha256}`
+  // has to resolve, and app/interpolate.js splits a reference on '.', so a key
+  // of "accepted.png" would be looked up as two path segments and throw.
+  const files = {};
+  for (const [fid, f] of Object.entries(spec.files || {})) {
+    const name = f.name || fid;
+    // SALTED WITH THE RUN NONCE, unlike the flat fixtures. The witness is a
+    // persistent scratch database: a vault file with the same bytes every run
+    // would be witnessed once and then found by every later run's
+    // `witness-row-absent` — an assertion that goes permanently red because an
+    // EARLIER mutation did its job. The driver hashes these itself, so it needs
+    // no cross-run determinism to compare against.
+    const bytes = deterministicBytes(`${f.seed || `${id}/${name}`}:${salt}`, f.bytes);
+    const p = join(dir, name);
+    writeFileSync(p, bytes);
+    files[fid] = { name, path: p, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+    // `declare: false` means the declaration does not name it at all —
+    // `indeterminate`. `mime: null` means it names it and declares no type —
+    // `absent`. Two different facts, and the fixture can express both.
+    if (f.declare === false) continue;
+    declaration.files[name] = { mime: f.mime === undefined ? null : f.mime, ...(f.reason ? { reason: f.reason } : {}) };
+  }
+  const declarationPath = join(dir, 'scruple-vault.json');
+  const declarationBytes = Buffer.from(JSON.stringify(declaration, null, 2), 'utf8');
+  writeFileSync(declarationPath, declarationBytes);
+  return {
+    ...spec, path: dir, files, declarationPath,
+    declarationSha256: createHash('sha256').update(declarationBytes).digest('hex'),
+  };
+}
+
+/**
+ * The scratch app credentials a vault run needs, and a FRESH provisioning
+ * token for it.
+ *
+ * Read from scripts/d3-sandbox.ts rather than reimplemented, because minting a
+ * key and a baseline by hand here would be this script testing its own INSERT.
+ * The token is single-use and short-TTL by design, so it is minted per run.
+ */
+function vaultSandbox() {
+  const run = (args) =>
+    execFileSync('bash', [join(REPO, 'scripts', 'tsx.sh'), join(REPO, 'scripts', 'd3-sandbox.ts'), ...args], {
+      cwd: REPO, encoding: 'utf8',
+      env: {
+        ...process.env,
+        SCRUPLE_DB_PATH: process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db',
+        SCRUPLE_BDK_ALLOW_DEV: process.env.SCRUPLE_BDK_ALLOW_DEV || '1',
+      },
+    }).trim().split('\n').pop().trim();
+  const sandbox = JSON.parse(run(['--json']));
+  return { ...sandbox, token: run(['--mint-token']) };
 }
 
 function argValue(name, fallback) {
@@ -258,6 +477,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   // digest the app reports is being compared against one it did not produce.
   const fixtures = {};
   for (const [id, f] of Object.entries(spec.fixtures || {})) {
+    if (f.kind === 'vault') { fixtures[id] = materialiseVault(sourceDir, id, f, nonce); continue; }
     const bytes = deterministicBytes(f.seed || id, f.bytes);
     const path_ = join(sourceDir, f.name || id);
     writeFileSync(path_, bytes);
@@ -277,7 +497,35 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     cpSync(join(REPO, 'package.json'), join(appDir, 'package.json'));
   }
 
-  const ctxEarly = { fixtures, appDir, spec, runDir };
+  // The child's environment, assembled BEFORE the mutations run so an `env`
+  // mutation has something to change. Everything a page may not choose lives
+  // here: the store, the ceiling, the key, the baseline, the token.
+  const env = {
+    ...process.env,
+    SCRUPLE_APP_URL: appURL,
+    SCRUPLE_RUN_STORE: storeDir,
+    SCRUPLE_SCENARIO_RESULT: resultPath,
+    // So a copied app/ (the app-dir mutations) still finds scripts/ and
+    // vendor/. Without it `fake-bridge` would fail because the sidecar was
+    // missing, which has nothing to do with the preload it is testing.
+    SCRUPLE_DESKTOP_ROOT: REPO,
+    ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+  };
+
+  if (spec.needs === 'vault') {
+    const sandbox = vaultSandbox();
+    env.SCRUPLE_VAULT_API_KEY = sandbox.apiKey;
+    env.SCRUPLE_VAULT_BASELINE_REF = sandbox.baselineRef;
+    env.SCRUPLE_VAULT_PROVISIONING_TOKEN = sandbox.token;
+    env.SCRUPLE_VAULT_STATE = join(runDir, 'vault-state');
+    // THE CEILING IS CONFIGURATION AND IT COMES FROM HERE, never from the
+    // scenario's steps — a renderer that could raise the ceiling could make an
+    // over-ceiling refusal disappear.
+    if (spec.vaultCeilingBytes) env.SCRUPLE_VAULT_CEILING_BYTES = String(spec.vaultCeilingBytes);
+    mkdirSync(env.SCRUPLE_VAULT_STATE, { recursive: true, mode: 0o700 });
+  }
+
+  const ctxEarly = { fixtures, appDir, spec, runDir, env };
   for (const b of breaks) {
     const m = MUTATIONS[b];
     if (m.when === 'after') continue;
@@ -299,13 +547,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     ['-a', '-s', '-screen 0 1280x900x24', electron, appDir, `--scenario=${materialisedPath}`],
     {
       cwd: appDir,
-      env: {
-        ...process.env,
-        SCRUPLE_APP_URL: appURL,
-        SCRUPLE_RUN_STORE: storeDir,
-        SCRUPLE_SCENARIO_RESULT: resultPath,
-        ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
-      },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     }
   );

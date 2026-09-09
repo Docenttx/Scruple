@@ -1,0 +1,267 @@
+{
+  "scenario": "vault-capture",
+  "description": "WO-D3's vault: a real directory of files, enumerated and hashed as a unit, through the real IPC seam into the SDK's ObservationSink. Two ordinary files land as leaves in the scratch witness and re-hash from the bytes on disk. Three refusals \u2014 an undeclared MIME, a declared-absent MIME, and a file over the counted ceiling \u2014 produce NO leaf and ARE recorded, in a manifest that is itself witnessed.",
+  "needs": "vault",
+  "vaultCeilingBytes": 65536,
+  "fixtures": {
+    "vault": {
+      "kind": "vault",
+      "name": "training-vault",
+      "declaredBy": "wo-d3 fixture, standing in for the trainer that filled the folder",
+      "files": {
+        "accepted": {
+          "name": "accepted.png",
+          "bytes": 4096,
+          "seed": "wo-d3-accepted",
+          "mime": "image/png"
+        },
+        "config": {
+          "name": "config.toml",
+          "bytes": 1024,
+          "seed": "wo-d3-config",
+          "mime": "application/toml"
+        },
+        "undeclared": {
+          "name": "undeclared.png",
+          "bytes": 2048,
+          "seed": "wo-d3-undeclared",
+          "declare": false
+        },
+        "opaque": {
+          "name": "opaque.bin",
+          "bytes": 512,
+          "seed": "wo-d3-opaque",
+          "mime": null,
+          "reason": "the producer was asked and declares no type for these bytes"
+        },
+        "oversize": {
+          "name": "oversize.json",
+          "bytes": 200000,
+          "seed": "wo-d3-oversize",
+          "mime": "application/json"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "as": "vault",
+      "call": "vaultCapture",
+      "args": [
+        {
+          "vaultDir": "${fixtures.vault.path}",
+          "vaultId": "wo-d3-vault"
+        }
+      ]
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "step-succeeded",
+      "kind": "step-succeeded",
+      "step": "vault"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "vault",
+      "note": "a renderer-local stub cannot know the main process's pid"
+    },
+    {
+      "id": "outcome-vaulted",
+      "kind": "equals",
+      "actual": "${steps.vault.value.outcome}",
+      "expected": "vaulted"
+    },
+    {
+      "id": "placement-declared-unattested",
+      "kind": "equals",
+      "actual": "${steps.vault.value.assurance.effective}",
+      "expected": "unattested-client",
+      "note": "the user has root on this box; the surface declares the weak placement and earns it"
+    },
+    {
+      "id": "profile-is-desktop",
+      "kind": "equals",
+      "actual": "${steps.vault.value.assurance.profile}",
+      "expected": "desktop",
+      "note": "and on the desktop profile `verified` is unrepresentable \u2014 migration 053 refuses it at the database"
+    },
+    {
+      "id": "accepted-png-captured",
+      "kind": "entry-outcome",
+      "entries": "${steps.vault.value.entries}",
+      "path": "accepted.png",
+      "expected": "captured"
+    },
+    {
+      "id": "config-toml-captured",
+      "kind": "entry-outcome",
+      "entries": "${steps.vault.value.entries}",
+      "path": "config.toml",
+      "expected": "captured"
+    },
+    {
+      "id": "accepted-png-in-witness",
+      "kind": "witness-row",
+      "contentHash": "${fixtures.vault.files.accepted.sha256}"
+    },
+    {
+      "id": "vault-source-unchanged",
+      "kind": "file-rehashes",
+      "path": "${fixtures.vault.files.config.path}",
+      "sha256": "${fixtures.vault.files.config.sha256}",
+      "note": "the vault was read, not rewritten"
+    },
+    {
+      "id": "manifest-exists",
+      "kind": "file-exists",
+      "path": "${steps.vault.value.manifest.path}"
+    },
+    {
+      "id": "manifest-rehashes",
+      "kind": "file-rehashes",
+      "path": "${steps.vault.value.manifest.path}",
+      "sha256": "${steps.vault.value.manifest.digest}",
+      "note": "the unit that replaces the retired merkle root: a canonical document whose sha256 is the vault digest"
+    },
+    {
+      "id": "manifest-in-witness",
+      "kind": "witness-row",
+      "contentHash": "${steps.vault.value.manifest.digest}",
+      "note": "the manifest is itself witnessed \u2014 which is what makes a refusal a RECORDED outcome and not a log line"
+    },
+    {
+      "id": "undeclared-refused",
+      "kind": "manifest-entry",
+      "path": "${steps.vault.value.manifest.path}",
+      "entry": "undeclared.png",
+      "expected": "refused_mime_undeclared",
+      "mimeState": "indeterminate",
+      "contentHashState": "absent",
+      "note": "CONTROL 1. Same extension as accepted.png. An extension table anywhere in the surface makes this file captured."
+    },
+    {
+      "id": "undeclared-not-in-witness",
+      "kind": "witness-row-absent",
+      "contentHash": "${fixtures.vault.files.undeclared.sha256}",
+      "note": "refused means no leaf. A surface that refused in its own record and witnessed the bytes anyway passes everything above."
+    },
+    {
+      "id": "declared-absent-refused",
+      "kind": "manifest-entry",
+      "path": "${steps.vault.value.manifest.path}",
+      "entry": "opaque.bin",
+      "expected": "refused_mime_declared_absent",
+      "mimeState": "absent",
+      "note": "the third state, kept apart from the second: the declarer WAS asked and said there is no type. Collapsing this into `indeterminate` is WO-62's original defect."
+    },
+    {
+      "id": "declared-absent-not-in-witness",
+      "kind": "witness-row-absent",
+      "contentHash": "${fixtures.vault.files.opaque.sha256}"
+    },
+    {
+      "id": "oversize-refused",
+      "kind": "manifest-entry",
+      "path": "${steps.vault.value.manifest.path}",
+      "entry": "oversize.json",
+      "expected": "refused_over_ceiling",
+      "contentHashState": "indeterminate",
+      "bytesCountedState": "measured",
+      "bytesCountedAtLeast": 65536,
+      "note": "CONTROL 2. Refused AS A RECORDED OUTCOME: the count survives the refusal, which is the whole difference between `over the ceiling` and `skipped`."
+    },
+    {
+      "id": "oversize-not-in-witness",
+      "kind": "witness-row-absent",
+      "contentHash": "${fixtures.vault.files.oversize.sha256}"
+    },
+    {
+      "id": "two-captured",
+      "kind": "manifest-count",
+      "path": "${steps.vault.value.manifest.path}",
+      "key": "captured",
+      "expected": 2,
+      "note": "and an ordinary file is still accepted \u2014 a surface that refuses everything passes neither control"
+    },
+    {
+      "id": "five-files-seen",
+      "kind": "manifest-count",
+      "path": "${steps.vault.value.manifest.path}",
+      "key": "files",
+      "expected": 5,
+      "note": "the count of files that were THERE, not the count of files the surface happened to understand. That difference is the legacy vault's defect."
+    },
+    {
+      "id": "queue-drained",
+      "kind": "equals",
+      "actual": "${steps.vault.value.queueDepth}",
+      "expected": 0,
+      "note": "store-and-forward held nothing back \u2014 every MACed event reached the server"
+    }
+  ],
+  "auditNote": "What each break must do, declared here rather than in the driver, because the answer depends on which assertions THIS scenario makes. The sweep requires each set exactly.\n\nTWO OF THESE ARE INVERSE CONTROLS and they are the interesting ones. `declare-the-undeclared` and `raise-the-ceiling` corrupt nothing: they remove the REASON a file was refused, and the refusal assertions must go red. Measured: with undeclared.png declared, captured goes 2 -> 3 and its bytes land in the witness; with the ceiling raised, oversize.json is read to its full 200000 bytes and captured. A refusal that survived the deletion of its own cause was never caused by what this scenario claims.\n\n`manifest-tamper` edits one refusal in the manifest to `captured` and leaves the JSON valid. What goes red is the DIGEST \u2014 which is on a leaf \u2014 and the single fact that was edited. That is exactly what witnessing the manifest buys: the record is tamper-EVIDENT, not tamper-proof.\n\n`vault-file-swap` leaves manifest-rehashes GREEN, because the manifest is honestly the digest of what the surface read; only the driver's own pre-swap hash notices the file moved underneath it. Same shape as WO-D2's source-swap finding.\n\nAND THE FINDING FROM THE SWEEP ITSELF: under `fake-bridge` and `no-bridge`, all four `witness-row-absent` assertions stay GREEN. Of course they do \u2014 a renderer-side liar produces no leaves at all, so every hash is absent from the witness. That is the honest measure of what a negative assertion is worth ALONE, and it is why each refusal is asserted twice: once as a positive fact in the manifest on disk (which those mutations do redden) and once as an absence in the witness.",
+  "audit": {
+    "declare-the-undeclared": [
+      "undeclared-refused",
+      "undeclared-not-in-witness",
+      "two-captured"
+    ],
+    "raise-the-ceiling": [
+      "oversize-refused",
+      "oversize-not-in-witness",
+      "two-captured"
+    ],
+    "vault-file-swap": [
+      "accepted-png-in-witness"
+    ],
+    "assert-expectation": [
+      "two-captured"
+    ],
+    "manifest-tamper": [
+      "manifest-rehashes",
+      "oversize-refused"
+    ],
+    "fake-bridge": [
+      "reached-main",
+      "placement-declared-unattested",
+      "profile-is-desktop",
+      "accepted-png-captured",
+      "config-toml-captured",
+      "accepted-png-in-witness",
+      "manifest-exists",
+      "manifest-rehashes",
+      "manifest-in-witness",
+      "undeclared-refused",
+      "declared-absent-refused",
+      "oversize-refused",
+      "two-captured",
+      "five-files-seen"
+    ],
+    "no-bridge": [
+      "app-completed",
+      "step-succeeded",
+      "reached-main",
+      "outcome-vaulted",
+      "placement-declared-unattested",
+      "profile-is-desktop",
+      "accepted-png-captured",
+      "config-toml-captured",
+      "accepted-png-in-witness",
+      "manifest-exists",
+      "manifest-rehashes",
+      "manifest-in-witness",
+      "undeclared-refused",
+      "declared-absent-refused",
+      "oversize-refused",
+      "two-captured",
+      "five-files-seen",
+      "queue-drained"
+    ]
+  }
+}
