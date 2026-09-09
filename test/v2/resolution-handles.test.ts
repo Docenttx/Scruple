@@ -95,6 +95,13 @@ function captureBlock(over: Record<string, unknown> = {}): Record<string, unknow
     observed_at: '2026-09-09T00:00:00.000Z',
     profile: 'isolated-sidecar',
     attestation_status: 'stale',
+    // WO-C4. The storage confinement measured at emission, and its source.
+    // Both are in the MAC preimage: the value says what was seen and the
+    // source says whether anything was, and an attacker who could promote
+    // `unknown` to `measured` would turn "nobody looked" into "somebody
+    // checked". A capture-bearing leaf without them is refused by rule 5.
+    confinement: 'confined',
+    confinement_source: 'measured',
     ...over,
   };
 }

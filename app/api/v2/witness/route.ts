@@ -645,13 +645,14 @@ export async function POST(req: NextRequest) {
           leaf_signature, leaf_signer_key_id, leaf_signature_alg,
           leaf_signer_surrogate, leaf_signature_state,
           attestation_basis, attestation_profile,
+          storage_confinement, storage_confinement_source,
           resolution_witness_endpoint, resolution_witness_authority,
           resolution_checkpoint_id, resolution_prev_checkpoint_id,
           resolution_prev_checkpoint_quote_time,
           resolution_settlement_deadline, resolution_retention_policy_digest,
           settlement_clock, settlement_clock_authority, settlement_observed_at,
           evidence_retained_until)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -711,6 +712,15 @@ export async function POST(req: NextRequest) {
       // the component said, not what the server decided it meant.
       claims.basis,
       claims.profile,
+      // Migration 056, WO-C4. WHAT THE COMPONENT MEASURED AT EMISSION, and
+      // NULL for a leaf with no capture block — never defaulted to 'confined'
+      // and never to 'unknown' either: NULL is "the question was not asked of
+      // this leaf", 'unknown' is "it was asked and could not be answered".
+      // Rule 5 above has already refused every pair this column must not
+      // hold, and the CHECK constraint refuses them again for any writer that
+      // arrives without going through it.
+      claims.confinement,
+      claims.confinementSource,
       // Migration 054, WO-C2. WHAT THE COMPONENT SIGNED, not what this server
       // knows about itself. The endpoint is self-asserted by the emitter and
       // is deliberately NOT overwritten with our own address: a compromised

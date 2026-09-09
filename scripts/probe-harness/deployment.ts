@@ -312,6 +312,12 @@ async function main(): Promise<void> {
     // WO-C3. The probe deployment emits under the seeded default policy.
     retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
     settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
+    // WO-C4. The harness runs the component's state and the workload's
+    // volumes on one filesystem inside the deployment container, which is a
+    // degraded storage configuration and is declared as one. The probes read
+    // the resulting leaves, which carry the measured value.
+    allowDegradedStorage: true,
+    stateMinReservableBytes: 64 * 1024 * 1024,
     settleMs: 40,
     correlationTtlMs: 60_000,
     heartbeatWindowSeconds: 900,

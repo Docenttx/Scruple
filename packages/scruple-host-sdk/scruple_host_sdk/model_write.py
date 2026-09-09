@@ -103,6 +103,9 @@ from .envelope import (
 )
 from .errors import NoBaselineError
 from .ratchet import Ratchet
+# WO-C4. Raw os.stat per emission — see the module header for why it may not
+# be hoisted to construction time.
+from . import storage_confinement as _storage
 from .server_library import (
     PlacementRefused,
     component_preimage,
@@ -461,6 +464,17 @@ class ModelWriteIntegration:
             "workflow_hash": workflow_hash,
             "observed_at": observed_at or _utc_now(),
             "attestation_status": self._assurance.leaf,
+            # WO-C4. MEASURED HERE, ON THIS EMISSION, and the pair is the
+            # council's exactly: the directory holding the sealed ratchet
+            # state against the directory the checkpoint was written into. A
+            # training run that fills the disk its own queue is on is the
+            # starvation chain with the workload's own artifact as the cause.
+            #
+            # `seal_path` is optional on this integration, and when it is
+            # unset there is no state directory to compare — so the answer is
+            # `unknown`/`unknown` rather than a comparison against a path
+            # invented for the purpose.
+            **self._confinement_fields(facts.path),
         }
 
         component_envelope: Dict[str, Any] = {
@@ -610,6 +624,25 @@ class ModelWriteIntegration:
             envelope=envelope,
             **common,
         )
+
+    def _confinement_fields(self, written_path: str) -> Dict[str, str]:
+        """WO-C4. The two capture fields, measured now.
+
+        NOT CACHED, and this method exists rather than an attribute set in
+        ``__init__`` for that reason: a value read once at construction could
+        only ever describe the construction, which is the config-inherited
+        fact class the council refused for ``pinned_build``. A checkpoint
+        directory can be remounted or bind-mounted between one save and the
+        next.
+        """
+        if not self.seal_path:
+            m = _storage.UNMEASURED
+        else:
+            m = _storage.measure(
+                os.path.dirname(os.path.abspath(self.seal_path)),
+                [os.path.dirname(os.path.abspath(written_path))],
+            )
+        return {"confinement": m.confinement, "confinement_source": m.source}
 
     def _close_detection(self) -> str:
         """How this deployment knew the file was finished.

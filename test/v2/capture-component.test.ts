@@ -181,6 +181,16 @@ async function harness(opts: { outputVolumeMime?: string | null } = {}): Promise
       // check the route side.
       retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
       settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
+      // WO-C4. DECLARED, because it is TRUE here: `stateDir` and the stub's
+      // output volume are both under one `mkdtemp` root, so they share a
+      // device and the ratchet's fsync can be starved by a write into the
+      // volume it is witnessing. Without this the component refuses to bind,
+      // which is the designed severity. With it, every leaf this harness
+      // produces is tagged `degraded_shared_storage` with source `measured` —
+      // and the tests below assert exactly that, so the harness cannot
+      // quietly stop being degraded without a test noticing.
+      allowDegradedStorage: true,
+      stateMinReservableBytes: 64 * 1024 * 1024,
       settleMs: 40,
       correlationTtlMs: 60_000,
       heartbeatWindowSeconds: 900,
@@ -832,6 +842,31 @@ describe('the gate tees inputs, and the upstream never leaks', () => {
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+describe('WO-C4 — this harness runs on shared storage, and every leaf says so', () => {
+  test('the startup reading and each leaf agree that the session is degraded', async () => {
+    const h = await harness();
+    try {
+      // `stateDir` and the stub's output volume are siblings under one
+      // mkdtemp root, so they are one device. That is a real degraded
+      // configuration, `allowDegradedStorage: true` in the harness declares
+      // it, and this test is what stops the declaration from becoming a
+      // formality nobody checks — if the harness ever stopped being degraded,
+      // or the tag stopped being emitted, this fails.
+      assert.equal(h.component.storageAtStartup.confinement, 'degraded_shared_storage');
+      assert.equal(h.component.storageAtStartup.source, 'measured');
+
+      fs.writeFileSync(path.join(h.comfy.dirs.output, 'confinement.png'), M.PNG_1x1);
+      await waitFor(() => h.ingest.received.length > 0);
+      const leaf = h.ingest.received.at(-1) as { capture: Record<string, unknown> };
+      assert.equal(leaf.capture.confinement, 'degraded_shared_storage');
+      assert.equal(leaf.capture.confinement_source, 'measured');
+    } finally {
+      await h.stop();
+    }
+  });
+});
+
 describe('§4.3 — what the build measurement is worth today', () => {
   test('it is shaped for the provisioning route and rides on every event', async () => {
     const h = await harness({ outputVolumeMime: 'image/png' });

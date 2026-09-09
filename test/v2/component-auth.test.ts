@@ -127,6 +127,12 @@ const CAPTURE = {
   // the profile, so an unsigned profile is an unsigned basis.
   attestation_status: 'stale' as const,
   profile: 'server-managed' as const,
+  // WO-C4. Measured at emission, and both keys signed. See
+  // lib/leaf/componentPreimage.ts — the value says what was seen, the source
+  // says whether anything was, and only `measured` may back a substantive
+  // value.
+  confinement: 'confined' as const,
+  confinement_source: 'measured' as const,
 };
 
 /**

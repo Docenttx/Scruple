@@ -41,6 +41,10 @@ import { validateJobSpec } from '../../../lib/apps/kohya/job-spec';
 import type { ComponentRoots } from '../../../lib/apps/kohya/argv';
 import type { CaptureConfig } from '../src/config';
 import {
+  DEFAULT_MIN_RESERVABLE_BYTES,
+  measureStorageConfinement,
+} from '../../../lib/capture/storageConfinement';
+import {
   DEFAULT_RETENTION_POLICY,
   DEFAULT_RETENTION_POLICY_DIGEST,
 } from '../../../lib/leaf/retentionPolicy';
@@ -87,6 +91,11 @@ function captureConfig(roots: ComponentRoots): CaptureConfig {
     // the deadline says when its silence becomes a finding.
     retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
     settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
+    // WO-C4. See `asCaptureConfig` in kohya/index.ts: this path binds no
+    // proxy socket, so the startup refusal does not attach to it. The
+    // per-leaf measurement does, and it is wired in KohyaCapture.start().
+    allowDegradedStorage: true,
+    stateMinReservableBytes: DEFAULT_MIN_RESERVABLE_BYTES,
     settleMs: 15_000,
     correlationTtlMs: 0,
     heartbeatWindowSeconds: 900,
@@ -127,6 +136,17 @@ async function main(): Promise<void> {
     // WO-C3. From the config above.
     retentionPolicyDigest: cfg.retentionPolicyDigest,
     settlementWindowSeconds: cfg.settlementWindowSeconds,
+    // WO-C4. Re-read per emission off raw stat(2), same as every other
+    // emitter. This door binds an HTTP socket of its own, but it is the JOB
+    // API rather than the capture proxy — no artifact passes through it — so
+    // the council's bind-time refusal does not attach here either. The leaf
+    // carries the measurement, which is the half that reaches a verifier.
+    confinementFor: () =>
+      measureStorageConfinement({
+        stateDir: cfg.stateDir,
+        volumes: [cfg.outputVolume ?? roots.outputRoot],
+        minReservableBytes: cfg.stateMinReservableBytes,
+      }),
     // WO-C1. THE MODEL'S REFUSING DEFAULT, STATED RATHER THAN DERIVED.
     //
     // index.ts runs `resolveKohyaPlacement()` against a declared topology

@@ -41,6 +41,11 @@ import {
   type ResolutionHandles,
 } from '../../../lib/leaf/resolutionHandles';
 import type { CaptureObservation, PlacementEnforcement } from '../../../lib/capture/surface';
+import type {
+  ConfinementSource,
+  StorageConfinement,
+  StorageMeasurement,
+} from '../../../lib/capture/storageConfinement';
 import type { PreimageFields } from '../../../lib/ratchet/ratchet';
 
 export interface LeafContext {
@@ -116,6 +121,22 @@ export interface LeafContext {
    * of that window, and refuses it otherwise.
    */
   settlementWindowSeconds: number;
+  /**
+   * WO-C4. THE DEVICE IDENTITY BEHIND `stateDir` AND THE WATCHED VOLUMES,
+   * RE-READ AT EMISSION.
+   *
+   * A function for the same reason `quoteFor` and `checkpointsFor` are:
+   * Architect ruled that "a startup-only check is a config-inherited fact by
+   * the time the leaf is emitted — volumes can be remounted or bind-mounted
+   * after boot, which is exactly the inheritance pattern we killed on
+   * `pinned_build`." Startup refusal guards the boot case; this guards the
+   * running case, and it is only the running case if it is called here.
+   *
+   * Absent means this placement has nothing to measure — no watched volume,
+   * so no sharing question — and the leaf then says `unknown`/`unknown`
+   * rather than claiming a confinement nobody established.
+   */
+  confinementFor?: () => StorageMeasurement;
 }
 
 /** What the surface put on the observation's `evidence`. */
@@ -182,6 +203,19 @@ export interface CaptureBlock {
   attestation_status: AttestationBasis;
   /** WO-C1. In the MAC preimage; the basis is conditional on it. */
   profile: CaptureProfile;
+  /**
+   * WO-C4. WHERE THE RATCHET'S STATE LIVES RELATIVE TO THE WATCHED VOLUMES,
+   * measured on THIS emission. In the MAC preimage, because a confinement
+   * claim a party in the middle can rewrite is a confinement claim.
+   *
+   * `unknown` is a real value and not a failure mode to be tidied away: a
+   * reading that could not be taken is not a degraded state and is certainly
+   * not a clean one.
+   */
+  confinement: StorageConfinement;
+  /** WO-C4. `measured` or `unknown`, and there is no third. Configuration,
+   *  inheritance and defaults cannot populate a fact. */
+  confinement_source: ConfinementSource;
   /** UNCOVERED BY THE MAC, like header_hash. Diagnostic only. */
   fs_diagnostic?: string | null;
   /** UNCOVERED BY THE MAC, and that is not an oversight — see
@@ -260,6 +294,12 @@ export function preimageOf(s: Submission): PreimageFields {
     observed_at: s.capture.observed_at,
     attestation_status: s.capture.attestation_status,
     profile: s.capture.profile,
+    // WO-C4. Both, and both signed. The value says what was measured; the
+    // source says whether anything was. A `confinement` a proxy could rewrite
+    // to `confined`, or a `confinement_source` it could promote from
+    // `unknown` to `measured`, would be worth exactly nothing.
+    confinement: s.capture.confinement,
+    confinement_source: s.capture.confinement_source,
     // WO-C2. Five keys, always present, null when unknown — so a party in the
     // middle can neither rewrite a handle nor add one. Architect's settle
     // condition: moving the proof out of the leaf makes the pointer to the
@@ -274,6 +314,9 @@ export interface BuiltLeaf {
   /** Why the basis on this leaf is what it is. Logged, never sent: it is an
    *  explanation, and an explanation on the wire is a field to be forged. */
   basisReason: string;
+  /** WO-C4. Why the confinement value is what it is. Logged on change by the
+   *  Submitter, never sent — same rule as `basisReason`. */
+  confinementReason: string;
   /** False when nothing was entitled to declare a MIME. See the note below. */
   mimeDeclared: boolean;
 }
@@ -303,6 +346,10 @@ export function buildLeaf(
   });
 
   const checkpoints = ctx.checkpointsFor ? ctx.checkpointsFor(o) : null;
+
+  // WO-C4. MEASURED HERE, ON THIS EMISSION, off raw stat(2) — never read from
+  // a value the component computed at startup. See LeafContext.confinementFor.
+  const storage = ctx.confinementFor ? ctx.confinementFor() : null;
 
   const submission: Submission = {
     baseline_ref: ctx.baselineRef,
@@ -340,6 +387,11 @@ export function buildLeaf(
       observed_at: o.observedAt,
       attestation_status: basis.basis,
       profile: ctx.profile,
+      // WO-C4. No confinement source at all is `unknown`/`unknown`. It is not
+      // `confined`: a component with nothing to measure has measured nothing,
+      // and the two must not read the same to a verifier.
+      confinement: storage?.confinement ?? 'unknown',
+      confinement_source: storage?.source ?? 'unknown',
       ...(ev.fs_diagnostic ? { fs_diagnostic: ev.fs_diagnostic } : {}),
       ...(ev.header_hash ? { header_hash: ev.header_hash } : {}),
     },
@@ -383,5 +435,7 @@ export function buildLeaf(
     preimage: preimageOf(submission),
     mimeDeclared: Boolean(bytes.mime),
     basisReason: basis.reason,
+    confinementReason:
+      storage?.reason ?? 'no storage surface was measurable from this placement',
   };
 }

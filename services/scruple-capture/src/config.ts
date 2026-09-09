@@ -25,6 +25,8 @@ import {
   DEFAULT_RETENTION_POLICY,
   DEFAULT_RETENTION_POLICY_DIGEST,
 } from '../../../lib/leaf/retentionPolicy';
+// WO-C4. The floor the startup gate and every emission compare against.
+import { DEFAULT_MIN_RESERVABLE_BYTES } from '../../../lib/capture/storageConfinement';
 
 /**
  * The three directories §10 C-8 names, plus the honest label for a root whose
@@ -159,6 +161,42 @@ export interface CaptureConfig {
   outputVolume?: string;
   /** Sealed IK, ratchet counter, and the durable queue live here. 0700. */
   stateDir: string;
+
+  /**
+   * WO-C4. WHETHER THIS DEPLOYMENT HAS DECLARED DEGRADED STORAGE OPERATION.
+   *
+   * `stateDir` above holds the sealed IK, the ratchet counter and the durable
+   * queue; `watchedVolumes` is where an uncaptured tenant write lands. The
+   * council confirmed there is no stated constraint between them, and the
+   * chain that follows is IT Expert's: a runaway write exhausts blocks on a
+   * shared filesystem, the ratchet's local append cannot `fsync`, and because
+   * the MAC is the BLOCKING half of `emit()`, fail-closed becomes
+   * fail-stopped — triggered by the very artifact class the gate cannot see.
+   *
+   * FALSE IS THE DEFAULT AND THE COMPONENT REFUSES TO BIND ITS SOCKET, which
+   * is the severity the council chose: "failing closed before accepting
+   * traffic beats entering a state where an uncaptured 50 GiB generation run
+   * exhausts the partition ... and turns your MAC issuance into an
+   * unrecoverable runtime panic."
+   *
+   * ⚑ SETTING IT TRUE DOES NOT MAKE THE FINDING GO AWAY. It converts a
+   * refusal into a VISIBLE degradation: every leaf the session emits carries
+   * the measured degraded confinement value, so the condition travels with
+   * each artifact rather than living in a log nobody reads. Degraded
+   * operation is permitted; a silent degradation of a required capture
+   * session is not.
+   */
+  allowDegradedStorage: boolean;
+  /**
+   * WO-C4. The reservable-capacity FLOOR on the state device, in bytes.
+   *
+   * A POLICY, NOT A FACT, which is why it is the only tunable here. An
+   * enforced quota is not readable from userspace portably, and a
+   * configuration setting asserting one would be exactly the config-inherited
+   * fact class this design refuses — so `lib/capture/storageConfinement.ts`
+   * measures `f_bavail * f_frsize` and compares it against this number.
+   */
+  stateMinReservableBytes: number;
 
   /** scruple-web base URL — provisioning and submission. */
   apiBaseUrl: string;
@@ -321,6 +359,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CaptureConfig 
       env.SCRUPLE_CAPTURE_SETTLEMENT_WINDOW_S ?? DEFAULT_RETENTION_POLICY.settlement_window_s,
     ),
     outputVolumeDeclaredMime: env.SCRUPLE_CAPTURE_OUTPUT_VOLUME_MIME || null,
+    // WO-C4. Both explicit, neither inferred. The flag is a DECLARATION by
+    // the deployment that it accepts a degraded capture session and the
+    // tagging that comes with it; the floor is this deployment's number for
+    // "enough headroom to fsync the ratchet".
+    allowDegradedStorage: isTruthy(env.SCRUPLE_CAPTURE_ALLOW_DEGRADED_STORAGE),
+    stateMinReservableBytes: Number(
+      env.SCRUPLE_CAPTURE_STATE_MIN_RESERVABLE_BYTES ?? DEFAULT_MIN_RESERVABLE_BYTES,
+    ),
     settleMs: Number(env.SCRUPLE_CAPTURE_SETTLE_MS ?? 250),
     correlationTtlMs: Number(env.SCRUPLE_CAPTURE_CORRELATION_TTL_MS ?? 30 * 60 * 1000),
     heartbeatWindowSeconds: Number(env.SCRUPLE_CAPTURE_HEARTBEAT_SECONDS ?? 900),
@@ -342,6 +388,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CaptureConfig 
 
   fs.mkdirSync(cfg.stateDir, { recursive: true, mode: 0o700 });
   return cfg;
+}
+
+/**
+ * WO-C4. An explicit declaration, and nothing else counts as one. `'0'`,
+ * `'false'` and an unset variable are all "not declared" — a deployment that
+ * meant to waive the storage gate has to say so in a word a reader recognises,
+ * because the cost of a wrong `true` is a capture session whose ratchet can be
+ * starved by the traffic it is supposed to witness.
+ */
+function isTruthy(v: string | undefined): boolean {
+  return v === '1' || v === 'true' || v === 'yes';
 }
 
 export function isLoopback(host: string): boolean {

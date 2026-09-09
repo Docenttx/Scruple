@@ -47,6 +47,20 @@ export type V2ErrorCode =
   | 'resolution_handles_unsigned'
   | 'resolution_handles_required'
   | 'resolution_handles_refused'
+  // WO-C4. Storage confinement, measured per leaf. The council's chain: an
+  // uncaptured runaway write exhausts blocks on a filesystem shared with the
+  // ratchet state, the ratchet's local append cannot `fsync`, and because the
+  // MAC is the BLOCKING half of emit() the gate fails closed — fail-closed
+  // becomes fail-stopped, triggered by the artifact class the gate cannot
+  // see. 422 for both: the caller authenticated and the JSON parsed; what is
+  // refused is a claim about a filesystem.
+  //
+  //   storage_confinement_required  a capture-bearing leaf that measured nothing
+  //                                 and did not say so
+  //   storage_confinement_refused   a confinement value with no measurement
+  //                                 behind it, or one sent outside the MAC
+  | 'storage_confinement_required'
+  | 'storage_confinement_refused'
   // WO-C3. The other half of Architect's settle: a handle must say how long
   // the thing it points at will be there, and a deadline must be bound to a
   // clock somebody named. Two codes, because the two failures have different
@@ -76,6 +90,8 @@ const STATUS: Record<V2ErrorCode, number> = {
   resolution_handles_unsigned: 422,
   resolution_handles_required: 422,
   resolution_handles_refused: 422,
+  storage_confinement_required: 422,
+  storage_confinement_refused: 422,
   retention_policy_unresolvable: 422,
   settlement_deadline_unbound: 422,
   signer_unavailable: 503,

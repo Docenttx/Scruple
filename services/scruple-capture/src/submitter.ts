@@ -30,6 +30,7 @@ import type {
   PlacementEnforcement,
 } from '../../../lib/capture/surface';
 import type { CaptureProfile, QuoteBinding } from '../../../lib/leaf/attestationBasis';
+import type { StorageMeasurement } from '../../../lib/capture/storageConfinement';
 import { buildLeaf, type LeafContext, type Submission } from './leaf';
 import { QueueStore, isDue, type QueueEntry } from './queue';
 import type { Identity } from './identity';
@@ -74,6 +75,18 @@ export interface SubmitterOptions {
    */
   retentionPolicyDigest: string;
   settlementWindowSeconds: number;
+  /**
+   * WO-C4. RE-MEASURED PER EMISSION, which is why this is a function and not
+   * a `StorageMeasurement`. A component that captured the reading once at
+   * startup would carry a config-inherited fact into every leaf — the
+   * `pinned_build` pattern the council killed — and would miss a bind mount
+   * performed after boot entirely.
+   *
+   * Optional, because a placement with no watched volume has no sharing
+   * question to answer; a Submitter with none emits `unknown`/`unknown`,
+   * which is honest and is not read as a pass anywhere.
+   */
+  confinementFor?: () => StorageMeasurement;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -94,6 +107,10 @@ export class Submitter implements ObservationSink {
    *  acceptance tests; the durable record is the queue and the server. */
   readonly emitted: SubmittedEvent[] = [];
   private lastLoggedBasis: string | null = null;
+  /** WO-C4. Same treatment as the basis: logged on CHANGE, because a
+   *  transition into a degraded storage posture mid-session is the one line
+   *  an operator must not lose in a line-per-artifact log. */
+  private lastLoggedConfinement: string | null = null;
 
   constructor(private readonly opts: SubmitterOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -114,6 +131,9 @@ export class Submitter implements ObservationSink {
       retentionPolicyDigest: opts.retentionPolicyDigest,
       settlementWindowSeconds: opts.settlementWindowSeconds,
       ...(opts.quoteFor ? { quoteFor: opts.quoteFor } : {}),
+      // WO-C4. The device identity behind `stateDir` and the watched volumes,
+      // read fresh for each leaf.
+      ...(opts.confinementFor ? { confinementFor: opts.confinementFor } : {}),
     };
   }
 
@@ -146,6 +166,16 @@ export class Submitter implements ObservationSink {
     if (basis !== this.lastLoggedBasis) {
       this.lastLoggedBasis = basis;
       this.log(`attestation basis → ${basis} (${leaf.basisReason})`);
+    }
+
+    // WO-C4. "It must be VISIBLE — never a silent degradation of a required
+    // capture session." The tag on the leaf is the durable half of that; this
+    // is the operator's half, and it fires on the transition rather than on
+    // every artifact so that the transition is what stands out.
+    const confinement = leaf.submission.capture.confinement;
+    if (confinement !== this.lastLoggedConfinement) {
+      this.lastLoggedConfinement = confinement;
+      this.log(`storage confinement → ${confinement} (${leaf.confinementReason})`);
     }
 
     // 2/3/4. MAC, RATCHET, PERSIST. One call, in that order, and it fsyncs

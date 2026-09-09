@@ -67,6 +67,13 @@ const cases = [
         // the witness and the verifier pass shared Merkle vectors.
         attestation_status: 'stale',
         profile: 'server-managed',
+        // WO-C4. The `server-library` placement declares no watched volume,
+        // so there is no device pair to compare and the honest answer is
+        // `unknown` with source `unknown`. It is NOT `confined`: a placement
+        // that measured nothing has not established a boundary, and the two
+        // must not read the same to a verifier.
+        confinement: 'unknown',
+        confinement_source: 'unknown',
       },
       // WO-C2. The resolution handles, in the signed preimage. This case has
       // an authority enrolled and a preceding checkpoint with its quote time
@@ -124,6 +131,14 @@ const cases = [
         observed_at: '2026-08-30T00:00:01.000Z',
         attestation_status: 'stale',
         profile: 'isolated-sidecar',
+        // WO-C4. A sidecar that DID measure, and found the ratchet's state on
+        // the same filesystem as the volume it watches. Degraded operation is
+        // permitted and this is what makes it permitted: the tag is on the
+        // leaf, inside the MAC, with `measured` behind it. A tag a proxy
+        // could rewrite to `confined` would be worth nothing, which is why
+        // both keys are in the preimage rather than only the value.
+        confinement: 'degraded_shared_storage',
+        confinement_source: 'measured',
       },
       // WO-C2. An endpoint with NO authority enrolled. Carried as a null
       // rather than as a plausible-looking string, because inventing the
@@ -157,7 +172,10 @@ const cases = [
       '`resolution_*` keys are null here (SEVEN of them since WO-C3), which is what makes ' +
       '"this leaf named no witness and no deadline" ' +
       'a SIGNED statement — a party in the middle can no more add a witness endpoint than ' +
-      'rewrite one, because both change the canonical JSON.',
+      'rewrite one, because both change the canonical JSON. WO-C4 adds ' +
+      '`confinement` and `confinement_source`, null here for the same reason: a ' +
+      'submission that carried no measurement must produce the same key SET as one ' +
+      'that did, or the absence is not signed.',
     submission: {
       baseline_ref: null,
       kind: 'graph_execute',

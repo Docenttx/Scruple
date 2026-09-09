@@ -397,6 +397,11 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
             "surface", "hook", "fidelity", "size_bytes", "mime_source", "correlation_id",
             "correlation_method", "egress", "close_detection", "workflow_hash", "observed_at",
             "attestation_status", "profile",
+            # WO-C4. Storage confinement and its source, both signed. Listed
+            # here by hand like everything above it: a field that quietly left
+            # the preimage must show up as a MAC mismatch, not as two
+            # implementations agreeing on a mistake.
+            "confinement", "confinement_source",
         )},
         # WO-C2. The resolution handles, prefixed, INSIDE the MAC. Spelled out
         # here by hand for the same reason every other field above is: this

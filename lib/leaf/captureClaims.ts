@@ -67,7 +67,46 @@
 //
 // It lifts by flipping CHECKPOINT_VECTORS_SETTLED, which is WO-C6's
 // deliverable and no test's.
+//
+// ---------------------------------------------------------------------------
+// RULE 5 — STORAGE CONFINEMENT IS DECLARED, AND ONLY `measured` MAY BE A CLAIM
+// ---------------------------------------------------------------------------
+//
+// WO-C4. The council settled that the `stateDir`/`outputVolume` device
+// identity is re-read AT EMISSION and carried as `source: measured | unknown`,
+// and that degraded operation is permitted only when the session's leaves are
+// "explicitly tagged `confinement: \"degraded_shared_storage\"` with
+// `source: measured`" — never a silent degradation of a required capture
+// session.
+//
+// Three things this rule refuses, and each of them is a way the tag could be
+// present and worth nothing:
+//
+//   a. a capture-bearing leaf with NO confinement field. Rule 2's argument
+//      exactly: a component emitting under this design must say what it
+//      measured, and `unknown` is available for a placement that measured
+//      nothing. Absent is not `unknown` — absent is a component that was
+//      never asked.
+//   b. a substantive value with `confinement_source` anything but `measured`.
+//      `confined` on an unmeasured source is a claim of a boundary nobody
+//      observed, which is the config-inherited fact class this whole design
+//      refuses. So is a degraded value: the visibility requirement attaches
+//      to a MEASUREMENT, and a degraded tag nobody measured cannot discharge
+//      it.
+//   c. `unknown` paired with `measured`. There is no measurement that
+//      concludes nothing was measured.
+//
+// And, as with `close_detection`, a confinement field sent ONE LEVEL UP is
+// refused rather than ignored — `componentPreimage()` reads it out of
+// `capture` and would silently skip a top-level one, so a caller who moved it
+// there would be sending a field that is outside the MAC and looks inside it.
 
+import {
+  isConfinementSource,
+  isStorageConfinement,
+  type ConfinementSource,
+  type StorageConfinement,
+} from '@/lib/capture/storageConfinement';
 import {
   CHECKPOINT_BLOCKER_REASON,
   CHECKPOINT_VECTORS_SETTLED,
@@ -80,7 +119,9 @@ import {
 export type CaptureClaimCode =
   | 'close_detection_rejected'
   | 'attestation_basis_required'
-  | 'attestation_basis_refused';
+  | 'attestation_basis_refused'
+  | 'storage_confinement_required'
+  | 'storage_confinement_refused';
 
 export interface CaptureClaimRefusal {
   ok: false;
@@ -94,6 +135,9 @@ export interface CaptureClaimAccepted {
   /** null when the submission carries no capture block: a legacy leaf. */
   basis: AttestationBasis | null;
   profile: CaptureProfile | null;
+  /** WO-C4. null on a legacy leaf, for the reason `basis` is null there. */
+  confinement: StorageConfinement | null;
+  confinementSource: ConfinementSource | null;
 }
 
 export type CaptureClaimResult = CaptureClaimAccepted | CaptureClaimRefusal;
@@ -146,7 +190,7 @@ export function validateCaptureClaims(
   if (!capture) {
     // A legacy leaf: canvas, the plugins, a host with no component. No basis
     // is recorded and `basisForTrust()` will read it as 'unknown'.
-    return { ok: true, basis: null, profile: null };
+    return { ok: true, basis: null, profile: null, confinement: null, confinementSource: null };
   }
 
   // ---- Rule 2 -------------------------------------------------------
@@ -222,5 +266,100 @@ export function validateCaptureClaims(
     };
   }
 
-  return { ok: true, basis, profile };
+  // ---- Rule 5 -------------------------------------------------------
+  const conf = validateConfinement(body, capture);
+  if (!conf.ok) return conf;
+
+  return {
+    ok: true,
+    basis,
+    profile,
+    confinement: conf.confinement,
+    confinementSource: conf.confinementSource,
+  };
+}
+
+/** Rule 5, split out because it has four refusals and one accept. */
+function validateConfinement(
+  body: Record<string, unknown>,
+  capture: Record<string, unknown>,
+): CaptureClaimAccepted | CaptureClaimRefusal {
+  // (d) sent one level up, where the preimage does not read it.
+  const misplaced = ['confinement', 'confinement_source'].filter((k) => k in body);
+  if (misplaced.length > 0) {
+    return {
+      ok: false,
+      code: 'storage_confinement_refused',
+      message:
+        `${misplaced.join(' and ')} sent at the top level. The storage confinement fields are ` +
+        'CAPTURE fields — `componentPreimage()` reads them out of `capture`, so a copy one ' +
+        'level up is outside the MAC while looking exactly like a signed measurement. Send ' +
+        'them inside `capture` or not at all.',
+      detail: { misplaced },
+    };
+  }
+
+  const rawConf = capture.confinement;
+  const rawSource = capture.confinement_source;
+
+  // (a) absent.
+  if (!isStorageConfinement(rawConf) || !isConfinementSource(rawSource)) {
+    return {
+      ok: false,
+      code: 'storage_confinement_required',
+      message:
+        'A leaf carrying a `capture` block must declare `capture.confinement` as one of ' +
+        '"confined" | "degraded_shared_storage" | "degraded_no_reservation" | "unknown", and ' +
+        '`capture.confinement_source` as "measured" or "unknown". Received ' +
+        `${JSON.stringify(rawConf ?? null)} / ${JSON.stringify(rawSource ?? null)}. The device ` +
+        'identity behind the ratchet state and the watched volumes is re-read AT EMISSION and ' +
+        'carried on the leaf: a startup-only check is a config-inherited fact by the time the ' +
+        'leaf is emitted, because volumes can be remounted or bind-mounted after boot. A ' +
+        'placement with nothing to measure declares "unknown"/"unknown" — which is a ' +
+        'different thing from a component that was never asked.',
+      detail: {
+        confinement: rawConf ?? null,
+        confinement_source: rawSource ?? null,
+        accepted_confinement: [
+          'confined',
+          'degraded_shared_storage',
+          'degraded_no_reservation',
+          'unknown',
+        ],
+        accepted_source: ['measured', 'unknown'],
+      },
+    };
+  }
+
+  // (b) a substantive value with no measurement behind it.
+  if (rawConf !== 'unknown' && rawSource !== 'measured') {
+    return {
+      ok: false,
+      code: 'storage_confinement_refused',
+      message:
+        `\`confinement: "${rawConf}"\` with \`confinement_source: "${rawSource}"\` is refused. ` +
+        'A confinement value is a FACT about a filesystem and may be populated only by a ' +
+        'measurement — configuration, inheritance, prior certification and defaults cannot. ' +
+        'That cuts both ways: `confined` unmeasured claims a boundary nobody observed, and a ' +
+        'degraded value unmeasured cannot discharge the visibility condition the council ' +
+        'attached to degraded operation, which is a tag with `source: measured` behind it. ' +
+        'Declare "unknown"/"unknown" if nothing was measured.',
+      detail: { confinement: rawConf, confinement_source: rawSource },
+    };
+  }
+
+  // (c) unknown, measured.
+  if (rawConf === 'unknown' && rawSource === 'measured') {
+    return {
+      ok: false,
+      code: 'storage_confinement_refused',
+      message:
+        '`confinement: "unknown"` with `confinement_source: "measured"` is refused: there is ' +
+        'no measurement whose conclusion is that nothing was measured. If a stat failed, the ' +
+        'source is "unknown" — that is what the pair is for.',
+      detail: { confinement: rawConf, confinement_source: rawSource },
+    };
+  }
+
+  return { ok: true, basis: null, profile: null, confinement: rawConf, confinementSource: rawSource };
 }

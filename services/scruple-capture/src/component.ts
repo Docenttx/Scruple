@@ -32,6 +32,13 @@ import {
   type HostCaptureProfile,
 } from '../../../lib/capture/surface';
 import { profileFor } from '../../../lib/leaf/attestationBasis';
+// WO-C4. Measured at startup AND re-measured on every emission. The module's
+// header carries the argument for both halves.
+import {
+  measureStorageConfinement,
+  startupDecision,
+  type StorageMeasurement,
+} from '../../../lib/capture/storageConfinement';
 import type { CaptureConfig } from './config';
 import { resolveWatchedVolumes, topologyAdvisory } from './config';
 import { Correlator } from './correlation';
@@ -61,6 +68,13 @@ export class CaptureComponent {
     readonly fsWatch: FsWatchSurface,
     readonly server: http.Server,
     readonly assurance: HostAssurance,
+    /**
+     * WO-C4. THE STARTUP READING, KEPT SO IT CAN BE COMPARED AGAINST — never
+     * so it can be reused. Every leaf re-measures; this one exists only for
+     * the operator's log and for the test that proves a startup-only check
+     * does not catch a bind mount performed after boot.
+     */
+    readonly storageAtStartup: StorageMeasurement,
   ) {}
 
   get port(): number {
@@ -101,6 +115,11 @@ export class CaptureComponent {
     // now needs it. Nothing in it changed.
     const trustProfile = profileFor(assurance.resolution.effective);
 
+    // WO-C4. The configured roots, as PATHS. Resolved once because a path
+    // string is configuration; the DEVICE BEHIND IT is the fact, and that is
+    // read fresh by `measureStorageConfinement()` every time it is called.
+    const volumePaths = resolveWatchedVolumes(cfg, 'CaptureComponent.start').map((v) => v.path);
+
     const submitter = new Submitter({
       identity,
       queue,
@@ -118,6 +137,18 @@ export class CaptureComponent {
       // — see CaptureConfig for why neither is defaulted at this layer.
       retentionPolicyDigest: cfg.retentionPolicyDigest,
       settlementWindowSeconds: cfg.settlementWindowSeconds,
+      // WO-C4. A FUNCTION, not a value, and that is the whole of Architect's
+      // condition: "a startup-only check is a config-inherited fact by the
+      // time the leaf is emitted — volumes can be remounted or bind-mounted
+      // after boot, which is exactly the inheritance pattern we killed on
+      // `pinned_build`." Passing `storage` here instead of `() => measure(...)`
+      // would ship the defect this work order closes.
+      confinementFor: () =>
+        measureStorageConfinement({
+          stateDir: cfg.stateDir,
+          volumes: volumePaths,
+          minReservableBytes: cfg.stateMinReservableBytes,
+        }),
       // No quote source: this component has no attestable compute. That is
       // `passthrough` once the Merkle blocker lifts, and `stale` until then.
       // `sealToMeasurement()` in identity.ts is the seam where a real one
@@ -159,6 +190,39 @@ export class CaptureComponent {
     await wsGate.open({ sink: submitter, placement: assurance.placement, config: { server } });
     await fsWatch.open({ sink: submitter, placement: assurance.placement, config: {} });
 
+    // ---- WO-C4: THE STORAGE GATE, BEFORE THE SOCKET IS BOUND ----------
+    //
+    // IT Expert's severity ruling, and the position in this function is the
+    // ruling: "the startup check should measure stat(stateDir).st_dev !==
+    // stat(outputVolume).st_dev and verify that stateDir has an enforced quota
+    // or minimum reservable capacity via statvfs BEFORE BINDING THE PROXY
+    // SOCKET." Above every `listen`, below every surface that could accept a
+    // byte — a component that refused after binding has already told a tenant
+    // it is open.
+    //
+    // The surfaces above are opened but not listening: `httpGate.open` and
+    // `fsWatch.open` prepare state, and `wsGate.open` attaches to `server`,
+    // which has no socket until the line below. Throwing here therefore leaves
+    // nothing reachable, which `stop()` on the failure path would otherwise
+    // have to undo.
+    const storageAtStartup = measureStorageConfinement({
+      stateDir: cfg.stateDir,
+      volumes: volumePaths,
+      minReservableBytes: cfg.stateMinReservableBytes,
+    });
+    const decision = startupDecision(storageAtStartup, {
+      allowDegraded: cfg.allowDegradedStorage,
+    });
+    if (!decision.ok) {
+      await fsWatch.close();
+      await wsGate.close();
+      await httpGate.close();
+      throw new StorageConfinementError(decision.message);
+    }
+    // Logged whether it passed or degraded, and BEFORE the port is announced,
+    // so an operator reading the boot log sees the posture above the address.
+    log(decision.message);
+
     await new Promise<void>((resolve) => server.listen(cfg.listenPort, cfg.listenHost, resolve));
 
     log(`component_id=${identity.componentId} counter=${identity.counter}`);
@@ -184,6 +248,7 @@ export class CaptureComponent {
       fsWatch,
       server,
       assurance,
+      storageAtStartup,
     );
   }
 
@@ -195,3 +260,11 @@ export class CaptureComponent {
     this.identity.destroy();
   }
 }
+
+/**
+ * WO-C4. Thrown instead of binding. A distinct class rather than a bare Error
+ * so a supervisor can tell "this deployment is misconfigured and will stay
+ * misconfigured until somebody moves a mount" apart from a transient start
+ * failure worth retrying. Restarting does not fix a shared filesystem.
+ */
+export class StorageConfinementError extends Error {}

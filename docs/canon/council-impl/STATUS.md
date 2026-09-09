@@ -13,3 +13,6 @@ Sandbox: witness http://127.0.0.1:5899 · app http://127.0.0.1:3902 · surrogate
 02:43:33Z  START  WO-C3
 03:21:39Z  DONE   WO-C3        gate PASSED — see docs/canon/council-impl/WO-C3.md
 03:22:12Z  DONE   WO-C3  head=0fd2d24
+03:23:04Z  DONE   WO-C3  (39m)  head=abbc02d
+03:23:04Z  START  WO-C4
+03:52:10Z  DONE   WO-C4        gate PASSED — see docs/canon/council-impl/WO-C4.md

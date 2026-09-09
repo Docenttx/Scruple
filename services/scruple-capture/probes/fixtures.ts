@@ -316,6 +316,12 @@ export async function startConformant(opts: FixtureOptions): Promise<Deployment>
       // WO-C3. The seeded default policy and its settlement window.
       retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
       settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
+      // WO-C4. The probe fixture's state directory and its watched volumes
+      // are siblings under one mkdtemp root and therefore one device. That is
+      // a genuine degraded configuration, it is declared as one, and the
+      // leaves the probes read carry the measured degraded value.
+      allowDegradedStorage: true,
+      stateMinReservableBytes: 64 * 1024 * 1024,
       settleMs: 40,
       correlationTtlMs: 60_000,
       heartbeatWindowSeconds: 900,

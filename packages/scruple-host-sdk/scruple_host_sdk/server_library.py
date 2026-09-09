@@ -103,6 +103,9 @@ from scruple_api.surface import (
 )
 
 from . import http as _http
+# WO-C4. The per-leaf storage measurement, shared with model_write.py so the
+# two placements cannot answer the same question two ways.
+from . import storage_confinement as _storage
 from .envelope import (
     ComponentIdentity,
     DeclaredSurface,
@@ -192,6 +195,14 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         # rewrites, and `verified` is refused on `desktop` by the same
         # validator that would then be reading a forgeable field.
         "profile": c.get("profile"),
+        # WO-C4. Where the ratchet's state lives relative to the watched
+        # volumes, measured on THIS emission, and both keys signed. The value
+        # says what was seen; the source says whether anything was. An
+        # attacker who could promote `unknown` to `measured` would turn
+        # "nobody looked" into "somebody checked", which is the whole
+        # distinction the measured-or-unknown invariant holds.
+        "confinement": c.get("confinement"),
+        "confinement_source": c.get("confinement_source"),
         # WO-C2. THE RESOLUTION HANDLES, and this is Architect's first settle
         # condition, verbatim: the handles "must sit inside the signed
         # preimage, or an attacker who can rewrite an unsigned endpoint
@@ -590,6 +601,21 @@ class ServerLibraryIntegration:
                 self.trust_profile, self.resolution.enforcement, None
             ).basis.value,
             "profile": self.trust_profile.value,
+            # WO-C4. `unknown`/`unknown`, and it is a measurement of the
+            # question rather than a shrug. The council's fact is the DEVICE
+            # PAIR — the ratchet state against a watched volume — and at
+            # `server-library` there is no watched volume: the vendor's
+            # handler is the observation and no directory is declared as the
+            # workload's output surface. There is therefore no pair to
+            # compare, and `confined` would claim a boundary nobody
+            # established. `storage_confinement.UNMEASURED` is that answer,
+            # named once so it cannot drift into a default.
+            #
+            # The startup half does not attach here either: the council bound
+            # the refusal to binding a proxy socket, and this placement binds
+            # none.
+            "confinement": _storage.UNMEASURED.confinement,
+            "confinement_source": _storage.UNMEASURED.source,
         }
 
         # 3. The submission, assembled BEFORE the MAC, because the MAC is

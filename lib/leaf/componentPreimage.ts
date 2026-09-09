@@ -45,6 +45,10 @@
 
 import type { PreimageFields } from '@/lib/ratchet/ratchet';
 import type { AttestationBasis, CaptureProfile } from '@/lib/leaf/attestationBasis';
+import type {
+  ConfinementSource,
+  StorageConfinement,
+} from '@/lib/capture/storageConfinement';
 import {
   resolutionPreimageFields,
   type ResolutionHandles,
@@ -87,6 +91,24 @@ export interface ComponentCaptureBlock {
    * anything sitting between the component and this route.
    */
   profile?: CaptureProfile | null;
+  /**
+   * WO-C4. THE STORAGE CONFINEMENT MEASURED ON THIS EMISSION, and it is in
+   * the preimage for the reason `profile` is.
+   *
+   * The council's chain: an uncaptured runaway write exhausts blocks on a
+   * shared filesystem, the ratchet's local append cannot `fsync`, and because
+   * the MAC is the blocking half of `emit()` the gate fails closed —
+   * fail-closed becomes fail-stopped. The leaf records the condition; a
+   * condition a proxy can rewrite to `confined` is not recorded.
+   *
+   * ⚑ `confinement_source` IS SIGNED SEPARATELY AND THAT IS NOT REDUNDANT.
+   * The value says what was seen; the source says whether anything was. An
+   * attacker who could promote `unknown` to `measured` would turn "nobody
+   * looked" into "somebody checked", which is the whole distinction the
+   * measured-or-unknown invariant exists to hold.
+   */
+  confinement?: StorageConfinement | null;
+  confinement_source?: ConfinementSource | null;
 }
 
 export interface ComponentEnvelope {
@@ -152,6 +174,12 @@ export function componentPreimage(s: ComponentSubmission): PreimageFields {
     observed_at: c.observed_at ?? null,
     attestation_status: c.attestation_status ?? null,
     profile: c.profile ?? null,
+    // WO-C4. Null on a leaf from a placement with nothing to measure, which
+    // is a different value from 'unknown' and is meant to be: null is "this
+    // submission carried no such field at all" and belongs to the same
+    // absent-is-null discipline as every key above it.
+    confinement: c.confinement ?? null,
+    confinement_source: c.confinement_source ?? null,
     // WO-C2. Always five keys, prefixed `resolution_`, null when the block is
     // absent. The absence is therefore SIGNED: a party between the component
     // and this route can no more add a witness endpoint than rewrite one.

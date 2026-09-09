@@ -28,6 +28,12 @@ import type { CaptureConfig } from '../src/config';
 import { Identity } from '../src/identity';
 import { QueueStore } from '../src/queue';
 import { Submitter } from '../src/submitter';
+// WO-C4. The per-leaf storage measurement. See the note in `asCaptureConfig`
+// for why the startup half does not apply on this path.
+import {
+  DEFAULT_MIN_RESERVABLE_BYTES,
+  measureStorageConfinement,
+} from '../../../lib/capture/storageConfinement';
 import { CheckpointWatchSurface, DEFAULT_CHECKPOINT_SETTLE_MS } from './checkpoint-watch';
 import { profileFor } from '../../../lib/leaf/attestationBasis';
 import type { CloseWriteSource } from '../src/surfaces/fs-watch';
@@ -140,6 +146,15 @@ export class KohyaCapture {
       // is two answers.
       retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
       settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
+      // WO-C4. Re-read per emission, off raw stat(2). The checkpoint volume
+      // is the watched surface here, and a Kohya pod that mounts it on the
+      // same filesystem as the ratchet state has the same starvation chain a
+      // ComfyUI sidecar does — the leaf is where that becomes visible.
+      confinementFor: () =>
+        measureStorageConfinement({
+          stateDir: cfg.stateDir,
+          volumes: [cfg.checkpointVolume],
+        }),
       // WO-C1. From the RESOLVED placement, not the declared one. On RunPod's
       // Pods `resolveKohyaPlacement()` answers `enforcement: 'none'` and the
       // effective placement is `unattested-client`, so the trust profile here
@@ -202,6 +217,16 @@ function asCaptureConfig(cfg: KohyaCaptureConfig): CaptureConfig {
     // not match the policy the digest names is refused at ingest.
     retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
     settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
+    // WO-C4. Present because `CaptureConfig` requires them; NOT load-bearing
+    // on this path. The startup gate the council specified is bound to the
+    // moment a proxy socket is bound, and this deployment binds none — it is
+    // a checkpoint watcher, not a gate. What DOES apply here is the per-leaf
+    // half: `KohyaCapture.start()` gives its Submitter a `confinementFor` so
+    // every Kohya leaf carries the measured device identity, and a shared
+    // filesystem shows up on the evidence rather than in a refusal nobody
+    // could have acted on.
+    allowDegradedStorage: true,
+    stateMinReservableBytes: DEFAULT_MIN_RESERVABLE_BYTES,
     settleMs: cfg.settleMs,
     correlationTtlMs: 0,
     heartbeatWindowSeconds: 900,
