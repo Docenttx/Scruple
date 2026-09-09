@@ -408,6 +408,10 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
             for k in (
                 "witness_endpoint", "witness_authority", "checkpoint_id",
                 "prev_checkpoint_id", "prev_checkpoint_quote_time",
+                # WO-C3. And the two that bind the duration: a handle that
+                # says where the evidence is but not how long it will be there
+                # leaves a legitimate expiry indistinguishable from a forgery.
+                "settlement_deadline", "retention_policy_digest",
             )
         },
     }

@@ -47,6 +47,16 @@ export type V2ErrorCode =
   | 'resolution_handles_unsigned'
   | 'resolution_handles_required'
   | 'resolution_handles_refused'
+  // WO-C3. The other half of Architect's settle: a handle must say how long
+  // the thing it points at will be there, and a deadline must be bound to a
+  // clock somebody named. Two codes, because the two failures have different
+  // fixes — one is "enrol the policy", the other is "your clock is wrong" —
+  // and one code for both would send an operator to the wrong file.
+  //
+  //   retention_policy_unresolvable  a digest binding an identity, not a duration
+  //   settlement_deadline_unbound    a deadline no named clock puts there
+  | 'retention_policy_unresolvable'
+  | 'settlement_deadline_unbound'
   | 'signer_unavailable'
   | 'conflict'
   | 'internal';
@@ -66,6 +76,8 @@ const STATUS: Record<V2ErrorCode, number> = {
   resolution_handles_unsigned: 422,
   resolution_handles_required: 422,
   resolution_handles_refused: 422,
+  retention_policy_unresolvable: 422,
+  settlement_deadline_unbound: 422,
   signer_unavailable: 503,
   conflict: 409,
   internal: 500,

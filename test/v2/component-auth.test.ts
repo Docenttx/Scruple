@@ -43,6 +43,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../lib/leaf/retentionPolicy';
 
 if (!process.env.SCRUPLE_DB_PATH || !/tmp|test/i.test(process.env.SCRUPLE_DB_PATH)) {
   throw new Error('Refusing to run: set SCRUPLE_DB_PATH to a throwaway path. Use `npm run test:v2`.');
@@ -132,13 +136,22 @@ const CAPTURE = {
  * the thing worth attacking. `checkpoint_id` is null on every leaf while the
  * Merkle blocker stands (WO-C6).
  */
-const RESOLUTION = {
+const RESOLUTION = () => ({
   witness_endpoint: 'https://witness.example.vendor/api',
   witness_authority: 'sha256:' + 'cd'.repeat(32),
   checkpoint_id: null,
   prev_checkpoint_id: null,
   prev_checkpoint_quote_time: null,
-};
+  // WO-C3. And the two that bind the DURATION. A FUNCTION rather than a
+  // constant, because the deadline is checked against a named clock at ingest
+  // — a module-level literal would drift out of the band the first time this
+  // file was left running, and would fail with a message about clock skew in a
+  // test about something else.
+  settlement_deadline: new Date(
+    Date.now() + DEFAULT_RETENTION_POLICY.settlement_window_s * 1000,
+  ).toISOString(),
+  retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
+});
 
 /**
  * Build a submission body, MACed at `counter` by a ratchet positioned
@@ -158,7 +171,7 @@ function submission(
     kind: 'artifact',
     content_hash: contentHash,
     capture: CAPTURE,
-    resolution: RESOLUTION,
+    resolution: RESOLUTION(),
     component: {
       component_id: componentId,
       build_measurement: BUILD,

@@ -36,6 +36,10 @@ import {
   type KohyaAssurance,
   type KohyaTopology,
 } from './profile';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../../lib/leaf/retentionPolicy';
 
 export class PlacementRefusal extends Error {
   constructor(
@@ -129,6 +133,13 @@ export class KohyaCapture {
       apiBaseUrl: cfg.apiBaseUrl,
       apiKey: cfg.apiKey,
       baselineRef: cfg.baselineRef,
+      // WO-C3. The seeded default policy: the digest binds the evidence
+      // retention duration, the window says when an unresolved gap becomes a
+      // finding. `KohyaCaptureConfig` deliberately does not carry its own —
+      // this path has one deployment shape and a second setting for one fact
+      // is two answers.
+      retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+      settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
       // WO-C1. From the RESOLVED placement, not the declared one. On RunPod's
       // Pods `resolveKohyaPlacement()` answers `enforcement: 'none'` and the
       // effective placement is `unattested-client`, so the trust profile here
@@ -186,6 +197,11 @@ function asCaptureConfig(cfg: KohyaCaptureConfig): CaptureConfig {
     // plausible-looking default, which is the cooperating liar the field
     // exists to exclude.
     witnessAuthority: null,
+    // WO-C3. The seeded default policy (migration 055) and the window it
+    // binds. Named out loud rather than inherited, because a window that does
+    // not match the policy the digest names is refused at ingest.
+    retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+    settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
     settleMs: cfg.settleMs,
     correlationTtlMs: 0,
     heartbeatWindowSeconds: 900,

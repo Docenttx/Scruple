@@ -48,6 +48,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../lib/leaf/retentionPolicy';
 
 /** Every .ts/.sh file under a directory. Used by the env-list guard. */
 function walkFiles(dir: string): string[] {
@@ -235,6 +239,12 @@ function makeSubmitter(stateDir: string) {
     // the honest profile is 'desktop' and `verified` is unreachable for it.
     profile: 'desktop',
     enforcement: 'none',
+    // WO-C3. The seeded default retention policy and the window it binds. The
+    // route checks the resulting deadline against a NAMED clock, so this is
+    // not decoration: a window that did not match the policy would be refused
+    // with `settlement_deadline_unbound` and this test would see no leaf.
+    retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+    settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
     log: () => undefined,
     // The route handler IS the network. No server to start, no port to race.
     fetchImpl: async (url: string, init: RequestInit) => {

@@ -12,6 +12,7 @@ import { conn } from '@/lib/db/sqlite';
 import { v2Error, v2Ok } from '@/lib/v2/http';
 import { discloseLeafSignature } from '@/lib/leaf/signatureDisclosure';
 import { basisForTrust } from '@/lib/leaf/attestationBasis';
+import { evaluateEvidence, evaluateSettlement } from '@/lib/leaf/settlement';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +48,13 @@ interface Row {
   resolution_checkpoint_id: string | null;
   resolution_prev_checkpoint_id: string | null;
   resolution_prev_checkpoint_quote_time: string | null;
+  // WO-C3 / migration 055. The signed pair and the measured half.
+  resolution_settlement_deadline: string | null;
+  resolution_retention_policy_digest: string | null;
+  settlement_clock: string | null;
+  settlement_clock_authority: string | null;
+  settlement_observed_at: string | null;
+  evidence_retained_until: string | null;
 }
 
 const parse = (s: string | null): unknown => {
@@ -72,7 +80,10 @@ export async function GET(
               component_id, component_counter, component_verified,
               resolution_witness_endpoint, resolution_witness_authority,
               resolution_checkpoint_id, resolution_prev_checkpoint_id,
-              resolution_prev_checkpoint_quote_time
+              resolution_prev_checkpoint_quote_time,
+              resolution_settlement_deadline, resolution_retention_policy_digest,
+              settlement_clock, settlement_clock_authority,
+              settlement_observed_at, evidence_retained_until
          FROM iterations WHERE id = ?`,
     )
     .get(Number(leaf_id)) as Row | undefined;
@@ -188,8 +199,38 @@ export async function GET(
           checkpoint_id: row.resolution_checkpoint_id,
           prev_checkpoint_id: row.resolution_prev_checkpoint_id,
           prev_checkpoint_quote_time: row.resolution_prev_checkpoint_quote_time,
+          // WO-C3. Handles six and seven: when this leaf's silence becomes a
+          // finding, and the digest binding how long the evidence that would
+          // settle it is kept. Both are inside the same MAC as the five above,
+          // so `signed` covers them too.
+          settlement_deadline: row.resolution_settlement_deadline,
+          retention_policy_digest: row.resolution_retention_policy_digest,
           signed: row.component_verified === 1,
         }
       : null,
+
+    // ── WO-C3. WHEN SILENCE BECOMES A FINDING, AND WHETHER THE EVIDENCE IS
+    // STILL THERE TO FETCH. ───────────────────────────────────────────────
+    //
+    // Computed AT READ TIME from the named clock, never from a stored state
+    // column: a stored state is written by a reaper on a schedule and is then
+    // wrong for exactly as long as the reaper is down, which is the failure
+    // this mechanism exists to make visible, reintroduced inside it.
+    //
+    // A receipt read a year after the leaf was written therefore says
+    // `evidence_expired` where the same receipt said `resolvable` the week it
+    // was issued, and the change is a measurement rather than a revision.
+    // `GET /api/v2/resolve/{leaf_id}` is the same two verdicts through the
+    // door a verifier FOLLOWING A HANDLE arrives at; they come from one pair
+    // of functions so the two surfaces cannot drift.
+    //
+    // 'unknown' on every leaf written before migration 055 — the question was
+    // never asked of them, which is a different fact from an expiry.
+    settlement: evaluateSettlement(row),
+    evidence: (() => {
+      const e = evaluateEvidence(row);
+      return { state: e.state, reason: e.reason, retained_until: e.retained_until,
+               source: e.source, clock: e.clock, says: e.says };
+    })(),
   });
 }

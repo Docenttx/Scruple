@@ -113,6 +113,11 @@ export class CaptureComponent {
       // the endpoint. null when the deployment enrolled none — see
       // CaptureConfig.witnessAuthority for why that is not defaulted.
       witnessAuthority: cfg.witnessAuthority,
+      // WO-C3. The retention policy every leaf from this component names, and
+      // the window its settlement deadline is computed over. Both from config
+      // — see CaptureConfig for why neither is defaulted at this layer.
+      retentionPolicyDigest: cfg.retentionPolicyDigest,
+      settlementWindowSeconds: cfg.settlementWindowSeconds,
       // No quote source: this component has no attestable compute. That is
       // `passthrough` once the Merkle blocker lifts, and `stale` until then.
       // `sealToMeasurement()` in identity.ts is the seam where a real one

@@ -40,6 +40,10 @@ import crypto from 'node:crypto';
 import { validateJobSpec } from '../../../lib/apps/kohya/job-spec';
 import type { ComponentRoots } from '../../../lib/apps/kohya/argv';
 import type { CaptureConfig } from '../src/config';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../../lib/leaf/retentionPolicy';
 import { Identity } from '../src/identity';
 import { QueueStore } from '../src/queue';
 import { Submitter } from '../src/submitter';
@@ -78,6 +82,11 @@ function captureConfig(roots: ComponentRoots): CaptureConfig {
     baselineRef: process.env.SCRUPLE_CAPTURE_BASELINE_REF || null,
     outputVolumeDeclaredMime: process.env.SCRUPLE_KOHYA_VOLUME_MIME || null,
     witnessAuthority: process.env.SCRUPLE_CAPTURE_WITNESS_AUTHORITY || null,
+    // WO-C3. The seeded default retention policy (migration 055) and the
+    // window it binds: the digest says how long this leaf's evidence is kept,
+    // the deadline says when its silence becomes a finding.
+    retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+    settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
     settleMs: 15_000,
     correlationTtlMs: 0,
     heartbeatWindowSeconds: 900,
@@ -115,6 +124,9 @@ async function main(): Promise<void> {
     apiBaseUrl: cfg.apiBaseUrl,
     apiKey: cfg.apiKey,
     baselineRef: cfg.baselineRef,
+    // WO-C3. From the config above.
+    retentionPolicyDigest: cfg.retentionPolicyDigest,
+    settlementWindowSeconds: cfg.settlementWindowSeconds,
     // WO-C1. THE MODEL'S REFUSING DEFAULT, STATED RATHER THAN DERIVED.
     //
     // index.ts runs `resolveKohyaPlacement()` against a declared topology

@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { componentPreimage } from '../lib/leaf/componentPreimage.ts';
 import { canonicalPreimage, deriveIk, Ratchet } from '../lib/ratchet/ratchet.ts';
+import { DEFAULT_RETENTION_POLICY_DIGEST } from '../lib/leaf/retentionPolicy.ts';
 
 const OUT = path.join(process.cwd(), 'test', 'vectors', 'component-preimage-vectors.json');
 
@@ -77,6 +78,14 @@ const cases = [
         checkpoint_id: null,
         prev_checkpoint_id: 'ckpt-2026-08-29-0001',
         prev_checkpoint_quote_time: '2026-08-29T23:59:00.000Z',
+        // WO-C3. Handles six and seven: when this leaf's silence becomes a
+        // finding, and the digest of the retention policy that says how long
+        // the evidence which would settle it is kept. The digest is over the
+        // canonical POLICY OBJECT — durations included — because one over the
+        // policy's NAME leaves a legitimate expiry indistinguishable from a
+        // forged handle.
+        settlement_deadline: '2026-08-31T00:00:00.000Z',
+        retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
       },
       component: {
         component_id: COMPONENT_ID,
@@ -126,6 +135,11 @@ const cases = [
         checkpoint_id: null,
         prev_checkpoint_id: null,
         prev_checkpoint_quote_time: null,
+        // WO-C3. A deadline and a policy, on a leaf with no authority — the
+        // two are independent: knowing WHEN silence becomes a finding does
+        // not require knowing whose signature counts at the endpoint.
+        settlement_deadline: '2026-08-31T00:00:01.000Z',
+        retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
       },
       component: {
         component_id: COMPONENT_ID,
@@ -140,7 +154,8 @@ const cases = [
     note:
       'A key dropped from the object changes the canonical JSON and therefore the MAC. This ' +
       'case and the ones above must produce the same KEY SET. WO-C2: the five ' +
-      '`resolution_*` keys are null here, which is what makes "this leaf named no witness" ' +
+      '`resolution_*` keys are null here (SEVEN of them since WO-C3), which is what makes ' +
+      '"this leaf named no witness and no deadline" ' +
       'a SIGNED statement — a party in the middle can no more add a witness endpoint than ' +
       'rewrite one, because both change the canonical JSON.',
     submission: {

@@ -36,6 +36,10 @@
 // that neither is a proof.
 
 import crypto from 'node:crypto';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../../lib/leaf/retentionPolicy';
 
 import type { Probe, ProbeContext, ProbeObservation } from '../../../packages/scruple-conformance/src/types';
 
@@ -253,6 +257,13 @@ function forgedSubmission(componentId: string, counter: number): Record<string, 
       checkpoint_id: null,
       prev_checkpoint_id: null,
       prev_checkpoint_quote_time: null,
+      // WO-C3. Same argument, two handles later: omit the settlement pair and
+      // the route refuses on `resolution_handles_required` before the ratchet
+      // is consulted, and this probe reports a refusal it never earned.
+      settlement_deadline: new Date(
+        Date.now() + DEFAULT_RETENTION_POLICY.settlement_window_s * 1000,
+      ).toISOString(),
+      retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
     },
     component: {
       component_id: componentId,

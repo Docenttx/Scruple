@@ -96,6 +96,26 @@ export interface LeafContext {
     prevCheckpointId: string | null;
     prevCheckpointQuoteTime: string | null;
   } | null;
+  /**
+   * WO-C3. The retention policy this component's leaves are emitted under —
+   * the DIGEST of the enrolled policy object, which binds the evidence
+   * retention duration and the clock it is counted on.
+   *
+   * ⚑ THE COMPONENT HOLDS THE DIGEST AND NOT THE POLICY. It cannot resolve
+   * its own digest and is not meant to: the server holds the enrolled object,
+   * and a component whose configured window disagrees with the policy it names
+   * is REFUSED at ingest rather than quietly believed. Enrolment is a
+   * deployment decision, and a component that could write its own policy could
+   * grant itself an unbounded settlement window.
+   */
+  retentionPolicyDigest: string;
+  /**
+   * How long this component's unresolved gaps stay open, in seconds. Must be
+   * the `settlement_window_s` of the policy above; `lib/leaf/settlement.ts`
+   * checks that the resulting deadline lands where a NAMED CLOCK puts the end
+   * of that window, and refuses it otherwise.
+   */
+  settlementWindowSeconds: number;
 }
 
 /** What the surface put on the observation's `evidence`. */
@@ -331,6 +351,20 @@ export function buildLeaf(
       checkpoint_id: checkpoints?.checkpointId ?? null,
       prev_checkpoint_id: checkpoints?.prevCheckpointId ?? null,
       prev_checkpoint_quote_time: checkpoints?.prevCheckpointQuoteTime ?? null,
+      // WO-C3. WHEN THIS LEAF'S SILENCE BECOMES A FINDING.
+      //
+      // Computed PER EMISSION from this machine's clock, and that is stated
+      // plainly rather than hidden: it is a CLAIM. The council refused a
+      // deadline "derived from a locally-set timestamp" as a config-inherited
+      // field, and the answer is not that the component stops declaring one —
+      // it is the only party that knows its own window — but that the server
+      // CHECKS the claim against a named clock before storing it, and computes
+      // the terminal `expired` only from that clock. A component two hours
+      // fast is refused here, at ingest, rather than believed.
+      settlement_deadline: new Date(
+        Date.parse(o.observedAt) + ctx.settlementWindowSeconds * 1000,
+      ).toISOString(),
+      retention_policy_digest: ctx.retentionPolicyDigest,
     },
     component: {
       component_id: ctx.componentId,

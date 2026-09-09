@@ -156,7 +156,18 @@ COPY lib/ratchet/ratchet.ts ./lib/ratchet/
 # and no BDK. Named as a FILE, like every entry on this line — `lib/leaf/`
 # also holds the server's `componentPreimage.ts` and the registry, and neither
 # belongs in a tenant container.
-COPY lib/leaf/hashes.ts lib/leaf/canonicalJson.ts lib/leaf/attestationBasis.ts lib/leaf/resolutionHandles.ts ./lib/leaf/
+#
+# WO-C3 adds `retentionPolicy.ts` and `namedClock.ts`, on the same terms
+# again: the config layer reads the default policy's digest and window, and
+# `resolutionHandles.ts` reads the digest's shape from it. Both are PURE —
+# a hash function, a validator, and a table of clock names.
+#
+# ⚑ `lib/leaf/retentionRegistry.ts` IS DELIBERATELY NOT HERE, and that is
+# what the split in WO-C3 was for: enrolling and resolving a policy touches
+# the database, which a tenant container has no business reaching. A
+# container that could resolve its own digest would be a container that could
+# enrol its own retention terms.
+COPY lib/leaf/hashes.ts lib/leaf/canonicalJson.ts lib/leaf/attestationBasis.ts lib/leaf/resolutionHandles.ts lib/leaf/retentionPolicy.ts lib/leaf/namedClock.ts ./lib/leaf/
 COPY lib/scruple/hash.ts ./lib/scruple/
 COPY tsconfig.json ./
 # tsx is a devDependency, and the component is run through it — so this is

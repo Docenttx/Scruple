@@ -93,6 +93,7 @@ import { verifySubmission } from '@/lib/ratchet/verify';
 import { componentPreimage } from '@/lib/leaf/componentPreimage';
 import { validateCaptureClaims } from '@/lib/leaf/captureClaims';
 import { validateResolutionHandles } from '@/lib/leaf/resolutionHandles';
+import { bindSettlement, evaluateSettlement } from '@/lib/leaf/settlement';
 import { basisForTrust } from '@/lib/leaf/attestationBasis';
 import { witness } from '@/lib/scruple/witness';
 import {
@@ -307,6 +308,35 @@ export async function POST(req: NextRequest) {
   // every shape that would put one somewhere else.
   const handles = validateResolutionHandles(raw);
   if (!handles.ok) return v2Error(handles.code, handles.message, handles.detail);
+
+  // ---- WO-C3: the deadline is a CLAIM, and it is checked against a clock ----
+  //
+  // `validateResolutionHandles` has settled the SHAPE of the two new handles.
+  // This settles what they MEAN, and it needs the database and the wall clock,
+  // which is why it is a second call and not a seventh rule in that file.
+  //
+  // Two things happen here and both are the council's:
+  //
+  //  1. The retention digest must RESOLVE to durations. Architect: a digest
+  //     that binds only a policy identity leaves "a resolution attempt after
+  //     the evidence is legitimately gone ... indistinguishable from a forged
+  //     handle." An unresolvable digest is refused rather than stored, because
+  //     a leaf stored with one is unresolvable-by-construction and looks
+  //     exactly like a leaf that is fine.
+  //
+  //  2. The deadline must sit where a NAMED CLOCK puts the end of that
+  //     policy's settlement window. The component derives its deadline from
+  //     its own clock — it is the only party that knows its window — and a
+  //     value derived from a locally-set timestamp is the config-inherited
+  //     field class this design refuses. So it is CHECKED here, once, against
+  //     a clock with a name and an authority, and the terminal `expired` is
+  //     computed only from that clock. A component two hours fast is refused,
+  //     not believed.
+  //
+  // Placed with the handle validation for the same reason it is: this refuses
+  // content, and nothing below has written a row yet.
+  const settlement = bindSettlement(handles.handles);
+  if (!settlement.ok) return v2Error(settlement.code, settlement.message, settlement.detail);
 
   let componentVerified = false;
   let componentGap = 0;
@@ -617,8 +647,11 @@ export async function POST(req: NextRequest) {
           attestation_basis, attestation_profile,
           resolution_witness_endpoint, resolution_witness_authority,
           resolution_checkpoint_id, resolution_prev_checkpoint_id,
-          resolution_prev_checkpoint_quote_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          resolution_prev_checkpoint_quote_time,
+          resolution_settlement_deadline, resolution_retention_policy_digest,
+          settlement_clock, settlement_clock_authority, settlement_observed_at,
+          evidence_retained_until)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -689,6 +722,21 @@ export async function POST(req: NextRequest) {
       handles.handles?.checkpoint_id ?? null,
       handles.handles?.prev_checkpoint_id ?? null,
       handles.handles?.prev_checkpoint_quote_time ?? null,
+      // Migration 055, WO-C3. THE SIGNED PAIR, VERBATIM. When this leaf's
+      // silence becomes a finding, and which retention policy bounds the
+      // evidence that would settle it. Both are inside the MAC.
+      handles.handles?.settlement_deadline ?? null,
+      handles.handles?.retention_policy_digest ?? null,
+      // AND THE MEASURED HALF, which the component never sees. The named
+      // clock, who answers for it, what it said when this leaf arrived, and
+      // the derived instant at which the evidence stops existing. `expired` is
+      // computed from these and never from the row's own timestamp column:
+      // Architect required a NAMED clock precisely so that the answer is not
+      // the emitter's own machine talking.
+      settlement.binding?.clock ?? null,
+      settlement.binding?.clock_authority ?? null,
+      settlement.binding?.observed_at ?? null,
+      settlement.binding?.evidence_retained_until ?? null,
     );
 
   return v2Ok(
@@ -744,6 +792,41 @@ export async function POST(req: NextRequest) {
       // a leaf with no handles, which is every leaf written before WO-C2.
       resolution: handles.handles
         ? { ...handles.handles, signed: componentVerified }
+        : null,
+      // WO-C3. The MEASURED half, returned beside the signed half so a caller
+      // can see what its deadline was actually bound to — the clock's name and
+      // authority, the instant it read, and when the evidence it points at
+      // stops existing. A caller that reads this and finds a
+      // `evidence_retained_until` sooner than it expected has a policy problem
+      // it can see at capture time rather than at audit time.
+      //
+      // `settlement.state` is 'pending' on every leaf that carries a deadline
+      // and 'unknown' on every leaf that does not — never 'expired' at
+      // capture, since a deadline that had already passed at ingest is refused
+      // by the band check above.
+      settlement: settlement.binding
+        ? {
+            deadline: settlement.binding.deadline,
+            retention_policy_digest: settlement.binding.retention_policy_digest,
+            retention_duration_s: settlement.binding.policy.retention_duration_s,
+            settlement_window_s: settlement.binding.policy.settlement_window_s,
+            evidence_retained_until: settlement.binding.evidence_retained_until,
+            clock: {
+              name: settlement.binding.clock,
+              authority: settlement.binding.clock_authority,
+              read_at: settlement.binding.observed_at,
+            },
+            state: evaluateSettlement({
+              resolution_settlement_deadline: settlement.binding.deadline,
+              resolution_retention_policy_digest: settlement.binding.retention_policy_digest,
+              settlement_clock: settlement.binding.clock,
+              settlement_clock_authority: settlement.binding.clock_authority,
+              settlement_observed_at: settlement.binding.observed_at,
+              evidence_retained_until: settlement.binding.evidence_retained_until,
+              resolution_checkpoint_id: handles.handles?.checkpoint_id ?? null,
+            }).state,
+            source: 'measured',
+          }
         : null,
       // What this leaf actually commits to. A caller that sent a graph
       // is entitled to see that it was folded in rather than dropped —

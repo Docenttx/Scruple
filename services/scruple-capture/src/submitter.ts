@@ -63,6 +63,17 @@ export interface SubmitterOptions {
    * is a second answer to "where does this resolve" and the two drift.
    */
   witnessAuthority?: string | null;
+  /**
+   * WO-C3. The enrolled retention policy this component emits under, and the
+   * settlement window that policy binds. REQUIRED, both of them, and not
+   * defaulted here: a component that fell back to a plausible window would
+   * emit a deadline the server refuses, and a component that fell back to a
+   * plausible digest would name a policy this deployment may never have
+   * enrolled. Both are deployment decisions — `config.ts` is where the
+   * default lives, out loud.
+   */
+  retentionPolicyDigest: string;
+  settlementWindowSeconds: number;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -97,6 +108,11 @@ export class Submitter implements ObservationSink {
       // counts there — both inside the MAC preimage from here on.
       witnessEndpoint: opts.apiBaseUrl,
       witnessAuthority: opts.witnessAuthority ?? null,
+      // WO-C3. Carried into every leaf: the digest binds how long the evidence
+      // this leaf points at will be there, and the window says when its
+      // silence becomes a finding.
+      retentionPolicyDigest: opts.retentionPolicyDigest,
+      settlementWindowSeconds: opts.settlementWindowSeconds,
       ...(opts.quoteFor ? { quoteFor: opts.quoteFor } : {}),
     };
   }

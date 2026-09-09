@@ -41,6 +41,15 @@ process.env.SCRUPLE_BDK_HEX = 'c3'.repeat(32);
 // server on 127.0.0.1:5799 — a previous session polluted its audit log.
 process.env.WITNESS_SERVER_URL = 'http://127.0.0.1:1';
 
+// WO-C3. STATIC, and it may be: `lib/leaf/retentionPolicy.ts` is the PURE half
+// — a digest function and the default policy object — and it never reaches
+// lib/db/sqlite. The registry that does is `retentionRegistry.ts`, which this
+// file does not import.
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../lib/leaf/retentionPolicy';
+
 type Mod = {
   runMigrations: typeof import('../../lib/db/migrate').runMigrations;
   conn: typeof import('../../lib/db/sqlite').conn;
@@ -166,6 +175,12 @@ async function harness(opts: { outputVolumeMime?: string | null } = {}): Promise
       // plausible-looking default, which is the cooperating liar the field
       // exists to exclude.
       witnessAuthority: null,
+      // WO-C3. The seeded default policy and the settlement window it binds.
+      // The stub ingest does not check them; what this exercises is that the
+      // component EMITS them, and `resolution-handles`/`retention-settlement`
+      // check the route side.
+      retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+      settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
       settleMs: 40,
       correlationTtlMs: 60_000,
       heartbeatWindowSeconds: 900,

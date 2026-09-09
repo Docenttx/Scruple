@@ -56,6 +56,10 @@ import type {
 import { recordedLeafOracle } from '../../../packages/scruple-conformance/src/oracle';
 import { OsVantage } from '../../../packages/scruple-conformance/src/vantage';
 import { CaptureComponent } from '../src/component';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../../lib/leaf/retentionPolicy';
 import { Correlator } from '../src/correlation';
 import type { Identity } from '../src/identity';
 import { QueueStore } from '../src/queue';
@@ -212,6 +216,9 @@ export async function startNonConformant(opts: FixtureOptions): Promise<Deployme
     apiBaseUrl: ingest.url,
     apiKey: 'sk_test_nonconformant',
     baselineRef: 'ab'.repeat(32),
+    // WO-C3. The seeded default policy and its settlement window.
+    retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+    settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
     // The fixture is deliberately NON-CONFORMANT: one surface, no isolation.
     // Its trust profile is the honest one for that shape.
     profile: 'desktop',
@@ -306,6 +313,9 @@ export async function startConformant(opts: FixtureOptions): Promise<Deployment>
       // plausible-looking default, which is the cooperating liar the field
       // exists to exclude.
       witnessAuthority: null,
+      // WO-C3. The seeded default policy and its settlement window.
+      retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+      settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
       settleMs: 40,
       correlationTtlMs: 60_000,
       heartbeatWindowSeconds: 900,

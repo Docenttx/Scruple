@@ -85,6 +85,10 @@ from scruple_api.attestation_basis import (
     resolve_attestation_basis,
 )
 from scruple_api.capture import capture as _capture_file
+from scruple_api.retention import (
+    DEFAULT_RETENTION_POLICY,
+    DEFAULT_RETENTION_POLICY_DIGEST,
+)
 from scruple_api.surface import (
     Assurance,
     AttestationOutcome,
@@ -202,6 +206,14 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         # `lib/leaf/resolutionHandles.ts`, and
         # `test/vectors/component-preimage-vectors.json` is what stops the
         # two drifting.
+        #
+        # WO-C3 adds the last two. Architect's SECOND settle condition and the
+        # other half of the same argument: the pointer must also say HOW LONG
+        # the thing pointed at will be there, or "a resolution attempt after
+        # the evidence is legitimately gone" is "indistinguishable from a
+        # forged handle." A deadline a proxy can push out is not a deadline,
+        # and a retention digest a proxy can swap for a longer-lived policy is
+        # not a retention binding — so both are in the MAC beside the five.
         **{
             f"resolution_{k}": (None if r.get(k) is None else str(r[k]))
             for k in (
@@ -210,6 +222,8 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
                 "checkpoint_id",
                 "prev_checkpoint_id",
                 "prev_checkpoint_quote_time",
+                "settlement_deadline",
+                "retention_policy_digest",
             )
         },
     }
@@ -217,6 +231,21 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _utc_in(seconds: int) -> str:
+    """An instant `seconds` from now, on THIS MACHINE'S clock.
+
+    WO-C3. Named for what it is. The settlement deadline this produces is a
+    CLAIM about a local clock, and the server refuses it if it does not land
+    where the NAMED clock puts the end of the policy's window.
+    """
+    return (
+        datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + seconds, timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        + "Z"
+    )
 
 
 class PlacementRefused(ScrupleAPIError):
@@ -312,6 +341,8 @@ class ServerLibraryIntegration:
         envelope_signers: Sequence[EnvelopeSigner] = (),
         seal_path: Optional[str] = None,
         witness_authority: Optional[str] = None,
+        retention_policy_digest: str = DEFAULT_RETENTION_POLICY_DIGEST,
+        settlement_window_seconds: int = DEFAULT_RETENTION_POLICY["settlement_window_s"],
     ) -> None:
         self.client = client
         self.component = component
@@ -366,6 +397,33 @@ class ServerLibraryIntegration:
         # the service this integration actually submits to. Two settings for
         # one fact is two answers.
         self.witness_authority = witness_authority
+
+        # WO-C3. THE RETENTION POLICY THIS INTEGRATION EMITS UNDER, and the
+        # settlement window that policy binds.
+        #
+        # The digest names a policy the DEPLOYMENT enrolled — it binds the
+        # evidence retention DURATION and the named clock the durations are
+        # counted on, which is Architect's second settle condition: a digest
+        # over a policy IDENTITY leaves "a resolution attempt after the
+        # evidence is legitimately gone" "indistinguishable from a forged
+        # handle."
+        #
+        # ⚑ THE WINDOW MUST MATCH THE POLICY THE DIGEST NAMES. This object
+        # holds the digest, not the policy; the server holds the enrolled
+        # object and refuses a deadline that does not land where the named
+        # clock puts the end of that policy's window. A vendor who sets one
+        # and forgets the other finds out on the first leaf, with
+        # `settlement_deadline_unbound` and the skew in the detail — which is
+        # the intended place to find out.
+        #
+        # These two DEFAULT rather than being required, unlike
+        # `witness_authority` one field up, and the difference is real: an
+        # authority nobody enrolled is a cooperating liar and there is no safe
+        # default for it, while the default policy here is one the server
+        # actually seeds (migration 055), so a vendor who names it gets a
+        # digest that RESOLVES.
+        self.retention_policy_digest = retention_policy_digest
+        self.settlement_window_seconds = int(settlement_window_seconds)
 
     # -- posture ----------------------------------------------------------
 
@@ -558,6 +616,25 @@ class ServerLibraryIntegration:
             "checkpoint_id": None,
             "prev_checkpoint_id": None,
             "prev_checkpoint_quote_time": None,
+            # WO-C3. WHEN THIS LEAF'S SILENCE BECOMES A FINDING, and the policy
+            # that bounds the evidence which would settle it.
+            #
+            # ⚑ THE DEADLINE IS COMPUTED FROM THIS MACHINE'S CLOCK AND THAT IS
+            # A CLAIM, stated plainly rather than dressed as a measurement. The
+            # council refused a deadline "derived from a locally-set timestamp"
+            # as a config-inherited field; the answer is not that the component
+            # stops declaring one — it is the only party that knows its own
+            # window — but that the SERVER checks the claim against a NAMED
+            # CLOCK before storing it and computes the terminal `expired` only
+            # from that clock. A host whose clock is two hours out is refused
+            # at ingest with `settlement_deadline_unbound`, which is the
+            # intended place to discover it.
+            #
+            # The digest names a policy the DEPLOYMENT enrolled. A component
+            # cannot enrol its own, because a component that could would be a
+            # component that could grant itself an unbounded window.
+            "settlement_deadline": _utc_in(self.settlement_window_seconds),
+            "retention_policy_digest": self.retention_policy_digest,
         }
 
         body: Dict[str, Any] = {

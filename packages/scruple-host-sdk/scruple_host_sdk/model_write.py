@@ -69,6 +69,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
+from scruple_api.retention import (
+    DEFAULT_RETENTION_POLICY,
+    DEFAULT_RETENTION_POLICY_DIGEST,
+)
 from scruple_api.model_write import (
     MODEL_WRITE_IN_PROCESS,
     MODEL_WRITE_KIND,
@@ -134,6 +138,21 @@ DEFAULT_CHECKPOINT_SETTLE_S = 15.0
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _utc_in(seconds: int) -> str:
+    """WO-C3. An instant `seconds` from now, on THIS MACHINE'S clock.
+
+    Named for what it is: the settlement deadline this produces is a CLAIM
+    about a local clock, and the server refuses it if it does not land where
+    the NAMED clock puts the end of the policy's window.
+    """
+    return (
+        datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + seconds, timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        + "Z"
+    )
 
 
 @dataclass
@@ -207,6 +226,8 @@ class ModelWriteIntegration:
         envelope_signers: Sequence[EnvelopeSigner] = (),
         seal_path: Optional[str] = None,
         witness_authority: Optional[str] = None,
+        retention_policy_digest: str = DEFAULT_RETENTION_POLICY_DIGEST,
+        settlement_window_seconds: int = DEFAULT_RETENTION_POLICY["settlement_window_s"],
     ) -> None:
         self.client = client
         self.component = component
@@ -218,6 +239,13 @@ class ModelWriteIntegration:
         # ENDPOINT is ``client.base_url``, the service this integration
         # submits to; two settings for one fact is two answers.
         self.witness_authority = witness_authority
+        # WO-C3. The retention policy this integration emits under, and the
+        # settlement window it binds — see
+        # server_library.ServerLibraryIntegration for the argument. The window
+        # must match the policy the digest names: the server holds the enrolled
+        # policy and refuses a deadline that does not land in its window.
+        self.retention_policy_digest = retention_policy_digest
+        self.settlement_window_seconds = int(settlement_window_seconds)
         self.envelope_signers = list(envelope_signers)
         self.seal_path = seal_path
         self.attestation_provider = attestation_provider
@@ -455,6 +483,13 @@ class ModelWriteIntegration:
             "checkpoint_id": None,
             "prev_checkpoint_id": None,
             "prev_checkpoint_quote_time": None,
+            # WO-C3. When this leaf's silence becomes a finding, and the
+            # retention policy digest that bounds the evidence which would
+            # settle it. The deadline is computed from THIS MACHINE'S clock
+            # and is a claim: the server checks it against a NAMED clock and
+            # refuses it if it does not land in that policy's window.
+            "settlement_deadline": _utc_in(self.settlement_window_seconds),
+            "retention_policy_digest": self.retention_policy_digest,
         }
 
         body: Dict[str, Any] = {

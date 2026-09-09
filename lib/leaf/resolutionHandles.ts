@@ -82,11 +82,40 @@
 // field today even if the leaf carried one. Recorded here rather than left as
 // an apparent omission.
 //
-// `settlement_deadline` and `retention_policy_digest` are WO-C3's, and they go
-// in this block when it lands — the shape below is built to take them without
-// a second block appearing beside it.
+// ---------------------------------------------------------------------------
+// WO-C3 — AND THE TWO THE BLOCK WAS BUILT TO TAKE
+// ---------------------------------------------------------------------------
+//
+// WO-C2 reserved room here and this is it: `settlement_deadline` and
+// `retention_policy_digest` are handles six and seven, in the same block and
+// the same preimage, with no second block beside it.
+//
+// They are Architect's SECOND settle condition and the other half of the same
+// argument. The first (WO-C2) says the pointer to the evidence must be signed
+// or an attacker redirects it. The second says the pointer must also say HOW
+// LONG THE THING POINTED AT WILL BE THERE:
+//
+//   "the `retention_policy_digest` must bind evidence RETENTION DURATION, not
+//    just policy identity, so a resolution attempt after the evidence is
+//    legitimately gone yields a named `evidence_expired` state rather than
+//    being INDISTINGUISHABLE FROM A FORGED HANDLE."
+//
+// and, from hand round 7, the bound that stops silence being free:
+//
+//   "an unresolved gap that never expires is indistinguishable from a policy
+//    of never checking — the verifier defaults to accept by exhaustion. The
+//    bound must be CARRIED IN THE LEAF as a declared `settlement_deadline`
+//    plus the retention policy digest in force."
+//
+// Both are in the MAC for the reason all five before them are: a deadline a
+// proxy can push out is not a deadline, and a retention digest a proxy can
+// swap for a longer-lived policy is not a retention binding. What the digest
+// RESOLVES TO, and whether the deadline sits where a NAMED CLOCK puts it, are
+// `lib/leaf/settlement.ts`'s — this file is shape and pairing, that file is
+// the binding.
 
 import { CHECKPOINT_VECTORS_SETTLED, CHECKPOINT_BLOCKER_REASON } from '@/lib/leaf/attestationBasis';
+import { RETENTION_DIGEST_RE } from '@/lib/leaf/retentionPolicy';
 
 /* ────────────────────────────────────────────────────────────────────────
  * The block.
@@ -122,6 +151,26 @@ export interface ResolutionHandles {
   prev_checkpoint_id: string | null;
   /** And when that one was quoted. Half an interval is not an interval. */
   prev_checkpoint_quote_time: string | null;
+  /**
+   * WO-C3. WHEN SILENCE BECOMES A FINDING. An RFC 3339 UTC instant: at it, an
+   * unresolved gap flips to a terminal `expired`, which is an assertion about
+   * the COMPONENT'S DELIVERY and not about the leaf's validity.
+   *
+   * The component signs it because the component is what knows its own
+   * settlement window — and it is CHECKED at ingest against the window the
+   * named clock puts it in (`lib/leaf/settlement.ts`), because a deadline
+   * derived from a locally-set timestamp is the config-inherited field class
+   * the council refused. Signed claim, measured check.
+   */
+  settlement_deadline: string | null;
+  /**
+   * WO-C3. `sha256:<64 hex>` over the CANONICAL RETENTION POLICY OBJECT —
+   * which contains the durations, not merely the policy's name. A digest over
+   * an identity tells a verifier which document applied and nothing about when
+   * the evidence stops existing, which leaves a legitimate expiry
+   * indistinguishable from a forged handle. See lib/leaf/retentionPolicy.ts.
+   */
+  retention_policy_digest: string | null;
 }
 
 /** The block's key set, exactly. Anything else inside it is unsigned. */
@@ -131,6 +180,12 @@ export const RESOLUTION_HANDLE_KEYS = [
   'checkpoint_id',
   'prev_checkpoint_id',
   'prev_checkpoint_quote_time',
+  // WO-C3. Appended rather than inserted — the preimage sorts by key anyway,
+  // and appending keeps this list readable as a history of what the council
+  // required when. Adding them CHANGES EVERY MAC, which is why all three
+  // implementations and the shared vectors move in the same commit.
+  'settlement_deadline',
+  'retention_policy_digest',
 ] as const;
 
 export type ResolutionHandleKey = (typeof RESOLUTION_HANDLE_KEYS)[number];
@@ -139,12 +194,13 @@ export type ResolutionHandleKey = (typeof RESOLUTION_HANDLE_KEYS)[number];
 export const resolutionPreimageKey = (k: ResolutionHandleKey): string => `resolution_${k}`;
 
 /**
- * The five fields, flattened for the preimage. Prefixed rather than merged
+ * The seven fields, flattened for the preimage. Prefixed rather than merged
  * bare, so a handle can never collide with a capture field and so the
  * canonical JSON says which block a key came from.
  *
- * ALWAYS FIVE KEYS. `resolution` absent produces five nulls, which is what
- * makes "this leaf named no witness" a signed statement rather than a gap.
+ * ALWAYS SEVEN KEYS. `resolution` absent produces seven nulls, which is what
+ * makes "this leaf named no witness and no deadline" a signed statement
+ * rather than a gap.
  */
 export function resolutionPreimageFields(
   r: Partial<ResolutionHandles> | null | undefined,
@@ -300,11 +356,14 @@ export function validateResolutionHandles(
         code: 'resolution_handles_required',
         message:
           'A leaf carrying a `capture` block must carry a `resolution` block: the witness ' +
-          'endpoint its evidence resolves against, and the authority identity whose signature ' +
-          'counts there. The Merkle path and the raw quote are deliberately NOT in the leaf — ' +
-          'they are resolved out of band — which is only tenable if the leaf says where to ' +
-          'resolve them. `checkpoint_id`, `prev_checkpoint_id` and ' +
-          '`prev_checkpoint_quote_time` may be null; the endpoint may not.',
+          'endpoint its evidence resolves against, the authority identity whose signature ' +
+          'counts there, and — WO-C3 — the settlement deadline at which its silence becomes a ' +
+          'finding together with the retention policy digest that says how long the evidence ' +
+          'will be there to fetch. The Merkle path and the raw quote are deliberately NOT in ' +
+          'the leaf — they are resolved out of band — which is only tenable if the leaf says ' +
+          'where to resolve them, and for how long that will work. `checkpoint_id`, ' +
+          '`prev_checkpoint_id` and `prev_checkpoint_quote_time` may be null; the other four ' +
+          'may not.',
         detail: { required: RESOLUTION_HANDLE_KEYS },
       };
     }
@@ -377,6 +436,9 @@ export function validateResolutionHandles(
     prev_checkpoint_id: (block.prev_checkpoint_id as string | null | undefined) ?? null,
     prev_checkpoint_quote_time:
       (block.prev_checkpoint_quote_time as string | null | undefined) ?? null,
+    settlement_deadline: (block.settlement_deadline as string | null | undefined) ?? null,
+    retention_policy_digest:
+      (block.retention_policy_digest as string | null | undefined) ?? null,
   };
 
   // ---- Rule 4 — the handles are only handles when they are SIGNED.
@@ -424,7 +486,80 @@ export function validateResolutionHandles(
     };
   }
 
-  // ---- Rule 5 — an interval has two ends.
+  // ---- Rule 5 (WO-C3) — a deadline and a retention policy are ONE FACT.
+  //
+  // A `settlement_deadline` with no `retention_policy_digest` is a moment
+  // stated against no policy: a verifier learns when to start worrying and
+  // nothing about whether the evidence will still be there to look at. A
+  // digest with no deadline is the mirror — a retention window with no point
+  // at which silence becomes a finding, which is Architect's "indistinguishable
+  // from a policy of never checking" restated as a missing field.
+  const deadline = handles.settlement_deadline;
+  const retention = handles.retention_policy_digest;
+  if ((deadline === null) !== (retention === null)) {
+    return {
+      ok: false,
+      code: 'resolution_handles_refused',
+      message:
+        '`settlement_deadline` and `retention_policy_digest` are present together or not at ' +
+        'all. The deadline says when this leaf\'s silence becomes a finding; the digest says ' +
+        'how long the evidence that would settle it is kept. A deadline without a retention ' +
+        'binding is a finding nobody can check, and a retention binding without a deadline is a ' +
+        'window with no moment in it.',
+      detail: { settlement_deadline: deadline, retention_policy_digest: retention },
+    };
+  }
+  if (deadline !== null && !INSTANT.test(deadline)) {
+    return {
+      ok: false,
+      code: 'resolution_handles_refused',
+      message:
+        '`settlement_deadline` must be an RFC 3339 UTC instant ending in `Z`. A local-offset ' +
+        'timestamp is a deadline against a clock nobody named, which is precisely the ' +
+        'config-inherited field class this design refuses — and this field is the one the ' +
+        'council applied that rule to by name.',
+      detail: { settlement_deadline: deadline },
+    };
+  }
+  if (retention !== null && !RETENTION_DIGEST_RE.test(retention)) {
+    return {
+      ok: false,
+      code: 'resolution_handles_refused',
+      message:
+        '`retention_policy_digest` must be `sha256:` followed by 64 lowercase hex characters — ' +
+        'the digest of the CANONICAL RETENTION POLICY OBJECT, which contains the durations. A ' +
+        'policy name, a URL or a version string in this field would bind an identity and no ' +
+        'duration, which is the shape the council refused.',
+      detail: { retention_policy_digest: retention },
+    };
+  }
+
+  // ---- Rule 6 (WO-C3) — a capture-bearing leaf must name BOTH.
+  //
+  // Rule 2 catches a leaf with no block at all. This catches the block that is
+  // present and hollow: a leaf that observed something, says where its
+  // evidence lives, and never says when its absence becomes a finding. That
+  // leaf is the "accept by exhaustion" case — a verifier holding it waits
+  // forever, correctly, and learns nothing.
+  if (capture && (deadline === null || retention === null)) {
+    return {
+      ok: false,
+      code: 'resolution_handles_required',
+      message:
+        'A leaf carrying a `capture` block must declare `settlement_deadline` and ' +
+        '`retention_policy_digest`. An unresolved gap that never expires is indistinguishable ' +
+        'from a policy of never checking, and a handle with no retention duration leaves a ' +
+        'legitimate expiry indistinguishable from a forged handle. Both are the council\'s ' +
+        'words, and both are about a leaf exactly like this one.',
+      detail: {
+        settlement_deadline: deadline,
+        retention_policy_digest: retention,
+        required: ['settlement_deadline', 'retention_policy_digest'],
+      },
+    };
+  }
+
+  // ---- Rule 7 — an interval has two ends.
   const prevId = handles.prev_checkpoint_id;
   const prevAt = handles.prev_checkpoint_quote_time;
   if ((prevId === null) !== (prevAt === null)) {
@@ -451,7 +586,7 @@ export function validateResolutionHandles(
     };
   }
 
-  // ---- Rule 6 — a checkpoint you cannot resolve against anyone.
+  // ---- Rule 8 — a checkpoint you cannot resolve against anyone.
   if (handles.checkpoint_id !== null && handles.witness_authority === null) {
     return {
       ok: false,
@@ -466,7 +601,7 @@ export function validateResolutionHandles(
     };
   }
 
-  // ---- Rule 7 — and no checkpoint may be named while the blocker stands.
+  // ---- Rule 9 — and no checkpoint may be named while the blocker stands.
   //
   // The same constant WO-C1's rule 4 reads, applied to the other half of the
   // claim. `attestation_status: stale` says this leaf's checkpoint cannot be

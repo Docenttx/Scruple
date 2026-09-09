@@ -35,7 +35,9 @@
           "witness_authority": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
           "checkpoint_id": null,
           "prev_checkpoint_id": "ckpt-2026-08-29-0001",
-          "prev_checkpoint_quote_time": "2026-08-29T23:59:00.000Z"
+          "prev_checkpoint_quote_time": "2026-08-29T23:59:00.000Z",
+          "settlement_deadline": "2026-08-31T00:00:00.000Z",
+          "retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
         },
         "component": {
           "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
@@ -76,10 +78,12 @@
         "resolution_witness_authority": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
         "resolution_checkpoint_id": null,
         "resolution_prev_checkpoint_id": "ckpt-2026-08-29-0001",
-        "resolution_prev_checkpoint_quote_time": "2026-08-29T23:59:00.000Z"
+        "resolution_prev_checkpoint_quote_time": "2026-08-29T23:59:00.000Z",
+        "resolution_settlement_deadline": "2026-08-31T00:00:00.000Z",
+        "resolution_retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":\"ckpt-2026-08-29-0001\",\"resolution_prev_checkpoint_quote_time\":\"2026-08-29T23:59:00.000Z\",\"resolution_witness_authority\":\"sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"resolution_witness_endpoint\":\"https://witness.example.vendor/api\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"workflow_hash\":null}",
-      "mac_hex": "f077a31783a026fe6ea5064917f6317b3d77aff5781ccdb7a20d5110b37252f9"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":\"ckpt-2026-08-29-0001\",\"resolution_prev_checkpoint_quote_time\":\"2026-08-29T23:59:00.000Z\",\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:00.000Z\",\"resolution_witness_authority\":\"sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"resolution_witness_endpoint\":\"https://witness.example.vendor/api\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"workflow_hash\":null}",
+      "mac_hex": "77048d7069a37e8c095bb3663d183b555f7e896419b82aa21b24da84f6f6ab05"
     },
     {
       "name": "no mime — H-4 §7 probe 4, an unattributed write",
@@ -108,7 +112,9 @@
           "witness_authority": null,
           "checkpoint_id": null,
           "prev_checkpoint_id": null,
-          "prev_checkpoint_quote_time": null
+          "prev_checkpoint_quote_time": null,
+          "settlement_deadline": "2026-08-31T00:00:01.000Z",
+          "retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
         },
         "component": {
           "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
@@ -149,14 +155,16 @@
         "resolution_witness_authority": null,
         "resolution_checkpoint_id": null,
         "resolution_prev_checkpoint_id": null,
-        "resolution_prev_checkpoint_quote_time": null
+        "resolution_prev_checkpoint_quote_time": null,
+        "resolution_settlement_deadline": "2026-08-31T00:00:01.000Z",
+        "resolution_retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":\"http://127.0.0.1:8080\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"workflow_hash\":null}",
-      "mac_hex": "a51a76a1b0c9d102ea88a28e5216d57537d85bf6afc7264d51caead74cf7ed40"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:01.000Z\",\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":\"http://127.0.0.1:8080\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"workflow_hash\":null}",
+      "mac_hex": "30d805ce549831d001b564ddc11e65ede8e5076663644219025cd4806387dbaf"
     },
     {
       "name": "no capture block and no resolution block — nulls in a stable shape, not a different shape",
-      "note": "A key dropped from the object changes the canonical JSON and therefore the MAC. This case and the ones above must produce the same KEY SET. WO-C2: the five `resolution_*` keys are null here, which is what makes \"this leaf named no witness\" a SIGNED statement — a party in the middle can no more add a witness endpoint than rewrite one, because both change the canonical JSON.",
+      "note": "A key dropped from the object changes the canonical JSON and therefore the MAC. This case and the ones above must produce the same KEY SET. WO-C2: the five `resolution_*` keys are null here (SEVEN of them since WO-C3), which is what makes \"this leaf named no witness and no deadline\" a SIGNED statement — a party in the middle can no more add a witness endpoint than rewrite one, because both change the canonical JSON.",
       "submission": {
         "baseline_ref": null,
         "kind": "graph_execute",
@@ -196,10 +204,12 @@
         "resolution_witness_authority": null,
         "resolution_checkpoint_id": null,
         "resolution_prev_checkpoint_id": null,
-        "resolution_prev_checkpoint_quote_time": null
+        "resolution_prev_checkpoint_quote_time": null,
+        "resolution_settlement_deadline": null,
+        "resolution_retention_policy_digest": null
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"workflow_hash\":null}",
-      "mac_hex": "4ef4b96dad164d804078364758800adbf9b8beb3aaefd41c94276411e8207c72"
+      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":null,\"resolution_settlement_deadline\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"workflow_hash\":null}",
+      "mac_hex": "46681cf935644032ad5cab4226b7f77da111580b680304f182a58443d63c2051"
     }
   ]
 }

@@ -42,6 +42,10 @@ import path from 'node:path';
 import type { Submission } from '../../services/scruple-capture/src/leaf';
 import { preimageOf } from '../../services/scruple-capture/src/leaf';
 import type { WatchedVolume } from '../../services/scruple-capture/src/config';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../lib/leaf/retentionPolicy';
 
 const ROOT = must('HARNESS_ROOT');
 const PROFILE = must('HARNESS_PROFILE');
@@ -305,6 +309,9 @@ async function main(): Promise<void> {
     // plausible-looking default, which is the cooperating liar the field
     // exists to exclude.
     witnessAuthority: null,
+    // WO-C3. The probe deployment emits under the seeded default policy.
+    retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+    settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
     settleMs: 40,
     correlationTtlMs: 60_000,
     heartbeatWindowSeconds: 900,
@@ -435,6 +442,9 @@ async function startHttpOnlyGate(a: {
     apiBaseUrl: a.cfg.apiBaseUrl as string,
     apiKey: 'sk_harness_component',
     baselineRef: 'ab'.repeat(32),
+    // WO-C3. Under the seeded default policy, like the config above.
+    retentionPolicyDigest: DEFAULT_RETENTION_POLICY_DIGEST,
+    settlementWindowSeconds: DEFAULT_RETENTION_POLICY.settlement_window_s,
     // The harness stands the component up in the shape H-4 §2 requires, so
     // it runs at the sidecar profile. What it emits is still `stale` — the
     // Merkle blocker is global and no deployment shape lifts it.

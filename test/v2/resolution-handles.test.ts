@@ -36,6 +36,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../lib/leaf/retentionPolicy';
 
 if (!process.env.SCRUPLE_DB_PATH || !/tmp|test/i.test(process.env.SCRUPLE_DB_PATH)) {
   throw new Error('Refusing to run: set SCRUPLE_DB_PATH to a throwaway path. Use `npm run test:v2`.');
@@ -70,6 +74,9 @@ const BASELINE = '3'.repeat(64);
 let API_KEY: string;
 
 const ENDPOINT = 'https://witness.example.vendor/api';
+/** WO-C3. Where the named clock puts the end of the default policy's window. */
+const DEADLINE = () =>
+  new Date(Date.now() + DEFAULT_RETENTION_POLICY.settlement_window_s * 1000).toISOString();
 const AUTHORITY = 'sha256:' + 'cd'.repeat(32);
 const QUOTE_TIME = '2026-09-08T23:00:00.000Z';
 
@@ -101,6 +108,14 @@ function handles(over: Record<string, unknown> = {}): Record<string, unknown> {
     checkpoint_id: null,
     prev_checkpoint_id: 'ckpt-2026-09-08-0417',
     prev_checkpoint_quote_time: QUOTE_TIME,
+    // WO-C3 landed handles six and seven, and a capture-bearing leaf must
+    // carry both. Computed per call rather than fixed, because the route
+    // checks the deadline against a NAMED CLOCK — a literal here would drift
+    // out of the band and fail these WO-C2 cases with a message about clock
+    // skew, which is precisely the "green for the wrong reason" this file
+    // exists to prevent, inverted.
+    settlement_deadline: DEADLINE(),
+    retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
     ...over,
   };
 }
@@ -279,8 +294,8 @@ describe('WO-C2 gate — altering any handle by one byte invalidates the signatu
   }
 
   test('ADDING a handle block a component never sent is refused too — the ABSENCE is signed', async () => {
-    // Not a variation on the above. The five keys are always in the preimage,
-    // so a leaf whose component named no witness MACs five nulls; a party in
+    // Not a variation on the above. The seven keys are always in the preimage,
+    // so a leaf whose component named no witness MACs seven nulls; a party in
     // the middle that supplies them changes the canonical JSON exactly as much
     // as one that rewrites them. Stripping and adding are the same failure.
     const r = await fire({
@@ -297,8 +312,8 @@ describe('WO-C2 gate — altering any handle by one byte invalidates the signatu
   test('STRIPPING the handle block in flight is refused BY THE MAC', async () => {
     // Deliberately on a leaf with NO capture block, so that
     // `resolution_handles_required` cannot answer first. What is being
-    // measured here is the preimage, not the requirement: five keys became
-    // five nulls, the canonical JSON changed, and the signature is gone.
+    // measured here is the preimage, not the requirement: seven keys became
+    // seven nulls, the canonical JSON changed, and the signature is gone.
     const r = await fire({
       capture: null,
       tamper: (b) => {
@@ -318,6 +333,11 @@ describe('WO-C2 gate — altering any handle by one byte invalidates the signatu
       checkpoint_id: null,
       prev_checkpoint_id: 'ckpt-2026-09-08-0417',
       prev_checkpoint_quote_time: QUOTE_TIME,
+      // The deadline is generated per call, so it is read back off the
+      // response rather than pinned: what this case measures is that the
+      // SEVEN keys survived the round trip, not what o'clock it is.
+      settlement_deadline: (r.body.resolution as Record<string, unknown>).settlement_deadline,
+      retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
       signed: true,
     });
   });
@@ -502,7 +522,7 @@ describe('WO-C2 — what a handle is entitled to say', () => {
 // ---------------------------------------------------------------------------
 
 describe('WO-C2 — the handles are in the preimage, in all of it', () => {
-  test('the five handles appear in the preimage under `resolution_` keys', () => {
+  test('the seven handles appear in the preimage under `resolution_` keys', () => {
     const fields = M.componentPreimage({
       content_hash: 'a'.repeat(64),
       component: { component_id: 'x', counter: 0 },
@@ -512,6 +532,8 @@ describe('WO-C2 — the handles are in the preimage, in all of it', () => {
         checkpoint_id: null,
         prev_checkpoint_id: 'ckpt-1',
         prev_checkpoint_quote_time: QUOTE_TIME,
+        settlement_deadline: QUOTE_TIME,
+        retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
       },
     } as never);
     assert.equal(fields.resolution_witness_endpoint, ENDPOINT);
@@ -519,9 +541,11 @@ describe('WO-C2 — the handles are in the preimage, in all of it', () => {
     assert.equal(fields.resolution_checkpoint_id, null);
     assert.equal(fields.resolution_prev_checkpoint_id, 'ckpt-1');
     assert.equal(fields.resolution_prev_checkpoint_quote_time, QUOTE_TIME);
+    assert.equal(fields.resolution_settlement_deadline, QUOTE_TIME);
+    assert.equal(fields.resolution_retention_policy_digest, DEFAULT_RETENTION_POLICY_DIGEST);
   });
 
-  test('a submission with NO resolution block produces the SAME key set, five nulls', () => {
+  test('a submission with NO resolution block produces the SAME key set, seven nulls', () => {
     const withBlock = M.componentPreimage({
       content_hash: 'a'.repeat(64),
       component: { component_id: 'x', counter: 0 },
@@ -580,7 +604,7 @@ describe('WO-C2 — the handles are in the preimage, in all of it', () => {
     assert.notEqual(macOf(base), macOf(named));
   });
 
-  test('`resolutionPreimageFields` emits exactly five keys whatever it is given', () => {
+  test('`resolutionPreimageFields` emits exactly seven keys whatever it is given', () => {
     for (const input of [null, undefined, {}, handles(), { witness_endpoint: ENDPOINT }]) {
       const f = M.resolutionPreimageFields(input as never);
       assert.deepEqual(
@@ -626,6 +650,10 @@ describe('WO-C2 — the handles reach the row and the receipt', () => {
       checkpoint_id: null,
       prev_checkpoint_id: 'ckpt-2026-09-08-0417',
       prev_checkpoint_quote_time: QUOTE_TIME,
+      // WO-C3. Handles six and seven, disclosed by the same receipt and
+      // covered by the same MAC.
+      settlement_deadline: (receipt.resolution as Record<string, unknown>).settlement_deadline,
+      retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
       // The claim of the whole block, and it is computed from whether the
       // component envelope verified — not asserted because the fields exist.
       signed: true,

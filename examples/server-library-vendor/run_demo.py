@@ -34,6 +34,7 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -52,6 +53,26 @@ from scruple_host_sdk.server_library import PlacementRefused  # noqa: E402
 
 BUILD = "sha256:" + "ab" * 32
 FAILURES: list = []
+
+
+# WO-C3. The retention policy this demo emits under — the one migration 055
+# seeds, so its digest RESOLVES at ingest. A digest naming a policy the server
+# never enrolled is refused, which is the point of the field.
+from scruple_api.retention import (  # noqa: E402
+    DEFAULT_RETENTION_POLICY,
+    DEFAULT_RETENTION_POLICY_DIGEST,
+)
+
+
+def _utc_in(seconds: int) -> str:
+    """An instant `seconds` from now, on THIS MACHINE'S clock. A CLAIM: the
+    server checks it against a named clock before storing it."""
+    return (
+        datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + seconds, timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        + "Z"
+    )
 
 
 def check(label: str, condition: bool, detail: str = "") -> None:
@@ -308,6 +329,13 @@ def main() -> int:
             "checkpoint_id": None,
             "prev_checkpoint_id": None,
             "prev_checkpoint_quote_time": None,
+            # WO-C3. Same argument, two handles later: omit the settlement
+            # pair and the route refuses on `resolution_handles_required`
+            # before the ratchet is consulted.
+            "settlement_deadline": _utc_in(
+                DEFAULT_RETENTION_POLICY["settlement_window_s"]
+            ),
+            "retention_policy_digest": DEFAULT_RETENTION_POLICY_DIGEST,
         },
         "component": {
             "component_id": integ4.component.component_id,

@@ -18,6 +18,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+// WO-C3. The PURE half of the retention module — a digest function and the
+// default policy object. `lib/leaf/retentionRegistry.ts` is where the database
+// lives, and this container deliberately does not reach it.
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../../lib/leaf/retentionPolicy';
 
 /**
  * The three directories §10 C-8 names, plus the honest label for a root whose
@@ -184,6 +191,24 @@ export interface CaptureConfig {
   witnessAuthority: string | null;
 
   /**
+   * WO-C3. The retention policy this component's leaves are emitted under.
+   *
+   * The DIGEST of the enrolled policy object — which binds the evidence
+   * retention DURATION and the named clock it is counted on, not merely the
+   * policy's identity. Architect: a digest that binds identity alone leaves a
+   * resolution attempted after the evidence is legitimately gone
+   * "indistinguishable from a forged handle."
+   *
+   * ⚑ THE WINDOW MUST MATCH THE POLICY THE DIGEST NAMES. The component holds
+   * the digest, not the policy; the server holds the enrolled object and
+   * refuses a deadline that does not land where the named clock puts the end
+   * of that policy's window. A deployment that sets one and forgets the other
+   * finds out at the first leaf, which is the intended place to find out.
+   */
+  retentionPolicyDigest: string;
+  settlementWindowSeconds: number;
+
+  /**
    * OPTIONAL VENDOR DECLARATION for bytes that appear in the output volume
    * with no producing node to declare their type — a tenant's shell write,
    * H-4 §7 probe 4.
@@ -285,6 +310,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CaptureConfig 
     provisioningToken: env.SCRUPLE_CAPTURE_PROVISIONING_TOKEN || null,
     baselineRef: env.SCRUPLE_CAPTURE_BASELINE_REF || null,
     witnessAuthority: env.SCRUPLE_CAPTURE_WITNESS_AUTHORITY || null,
+    // WO-C3. Defaults to the policy migration 055 seeds, so a deployment that
+    // enrols nothing still emits a leaf whose digest RESOLVES — an
+    // unresolvable digest is refused at ingest, and a default that produced
+    // one would be a default that fails closed for no reason. A deployment
+    // with its own retention terms enrols them and sets both variables.
+    retentionPolicyDigest:
+      env.SCRUPLE_CAPTURE_RETENTION_POLICY_DIGEST || DEFAULT_RETENTION_POLICY_DIGEST,
+    settlementWindowSeconds: Number(
+      env.SCRUPLE_CAPTURE_SETTLEMENT_WINDOW_S ?? DEFAULT_RETENTION_POLICY.settlement_window_s,
+    ),
     outputVolumeDeclaredMime: env.SCRUPLE_CAPTURE_OUTPUT_VOLUME_MIME || null,
     settleMs: Number(env.SCRUPLE_CAPTURE_SETTLE_MS ?? 250),
     correlationTtlMs: Number(env.SCRUPLE_CAPTURE_CORRELATION_TTL_MS ?? 30 * 60 * 1000),

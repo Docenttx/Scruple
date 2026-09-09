@@ -269,6 +269,19 @@ export const CANVAS_BASELINE = {
    * To re-record after an intended change:
    *   npx tsx -e "import('./lib/canvas/baseline').then(m=>console.log(m.tamperSurface().tamper_surface_hash))"
    */
+  // Re-recorded by WO-C3. WHY THE HASH MOVED, AND IT IS NOT THE CAPTURE PATH:
+  // `package.json` gained ONE npm script — `gen:retention-vectors`, which
+  // regenerates `test/vectors/retention-policy-vectors.json`. Nothing canvas
+  // captures, records, or is permitted to claim changed, and no dependency
+  // pin moved. `package.json` is on TRACKED for the pins, and this list
+  // hashes whole files rather than the fields it cares about, so a script
+  // line moves it too. Recorded as what it is rather than dressed as a
+  // capture-path change — the mechanism fired correctly and the honest
+  // answer is that this particular firing is a false positive by design.
+  //
+  // The previous value, for the record: 42ba03bd82647ffafc8c1adedfacd0ab
+  // 7ff47d91a541a48d45955de418e6d7c6 (WO-S1(a), below).
+  //
   // Re-recorded by WO-S1(a). WHY THE CAPTURE PATH CHANGED:
   // `lib/iterations/ingest.ts` now persists H-1's four leaf-signature
   // fields (migration 052) instead of discarding them, so a canvas leaf
@@ -279,5 +292,5 @@ export const CANVAS_BASELINE = {
   //
   // The previous value, for the record: 8daff6dacc99c8c3d699c5527b9316c4
   // 70f4492c811b76e416cdfefbf10f6e3a (WO-25, the seal stamp).
-  tamper_surface_hash: '42ba03bd82647ffafc8c1adedfacd0ab7ff47d91a541a48d45955de418e6d7c6',
+  tamper_surface_hash: '53b4f837aad3560c6450678463cee0049326d8e36b54d46bc9e873cb8d0066ba',
 } as const;

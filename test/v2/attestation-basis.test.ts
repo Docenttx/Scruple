@@ -23,6 +23,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  DEFAULT_RETENTION_POLICY,
+  DEFAULT_RETENTION_POLICY_DIGEST,
+} from '../../lib/leaf/retentionPolicy';
 
 if (!process.env.SCRUPLE_DB_PATH || !/tmp|test/i.test(process.env.SCRUPLE_DB_PATH)) {
   throw new Error('Refusing to run: set SCRUPLE_DB_PATH to a throwaway path. Use `npm run test:v2`.');
@@ -78,13 +82,22 @@ function captureBlock(over: Record<string, unknown> = {}): Record<string, unknow
  * `resolution_handles_required` and the basis rules are never reached, which
  * would turn six controls into six passes for the wrong reason.
  */
-const RESOLUTION = {
+const RESOLUTION = () => ({
   witness_endpoint: 'https://witness.example.vendor/api',
   witness_authority: 'sha256:' + 'cd'.repeat(32),
   checkpoint_id: null,
   prev_checkpoint_id: null,
   prev_checkpoint_quote_time: null,
-};
+  // WO-C3. And the two that bind the DURATION. A FUNCTION rather than a
+  // constant, because the deadline is checked against a named clock at ingest
+  // — a module-level literal would drift out of the band the first time this
+  // file was left running, and would fail with a message about clock skew in a
+  // test about something else.
+  settlement_deadline: new Date(
+    Date.now() + DEFAULT_RETENTION_POLICY.settlement_window_s * 1000,
+  ).toISOString(),
+  retention_policy_digest: DEFAULT_RETENTION_POLICY_DIGEST,
+});
 
 function submission(componentId: string, counter: number, capture: Record<string, unknown>) {
   const body: Record<string, unknown> = {
@@ -93,7 +106,7 @@ function submission(componentId: string, counter: number, capture: Record<string
     content_hash: crypto.randomBytes(32).toString('hex'),
     mime: 'image/png',
     capture,
-    resolution: RESOLUTION,
+    resolution: RESOLUTION(),
     component: {
       component_id: componentId,
       build_measurement: BUILD,
