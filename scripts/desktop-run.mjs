@@ -360,6 +360,23 @@ const MUTATIONS = {
       return `phantom-cam declared itself in ${dir} and announced ${promptId}`;
     },
   },
+  // ── WO-D7. THE CONTROL FOR "every artifact re-hashes from disk". A digest
+  // recorded in a reply and never checked against bytes is a digest of
+  // whatever the app felt like saying; this changes the bytes AFTER the run,
+  // in the store, and the re-hash must notice. One byte, and the file keeps its
+  // length — a truncation would also be caught by a size check, which is a
+  // weaker assertion than the one being controlled.
+  'tamper-the-artifact': {
+    when: 'after',
+    describe: 'flip one byte of the stored artifact after the run',
+    apply(ctx) {
+      const p = ctx.resolve('${steps.gen.value.images.0.storePath}');
+      const buf = readFileSync(p);
+      buf[buf.length - 1] ^= 0x01;
+      writeFileSync(p, buf);
+      return `flipped the last byte of ${p}`;
+    },
+  },
   'assert-expectation': {
     when: 'spec',
     describe: "rewrite one assertion's expected value to a wrong constant",
@@ -751,6 +768,212 @@ const KINDS = {
     const got = statSync(p).size;
     return { pass: got === want, detail: { path: p, onDisk: got, expected: want } };
   },
+
+  // ── WO-D7. The whole flow, graded at its far end.
+  //
+  // Everything above asserts one station. These four are the work order's own
+  // gate — "at least 5 leaves; every artifact re-hashes from disk; every
+  // receipt resolves; every basis reads stale/passthrough and never verified" —
+  // and each is asked of the ESTATE rather than of the app: the witness's
+  // sqlite file, the bytes on disk, the public HTTP routes, the app's database.
+  // The run's own reply is used for one thing only: to learn which hashes and
+  // which paths this run produced.
+
+  /**
+   * How many leaves this run actually put in the witness.
+   *
+   * ⚑ COUNTED AS LEAVES, NOT AS ARTIFACTS. A generation through the gate makes
+   * two of them over one artifact; a vault of three captured files makes three
+   * plus one for its manifest. Counting content hashes would report a smaller
+   * number than the truth, and counting rows in the APP database would count
+   * the tier that writes them rather than the service that holds them.
+   */
+  'leaves-at-least': (a, ctx) => {
+    const hashes = (a.contentHashes || []).flatMap((ref) => {
+      const v = ctx.resolve(ref);
+      return Array.isArray(v) ? v : [v];
+    }).filter((h) => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h));
+    const leaves = witnessLeaves(hashes);
+    const distinct = new Set(leaves.map((l) => l.leafHash));
+    return {
+      pass: distinct.size >= a.min,
+      detail: {
+        min: a.min, leaves: distinct.size, overHashes: hashes.length,
+        perHash: Object.fromEntries(hashes.map((h) => [h.slice(0, 12), leaves.filter((l) => l.contentHash === h).length])),
+      },
+    };
+  },
+
+  /**
+   * Every artifact this run recorded a digest for re-hashes from the bytes on
+   * disk. `file-rehashes` is the same question asked of one file; this is the
+   * work order's "EVERY artifact", and it fails if the list is empty — a run
+   * that produced nothing must not pass a check about everything it produced.
+   */
+  'artifacts-rehash': (a, ctx) => {
+    const rows = [];
+    for (const art of a.artifacts || []) {
+      const p = ctx.resolve(art.path);
+      const want = ctx.resolve(art.sha256);
+      if (typeof p !== 'string' || !existsSync(p)) {
+        rows.push({ label: art.label || p, ok: false, why: 'no such file', path: p });
+        continue;
+      }
+      const got = createHash('sha256').update(readFileSync(p)).digest('hex');
+      rows.push({ label: art.label || p, ok: got === want, onDisk: got, recorded: want, path: p });
+    }
+    return {
+      pass: rows.length > 0 && rows.every((r) => r.ok),
+      detail: { checked: rows.length, failures: rows.filter((r) => !r.ok) },
+    };
+  },
+
+  /**
+   * Every leaf this run made has a receipt, and every receipt resolves.
+   *
+   * Asked over EVERY leaf for each content hash, not the one the public verify
+   * route hands back: `/api/v2/verify` answers `ORDER BY id DESC LIMIT 1`, so
+   * asking through it would silently exempt the older half of every generation.
+   * The leaf ids come from the witness's own file and the questions go over
+   * HTTP to the public routes, which is the door a stranger has.
+   */
+  'receipts-resolve': (a, ctx) => {
+    const hashes = (a.contentHashes || []).flatMap((ref) => {
+      const v = ctx.resolve(ref);
+      return Array.isArray(v) ? v : [v];
+    }).filter((h) => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h));
+    const want = a.resolution || 'resolvable';
+    const rows = [];
+    for (const h of hashes) {
+      const leaves = iterationRowsAll(h, ['leaf_hash']);
+      if (!leaves.length) { rows.push({ contentHash: h, ok: false, why: 'no leaf for these bytes' }); continue; }
+      for (const leaf of leaves) {
+        const receipt = httpJson(`${ctx.appURL}/api/v2/receipt/${leaf.id}`);
+        const resolved = httpJson(`${ctx.appURL}/api/v2/resolve/${leaf.id}`);
+        const r = receipt.data || {};
+        const s = resolved.data || {};
+        const ok =
+          receipt.status === 200 &&
+          r.content_hash === h &&
+          resolved.status === 200 &&
+          s.resolution === want;
+        rows.push({
+          leafId: leaf.id, contentHash: h.slice(0, 12), ok,
+          receipt: receipt.status, contentHashMatches: r.content_hash === h,
+          resolution: s.resolution, reason: s.reason || null,
+        });
+      }
+    }
+    return {
+      pass: rows.length > 0 && rows.every((r) => r.ok),
+      detail: { want, checked: rows.length, failures: rows.filter((r) => !r.ok) },
+    };
+  },
+
+  /**
+   * 🔴 Not one leaf in this run claims `verified`.
+   *
+   * The surrogate is SOFTWARE-backed and `verified` is unrepresentable on the
+   * desktop profile by construction — at the type level, in the resolver, and
+   * in the database's own CHECK. This asserts the outcome of all three over
+   * every row this run wrote, and it is deliberately stricter than "not
+   * verified": a NULL basis passes `!== 'verified'` and is not an answer, so
+   * the value must be one of the ones named.
+   */
+  'basis-never-verified': (a, ctx) => {
+    const allowed = a.allowed || ['stale', 'passthrough'];
+    const hashes = (a.contentHashes || []).flatMap((ref) => {
+      const v = ctx.resolve(ref);
+      return Array.isArray(v) ? v : [v];
+    }).filter((h) => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h));
+    const rows = [];
+    for (const h of hashes) {
+      for (const r of iterationRowsAll(h, ['attestation_basis', 'attestation_profile'])) {
+        rows.push({
+          leafId: r.id, contentHash: h.slice(0, 12),
+          basis: r.attestation_basis, profile: r.attestation_profile,
+          ok: allowed.includes(r.attestation_basis),
+        });
+      }
+    }
+    return {
+      pass: rows.length > 0 && rows.every((r) => r.ok) && !rows.some((r) => r.basis === 'verified'),
+      detail: {
+        allowed, checked: rows.length,
+        bases: [...new Set(rows.map((r) => r.basis))],
+        profiles: [...new Set(rows.map((r) => r.profile))],
+        offenders: rows.filter((r) => !r.ok),
+      },
+    };
+  },
+
+  /**
+   * The credential was signed by a key this machine cannot reach, and the
+   * bytes carry it.
+   *
+   * Three separate claims, because they fail separately:
+   *   the MODE      `kms-http`, never `local` — a server signing with a key on
+   *                 its own disk is a different custody story wearing the same
+   *                 response shape.
+   *   the IDENTITY  `surrogate=true`, stated on every kms-http signature true
+   *                 or false, so nothing downstream can mistake a
+   *                 software-signed credential for an HSM-backed one.
+   *   the MANIFEST  read out of the signed file HERE by c2pa.Reader. WO-D7
+   *                 found the reason this is not redundant: with the surrogate
+   *                 signing and the DEFAULT certificate embedded, the signer
+   *                 returns ok:true and the credential fails
+   *                 `claimSignature.mismatch`. `forbidStatus` is what catches
+   *                 that, and `signingCredential.untrusted` is deliberately NOT
+   *                 in the list — a dev root nobody trusts is the honest
+   *                 outcome and must not be papered over.
+   */
+  'credential-surrogate': (a, ctx) => {
+    const step = ctx.result && ctx.result.steps ? ctx.result.steps[a.step] : null;
+    const v = step && step.value;
+    if (!v) return { pass: false, detail: `step "${a.step}" returned nothing` };
+    const checks = {
+      signed: v.ok === true && v.outcome === 'signed',
+      mode: v.signingMode === (a.mode || 'kms-http'),
+      surrogate: typeof v.signerIdentity === 'string' && v.signerIdentity.includes('surrogate=true'),
+      // 🔴 The one that must never pass: the surrogate is not a vault and a
+      // credential it signed may not be reported as one.
+      notVault: v.signingMode !== 'vault',
+      onDisk: typeof v.signedPath === 'string' && existsSync(v.signedPath),
+    };
+    let manifest = null;
+    if (checks.onDisk) {
+      manifest = c2paManifest(v.signedPath, a.mime || 'image/png');
+      checks.manifestReadable = !manifest.error && !!manifest.active;
+      const status = (manifest.validation_status || []).map((s) => s.code);
+      checks.noForbiddenStatus = !(a.forbidStatus || []).some((code) => status.includes(code));
+      manifest.status_codes = status;
+    }
+    return {
+      pass: Object.values(checks).every(Boolean),
+      detail: { checks, mode: v.signingMode, identity: v.signerIdentity, signedPath: v.signedPath, manifest },
+    };
+  },
+
+  /**
+   * A refusal that is a recorded outcome.
+   *
+   * The tier control: `witnessed` and above bind the credential to the project
+   * chain through `projects.scr_id`, which only the legacy lock routes set —
+   * so the v2 witness door leaves it null and the request is REFUSED. That
+   * refusal is an honest fact about this flow and docs/STATE.md carries it;
+   * what must not happen is the signer producing a credential that claims a
+   * tier it cannot substantiate.
+   */
+  'credential-refused': (a, ctx) => {
+    const step = ctx.result && ctx.result.steps ? ctx.result.steps[a.step] : null;
+    const v = step && step.value;
+    if (!v) return { pass: false, detail: `step "${a.step}" returned nothing` };
+    const because = String(v.reason || '') + ' ' + String(v.signerError || '');
+    return {
+      pass: v.ok === false && v.outcome === 'refused' && (!a.contains || because.includes(a.contains)),
+      detail: { outcome: v.outcome, reason: v.reason, signerError: v.signerError, wanted: a.contains || null },
+    };
+  },
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -846,6 +1069,105 @@ function iterationRow(contentHash, fields) {
   }
   const rows = out.trim() ? JSON.parse(out) : [];
   return rows.length ? rows[0] : null;
+}
+
+/**
+ * EVERY leaf in the scratch witness for a set of content hashes.
+ *
+ * `witnessRows` above answers "is there a leaf for these bytes"; this answers
+ * "how many, and which". ⚑ The distinction is load-bearing for WO-D7: one
+ * generation through the gate produces TWO leaves over the same artifact — the
+ * gate observes the graph and the output — so a flow that counted content
+ * hashes would report half the leaves it made, and the public
+ * /api/v2/verify route only ever hands back the newest of them.
+ */
+function witnessLeaves(hashes) {
+  const out = [];
+  for (const h of hashes) {
+    for (const row of witnessRows(h)) {
+      const [id, leafHash] = row.split('|');
+      out.push({ contentHash: h, witnessId: id, leafHash });
+    }
+  }
+  return out;
+}
+
+/**
+ * EVERY `iterations` row for one content hash, oldest first.
+ *
+ * `iterationRow` takes the newest because a persistent scratch database means
+ * an earlier run's leaf could answer for this one. Here the whole point is to
+ * see all of them, so the caller passes hashes that are unique to this run —
+ * the driver's nonce is in the workflow and the vault fixtures are salted with
+ * it — and gets back the run's own leaves.
+ */
+function iterationRowsAll(contentHash, fields) {
+  if (typeof contentHash !== 'string' || !/^[0-9a-f]{64}$/.test(contentHash)) return [];
+  const db = process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db';
+  const sql =
+    `SELECT id, ${fields.map((f) => `"${f}"`).join(', ')} FROM iterations ` +
+    `WHERE output_hash = '${contentHash}' ORDER BY id ASC;`;
+  let out;
+  try {
+    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', '-json', sql], { encoding: 'utf8' });
+  } catch (err) {
+    throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
+  }
+  return out.trim() ? JSON.parse(out) : [];
+}
+
+/**
+ * GET a JSON route from THIS process.
+ *
+ * curl through execFileSync for `fetchRoute`'s reasons — one dependency, and a
+ * synchronous assertion table. `--fail-with-body` is deliberately NOT passed:
+ * a 404 from the receipt route and a 200 carrying `unresolvable` are both
+ * ANSWERS, and the status is part of what is being asserted.
+ */
+function httpJson(url) {
+  const out = execFileSync('curl', ['-sS', '-m', '60', '-w', '\n%{http_code}', url], {
+    encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+  });
+  const cut = out.lastIndexOf('\n');
+  const status = Number(out.slice(cut + 1).trim());
+  let body = null;
+  try { body = JSON.parse(out.slice(0, cut)); } catch { /* not JSON is a fact */ }
+  const data = body && typeof body === 'object' && body.data !== undefined ? body.data : body;
+  return { status, data };
+}
+
+/**
+ * Read the C2PA manifest OUT OF THE SIGNED FILE, here, with the c2pa library.
+ *
+ * ⚑ NOT the signer's word for it. `/api/scruple/c2pa/sign` answering `ok: true`
+ * means the subprocess exited 0; it does not mean the bytes carry a credential,
+ * and — as WO-D7 found — it does not mean the credential verifies. c2pa.Reader
+ * parses the JUMBF, checks the claim signature against the embedded
+ * certificate, and reports `validation_status`. That list is the whole reason
+ * this reads the file rather than the response.
+ */
+function c2paManifest(path_, mime) {
+  const py = `
+import json, sys
+from c2pa import Reader
+with open(sys.argv[1], 'rb') as f:
+    doc = json.loads(Reader(sys.argv[2], f).json())
+active = doc.get('active_manifest')
+m = (doc.get('manifests') or {}).get(active, {})
+print(json.dumps({
+    'active': active,
+    'title': m.get('title'),
+    'assertions': [a.get('label') for a in (m.get('assertions') or [])],
+    'signature_info': m.get('signature_info'),
+    'validation_status': doc.get('validation_status') or [],
+}))
+`;
+  try {
+    const out = execFileSync('python3', ['-c', py, path_, mime || 'image/png'], { encoding: 'utf8' });
+    return JSON.parse(out.trim().split('\n').pop());
+  } catch (err) {
+    return { error: String((err.stderr || err.message || err)).slice(0, 400) };
+  }
 }
 
 /**
@@ -1093,7 +1415,14 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
   };
 
-  if (spec.needs === 'vault') {
+  // WO-D7. `needs` became a LIST, because the full flow needs both surfaces in
+  // one app: the vault and the ComfyUI gate are separately provisioned
+  // components with separate baselines — one baseline_ref covering both would
+  // mean a change in either produced a drift attributed to both — and a
+  // scenario that exercises both has to carry both sets of credentials.
+  const needs = Array.isArray(spec.needs) ? spec.needs : (spec.needs ? [spec.needs] : []);
+
+  if (needs.includes('vault')) {
     const sandbox = vaultSandbox();
     env.SCRUPLE_VAULT_API_KEY = sandbox.apiKey;
     env.SCRUPLE_VAULT_BASELINE_REF = sandbox.baselineRef;
@@ -1106,7 +1435,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     mkdirSync(env.SCRUPLE_VAULT_STATE, { recursive: true, mode: 0o700 });
   }
 
-  if (spec.needs === 'comfy') {
+  if (needs.includes('comfy')) {
     const sandbox = surfaceSandbox('app/comfy');
     env.SCRUPLE_COMFY_API_KEY = sandbox.apiKey;
     env.SCRUPLE_COMFY_BASELINE_REF = sandbox.baselineRef;
@@ -1131,6 +1460,12 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     const host = Object.values(fixtures).find((f) => f && f.kind === 'host');
     if (host) env.SCRUPLE_COMFY_HOST_DIR = host.hostDir;
     mkdirSync(env.SCRUPLE_COMFY_STATE, { recursive: true, mode: 0o700 });
+    // WO-D7. The credential handler signs an artifact into the chain that holds
+    // its leaf, so it carries the key of the tenant whose leaves those are —
+    // the ComfyUI surface's. Configuration, from here, for the reason every
+    // other credential in this driver is: a page that could name a key could
+    // sign into somebody else's project.
+    env.SCRUPLE_CREDENTIAL_API_KEY = sandbox.apiKey;
   }
 
   const ctxEarly = { fixtures, appDir, spec, runDir, env };
@@ -1215,12 +1550,64 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     add(a.id || a.kind, outcome.pass, outcome.detail, a.note);
   }
 
+  // ── the table WO-D7 asks for ───────────────────────────────────────────
+  //
+  // One row per LEAF, not per artifact — a generation makes two — and every
+  // column is measured here rather than copied from the app's reply: the
+  // digest is taken from the bytes on disk, the leaf comes out of the
+  // witness's own file, the basis out of the app's database, and the last two
+  // columns are HTTP answers from the public routes. The reply is consulted
+  // only for which hashes and which paths this run produced.
+  //
+  // It is built whether the run passed or failed, because a failed flow's
+  // table is the most useful thing on the screen.
+  const table = [];
+  for (const entry of materialised.table || []) {
+    let contentHash = null, path_ = null;
+    try { contentHash = ctx.resolve(entry.contentHash); } catch { /* recorded below */ }
+    if (entry.path !== undefined) { try { path_ = ctx.resolve(entry.path); } catch { /* ditto */ } }
+    if (typeof contentHash !== 'string' || !/^[0-9a-f]{64}$/.test(contentHash)) {
+      table.push({ station: entry.station, label: entry.label, contentHash: String(contentHash), rehash: '—', leaf: '—' });
+      continue;
+    }
+    const rehash = path_ === null ? '—'
+      : !existsSync(path_) ? 'GONE'
+      : createHash('sha256').update(readFileSync(path_)).digest('hex') === contentHash ? 'ok' : 'MISMATCH';
+    let leaves = [];
+    try { leaves = iterationRowsAll(contentHash, ['leaf_hash', 'attestation_basis', 'attestation_profile', 'host_semantics']); }
+    catch (err) { table.push({ station: entry.station, label: entry.label, contentHash, rehash, leaf: `query failed: ${err.message}` }); continue; }
+    if (!leaves.length) {
+      table.push({ station: entry.station, label: entry.label, contentHash, rehash, leaf: 'NONE' });
+      continue;
+    }
+    const witnessed = new Set(witnessLeaves([contentHash]).map((l) => l.leafHash));
+    for (const l of leaves) {
+      let receipt = { status: 0 }, resolved = { status: 0, data: {} };
+      try { receipt = httpJson(`${appURL}/api/v2/receipt/${l.id}`); } catch { /* status stays 0 */ }
+      try { resolved = httpJson(`${appURL}/api/v2/resolve/${l.id}`); } catch { /* ditto */ }
+      table.push({
+        station: entry.station,
+        label: entry.label,
+        contentHash,
+        rehash,
+        leaf: String(l.id),
+        leafHash: l.leaf_hash,
+        inWitness: witnessed.has(l.leaf_hash),
+        basis: l.attestation_basis,
+        profile: l.attestation_profile,
+        semantics: l.host_semantics,
+        receipt: receipt.status,
+        resolution: (resolved.data && resolved.data.resolution) || `http ${resolved.status}`,
+      });
+    }
+  }
+
   const failed = checks.filter((c) => !c.pass).map((c) => c.id);
   const report = {
     spec: materialised,
     scenario: materialised.scenario, label, appURL, runDir, specPath, exitCode, timedOut,
     breaks: applied, passed: failed.length === 0, failed,
-    checks,
+    checks, table,
     versions: result ? result.versions : null,
     page: result && result.renderer ? { href: result.renderer.href, bodyChars: result.renderer.bodyChars, bridgeMethods: result.renderer.bridgeMethods } : null,
   };
@@ -1229,10 +1616,34 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   return report;
 }
 
+/**
+ * The flow, one line per leaf. 🔴 `basis` is the column the work order names:
+ * it must read `stale` or `passthrough` and never `verified`, and it is
+ * printed for every leaf rather than summarised so that a single offender
+ * cannot hide behind an aggregate.
+ */
+function printTable(table) {
+  if (!table || !table.length) return;
+  const head = ['STATION', 'ARTIFACT', 'CONTENT', 'REHASH', 'LEAF', 'LEAFHASH', 'BASIS', 'PROFILE', 'SEM', 'RCPT', 'RESOLVE'];
+  const rows = table.map((t) => [
+    t.station || '', t.label || '', (t.contentHash || '').slice(0, 12),
+    t.rehash || '', t.leaf || '', (t.leafHash || '').slice(0, 12),
+    t.basis || '', t.profile || '', t.semantics || '-',
+    t.receipt === undefined ? '' : String(t.receipt), t.resolution || '',
+  ]);
+  const w = head.map((h, i) => Math.max(h.length, ...rows.map((r) => String(r[i]).length)));
+  const line = (cells) => '   ' + cells.map((c, i) => String(c).padEnd(w[i])).join('  ');
+  console.log('');
+  console.log(line(head));
+  for (const r of rows) console.log(line(r));
+  console.log('');
+}
+
 function printReport(r) {
   for (const c of r.checks) {
     console.log(`   ${c.pass ? 'PASS' : 'FAIL'}  ${c.id}${c.pass ? '' : `  ${JSON.stringify(c.detail)}`}`);
   }
+  printTable(r.table);
   if (r.versions) {
     console.log(`   electron ${r.versions.electron} · chromium ${r.versions.chrome} · node ${r.versions.node}`);
   }

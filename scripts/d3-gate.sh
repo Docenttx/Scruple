@@ -47,7 +47,19 @@ fi
 stage "stage 2 — the control RED BEFORE the change (app-legacy/lock/lock-local-lock.js)"
 # Needs a materialised vault. The clean run below makes one; use the newest, or
 # make one first if this is a cold start.
-newest_vault(){ ls -dt .run/d2/*/source/training-vault 2>/dev/null | head -1; }
+# ⚑ SELECTED BY WHAT IS IN IT, NOT BY WHAT IT IS CALLED. This used to glob
+# `*/source/training-vault` and take the newest, which quietly meant "any
+# scenario that happens to name a vault fixture the same thing" — WO-D7's
+# full-flow did, its vault has no oversize.json, and stage 2's ceiling control
+# reported NOT DEMONSTRATED against a directory that was never D3's. The
+# fixture was renamed, and this now requires the file the control actually
+# needs, so the next collision cannot happen at all.
+newest_vault(){
+  for d in $(ls -dt .run/d2/*/source/*vault* 2>/dev/null); do
+    [ -f "$d/oversize.json" ] && [ -f "$d/opaque.bin" ] && [ -f "$d/undeclared.png" ] || continue
+    echo "$d"; return
+  done
+}
 if [ -z "$(newest_vault)" ]; then
   echo "   (no vault fixture yet — running the scenario once to make one)"
   node scripts/desktop-run.mjs vault-capture --url "$APP_URL" >/dev/null 2>&1

@@ -2,7 +2,7 @@
   "name": "scruple-desktop-studio",
   "version": "3.1.0-dev",
   "private": true,
-  "description": "Scruple Desktop Studio — a local agent with a dashboard. Hosts the served Next UI in a BrowserWindow.",
+  "description": "Scruple Desktop Studio \u2014 a local agent with a dashboard. Hosts the served Next UI in a BrowserWindow.",
   "main": "app/main-modular.js",
   "scripts": {
     "start": "electron .",
@@ -13,7 +13,8 @@
     "d4": "node scripts/desktop-run.mjs comfy-generate",
     "d6": "node scripts/desktop-run.mjs host-adapter",
     "d6:blind": "node scripts/desktop-run.mjs host-blind",
-    "gate": "bash scripts/d1-gate.sh && bash scripts/d2-gate.sh && bash scripts/d3-gate.sh && bash scripts/d4-gate.sh && bash scripts/d5-gate.sh && bash scripts/d6-gate.sh"
+    "gate": "bash scripts/d1-gate.sh && bash scripts/d2-gate.sh && bash scripts/d3-gate.sh && bash scripts/d4-gate.sh && bash scripts/d5-gate.sh && bash scripts/d6-gate.sh && bash scripts/d7-gate.sh",
+    "d7": "node scripts/desktop-run.mjs full-flow --timeout 600000"
   },
   "devDependencies": {
     "electron": "^38.0.0"

@@ -1,0 +1,487 @@
+{
+  "scenario": "full-flow",
+  "description": "WO-D7: the whole flow in one app, one launch. ComfyUI comes up behind the capture gate with a Level-2 host registered; a generation produces an artifact whose leaf carries fingerprints computed from the model FILES and semantics supplied by the host; a vault directory is enumerated, typed by declared MIME and hashed as a unit; the gate drains; then the two stations a user actually ends up holding — the RECEIPT the server will show anyone, and a C2PA CREDENTIAL signed by a key this machine deliberately cannot reach. Everything here is asserted from outside the app: bytes on disk re-hashed by the driver, leaves read out of the witness's own sqlite file, receipts fetched over the public routes, and the credential's manifest parsed out of the signed bytes.",
+  "needs": [
+    "comfy",
+    "vault"
+  ],
+  "vaultCeilingBytes": 65536,
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "comfy-base",
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    },
+    "phantom": {
+      "kind": "host",
+      "name": "phantom-host",
+      "promptPrefix": "d7",
+      "declaration": {
+        "host": "phantom-cam",
+        "hostVersion": "4.2.1",
+        "adapter": "viewport",
+        "adapterVersion": "1.0.0",
+        "evidenceType": "scruple.dev/evidence/phantom-cam-viewport/v1",
+        "hooks": [
+          "artifact.produced",
+          "graph.execute"
+        ],
+        "surfaces": [
+          "host-api-callback"
+        ],
+        "fidelity": "as-written",
+        "declaredPlacement": "attested-client",
+        "enforcement": "none",
+        "schema": {
+          "type": "object",
+          "required": [
+            "scene",
+            "frame",
+            "camera"
+          ],
+          "properties": {
+            "scene": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "integer"
+            },
+            "camera": {
+              "type": "string"
+            }
+          }
+        },
+        "capabilityClasses": [
+          "authoring-application"
+        ],
+        "custodyLocus": "tenant-custody"
+      },
+      "evidence": {
+        "scene": "atrium-${nonce}",
+        "frame": "${nonceInt}",
+        "camera": "CAM_hero"
+      }
+    },
+    "vault": {
+      "kind": "vault",
+      "name": "d7-training-vault",
+      "declaredBy": "wo-d7 fixture, standing in for the trainer that filled the folder",
+      "files": {
+        "accepted": {
+          "name": "accepted.png",
+          "bytes": 4096,
+          "seed": "wo-d7-accepted",
+          "mime": "image/png"
+        },
+        "config": {
+          "name": "config.toml",
+          "bytes": 1024,
+          "seed": "wo-d7-config",
+          "mime": "application/toml"
+        },
+        "captions": {
+          "name": "captions.txt",
+          "bytes": 2048,
+          "seed": "wo-d7-captions",
+          "mime": "text/plain"
+        },
+        "undeclared": {
+          "name": "undeclared.png",
+          "bytes": 2048,
+          "seed": "wo-d7-undeclared",
+          "declare": false
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "as": "launch",
+      "call": "comfyLaunch",
+      "args": []
+    },
+    {
+      "as": "gen",
+      "call": "comfyGenerate",
+      "args": [
+        {
+          "workflow": {
+            "1": {
+              "class_type": "EmptyImage",
+              "inputs": {
+                "width": 32,
+                "height": 32,
+                "batch_size": 1,
+                "color": "${driver.nonceInt}"
+              }
+            },
+            "2": {
+              "class_type": "UpscaleModelLoader",
+              "inputs": {
+                "model_name": "scruple-tiny-x2.safetensors"
+              }
+            },
+            "3": {
+              "class_type": "ImageUpscaleWithModel",
+              "inputs": {
+                "upscale_model": [
+                  "2",
+                  0
+                ],
+                "image": [
+                  "1",
+                  0
+                ]
+              }
+            },
+            "4": {
+              "class_type": "SaveImage",
+              "inputs": {
+                "images": [
+                  "3",
+                  0
+                ],
+                "filename_prefix": "scruple-d7"
+              }
+            }
+          },
+          "promptId": "${fixtures.phantom.promptId}"
+        }
+      ]
+    },
+    {
+      "as": "vault",
+      "call": "vaultCapture",
+      "args": [
+        {
+          "vaultDir": "${fixtures.vault.path}",
+          "vaultId": "wo-d7-vault"
+        }
+      ]
+    },
+    {
+      "as": "stop",
+      "call": "comfyStop",
+      "args": []
+    },
+    {
+      "as": "receipts",
+      "call": "receipts",
+      "args": [
+        {
+          "contentHashes": [
+            "${steps.gen.value.images.0.sha256}",
+            "${fixtures.vault.files.accepted.sha256}",
+            "${fixtures.vault.files.config.sha256}",
+            "${fixtures.vault.files.captions.sha256}",
+            "${steps.vault.value.manifest.digest}"
+          ]
+        }
+      ]
+    },
+    {
+      "as": "cred",
+      "call": "credential",
+      "args": [
+        {
+          "assetPath": "${steps.gen.value.images.0.storePath}",
+          "contentHash": "${steps.gen.value.images.0.sha256}",
+          "digitalSourceType": "TRAINED_ALGORITHMIC_MEDIA",
+          "tier": "bare",
+          "title": "WO-D7 full flow",
+          "assetName": "${steps.gen.value.images.0.filename}"
+        }
+      ]
+    },
+    {
+      "as": "credTier",
+      "required": false,
+      "call": "credential",
+      "args": [
+        {
+          "assetPath": "${steps.gen.value.images.0.storePath}",
+          "contentHash": "${steps.gen.value.images.0.sha256}",
+          "digitalSourceType": "TRAINED_ALGORITHMIC_MEDIA",
+          "tier": "witnessed",
+          "title": "WO-D7 tier control",
+          "assetName": "${steps.gen.value.images.0.filename}"
+        }
+      ]
+    }
+  ],
+  "table": [
+    {
+      "station": "generate",
+      "label": "artifact",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "path": "${steps.gen.value.images.0.storePath}"
+    },
+    {
+      "station": "credential",
+      "label": "staged copy",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "path": "${steps.cred.value.stagedPath}"
+    },
+    {
+      "station": "vault",
+      "label": "accepted.png",
+      "contentHash": "${fixtures.vault.files.accepted.sha256}",
+      "path": "${fixtures.vault.files.accepted.path}"
+    },
+    {
+      "station": "vault",
+      "label": "config.toml",
+      "contentHash": "${fixtures.vault.files.config.sha256}",
+      "path": "${fixtures.vault.files.config.path}"
+    },
+    {
+      "station": "vault",
+      "label": "captions.txt",
+      "contentHash": "${fixtures.vault.files.captions.sha256}",
+      "path": "${fixtures.vault.files.captions.path}"
+    },
+    {
+      "station": "vault",
+      "label": "manifest",
+      "contentHash": "${steps.vault.value.manifest.digest}",
+      "path": "${steps.vault.value.manifest.path}"
+    },
+    {
+      "station": "vault",
+      "label": "undeclared.png (refused)",
+      "contentHash": "${fixtures.vault.files.undeclared.sha256}",
+      "path": "${fixtures.vault.files.undeclared.path}"
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "launch-succeeded",
+      "kind": "step-succeeded",
+      "step": "launch"
+    },
+    {
+      "id": "generate-succeeded",
+      "kind": "step-succeeded",
+      "step": "gen"
+    },
+    {
+      "id": "vault-succeeded",
+      "kind": "step-succeeded",
+      "step": "vault"
+    },
+    {
+      "id": "receipts-succeeded",
+      "kind": "step-succeeded",
+      "step": "receipts"
+    },
+    {
+      "id": "credential-succeeded",
+      "kind": "step-succeeded",
+      "step": "cred"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "cred",
+      "note": "the credential came back through the real IPC seam — a renderer-local stub cannot know this process's pid"
+    },
+    {
+      "id": "generation-went-through-the-gate",
+      "kind": "equals",
+      "actual": "${steps.gen.value.viaGate}",
+      "expected": true
+    },
+    {
+      "id": "gate-is-at-level-2",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.level}",
+      "expected": 2
+    },
+    {
+      "id": "AT-LEAST-5-LEAVES",
+      "kind": "leaves-at-least",
+      "min": 5,
+      "contentHashes": [
+        "${steps.gen.value.images.0.sha256}",
+        "${fixtures.vault.files.accepted.sha256}",
+        "${fixtures.vault.files.config.sha256}",
+        "${fixtures.vault.files.captions.sha256}",
+        "${steps.vault.value.manifest.digest}"
+      ],
+      "note": "🔴 THE WORK ORDER'S FIRST GATE. Counted as LEAVES in the scratch witness's own file: one generation makes two, three captured vault files make three, and the vault manifest makes one."
+    },
+    {
+      "id": "EVERY-ARTIFACT-REHASHES",
+      "kind": "artifacts-rehash",
+      "artifacts": [
+        {
+          "label": "generated artifact",
+          "path": "${steps.gen.value.images.0.storePath}",
+          "sha256": "${steps.gen.value.images.0.sha256}"
+        },
+        {
+          "label": "accepted.png",
+          "path": "${fixtures.vault.files.accepted.path}",
+          "sha256": "${fixtures.vault.files.accepted.sha256}"
+        },
+        {
+          "label": "config.toml",
+          "path": "${fixtures.vault.files.config.path}",
+          "sha256": "${fixtures.vault.files.config.sha256}"
+        },
+        {
+          "label": "captions.txt",
+          "path": "${fixtures.vault.files.captions.path}",
+          "sha256": "${fixtures.vault.files.captions.sha256}"
+        },
+        {
+          "label": "vault manifest",
+          "path": "${steps.vault.value.manifest.path}",
+          "sha256": "${steps.vault.value.manifest.digest}"
+        },
+        {
+          "label": "staged copy (the bytes that were signed)",
+          "path": "${steps.cred.value.stagedPath}",
+          "sha256": "${steps.gen.value.images.0.sha256}"
+        }
+      ],
+      "note": "🔴 THE SECOND GATE. Read here, hashed here. docs/DESIGN.md: 'bytes on disk that re-hash to the recorded content hash'."
+    },
+    {
+      "id": "EVERY-RECEIPT-RESOLVES",
+      "kind": "receipts-resolve",
+      "resolution": "resolvable",
+      "contentHashes": [
+        "${steps.gen.value.images.0.sha256}",
+        "${fixtures.vault.files.accepted.sha256}",
+        "${fixtures.vault.files.config.sha256}",
+        "${fixtures.vault.files.captions.sha256}",
+        "${steps.vault.value.manifest.digest}"
+      ],
+      "note": "🔴 THE THIRD GATE. Every leaf, not the one the public verify route hands back — that route answers ORDER BY id DESC LIMIT 1 and would exempt the older half of every generation."
+    },
+    {
+      "id": "NO-LEAF-CLAIMS-VERIFIED",
+      "kind": "basis-never-verified",
+      "allowed": [
+        "stale",
+        "passthrough"
+      ],
+      "contentHashes": [
+        "${steps.gen.value.images.0.sha256}",
+        "${fixtures.vault.files.accepted.sha256}",
+        "${fixtures.vault.files.config.sha256}",
+        "${fixtures.vault.files.captions.sha256}",
+        "${steps.vault.value.manifest.digest}"
+      ],
+      "note": "🔴 THE FOURTH GATE. Stricter than 'not verified': a NULL basis is not an answer, so the value must be one of the two named."
+    },
+    {
+      "id": "CREDENTIAL-SIGNED-BY-THE-SURROGATE",
+      "kind": "credential-surrogate",
+      "step": "cred",
+      "mode": "kms-http",
+      "mime": "image/png",
+      "forbidStatus": [
+        "claimSignature.mismatch",
+        "assertion.dataHash.mismatch",
+        "signingCredential.expired"
+      ],
+      "note": "🔴 The key is on the far side of an HTTP call this app cannot make for itself. `surrogate=true` is on the identity, and the manifest is parsed out of the signed BYTES — the signer answering ok:true is not the same claim."
+    },
+    {
+      "id": "the-desktop-sent-no-credential-for-the-receipt",
+      "kind": "equals",
+      "actual": "${steps.receipts.value.credentialSent}",
+      "expected": false,
+      "note": "the receipt routes are public by design; asking them with a key would prove something weaker than the claim"
+    },
+    {
+      "id": "the-receipt-station-found-every-leaf",
+      "kind": "equals",
+      "actual": "${steps.receipts.value.counts.found}",
+      "expected": 5
+    },
+    {
+      "id": "the-credential-names-the-leaf-it-covers",
+      "kind": "non-empty",
+      "actual": "${steps.cred.value.leafHash}"
+    },
+    {
+      "id": "TIER-ABOVE-BARE-IS-REFUSED",
+      "kind": "credential-refused",
+      "step": "credTier",
+      "contains": "SCR-ID",
+      "note": "⚑ an honest gap, recorded rather than worked around: tiers above `bare` bind the credential to projects.scr_id, which only the legacy lock routes set. docs/STATE.md carries it."
+    },
+    {
+      "id": "leaf-carries-the-scene",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "scene",
+      "expected": "${fixtures.phantom.evidence.scene}"
+    },
+    {
+      "id": "leaf-says-the-meaning-was-SUPPLIED",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_semantics",
+      "expected": "supplied"
+    },
+    {
+      "id": "model-fingerprint-from-the-file",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "sha256": "${fixtures.models.files.upscaler.sha256}"
+    },
+    {
+      "id": "undeclared-refused",
+      "kind": "manifest-entry",
+      "path": "${steps.vault.value.manifest.path}",
+      "entry": "undeclared.png",
+      "expected": "refused_mime_undeclared",
+      "mimeState": "indeterminate",
+      "contentHashState": "absent"
+    },
+    {
+      "id": "undeclared-has-no-leaf",
+      "kind": "witness-row-absent",
+      "contentHash": "${fixtures.vault.files.undeclared.sha256}",
+      "note": "a refusal that still witnessed the bytes would be a refusal in name only"
+    },
+    {
+      "id": "three-captured",
+      "kind": "manifest-count",
+      "path": "${steps.vault.value.manifest.path}",
+      "key": "captured",
+      "expected": 3
+    },
+    {
+      "id": "gate-queue-drained",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.queueDepth}",
+      "expected": 0
+    }
+  ],
+  "auditNote": "Two mutations, and they are the controls for the two gate conditions a driver can lie about most easily.\n\n`tamper-the-artifact` changes one byte of the stored artifact AFTER the run and must redden EVERY-ARTIFACT-REHASHES and nothing else. A digest that lives in the app's reply and is never checked against bytes is a digest of whatever the app felt like saying; this is the difference. Note what stays green: the leaf, the receipt, the resolution and the basis are all still exactly as they were, because the leaf recorded what the bytes WERE and the file on disk is now something else. That is the correct outcome and it is why the re-hash is a separate assertion from the leaf's existence.\n\n`assert-expectation` is the driver's own control — an assertion rewritten to expect a value nothing can satisfy must fail. A gate whose assertions cannot fail proves nothing.\n\nThe other three gate conditions have their controls in scripts/d7-gate.sh, because they are not properties of a scenario run: a leaf id nobody issued must NOT resolve, the database must REFUSE a desktop leaf claiming `verified`, and the credential must FAIL when the surrogate is stopped — that last one is what makes 'signed by the surrogate' a measurement rather than a label.",
+  "audit": {
+    "tamper-the-artifact": [
+      "EVERY-ARTIFACT-REHASHES"
+    ],
+    "assert-expectation": [
+      "leaf-says-the-meaning-was-SUPPLIED"
+    ]
+  }
+}

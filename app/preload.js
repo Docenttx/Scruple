@@ -32,4 +32,9 @@ contextBridge.exposeInMainWorld('scruple', {
   comfyLaunch: () => ipcRenderer.invoke('scruple:comfy-launch'),
   comfyGenerate: (req) => ipcRenderer.invoke('scruple:comfy-generate', req),
   comfyStop: () => ipcRenderer.invoke('scruple:comfy-stop'),
+  // WO-D7. The last two stations of the flow: what the SERVER will tell anyone
+  // about the leaves this machine made, and a C2PA credential signed by a key
+  // this machine deliberately cannot reach.
+  receipts: (req) => ipcRenderer.invoke('scruple:receipts', req),
+  credential: (req) => ipcRenderer.invoke('scruple:credential', req),
 });

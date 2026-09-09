@@ -24,6 +24,8 @@ const { registerCaptureIpc } = require('./ipc-capture');
 const { registerVaultIpc } = require('./ipc-vault');
 const { registerComfyIpc, shutdownComfy } = require('./ipc-comfy');
 const { registerProfileIpc } = require('./ipc-profile');
+const { registerReceiptIpc } = require('./ipc-receipt');
+const { registerCredentialIpc } = require('./ipc-credential');
 
 const APP_URL = process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902';
 
@@ -128,6 +130,8 @@ app.whenReady().then(async () => {
   registerCaptureIpc();
   registerVaultIpc();
   registerComfyIpc();
+  registerReceiptIpc();
+  registerCredentialIpc();
   const { window, navigation } = createWindow();
 
   // --probe=ping drives WO-D1's scripted round trip and exits.
