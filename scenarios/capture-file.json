@@ -1,0 +1,67 @@
+{
+  "scenario": "capture-file",
+  "description": "The first scenario with a side effect outside the process. The driver writes a fixture and hashes it; the app is asked over the real IPC seam to capture that file; the driver then re-hashes the bytes the app left on disk. docs/DESIGN.md's observable, exactly: 'bytes on disk that re-hash to the recorded content hash'.",
+  "fixtures": {
+    "src": { "name": "capture-me.bin", "bytes": 65536, "seed": "wo-d2-capture-file" }
+  },
+  "steps": [
+    { "as": "cap", "call": "captureFile", "args": [{ "path": "${fixtures.src.path}" }] }
+  ],
+  "assert": [
+    { "id": "app-completed", "kind": "app-completed" },
+    { "id": "step-succeeded", "kind": "step-succeeded", "step": "cap" },
+    { "id": "reached-main", "kind": "reached-main", "step": "cap",
+      "note": "a renderer-local stub cannot know the main process's pid" },
+    { "id": "outcome-captured", "kind": "equals", "actual": "${steps.cap.value.outcome}", "expected": "captured" },
+    { "id": "app-digest-matches-driver", "kind": "equals", "actual": "${steps.cap.value.sha256}", "expected": "${fixtures.src.sha256}",
+      "note": "the app hashed the same bytes the driver wrote — this is red when the file changed under the app, and it stays green when only the store is corrupt" },
+    { "id": "app-count-matches-driver", "kind": "equals", "actual": "${steps.cap.value.bytes}", "expected": "${fixtures.src.bytes}",
+      "note": "a COUNTED read: how much was actually read, not what stat claimed" },
+    { "id": "store-exists", "kind": "file-exists", "path": "${steps.cap.value.storePath}" },
+    { "id": "store-rehashes", "kind": "file-rehashes", "path": "${steps.cap.value.storePath}", "sha256": "${steps.cap.value.sha256}",
+      "note": "THE observable: bytes on disk, re-hashed by this process, against the digest the app recorded" },
+    { "id": "store-bytes", "kind": "file-bytes", "path": "${steps.cap.value.storePath}", "bytes": "${fixtures.src.bytes}" },
+    { "id": "store-is-content-addressed", "kind": "ends-with", "actual": "${steps.cap.value.storePath}", "suffix": "${steps.cap.value.sha256}",
+      "note": "the path itself carries the claim" },
+    { "id": "source-unchanged", "kind": "file-rehashes", "path": "${fixtures.src.path}", "sha256": "${fixtures.src.sha256}",
+      "note": "capture read the file; it did not move or rewrite it" }
+  ],
+  "auditNote": "What each break must do, declared here rather than in the driver, because the answer depends on which assertions THIS scenario makes. The sweep requires each set exactly. Two of these are worth reading. source-swap leaves store-rehashes GREEN: the app's copy is honestly the digest of what the app read, and only the comparison against the driver's own hash notices the file changed underneath it \u2014 which is why both assertions exist. fake-bridge leaves store-exists and store-bytes GREEN: a renderer-side liar that returns the SOURCE path satisfies both, and that is exactly the measure of what 'a file is there and it is the right size' is worth on its own.",
+  "audit": {
+      "store-truncate": [
+          "store-rehashes",
+          "store-bytes"
+      ],
+      "store-delete": [
+          "store-exists",
+          "store-rehashes",
+          "store-bytes"
+      ],
+      "source-swap": [
+          "app-digest-matches-driver",
+          "source-unchanged"
+      ],
+      "fake-bridge": [
+          "reached-main",
+          "app-digest-matches-driver",
+          "app-count-matches-driver",
+          "store-rehashes",
+          "store-is-content-addressed"
+      ],
+      "no-bridge": [
+          "app-completed",
+          "step-succeeded",
+          "reached-main",
+          "outcome-captured",
+          "app-digest-matches-driver",
+          "app-count-matches-driver",
+          "store-exists",
+          "store-rehashes",
+          "store-bytes",
+          "store-is-content-addressed"
+      ],
+      "assert-expectation": [
+          "app-count-matches-driver"
+      ]
+  }
+}

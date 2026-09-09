@@ -18,23 +18,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { SERVER_NONCE } = require('./ipc-ping');
+const { waitForLoad } = require('./page-ready');
 
 const LOAD_TIMEOUT_MS = Number(process.env.SCRUPLE_D1_LOAD_TIMEOUT_MS || 60000);
-
-function waitForLoad(wc) {
-  return new Promise((resolve, reject) => {
-    if (!wc.isLoading() && wc.getURL() && wc.getURL() !== 'about:blank') return resolve();
-    const timer = setTimeout(
-      () => reject(new Error(`page did not finish loading within ${LOAD_TIMEOUT_MS}ms`)),
-      LOAD_TIMEOUT_MS
-    );
-    wc.once('did-finish-load', () => { clearTimeout(timer); resolve(); });
-    wc.once('did-fail-load', (_e, code, desc, url) => {
-      clearTimeout(timer);
-      reject(new Error(`did-fail-load ${url}: ${desc} (${code})`));
-    });
-  });
-}
 
 async function runProbe(name, window, navigation) {
   if (name !== 'ping') throw new Error(`unknown probe: ${name}`);
@@ -73,7 +59,7 @@ async function runProbe(name, window, navigation) {
 
   const wc = window.webContents;
   try {
-    await waitForLoad(wc);
+    await waitForLoad(wc, LOAD_TIMEOUT_MS);
   } catch (err) {
     check('page-loads', false, String(err && err.message ? err.message : err));
     return finish(report);

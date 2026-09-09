@@ -7,7 +7,9 @@
   "scripts": {
     "start": "electron .",
     "headless": "xvfb-run -a -s \"-screen 0 1280x900x24\" electron .",
-    "d1": "node scripts/d1-ipc-ping.mjs"
+    "d1": "node scripts/d1-ipc-ping.mjs",
+    "d2": "node scripts/desktop-run.mjs",
+    "gate": "bash scripts/d1-gate.sh && bash scripts/d2-gate.sh"
   },
   "devDependencies": {
     "electron": "^38.0.0"

@@ -1,0 +1,45 @@
+{
+  "scenario": "ping",
+  "description": "WO-D1's round trip, expressed as a WO-D2 scenario. It proves the driver can drive the seam that already exists, and it is the scenario every later one is built on: if the bridge does not carry a message, nothing downstream means anything.",
+  "steps": [
+    { "as": "p", "call": "ping", "args": ["${driver.nonce}"] }
+  ],
+  "assert": [
+    { "id": "app-completed", "kind": "app-completed",
+      "note": "the app ran the scenario to the end and left a result behind" },
+    { "id": "http-200", "kind": "equals", "actual": "${navigation.httpResponseCode}", "expected": 200,
+      "note": "the served app answered 200 — did-finish-load fires for a 404 too" },
+    { "id": "page-from-app-url", "kind": "equals", "actual": "${renderer.origin}", "expected": "${driver.expectedOrigin}",
+      "note": "the page came from the served app, not about:blank or a file" },
+    { "id": "page-has-content", "kind": "at-least", "actual": "${renderer.bodyChars}", "min": 200,
+      "note": "there is a rendered document, not an empty shell" },
+    { "id": "bridge-host", "kind": "equals", "actual": "${renderer.bridgeHost}", "expected": "electron" },
+    { "id": "step-succeeded", "kind": "step-succeeded", "step": "p" },
+    { "id": "reached-main", "kind": "reached-main", "step": "p",
+      "note": "the reply came from the process that wrote this result, not from the page" },
+    { "id": "echoes-driver-nonce", "kind": "equals", "actual": "${steps.p.value.echo}", "expected": "${driver.nonce}",
+      "note": "driver -> renderer -> main: the handler saw a value this script minted" },
+    { "id": "carries-server-nonce", "kind": "equals", "actual": "${steps.p.value.serverNonce}", "expected": "${serverNonce}",
+      "note": "main -> renderer -> driver: a value the page had no way to invent" },
+    { "id": "reports-electron-version", "kind": "non-empty", "actual": "${steps.p.value.versions.electron}" }
+  ],
+  "auditNote": "fake-bridge is the one to read: echoes-driver-nonce stays GREEN under it, because a stub in the page can echo whatever it is handed. The echo was never the evidence \u2014 the nonce minted in main is. The three page assertions stay green under no-bridge, which is how we know the bridge assertions are not just re-testing the page load.",
+  "audit": {
+      "fake-bridge": [
+          "reached-main",
+          "carries-server-nonce"
+      ],
+      "no-bridge": [
+          "app-completed",
+          "bridge-host",
+          "step-succeeded",
+          "reached-main",
+          "echoes-driver-nonce",
+          "carries-server-nonce",
+          "reports-electron-version"
+      ],
+      "assert-expectation": [
+          "echoes-driver-nonce"
+      ]
+  }
+}

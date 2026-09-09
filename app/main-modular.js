@@ -20,12 +20,14 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
 const { registerIpc } = require('./ipc-ping');
+const { registerCaptureIpc } = require('./ipc-capture');
 
 const APP_URL = process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902';
 
 // Exit codes are the process's only unambiguous channel to a headless driver.
 const EXIT_LOAD_FAILED = 3;
 const EXIT_PROBE_FAILED = 4;
+const EXIT_SCENARIO_INCOMPLETE = 5;
 
 // llvmpipe on this box has no usable GPU path and Chromium's GPU process will
 // crash-loop trying to find one. The window still composites in software; the
@@ -85,11 +87,29 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   registerIpc();
+  registerCaptureIpc();
   const { window, navigation } = createWindow();
 
-  // --probe=ping drives the scripted round trip and exits. Without it the app
-  // just runs, which is what a human gets.
+  // --probe=ping drives WO-D1's scripted round trip and exits.
+  // --scenario=<spec.json> drives a WO-D2 scenario and exits.
+  // With neither, the app just runs, which is what a human gets.
   const probeArg = process.argv.find((a) => a.startsWith('--probe='));
+  const scenarioArg = process.argv.find((a) => a.startsWith('--scenario='));
+
+  if (scenarioArg) {
+    const { runScenario } = require('./scenario');
+    try {
+      // Exit 0 means "the scenario ran to the end", NOT "the scenario passed".
+      // scripts/desktop-run.mjs decides that, from the side effects on disk.
+      const completed = await runScenario(scenarioArg.slice('--scenario='.length), window, navigation);
+      app.exit(completed ? 0 : EXIT_SCENARIO_INCOMPLETE);
+    } catch (err) {
+      console.error(`[main] scenario threw: ${err && err.stack ? err.stack : err}`);
+      app.exit(EXIT_SCENARIO_INCOMPLETE);
+    }
+    return;
+  }
+
   if (!probeArg) return;
 
   const { runProbe } = require('./probe');
