@@ -217,6 +217,13 @@ make that change — it is the server's signing path, it affects every caller
 including Fusion, and it deserves its own control rather than being smuggled in
 under a desktop work order.
 
+> **CLOSED by WO-E1** (2026-09-09, `/data/scruple-web` `6aeee18`). The decision
+> is *refuse, with a code, with no override*; the guard is
+> `vault_sign.assert_certificate_matches_signing_key()`, called from `sign.py`
+> before anything is written, and the code is `certificate_key_mismatch`. The
+> workaround below stays and is now what the gate's control (a) proves still
+> works. `docs/WO-E1.md` — including the three things it does not buy.
+
 ### 4.4 A desktop artifact cannot earn a credential above tier `bare`
 
 `POST /api/scruple/c2pa/sign` refuses tiers `witnessed`/`local`/`chain` with
@@ -309,8 +316,8 @@ Also for a human, in rough order of how cheap the fix is:
 
 1. Enable H-1 leaf signing on the sandbox witness (§4.1) — five minutes, and it
    upgrades every leaf this flow makes.
-2. Decide on the cert/key mismatch guard (§4.3) — small change, real defect,
-   affects Fusion as well as desktop.
+2. ~~Decide on the cert/key mismatch guard (§4.3)~~ — done in WO-E1; see the
+   note in §4.3.
 3. Seed the `scruple.c2pa.sign` stream where its ingest actually runs (§4.5).
 
 For the founder:
