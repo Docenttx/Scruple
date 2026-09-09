@@ -24,6 +24,7 @@ const { registerCaptureIpc } = require('./ipc-capture');
 const { registerVaultIpc } = require('./ipc-vault');
 const { registerComfyIpc, shutdownComfy } = require('./ipc-comfy');
 const { registerProfileIpc } = require('./ipc-profile');
+const { registerBlenderIpc, installedAppIds, shutdownBlender } = require('./ipc-blender');
 const { registerReceiptIpc } = require('./ipc-receipt');
 const { registerCredentialIpc } = require('./ipc-credential');
 
@@ -49,6 +50,38 @@ const APP_ROUTE = process.env.SCRUPLE_APP_ROUTE || '/studio';
  * not then the shape was never coming from the header in the first place.
  */
 const PROFILE = process.env.SCRUPLE_PROFILE === undefined ? 'desktop' : process.env.SCRUPLE_PROFILE;
+
+/**
+ * ⚑ WO-E5. THE SECOND ANNOUNCEMENT: what is on this box.
+ *
+ * The profile header says which DEPLOYMENT is asking. This says which local
+ * apps the machine actually has, and the server needs it because one region —
+ * Blender's — must be ABSENT rather than empty when there is no Blender, and
+ * "is there a Blender on your laptop" is not a question a server can answer.
+ * /data/scruple-web/lib/v2/deployment.ts carries the argument.
+ *
+ * MEASURED, at the moment the header is built, by `fs.existsSync` and nothing
+ * else — no launch, no version, no probe. Those are the region's CONTENTS and
+ * they come over the bridge, on demand, from ipc-blender.js. A header that
+ * waited for a headless Blender would delay the first document request by half
+ * a minute on this box (finding E3-2: aarch64 under qemu).
+ *
+ * `SCRUPLE_HOST_APPS` overrides it, and exists for exactly one reason:
+ * scripts/desktop-run.mjs must be able to make this app lie about what it has,
+ * the way `SCRUPLE_PROFILE` lets it lie about what it is. Both are mutations
+ * and both must move the dashboard, or the shape was never coming from the
+ * announcement.
+ */
+function announcedApps() {
+  // `off` is the only way to send NO header, because the empty string is
+  // already taken and means something else: an announcement of nothing. The
+  // server keeps those two apart — "the host looked and found none" and
+  // "nothing has measured this machine" have different fixes — so the driver
+  // has to be able to produce both.
+  if (process.env.SCRUPLE_HOST_APPS_HEADER === 'off') return undefined;
+  if (process.env.SCRUPLE_HOST_APPS !== undefined) return process.env.SCRUPLE_HOST_APPS;
+  return installedAppIds().join(',');
+}
 
 // Exit codes are the process's only unambiguous channel to a headless driver.
 const EXIT_LOAD_FAILED = 3;
@@ -117,16 +150,24 @@ app.whenReady().then(async () => {
   // document request already carries it. Announcing after the load would race
   // the thing being announced to.
   if (PROFILE !== '') {
+    const apps = announcedApps();
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-      callback({ requestHeaders: { ...details.requestHeaders, 'x-scruple-profile': PROFILE } });
+      const requestHeaders = { ...details.requestHeaders, 'x-scruple-profile': PROFILE };
+      // An EMPTY announcement is still an announcement — "I looked, and there
+      // is nothing" — and it is not the same answer as no header at all. The
+      // server keeps those apart and so does this.
+      if (apps !== undefined) requestHeaders['x-scruple-host-apps'] = apps;
+      callback({ requestHeaders });
     });
     console.log(`[main] announcing x-scruple-profile: ${PROFILE}`);
+    console.log(`[main] announcing x-scruple-host-apps: ${apps === '' ? '(nothing)' : apps}`);
   } else {
     console.log('[main] announcing nothing — no profile header on this run');
   }
 
   registerIpc();
   registerProfileIpc();
+  registerBlenderIpc();
   registerCaptureIpc();
   registerVaultIpc();
   registerComfyIpc();
@@ -150,10 +191,12 @@ app.whenReady().then(async () => {
       // shutdownComfy() in ipc-comfy.js. A scenario that failed at its second
       // step never reached `comfyStop`.
       shutdownComfy();
+      shutdownBlender();
       app.exit(completed ? 0 : EXIT_SCENARIO_INCOMPLETE);
     } catch (err) {
       console.error(`[main] scenario threw: ${err && err.stack ? err.stack : err}`);
       shutdownComfy();
+      shutdownBlender();
       app.exit(EXIT_SCENARIO_INCOMPLETE);
     }
     return;
@@ -164,11 +207,18 @@ app.whenReady().then(async () => {
   const { runProbe } = require('./probe');
   try {
     const ok = await runProbe(probeArg.slice('--probe='.length), window, navigation);
+    shutdownBlender();
     app.exit(ok ? 0 : EXIT_PROBE_FAILED);
   } catch (err) {
     console.error(`[main] probe threw: ${err && err.stack ? err.stack : err}`);
+    shutdownBlender();
     app.exit(EXIT_PROBE_FAILED);
   }
 });
 
+// ⚑ Nothing this process started outlives it — the rails for this series say
+// to reap what you orphan, and a headless Blender the dashboard began measuring
+// is exactly that. `app.exit()` does not fire `will-quit`, so the scenario and
+// probe paths above call it explicitly as well.
+app.on('will-quit', () => { shutdownComfy(); shutdownBlender(); });
 app.on('window-all-closed', () => app.quit());

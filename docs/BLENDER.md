@@ -104,6 +104,43 @@ amd64 sysroot built in the same tree. Blender reports its own version through
 that shim and the addon loads through it, but **every Blender measurement in
 this series is taken on an emulated CPU** — recorded as finding **E3-2**.
 
+## The region in the dashboard
+
+_WO-E5, 2026-09-09._ `docs/STATE.md` §0 opened with **"Blender is not installed
+in this app"** and pointed at `app/ipc-profile.js` reporting `available: false,
+detail: "not installed in this app yet"`. That sentence is retired, and what
+replaced it is a **measurement**, not a better sentence.
+
+The dashboard now has a Blender region, and it exists only when this machine
+has a Blender. That required one new thing and only one: the host announces
+what it has (`x-scruple-host-apps`, built in the main process from
+`fs.existsSync`, beside the `x-scruple-profile` header WO-D5 already sent), and
+`GET /api/v2/capabilities` decides the region from the announcement. The server
+was never able to answer "is there a Blender on your laptop" and does not start
+now — it is told, and it records that it was told.
+
+Inside the region, three readings, each over the preload bridge and each with
+its own state:
+
+| what | where it comes from |
+|---|---|
+| the version | `blender --version` — **the running binary**, not `bl_info`, not the manifest, not a path |
+| the addon's enabled state | `bpy.context.preferences.addons` inside a headless Blender that loaded the profile |
+| whether a bridge is pointed at the gate | an address read out of a **bridge addon's own preferences**, compared against the port the gate allocated from the kernel |
+
+⚑ **The region is ABSENT when there is no Blender** — `count === 0` and zero
+occurrences in the serialised document, the WO-D5 rule unchanged. What is *not*
+absent is the app: `compute` keeps its Blender entry, marked unavailable with
+the reason, because STATE.md §0's other sentence — *"a dashboard that quietly
+omitted them would be the failure mode"* — is still binding. The **panel of
+readings nobody took** is what disappears.
+
+⚑ **And the announcement is not a measurement.** A host that announces a Blender
+it does not have gets its region drawn, and every reading inside it says
+`none found` / `unread`. That is measured, not argued —
+`scenarios/blender-absent.json`'s second mutation — and it is the honest limit
+of a host-announced region. `docs/WO-E5.md` finding E5-1.
+
 ## Where the bridge fits
 
 The research (`/data/scruple-blender/docs/canon/09-BLENDER-COMFYUI-RUNTIME.md`)

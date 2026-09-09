@@ -33,6 +33,7 @@ const path = require('node:path');
 
 const { SERVER_NONCE } = require('./ipc-ping');
 const { comfySession } = require('./ipc-comfy');
+const { resolveBinary } = require('./ipc-blender');
 
 /** Count the files under a directory, to a ceiling, without reading any. A
  *  count is a measurement; "some models" is not. */
@@ -52,6 +53,18 @@ function countFiles(root, ceiling = 10000) {
   if (!fs.existsSync(root)) return null;
   walk(root);
   return n;
+}
+
+function blender() {
+  const bin = resolveBinary();
+  return {
+    id: 'blender',
+    name: 'Blender',
+    available: bin.exists,
+    detail: bin.exists
+      ? `${bin.path} (${bin.source})`
+      : `no Blender where this app looks: ${bin.reason}`,
+  };
 }
 
 function appsOnThisMachine() {
@@ -80,14 +93,14 @@ function appsOnThisMachine() {
       available: false,
       detail: 'the legacy training IPC has not been rewritten onto the SDK yet',
     },
-    {
-      id: 'blender',
-      name: 'Blender',
-      available: false,
-      // ⚑ WO-D7 requires this said plainly, and the place a user would look for
-      // it is the dashboard, not a document.
-      detail: 'not installed in this app yet',
-    },
+    // ⚑ WO-E5. This entry said `not installed in this app yet` from WO-D5 until
+    // now, and docs/STATE.md §0 opened on that sentence. It is a MEASUREMENT
+    // now — the same `resolveBinary()` the announcement header is built from,
+    // so what the dashboard's app list says and what the server was told cannot
+    // drift apart. The version, the addon and the bridge are NOT here: they
+    // cost a Blender launch and they belong to `scruple:blender`, which the
+    // Blender region calls when there is a Blender region to fill.
+    blender(),
   ];
 }
 

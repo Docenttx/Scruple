@@ -29,6 +29,27 @@ dashboard that quietly omitted them would be the failure mode.
 
 Blender is the next series. This one is the floor it stands on.
 
+> **AMENDED by the E-series** (2026-09-09). The paragraph above is the D-series
+> close-out and is kept as written; here is what has since changed, and what has
+> not.
+>
+> - **The first sentence is retired.** WO-E3 installed Blender 4.2.23 LTS into
+>   this repo's own tree (`vendor/blender/bin/blender`), WO-E4 made the addon
+>   the Level-2 adapter — a real leaf reads `host_semantics: supplied`,
+>   `capture.host: blender` — and **WO-E5** made the app *measure* the Blender on
+>   the box: `app/ipc-blender.js`, `scruple:blender`, and a dashboard region that
+>   names the version out of the running binary, the addon's enabled state, and
+>   whether a bridge is pointed at the gate. `app/ipc-profile.js` no longer says
+>   `"not installed in this app yet"` anywhere; it reports what `resolveBinary()`
+>   found, and reports having found nothing when there is nothing.
+> - **The region is ABSENT on a machine with no Blender** — `count === 0` and
+>   zero occurrences in the serialised document — and the *app* is still listed
+>   as unavailable with the reason, because the sentence below about quietly
+>   omitting things still binds. `scenarios/blender-absent.json`.
+> - **Still true, and still the honest sentence:** this app does not *launch*
+>   Blender, no bridge inside Blender has yet sent a generation through the gate,
+>   and no leaf in this repo has been produced by a render. That is **WO-E6**.
+
 ---
 
 ## 1. What works, and the observable that showed it

@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('scruple', {
   // to fill in what only this machine knows. No bridge, no host facts — and the
   // component says so instead of drawing a default.
   profile: () => ipcRenderer.invoke('scruple:profile'),
+  // WO-E5. A channel of its own, because it is a different kind of reading:
+  // `profile` is fs.existsSync and a live session object, and this one starts a
+  // headless Blender and asks it. Behind `profile` it would make every
+  // dashboard render wait for a Blender, and a host built without it would
+  // take the other four panels down with it.
+  blender: () => ipcRenderer.invoke('scruple:blender'),
   captureFile: (req) => ipcRenderer.invoke('scruple:capture-file', req),
   vaultCapture: (req) => ipcRenderer.invoke('scruple:vault-capture', req),
   comfyLaunch: () => ipcRenderer.invoke('scruple:comfy-launch'),

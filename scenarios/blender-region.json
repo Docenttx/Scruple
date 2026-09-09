@@ -1,0 +1,275 @@
+{
+  "scenario": "blender-region",
+  "description": "WO-E5: the Blender region in the dashboard, rendered from GET /api/v2/capabilities and filled by the preload bridge. The real Electron window announces what is on this box (x-scruple-host-apps), the server draws a Blender region because it was told there is a Blender, and everything inside the region is a reading taken on this machine: the version out of the running binary, the addon's enabled state out of the Blender that loaded it, and a bridge's ComfyUI address out of that bridge's own preferences, compared against the port the gate actually allocated.",
+  "needs": "comfy",
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "e5-store",
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    },
+    "bl": {
+      "kind": "blender-install",
+      "present": true,
+      "addon": true,
+      "bridge": "at-the-gate"
+    }
+  },
+  "steps": [
+    {
+      "as": "launch",
+      "call": "comfyLaunch",
+      "args": []
+    },
+    {
+      "as": "blender",
+      "call": "blender",
+      "args": [],
+      "required": false,
+      "note": "required:false so a bridge that cannot answer does not stop the run before the DOM is read. That is the whole point of the fake-bridge mutation: the REGION still draws, because its applicability comes from a header the main process sets on the session and a lying preload cannot touch it — and every READING inside it goes red, because a renderer-local stub cannot start a Blender."
+    },
+    {
+      "as": "dom",
+      "read": "dom",
+      "settleMs": 6000,
+      "selectors": [
+        "[data-region=\"blender\"]",
+        "[data-host-fact=\"blender\"]",
+        "[data-host-fact=\"blender\"][data-state=\"measured\"]",
+        "[data-region=\"local-apps\"]",
+        "[data-compute=\"blender\"]",
+        "[data-region=\"refusal\"]",
+        "[data-profile=\"desktop\"]",
+        ".scruple-canon.workspace"
+      ],
+      "computed": [
+        {
+          "selector": "[data-region=\"blender\"] .section-header h3",
+          "prop": "letter-spacing"
+        },
+        {
+          "selector": ".sidebar",
+          "prop": "background-color"
+        }
+      ],
+      "mentions": [
+        "data-region=\"blender\"",
+        "data-host-fact=\"blender\"",
+        "data-region=\"cloud-compute\""
+      ]
+    },
+    {
+      "as": "stop",
+      "call": "comfyStop",
+      "args": [],
+      "required": false
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "launch-succeeded",
+      "kind": "step-succeeded",
+      "step": "launch"
+    },
+    {
+      "id": "blender-step-succeeded",
+      "kind": "step-succeeded",
+      "step": "blender"
+    },
+    {
+      "id": "blender-reading-reached-main",
+      "kind": "reached-main",
+      "step": "blender",
+      "note": "the readings came from the main process — a renderer-local stub cannot know this pid or this nonce, and cannot start a Blender"
+    },
+    {
+      "id": "the-region-is-drawn",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-region=\"blender\"]",
+      "note": "⚑ THE WORK ORDER'S GATE. The server sent this region because the window announced a Blender on this box; it is absent by default and there is no branch that draws it any other way."
+    },
+    {
+      "id": "the-region-was-filled-by-the-host",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-host-fact=\"blender\"][data-state=\"measured\"]",
+      "note": "`measured` is set only when the bridge answered. With no bridge it is `unavailable` and with an error it is `refused`; there is no fourth state and no default."
+    },
+    {
+      "id": "⚑-the-region-names-the-version-of-the-binary-on-this-box",
+      "kind": "dom-contains",
+      "step": "dom",
+      "selector": "[data-host-fact=\"blender\"]",
+      "text": "${fixtures.bl.version}",
+      "note": "⚑ THE SPLIT THAT MAKES THIS HONEST. The SERVER said a Blender region applies; the version inside it was read by the DRIVER from `blender --version` before the app started, and independently by the app from the same binary. No server could know it and no static mock could invent it."
+    },
+    {
+      "id": "the-version-came-from-the-running-binary",
+      "kind": "equals",
+      "actual": "${steps.blender.value.version.value}",
+      "expected": "${fixtures.bl.version}",
+      "note": "the app's reading against the driver's, both taken from the binary itself rather than from a manifest, a bl_info or a path"
+    },
+    {
+      "id": "the-version-reading-is-marked-measured",
+      "kind": "equals",
+      "actual": "${steps.blender.value.version.state}",
+      "expected": "measured"
+    },
+    {
+      "id": "the-binary-is-the-one-this-app-was-pointed-at",
+      "kind": "equals",
+      "actual": "${steps.blender.value.binary.path}",
+      "expected": "${fixtures.bl.blender}"
+    },
+    {
+      "id": "the-addon-is-enabled-in-the-blender-that-was-asked",
+      "kind": "equals",
+      "actual": "${steps.blender.value.addon.enabled}",
+      "expected": true,
+      "note": "read out of a running Blender's own preferences, not off the disk we installed to"
+    },
+    {
+      "id": "the-addon-loaded-through-the-manifest-path",
+      "kind": "equals",
+      "actual": "${steps.blender.value.addon.module}",
+      "expected": "${fixtures.bl.addonModule}",
+      "note": "WO-E3's discriminator: only the blender_manifest.toml path produces a `bl_ext.<repo>.<id>` module name, so this names the file Blender actually read"
+    },
+    {
+      "id": "the-region-names-the-addon",
+      "kind": "dom-contains",
+      "step": "dom",
+      "selector": "[data-host-fact=\"blender\"]",
+      "text": "${fixtures.bl.addonModule}"
+    },
+    {
+      "id": "⚑-a-bridge-is-pointed-at-the-gate",
+      "kind": "equals",
+      "actual": "${steps.blender.value.bridge.state}",
+      "expected": "at-the-gate",
+      "note": "⚑ A COMPARISON BETWEEN TWO THINGS NOBODY HERE INVENTED: an address read out of a bridge addon's own preferences inside a running Blender, and the port the gate allocated from the kernel. The gate binds port 0, so this string exists nowhere until it is allocated."
+    },
+    {
+      "id": "the-bridge-address-IS-the-gate's",
+      "kind": "equals",
+      "actual": "${steps.blender.value.bridge.address}",
+      "expected": "${steps.launch.value.gate.url}",
+      "note": "not merely 'a bridge was found' — the address on the leaf of this reading is the URL the launch step reported"
+    },
+    {
+      "id": "the-region-names-the-gate-the-bridge-points-at",
+      "kind": "dom-contains",
+      "step": "dom",
+      "selector": "[data-host-fact=\"blender\"]",
+      "text": "${steps.launch.value.gate.url}"
+    },
+    {
+      "id": "the-app-is-still-listed-among-the-local-apps",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-compute=\"blender\"]",
+      "note": "docs/STATE.md §0: a dashboard that quietly omitted an app would be the failure mode. The REGION is what appears and disappears with the machine; the APP is listed either way, with the reason."
+    },
+    {
+      "id": "the-canon-design-carried-across-unrestyled",
+      "kind": "dom-computed",
+      "step": "dom",
+      "selector": "[data-region=\"blender\"] .section-header h3",
+      "prop": "letter-spacing",
+      "expected": "1px",
+      "note": "the new region's heading is the canon's ALL-CAPS section header, measured by the layout engine after the cascade — nothing here restyles anything, and no pixel was read"
+    },
+    {
+      "id": "the-page-did-not-refuse",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region=\"refusal\"]",
+      "note": "the route refuses rather than guessing when capabilities cannot be reached; a green run must not be a refusal that happened to contain the right strings"
+    },
+    {
+      "id": "the-cloud-regions-are-still-absent",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "data-region=\"cloud-compute\"",
+      "note": "WO-D5's control, unchanged by this work order: adding a region must not have made the dashboard draw everything"
+    }
+  ],
+  "auditNote": "The mutations split into two groups, and the split is the design.\n\nTHE ANNOUNCEMENT. `announce-without-blender` and `announce-nothing` leave a real 4.2.23 sitting in this repo's tree and change only what the window SAYS. Both make the region vanish, which is what proves the shape follows the announcement — a build that drew a Blender region because the profile was `desktop` would survive both. They are not redundant: one says \"I looked and there is none\", the other says nothing at all, and the capabilities answer's `reason` differs because the fixes differ.\n\nTHE MACHINE. `blender-vanishes` points every place the app looks at an empty directory. The announcement is then honest — there is no Blender — and the region goes with it. This is the work order's own control and it is not a flag: `resolveBinary()` finds nothing because there is nothing.\n\nTHE READINGS. `no-addon-profile` keeps the same binary and the same version and takes the addon away, so only the addon assertions may move. `bridge-elsewhere` keeps the bridge installed and configured and simply never points it at the gate, so only the bridge assertions may move — and the state must become `elsewhere`, never `none`, because a bridge that exists and points somewhere else is a different fact with a different fix.\n\n`fake-bridge` is the measure of what the DOM is worth alone. The region still DRAWS — its applicability comes from a header the main process sets on the session, which a lying preload cannot touch — and every reading inside it goes red, because a renderer-local stub cannot start a Blender.",
+  "audit": {
+    "announce-without-blender": [
+      "the-region-is-drawn",
+      "the-region-was-filled-by-the-host",
+      "⚑-the-region-names-the-version-of-the-binary-on-this-box",
+      "the-region-names-the-addon",
+      "the-region-names-the-gate-the-bridge-points-at",
+      "the-canon-design-carried-across-unrestyled"
+    ],
+    "announce-nothing": [
+      "the-region-is-drawn",
+      "the-region-was-filled-by-the-host",
+      "⚑-the-region-names-the-version-of-the-binary-on-this-box",
+      "the-region-names-the-addon",
+      "the-region-names-the-gate-the-bridge-points-at",
+      "the-canon-design-carried-across-unrestyled"
+    ],
+    "blender-vanishes": [
+      "the-region-is-drawn",
+      "the-region-was-filled-by-the-host",
+      "⚑-the-region-names-the-version-of-the-binary-on-this-box",
+      "the-version-came-from-the-running-binary",
+      "the-version-reading-is-marked-measured",
+      "the-binary-is-the-one-this-app-was-pointed-at",
+      "the-addon-is-enabled-in-the-blender-that-was-asked",
+      "the-addon-loaded-through-the-manifest-path",
+      "the-region-names-the-addon",
+      "⚑-a-bridge-is-pointed-at-the-gate",
+      "the-bridge-address-IS-the-gate's",
+      "the-region-names-the-gate-the-bridge-points-at",
+      "the-canon-design-carried-across-unrestyled"
+    ],
+    "no-addon-profile": [
+      "the-addon-is-enabled-in-the-blender-that-was-asked",
+      "the-addon-loaded-through-the-manifest-path",
+      "the-region-names-the-addon",
+      "⚑-a-bridge-is-pointed-at-the-gate",
+      "the-bridge-address-IS-the-gate's",
+      "the-region-names-the-gate-the-bridge-points-at"
+    ],
+    "bridge-elsewhere": [
+      "⚑-a-bridge-is-pointed-at-the-gate",
+      "the-bridge-address-IS-the-gate's",
+      "the-region-names-the-gate-the-bridge-points-at"
+    ],
+    "fake-bridge": [
+      "blender-step-succeeded",
+      "blender-reading-reached-main",
+      "the-region-was-filled-by-the-host",
+      "⚑-the-region-names-the-version-of-the-binary-on-this-box",
+      "the-version-came-from-the-running-binary",
+      "the-version-reading-is-marked-measured",
+      "the-binary-is-the-one-this-app-was-pointed-at",
+      "the-addon-is-enabled-in-the-blender-that-was-asked",
+      "the-addon-loaded-through-the-manifest-path",
+      "the-region-names-the-addon",
+      "⚑-a-bridge-is-pointed-at-the-gate",
+      "the-bridge-address-IS-the-gate's",
+      "the-region-names-the-gate-the-bridge-points-at"
+    ],
+    "assert-expectation": [
+      "the-version-came-from-the-running-binary"
+    ]
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "scenario": "blender-absent",
+  "description": "WO-E5's control, asserted POSITIVELY: on a machine with no Blender where this app looks, the Blender region has no node and no occurrence anywhere in the serialised document. Not hidden, not greyed, not 'not detected'. The app is still listed among the local apps with the reason, because omitting it would hide the answer rather than give it — the region is what is absent, not the fact that this deployment is for a local Blender.",
+  "fixtures": {
+    "bl": {
+      "kind": "blender-install",
+      "present": false
+    }
+  },
+  "steps": [
+    {
+      "as": "profile",
+      "call": "profile",
+      "args": []
+    },
+    {
+      "as": "blender",
+      "call": "blender",
+      "args": []
+    },
+    {
+      "as": "dom",
+      "read": "dom",
+      "settleMs": 4000,
+      "selectors": [
+        "[data-region=\"blender\"]",
+        "[data-host-fact=\"blender\"]",
+        "[data-region=\"local-apps\"]",
+        "[data-compute=\"blender\"]",
+        "[data-region=\"refusal\"]",
+        "[data-profile=\"desktop\"]"
+      ],
+      "mentions": [
+        "data-region=\"blender\"",
+        "data-host-fact=\"blender\"",
+        "data-compute=\"blender\""
+      ]
+    }
+  ],
+  "assert": [
+    { "id": "app-completed", "kind": "app-completed" },
+    { "id": "profile-step-succeeded", "kind": "step-succeeded", "step": "profile" },
+    {
+      "id": "profile-reached-main",
+      "kind": "reached-main",
+      "step": "profile",
+      "note": "the app list came from the main process, so the absence below is a reading and not a page that drew nothing"
+    },
+    {
+      "id": "the-window-is-still-the-desktop-shape",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-profile=\"desktop\"]",
+      "note": "⚑ the run must not pass by having rendered nothing at all. The dashboard is here, it is the desktop shape, and one region is missing from it."
+    },
+    {
+      "id": "the-page-did-not-refuse",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region=\"refusal\"]"
+    },
+    {
+      "id": "⚑-the-region-has-no-node",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region=\"blender\"]",
+      "note": "⚑ THE WORK ORDER'S CONTROL, first half: count === 0."
+    },
+    {
+      "id": "⚑-the-region-is-not-even-mentioned",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "data-region=\"blender\"",
+      "note": "⚑ THE WORK ORDER'S CONTROL, second half: zero occurrences in the whole serialised document. A region drawn and hidden has a count of 0 too, and only this tells them apart."
+    },
+    {
+      "id": "⚑-no-host-facts-panel-was-drawn-for-it",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "data-host-fact=\"blender\"",
+      "note": "the panel that would ask the bridge is not in the document either, so nothing on this page is waiting on a Blender that is not there"
+    },
+    {
+      "id": "the-app-is-STILL-listed-among-the-local-apps",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-compute=\"blender\"]",
+      "note": "⚑ THE DISTINCTION. docs/STATE.md §0 warns that quietly omitting an app is the failure mode. The app stays on the list, marked unavailable, with the reason — what disappears is the panel of readings nobody took."
+    },
+    {
+      "id": "the-host-says-there-is-no-blender-where-it-looks",
+      "kind": "equals",
+      "actual": "${steps.blender.value.state}",
+      "expected": "absent",
+      "note": "and `ok` is still true: the reading SUCCEEDED, and its answer is that this machine has none. An error would be a different thing entirely."
+    },
+    {
+      "id": "the-host-reading-did-not-fail",
+      "kind": "equals",
+      "actual": "${steps.blender.value.ok}",
+      "expected": true
+    },
+    {
+      "id": "no-binary-was-found",
+      "kind": "equals",
+      "actual": "${steps.blender.value.binary.path}",
+      "expected": null
+    },
+    {
+      "id": "the-version-is-unread-rather-than-guessed",
+      "kind": "equals",
+      "actual": "${steps.blender.value.version.state}",
+      "expected": "unread",
+      "note": "⚑ never a plausible default. There is no Blender, so there is no version, and the reading says so instead of naming one."
+    },
+    {
+      "id": "the-app-list-marks-blender-unavailable",
+      "kind": "equals",
+      "actual": "${steps.profile.value.apps.2.available}",
+      "expected": false
+    }
+  ],
+  "auditNote": "An absence assertion that cannot be made to fail is a constant with a comment on it, so both mutations here ADD something rather than break something.\n\n`blender-arrives` puts a real Blender back where the app looks. The announcement then contains it, the server sends the region, and every absence assertion must go red — including the two that ask the whole document. If they did not, the string was never going to be there.\n\n`announce-a-blender-that-is-not-there` is the more interesting one: the machine still has none and the HOST LIES about it. The region is drawn, because the server draws what it is told — and the readings inside it still say there is no Blender, because the announcement is not a measurement. That is the honest limit of a host-announced region, and it is measured here rather than argued.",
+  "audit": {
+    "blender-arrives": [
+      "⚑-the-region-has-no-node",
+      "⚑-the-region-is-not-even-mentioned",
+      "⚑-no-host-facts-panel-was-drawn-for-it",
+      "the-host-says-there-is-no-blender-where-it-looks",
+      "no-binary-was-found",
+      "the-version-is-unread-rather-than-guessed",
+      "the-app-list-marks-blender-unavailable"
+    ],
+    "announce-a-blender-that-is-not-there": [
+      "⚑-the-region-has-no-node",
+      "⚑-the-region-is-not-even-mentioned",
+      "⚑-no-host-facts-panel-was-drawn-for-it"
+    ],
+    "assert-expectation": [
+      "the-version-is-unread-rather-than-guessed"
+    ]
+  }
+}

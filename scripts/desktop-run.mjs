@@ -383,6 +383,112 @@ const MUTATIONS = {
       return `phantom-cam declared itself in ${dir} and announced ${promptId}`;
     },
   },
+  // ── WO-E5's mutations. One region on this dashboard applies because of what
+  // is ON THE BOX rather than what the deployment is, and these are the ways
+  // that can go wrong. Two of them attack the ANNOUNCEMENT and two attack the
+  // MACHINE, and the difference between those pairs is the whole design: the
+  // server is told what is there, and the host is asked what it is.
+  'blender-vanishes': {
+    when: 'env',
+    describe: 'the same app on a machine with no Blender where it looks — the region must be ABSENT',
+    // ⚑ THE WORK ORDER'S CONTROL. Not a flag that hides a panel: every place
+    // the app looks is pointed at an empty directory, so `resolveBinary()`
+    // finds nothing because there is nothing, `installedAppIds()` does not
+    // announce Blender, and the server has no region to send. The failure this
+    // catches is a dashboard that draws the region anyway and fills it with
+    // "not detected", which is chrome for a thing the box does not have.
+    apply(ctx) {
+      const empty = join(ctx.runDir, 'no-blender-here');
+      mkdirSync(empty, { recursive: true });
+      delete ctx.env.SCRUPLE_BLENDER_BIN;
+      delete ctx.env.SCRUPLE_BLENDER_PROFILE;
+      ctx.env.SCRUPLE_BLENDER_VENDOR = join(empty, 'blender');
+      ctx.env.SCRUPLE_BLENDER_SEARCH_PATH = empty;
+      return `no binary configured, none vendored at ${join(empty, 'blender')}, and nothing named "blender" on the search path`;
+    },
+  },
+  'blender-arrives': {
+    when: 'env',
+    describe: 'ADD the Blender an absence scenario deliberately lacks — the absences must go RED',
+    // ⚑ AN INVERSE CONTROL, and scenarios/blender-absent.json cannot mean
+    // anything without it. That scenario asserts the region has no node and no
+    // occurrence; a document that never contained the string would satisfy it
+    // forever. This puts a real Blender back where the app looks and the
+    // absence assertions must all fail.
+    apply(ctx) {
+      const f = Object.values(ctx.fixtures).find((x) => x && x.kind === 'blender-install');
+      if (!f || !f.realBlender) throw new Error('no blender-install fixture with a real Blender to restore');
+      delete ctx.env.SCRUPLE_BLENDER_VENDOR;
+      delete ctx.env.SCRUPLE_BLENDER_SEARCH_PATH;
+      ctx.env.SCRUPLE_BLENDER_BIN = f.realBlender;
+      return `SCRUPLE_BLENDER_BIN=${f.realBlender} — this machine has a Blender again`;
+    },
+  },
+  'announce-a-blender-that-is-not-there': {
+    when: 'env',
+    describe: 'the host announces a Blender it does not have — the region appears and the READINGS say there is none',
+    // ⚑ THE HONEST LIMIT OF THE ANNOUNCEMENT, MADE VISIBLE. The server draws
+    // what it is told, so a lying host gets its region. What it does NOT get
+    // is a version, an addon or a bridge, because those are measurements and
+    // the announcement is not one. The failure worth preventing is the
+    // opposite: a panel that filled itself in from the announcement.
+    apply(ctx) {
+      ctx.env.SCRUPLE_HOST_APPS = 'comfyui,blender';
+      return 'x-scruple-host-apps: comfyui,blender, from a box with no Blender on it';
+    },
+  },
+  'announce-without-blender': {
+    when: 'env',
+    describe: 'a machine that HAS Blender announces that it does not — the region must disappear',
+    // The other direction, and the one that proves the shape follows the
+    // announcement rather than anything the server worked out for itself.
+    apply(ctx) {
+      ctx.env.SCRUPLE_HOST_APPS = 'comfyui';
+      return 'x-scruple-host-apps: comfyui, from a box with a 4.2.23 in its own tree';
+    },
+  },
+  'announce-nothing': {
+    when: 'env',
+    describe: 'the host sends no apps header at all — a DIFFERENT absence from announcing none',
+    // `announce-without-blender` says "I looked and there is none"; this says
+    // nothing. Both leave the region undrawn and the two `reason` strings in
+    // the capabilities answer differ, because the fixes differ: one is a box
+    // without Blender, the other is a host that never told anyone anything.
+    apply(ctx) {
+      ctx.env.SCRUPLE_HOST_APPS_HEADER = 'off';
+      return 'no x-scruple-host-apps header on any request';
+    },
+  },
+  'no-addon-profile': {
+    when: 'env',
+    describe: 'the same Blender, a profile with the addon NOT installed',
+    // The control for "the addon's enabled state is a reading". Same binary,
+    // same version, same bridge — and `addon.enabled` must become false, from
+    // a Blender that was asked rather than from a constant.
+    apply(ctx) {
+      const bare = join(ctx.runDir, 'blender-profile-bare');
+      mkdirSync(bare, { recursive: true });
+      ctx.env.SCRUPLE_BLENDER_PROFILE = bare;
+      return `BLENDER_USER_RESOURCES=${bare} — nothing installed in it`;
+    },
+  },
+  'bridge-elsewhere': {
+    when: 'before',
+    describe: 'the bridge stays configured and stops pointing at the gate',
+    // ⚑ The control for the third reading. The stub bridge keeps its address;
+    // the driver simply never rewrites it with the gate's, so it stays at
+    // ComfyUI's default :8188. `at-the-gate` must become `elsewhere` — and
+    // NOT `none`, because a bridge that exists and points somewhere else is a
+    // different fact from no bridge at all, with a different fix.
+    apply(ctx) {
+      const f = Object.values(ctx.fixtures).find((x) => x && x.kind === 'blender-install');
+      if (!f || !f.bridgeConfig) throw new Error('no blender-install fixture with a bridge to move');
+      while (BRIDGE_WATCHERS.length) clearInterval(BRIDGE_WATCHERS.pop());
+      writeFileSync(f.bridgeConfig, JSON.stringify({ server_address: 'http://127.0.0.1:8188' }, null, 2));
+      return 'the stub bridge keeps 127.0.0.1:8188 — ComfyUI\'s own default, and not the gate';
+    },
+  },
+
   // ── WO-D7. THE CONTROL FOR "every artifact re-hashes from disk". A digest
   // recorded in a reply and never checked against bytes is a digest of
   // whatever the app felt like saying; this changes the bytes AFTER the run,
@@ -1428,6 +1534,141 @@ function materialiseBlenderHost(sourceDir, id, spec, nonce, runDir) {
   };
 }
 
+/**
+ * ⚑ WO-E5. THE BLENDER THIS MACHINE HAS — or deliberately does not have.
+ *
+ * The work order's control is "with Blender not installed the region is
+ * ABSENT", so the driver has to be able to hand the app a machine with no
+ * Blender on it. It does that the only honest way available: by pointing every
+ * place the app LOOKS at a directory that is empty. `SCRUPLE_BLENDER_BIN`
+ * unset, the vendored path pointed at nothing, and a search path with nothing
+ * on it. The app then finds no Blender because there is no Blender to find,
+ * not because a flag told it to pretend.
+ *
+ * ⚑ The 3.0.1 in /usr/bin is deliberately NOT what the present case resolves
+ * to. This repo's own 4.2.23 (WO-E3) is, because that is the Blender the app
+ * ships beside, and because the addon's manifest floors at 4.2.0.
+ *
+ * `bridge` is the stub bridge control — see scripts/e5-stub-bridge/__init__.py
+ * for what it is and, more importantly, what it is not:
+ *
+ *   'none'         the stub is not installed. No enabled addon keeps an
+ *                  address, which is what this box really looks like today.
+ *   'elsewhere'    installed, pointed at ComfyUI's default :8188 — a real
+ *                  configuration, and not the gate.
+ *   'at-the-gate'  installed, pointed at :8188 UNTIL the gate reports ready,
+ *                  at which point the driver rewrites its config with the
+ *                  address out of the gate's OWN ready file. The gate binds
+ *                  port 0, so that address exists nowhere until it is
+ *                  allocated and neither the fixture nor the app can guess it.
+ *                  If the rewrite never happens the state stays `elsewhere`
+ *                  and the assertion FAILS, rather than passing vacuously.
+ */
+const BRIDGE_WATCHERS = [];
+
+function blenderVersionOf(bin) {
+  const out = execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 300000 });
+  const m = /^Blender\s+([0-9]+(?:\.[0-9]+)*)/m.exec(out);
+  if (!m) throw new Error(`${bin} --version printed no version line:\n${out.slice(0, 300)}`);
+  return m[1];
+}
+
+function installExtension(blender, profile, zip, id) {
+  mkdirSync(profile, { recursive: true });
+  // ⚑ Finding E3-3: this CLI exits 0 on a REFUSED install, so the exit code is
+  // not the observable. The directory is.
+  execFileSync(blender, ['--command', 'extension', 'install-file', '-r', 'user_default', '-e', zip], {
+    env: { ...process.env, BLENDER_USER_RESOURCES: profile },
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000,
+  });
+  if (!existsSync(join(profile, 'extensions', 'user_default', id))) {
+    throw new Error(`${id} is not in ${profile}/extensions/user_default after install-file`);
+  }
+}
+
+function stubBridgeZip() {
+  const zip = join(REPO, '.run', 'e5', 'e5-stub-bridge.zip');
+  mkdirSync(dirname(zip), { recursive: true });
+  rmSync(zip, { force: true });
+  execFileSync('zip', ['-qr', zip, 'blender_manifest.toml', '__init__.py'], {
+    cwd: join(REPO, 'scripts', 'e5-stub-bridge'), encoding: 'utf8',
+  });
+  return zip;
+}
+
+function materialiseBlenderInstall(id, spec, runDir) {
+  const blender = spec.blender || join(REPO, 'vendor', 'blender', 'bin', 'blender');
+  const addonZip = spec.zip || process.env.E4_ZIP || '/data/scruple-blender/dist/scruple-blender-0.1.0.zip';
+  const bridge = spec.bridge || 'none';
+  const wantAddon = spec.addon !== false;
+
+  if (spec.present === false) {
+    const empty = join(runDir, 'no-blender-here');
+    mkdirSync(empty, { recursive: true });
+    return {
+      ...spec, kind: 'blender-install', present: false, emptyDir: empty,
+      // Kept so an INVERSE control can put it back — an absence assertion that
+      // cannot be made to fail is a constant with a comment on it.
+      realBlender: existsSync(blender) ? blender : null,
+      env: {
+        SCRUPLE_BLENDER_VENDOR: join(empty, 'blender'),
+        SCRUPLE_BLENDER_SEARCH_PATH: empty,
+      },
+      envDelete: ['SCRUPLE_BLENDER_BIN', 'SCRUPLE_BLENDER_PROFILE'],
+    };
+  }
+
+  if (!existsSync(blender)) throw new Error(`no Blender at ${blender} — run scripts/e3-install-blender.sh`);
+  if (wantAddon && !existsSync(addonZip)) throw new Error(`no addon zip at ${addonZip}`);
+
+  // One profile per SHAPE, cached across runs: an install is ~40s of qemu and
+  // the sweep runs this a dozen times. It is still a profile this repo built,
+  // from this repo's zip, and the running Blender is asked what is in it.
+  const shape = `${wantAddon ? 'addon' : 'bare'}-${bridge === 'none' ? 'nobridge' : 'bridge'}`;
+  const profile = spec.profile || join(REPO, '.run', 'e5', `profile-${shape}`);
+  if (wantAddon && !existsSync(join(profile, 'extensions', 'user_default', 'scruple_blender'))) {
+    installExtension(blender, profile, addonZip, 'scruple_blender');
+  }
+  if (bridge !== 'none' && !existsSync(join(profile, 'extensions', 'user_default', 'e5_stub_bridge'))) {
+    installExtension(blender, profile, stubBridgeZip(), 'e5_stub_bridge');
+  }
+  mkdirSync(join(profile, 'config'), { recursive: true });
+  const bridgeConfig = join(profile, 'config', 'e5-stub-bridge.json');
+  rmSync(bridgeConfig, { force: true });
+
+  const fixture = {
+    ...spec, kind: 'blender-install', present: true,
+    blender, profile, bridgeConfig, bridgeMode: bridge,
+    // MEASURED HERE, by this process, from the binary itself — so the version
+    // the app reports is being compared against one the app did not produce.
+    version: blenderVersionOf(blender),
+    addonModule: 'bl_ext.user_default.scruple_blender',
+    pointedAt: null,
+    env: { SCRUPLE_BLENDER_BIN: blender, SCRUPLE_BLENDER_PROFILE: profile },
+    envDelete: [],
+  };
+
+  if (bridge !== 'none') {
+    writeFileSync(bridgeConfig, JSON.stringify({ server_address: 'http://127.0.0.1:8188' }, null, 2));
+    fixture.pointedAt = 'http://127.0.0.1:8188';
+  }
+  if (bridge === 'at-the-gate') {
+    const readyPath = join(runDir, 'comfy-state', 'gate', 'ready.json');
+    const timer = setInterval(() => {
+      if (!existsSync(readyPath)) return;
+      let ready;
+      try { ready = JSON.parse(readFileSync(readyPath, 'utf8')); } catch { return; }
+      if (!ready || !ready.gateUrl) return;
+      writeFileSync(bridgeConfig, JSON.stringify({ server_address: ready.gateUrl }, null, 2));
+      fixture.pointedAt = ready.gateUrl;
+      clearInterval(timer);
+    }, 200);
+    timer.unref();
+    BRIDGE_WATCHERS.push(timer);
+  }
+  return fixture;
+}
+
 /** The scratch app credentials the GATE needs, under its own baseline. The
  *  baseline_ref is the tamper surface of app/comfy/ — the code doing the
  *  measuring — so a change in the vault surface cannot show up as drift here
@@ -1545,6 +1786,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     if (f.kind === 'model-store') { fixtures[id] = materialiseModelStore(sourceDir, id, f); continue; }
     if (f.kind === 'host') { fixtures[id] = materialiseHost(sourceDir, id, f, nonce); continue; }
     if (f.kind === 'blender-host') { fixtures[id] = materialiseBlenderHost(sourceDir, id, f, nonce, runDir); continue; }
+    if (f.kind === 'blender-install') { fixtures[id] = materialiseBlenderInstall(id, f, runDir); continue; }
     const bytes = deterministicBytes(f.seed || id, f.bytes);
     const path_ = join(sourceDir, f.name || id);
     writeFileSync(path_, bytes);
@@ -1634,6 +1876,16 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     env.SCRUPLE_CREDENTIAL_API_KEY = sandbox.apiKey;
   }
 
+  // WO-E5. Where this app looks for a Blender is CONFIGURATION and it comes
+  // from here, for the reason the model root and the vault's ceiling do: a
+  // renderer that could name the binary could point the dashboard at anything.
+  // Applied BEFORE the mutations, so an `env` mutation can still overrule it.
+  const blenderInstall = Object.values(fixtures).find((f) => f && f.kind === 'blender-install');
+  if (blenderInstall) {
+    for (const [k, v] of Object.entries(blenderInstall.env || {})) env[k] = v;
+    for (const k of blenderInstall.envDelete || []) delete env[k];
+  }
+
   const ctxEarly = { fixtures, appDir, spec, runDir, env };
   for (const b of breaks) {
     const m = MUTATIONS[b];
@@ -1679,6 +1931,8 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     child.on('close', (code, signal) => { clearTimeout(killer); res(signal ? `signal:${signal}` : code); });
   });
   writeFileSync(join(runDir, 'app.log'), appLog);
+  // Nothing this run started outlives it, including a poller.
+  while (BRIDGE_WATCHERS.length) clearInterval(BRIDGE_WATCHERS.pop());
 
   const result = existsSync(resultPath) ? JSON.parse(readFileSync(resultPath, 'utf8')) : null;
 

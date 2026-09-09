@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "e5_stub_bridge"
+version = "0.1.0"
+name = "E5 stub bridge"
+tagline = "A CONTROL, not a product: a bridge-shaped addon that keeps a ComfyUI address"
+maintainer = "Docent LLC <scruple@docentechs.com>"
+type = "add-on"
+
+tags = ["Pipeline"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:LicenseRef-Proprietary"]
