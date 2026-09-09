@@ -141,3 +141,7 @@
            byte-identical to WO-E4 (0 files changed) and the addon repo has no
            commit from E5 at all. Every Blender measurement is still on an
            emulated CPU (E3-2).
+19:56:00Z  DONE   WO-E5  gate 10 stages, 34 shell checks ok / 0 FAIL, 39
+           scenario assertions PASS, 10 mutations each caught by exactly what
+           they target  desktop=88d2628 web=01a8a55
+19:56:00Z  DONE   WO-E5  (54m)  desktop=88d2628 web=01a8a55

@@ -26,8 +26,16 @@ edit shifted the remainder underneath the running shell: control B and control C
 were re-executed, both audit sweeps ran a second time (identically clean), and
 one re-entry landed mid-line and exited `127`. The first run is kept, unedited,
 as `.run/e5/gate-run1-selfcorrupted.txt`, and the gate was re-run from start to
-finish with nothing touched: `.run/e5/gate-final.txt`, whose verdict line is
-quoted at the end of this report. Both transcripts are in the repo's `.run/`
+finish with nothing touched: `.run/e5/gate-final.txt`:
+
+```
+════ WO-E5 GATE PASSED ════        34 shell checks ok / 0 FAIL · 39 scenario assertions PASS
+```
+
+— ten stages, both audit sweeps, and the shell re-measurement, with the bridge
+address landing on `http://127.0.0.1:36895` that time: a third run, a third
+port, and the same agreement between what the app said, what the shell sees in
+the Blender profile, and what the kernel gave the gate. Both transcripts are in the repo's `.run/`
 (gitignored), and this paragraph is here because a transcript with an
 unexplained `127` in it is worse than no transcript.
 
