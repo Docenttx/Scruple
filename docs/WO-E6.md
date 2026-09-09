@@ -7,7 +7,9 @@ untouched, and `app/comfy/` is byte-identical to WO-E4's commit. Gate:
 
 ## Verdict
 
-**The work order's gate is met**, and it is met by a bridge nobody here wrote:
+**GATE PASSED** — `bash scripts/e6-gate.sh`, ten stages, **27 shell checks ok /
+0 FAIL**, whole transcript in `.run/e6/gate-final.txt`. And it is met by a
+bridge nobody here wrote:
 
 | what the work order asked for | outcome |
 |---|---|
@@ -133,6 +135,8 @@ Every number below is from a log in `.run/e6/` or a run directory under
 | the leaf, in the **witness's own file** | `witnesses` rows 1020 and 1021 for that content hash |
 | the bypassed run, read the same way | id 681: `workflow_hash (null)`, `model_fingerprints_hash (null)`, `host blender`, `host_semantics declined`, **1 witness row** |
 | the addon suite (`/data/scruple-blender`) | **330 passed** — E6 changed nothing in the addon repo, and this says so rather than assuming it |
+| WO-E4's `blender-host` and WO-D4's `comfy-generate`, re-run | **PASSED**, both — `scripts/desktop-run.mjs` grew a fixture kind, three assertion kinds and three mutations, and the scenarios that were already using it did not move |
+| ⚑ **the whole gate, as one transcript** | `.run/e6/gate-final.txt`: stages 0–9, **27 checks ok / 0 FAIL**, exit 0. Stage 4 of it is `sha256sum` and `sqlite3` with no node in it, which is what the work order asked for in as many words. |
 
 ⚑ **One leaf for the bypassed artifact, two for the gated one.** The gated
 generation is seen twice — as the `/view` response the bridge downloaded and as

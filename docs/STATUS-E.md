@@ -174,3 +174,8 @@
            the-real-id 3, model-swap 1, assert-expectation 1. RED-BEFORE shown
            at a9782dd: that tree's window reports a bridge with no
            blenderGenerate on it. addon suite 330 passed (untouched by E6).
+20:53:32Z  DONE   WO-E6  gate PASSED — 10 stages, 27 shell checks ok / 0 FAIL, 33
+           scenario assertions x3 clean runs, 5 mutations each caught by
+           exactly what they target. Regressions: WO-E4 blender-host PASSED,
+           WO-D4 comfy-generate PASSED, addon suite 330 passed. Transcript
+           .run/e6/gate-final.txt. app/comfy/ and the SDK are untouched.
