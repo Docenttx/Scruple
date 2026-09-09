@@ -221,9 +221,14 @@ failure, and the next migration that adds one forces somebody to decide.
 `canonicalization_profile` (`jcs-2`), `mime_declared`, `input_artifacts` (`[]`),
 `seal_state`, `workflow_publication`, `prompt`, `output_bytes`,
 `leaf_signature_state` (🔴 `unsigned` on all three — the scratch witness runs
-with H-1 signing disabled, STATE.md §4.1), and 40 more that are NULL on all
+with H-1 signing disabled, STATE.md §4.1), and **47 more** that are NULL on all
 three and are **named** so that a future writer filling one shows up as a change
-rather than as a surprise.
+rather than as a surprise — 59 columns in this class altogether.
+
+⚑ The five host-document columns are in the AXIS class and correctly stay
+**green** under the self-control, because they are NULL on A and on B alike and
+were never what told those two apart. A control that reddened everything would
+be telling us less, not more.
 
 A difference in this class would mean the comparison was between two different
 kinds of record and the rest of the table was moot.
