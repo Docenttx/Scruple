@@ -109,6 +109,12 @@ class RenderSettings:
     filepath: str = ""
     resolution_x: int = 1920
     resolution_y: int = 1080
+    # WO-E4. Real bpy has it and it is half of what determined the pixel
+    # count -- 1920x1080 at 50% is a 960x540 file. A mock missing it made
+    # `host_hook.build_evidence` omit a field its own schema requires,
+    # which is the announcement refusing itself for the mock's reason
+    # rather than the scene's.
+    resolution_percentage: int = 100
     engine: str = "CYCLES"
     image_settings: ImageFormatSettings = field(default_factory=ImageFormatSettings)
     ffmpeg: FFmpegSettings = field(default_factory=FFmpegSettings)
@@ -122,6 +128,15 @@ class RenderSettings:
 @dataclass
 class CyclesSettings:
     samples: int = 128
+
+
+@dataclass
+class EeveeSettings:
+    """WO-E4. `taa_render_samples` is the RENDER count; `taa_samples` is the
+    viewport's and did not make the file. Both are on real bpy and the mock
+    carries both so a test can get the wrong one."""
+    taa_render_samples: int = 64
+    taa_samples: int = 16
 
 
 @dataclass
@@ -151,6 +166,10 @@ class Scene:
     frame_current: int = 1
     render: RenderSettings = field(default_factory=RenderSettings)
     cycles: CyclesSettings = field(default_factory=CyclesSettings)
+    # Present on every scene whatever the engine is — which is exactly why
+    # `render_samples` dispatches on the engine instead of taking whichever
+    # group it finds first.
+    eevee: EeveeSettings = field(default_factory=EeveeSettings)
     camera: Camera = field(default_factory=Camera)
     objects: SceneObjectCollection = field(default_factory=SceneObjectCollection)
 

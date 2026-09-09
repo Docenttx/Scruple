@@ -69,6 +69,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
+from scruple_api.retention import (
+    DEFAULT_RETENTION_POLICY,
+    DEFAULT_RETENTION_POLICY_DIGEST,
+)
 from scruple_api.model_write import (
     MODEL_WRITE_IN_PROCESS,
     MODEL_WRITE_KIND,
@@ -99,6 +103,10 @@ from .envelope import (
 )
 from .errors import NoBaselineError
 from .ratchet import Ratchet
+# WO-C4. Raw os.stat per emission — see the module header for why it may not
+# be hoisted to construction time.
+from . import storage_confinement as _storage
+from . import upstream_epoch as _upstream
 from .server_library import (
     PlacementRefused,
     component_preimage,
@@ -134,6 +142,21 @@ DEFAULT_CHECKPOINT_SETTLE_S = 15.0
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _utc_in(seconds: int) -> str:
+    """WO-C3. An instant `seconds` from now, on THIS MACHINE'S clock.
+
+    Named for what it is: the settlement deadline this produces is a CLAIM
+    about a local clock, and the server refuses it if it does not land where
+    the NAMED clock puts the end of the policy's window.
+    """
+    return (
+        datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + seconds, timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        + "Z"
+    )
 
 
 @dataclass
@@ -206,11 +229,27 @@ class ModelWriteIntegration:
         declared_properties: Optional[Mapping[str, str]] = None,
         envelope_signers: Sequence[EnvelopeSigner] = (),
         seal_path: Optional[str] = None,
+        witness_authority: Optional[str] = None,
+        retention_policy_digest: str = DEFAULT_RETENTION_POLICY_DIGEST,
+        settlement_window_seconds: int = DEFAULT_RETENTION_POLICY["settlement_window_s"],
     ) -> None:
         self.client = client
         self.component = component
         self.ratchet = ratchet
         self.profile = surface_profile
+        # WO-C2. The authority identity that rides in the MAC preimage beside
+        # the witness endpoint, and None unless the vendor enrolled one — see
+        # server_library.ServerLibraryIntegration for the argument. The
+        # ENDPOINT is ``client.base_url``, the service this integration
+        # submits to; two settings for one fact is two answers.
+        self.witness_authority = witness_authority
+        # WO-C3. The retention policy this integration emits under, and the
+        # settlement window it binds — see
+        # server_library.ServerLibraryIntegration for the argument. The window
+        # must match the policy the digest names: the server holds the enrolled
+        # policy and refuses a deadline that does not land in its window.
+        self.retention_policy_digest = retention_policy_digest
+        self.settlement_window_seconds = int(settlement_window_seconds)
         self.envelope_signers = list(envelope_signers)
         self.seal_path = seal_path
         self.attestation_provider = attestation_provider
@@ -426,6 +465,26 @@ class ModelWriteIntegration:
             "workflow_hash": workflow_hash,
             "observed_at": observed_at or _utc_now(),
             "attestation_status": self._assurance.leaf,
+            # WO-C4. MEASURED HERE, ON THIS EMISSION, and the pair is the
+            # council's exactly: the directory holding the sealed ratchet
+            # state against the directory the checkpoint was written into. A
+            # training run that fills the disk its own queue is on is the
+            # starvation chain with the workload's own artifact as the cause.
+            #
+            # `seal_path` is optional on this integration, and when it is
+            # unset there is no state directory to compare — so the answer is
+            # `unknown`/`unknown` rather than a comparison against a path
+            # invented for the purpose.
+            **self._confinement_fields(facts.path),
+            # WO-C5. `not_queried`, because a training integration has no
+            # upstream process with a volatile enumeration to lose. The
+            # council's finding is specifically about ComfyUI's in-memory
+            # `PromptQueue.history` ring, which the sidecar gate reads across a
+            # process it does not own; Kohya writes checkpoints and this
+            # integration observes the writes directly. Nothing is asked, so
+            # the leaf says "nobody asked" rather than borrowing a value that
+            # would read as an enumeration.
+            **_upstream.UNQUERIED,
         }
 
         component_envelope: Dict[str, Any] = {
@@ -437,11 +496,32 @@ class ModelWriteIntegration:
                 "quote_ref": self.quote_ref,
             },
         }
+        # WO-C2. WHERE THIS LEAF'S EVIDENCE RESOLVES — inside the MAC, and a
+        # top-level block rather than a capture field because it is not an
+        # observation. The route REQUIRES it on any capture-bearing leaf, and
+        # `checkpoint_id` is None on every leaf while the Merkle blocker
+        # stands (WO-C6).
+        resolution_block: Dict[str, Any] = {
+            "witness_endpoint": getattr(self.client, "base_url", None),
+            "witness_authority": self.witness_authority,
+            "checkpoint_id": None,
+            "prev_checkpoint_id": None,
+            "prev_checkpoint_quote_time": None,
+            # WO-C3. When this leaf's silence becomes a finding, and the
+            # retention policy digest that bounds the evidence which would
+            # settle it. The deadline is computed from THIS MACHINE'S clock
+            # and is a claim: the server checks it against a NAMED clock and
+            # refuses it if it does not land in that policy's window.
+            "settlement_deadline": _utc_in(self.settlement_window_seconds),
+            "retention_policy_digest": self.retention_policy_digest,
+        }
+
         body: Dict[str, Any] = {
             "baseline_ref": self.client.state.baseline_ref,
             "kind": kind,
             "content_hash": facts.content_hash,
             "capture": capture_block,
+            "resolution": resolution_block,
             "component": component_envelope,
         }
         if mime is not None:
@@ -554,6 +634,25 @@ class ModelWriteIntegration:
             envelope=envelope,
             **common,
         )
+
+    def _confinement_fields(self, written_path: str) -> Dict[str, str]:
+        """WO-C4. The two capture fields, measured now.
+
+        NOT CACHED, and this method exists rather than an attribute set in
+        ``__init__`` for that reason: a value read once at construction could
+        only ever describe the construction, which is the config-inherited
+        fact class the council refused for ``pinned_build``. A checkpoint
+        directory can be remounted or bind-mounted between one save and the
+        next.
+        """
+        if not self.seal_path:
+            m = _storage.UNMEASURED
+        else:
+            m = _storage.measure(
+                os.path.dirname(os.path.abspath(self.seal_path)),
+                [os.path.dirname(os.path.abspath(written_path))],
+            )
+        return {"confinement": m.confinement, "confinement_source": m.source}
 
     def _close_detection(self) -> str:
         """How this deployment knew the file was finished.

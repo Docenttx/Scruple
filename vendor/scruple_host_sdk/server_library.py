@@ -80,7 +80,15 @@ from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
+from scruple_api.attestation_basis import (
+    profile_for,
+    resolve_attestation_basis,
+)
 from scruple_api.capture import capture as _capture_file
+from scruple_api.retention import (
+    DEFAULT_RETENTION_POLICY,
+    DEFAULT_RETENTION_POLICY_DIGEST,
+)
 from scruple_api.surface import (
     Assurance,
     AttestationOutcome,
@@ -95,6 +103,11 @@ from scruple_api.surface import (
 )
 
 from . import http as _http
+# WO-C4. The per-leaf storage measurement, shared with model_write.py so the
+# two placements cannot answer the same question two ways.
+from . import storage_confinement as _storage
+from . import declared_uncaptured as _uncaptured
+from . import upstream_epoch as _upstream
 from .envelope import (
     ComponentIdentity,
     DeclaredSurface,
@@ -144,6 +157,7 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
     that block than a sidecar does, and the difference has to be a value.
     """
     c = submission.get("capture") or {}
+    r = submission.get("resolution") or {}
     comp = submission["component"]
     att = comp.get("attestation") or {}
     return {
@@ -166,15 +180,153 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         "correlation_id": c.get("correlation_id"),
         "correlation_method": c.get("correlation_method"),
         "egress": c.get("egress"),
+        # WO-C1. RETRACTED AS PROVENANCE AND HELD AT null. The server's
+        # validator returns 422 for any non-null value: a filesystem
+        # observation may not create, complete or authenticate an artifact
+        # leaf. The KEY stays in the preimage because dropping it would change
+        # the canonical JSON and therefore every MAC across three
+        # implementations — and because keeping it makes the MAC cover the
+        # ASSERTION that there is no close detection, so a proxy cannot add
+        # one in flight. Dead as provenance, load-bearing as a negative.
         "close_detection": c.get("close_detection"),
         "workflow_hash": c.get("workflow_hash"),
         "observed_at": c.get("observed_at"),
         "attestation_status": c.get("attestation_status"),
+        # WO-C1. The profile the basis is conditional on, IN THE PREIMAGE: a
+        # basis whose precondition travels unsigned is a basis an attacker
+        # rewrites, and `verified` is refused on `desktop` by the same
+        # validator that would then be reading a forgeable field.
+        "profile": c.get("profile"),
+        # WO-C4. Where the ratchet's state lives relative to the watched
+        # volumes, measured on THIS emission, and both keys signed. The value
+        # says what was seen; the source says whether anything was. An
+        # attacker who could promote `unknown` to `measured` would turn
+        # "nobody looked" into "somebody checked", which is the whole
+        # distinction the measured-or-unknown invariant holds.
+        "confinement": c.get("confinement"),
+        "confinement_source": c.get("confinement_source"),
+        # WO-C5. WHO THE UPSTREAM WAS AND WHETHER ITS HISTORY RING SURVIVED.
+        # Seven keys, always present, null when this placement had nothing to
+        # ask — the same absent-is-null discipline as every key above, so a
+        # leaf from a `server-library` placement produces the same preimage
+        # SHAPE as one from a sidecar gate.
+        #
+        # In the MAC because the whole value of the fix is that a silent
+        # restart becomes visible on the evidence, and an
+        # `upstream_continuity` a party in the middle can rewrite to
+        # "continuous" is not visible on anything. `upstream_source` is signed
+        # separately from the values for the reason `confinement_source` is.
+        "upstream_identity": c.get("upstream_identity"),
+        "upstream_epoch": c.get("upstream_epoch"),
+        "upstream_continuity": c.get("upstream_continuity"),
+        "upstream_low_watermark_open": c.get("upstream_low_watermark_open"),
+        "upstream_low_watermark_close": c.get("upstream_low_watermark_close"),
+        "upstream_uncaptured_reason": c.get("upstream_uncaptured_reason"),
+        "upstream_source": c.get("upstream_source"),
+        # WO-E2. WHAT THE UPSTREAM SAID IT PRODUCED THAT THE COMPONENT DID NOT
+        # CAPTURE, AND THE SCOPE THAT ENUMERATION RANGED OVER.
+        #
+        # Five keys, always present, null when this placement enumerated
+        # nothing — the same absent-is-null discipline as every key above.
+        #
+        # In the MAC because the signed half is a COMPLETENESS CLAIM: a
+        # `uncaptured_scope` a party in the middle could promote from "partial"
+        # to "complete" is a coverage claim nobody made, which is precisely
+        # what round 5 §3 refused ("the ambiguity you just killed reappears one
+        # level up, now WEARING A COMPLETENESS CLAIM"). The DOCUMENT rides at
+        # the top level and only `declared_uncaptured_hash` is signed — the
+        # `host_evidence` arrangement, for the reason a list cannot be a MAC
+        # preimage field.
+        #
+        # ⚑ AND `declared_uncaptured_count` IS SIGNED SEPARATELY FROM THE HASH.
+        # 0 is "looked and found nothing"; None is "did not look". Without the
+        # count in the MAC those two are one dropped attachment apart.
+        "uncaptured_enumeration_method": c.get("uncaptured_enumeration_method"),
+        "uncaptured_scope": c.get("uncaptured_scope"),
+        "uncaptured_scope_source": c.get("uncaptured_scope_source"),
+        "declared_uncaptured_count": c.get("declared_uncaptured_count"),
+        "declared_uncaptured_hash": c.get("declared_uncaptured_hash"),
+        # WO-D6. WHO SUPPLIED THE MEANING, AND WHETHER ANYBODY DID.
+        #
+        # ``lib/capture/hostRegistry.ts`` splits every host integration in
+        # two. LEVEL 1 is a host pointing its ComfyUI address at the gate: it
+        # costs the host nothing, captures everything on the wire, and
+        # produces a record that is honestly SEMANTICALLY BLIND — an anonymous
+        # PNG was uploaded. LEVEL 2 is a registered adapter supplying what a
+        # wire cannot carry, that those pixels were the viewport of scene X at
+        # frame Y through camera Z.
+        #
+        # Five keys, always present, null when this placement carried none.
+        # A `server-library` component fills them with nulls and that is
+        # correct: there is no separate host, so there is no host to ask.
+        #
+        # ⚑ IN THE PREIMAGE, because the entire value of a leaf saying "this
+        # record is semantically blind" is that nobody between the component
+        # and the route can change it into "a registered Blender adapter said
+        # this was scene X". ``host_evidence_hash`` binds the document to the
+        # claim so the two cannot be separated in flight either — and the
+        # DOCUMENT stays out, for the reason ``graph`` does: it is host-shaped
+        # and full of floats (a frame time, a focal length), and a float in a
+        # MAC preimage is a MAC that fails unreproducibly and only sometimes.
+        "host": c.get("host"),
+        "host_adapter": c.get("host_adapter"),
+        "host_evidence_type": c.get("host_evidence_type"),
+        "host_semantics": c.get("host_semantics"),
+        "host_evidence_hash": c.get("host_evidence_hash"),
+        # WO-C2. THE RESOLUTION HANDLES, and this is Architect's first settle
+        # condition, verbatim: the handles "must sit inside the signed
+        # preimage, or an attacker who can rewrite an unsigned endpoint
+        # redirects resolution to a service that will happily confirm
+        # anything — the handle becomes the attack surface the proof used to
+        # close."
+        #
+        # ALWAYS FIVE KEYS, prefixed, null when the block is absent — so the
+        # ABSENCE of a witness endpoint is signed too and a party in the
+        # middle can no more add a handle than rewrite one. The TypeScript
+        # counterpart is `resolutionPreimageFields()` in
+        # `lib/leaf/resolutionHandles.ts`, and
+        # `test/vectors/component-preimage-vectors.json` is what stops the
+        # two drifting.
+        #
+        # WO-C3 adds the last two. Architect's SECOND settle condition and the
+        # other half of the same argument: the pointer must also say HOW LONG
+        # the thing pointed at will be there, or "a resolution attempt after
+        # the evidence is legitimately gone" is "indistinguishable from a
+        # forged handle." A deadline a proxy can push out is not a deadline,
+        # and a retention digest a proxy can swap for a longer-lived policy is
+        # not a retention binding — so both are in the MAC beside the five.
+        **{
+            f"resolution_{k}": (None if r.get(k) is None else str(r[k]))
+            for k in (
+                "witness_endpoint",
+                "witness_authority",
+                "checkpoint_id",
+                "prev_checkpoint_id",
+                "prev_checkpoint_quote_time",
+                "settlement_deadline",
+                "retention_policy_digest",
+            )
+        },
     }
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _utc_in(seconds: int) -> str:
+    """An instant `seconds` from now, on THIS MACHINE'S clock.
+
+    WO-C3. Named for what it is. The settlement deadline this produces is a
+    CLAIM about a local clock, and the server refuses it if it does not land
+    where the NAMED clock puts the end of the policy's window.
+    """
+    return (
+        datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + seconds, timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        + "Z"
+    )
 
 
 class PlacementRefused(ScrupleAPIError):
@@ -269,6 +421,9 @@ class ServerLibraryIntegration:
         declared_properties: Optional[Mapping[str, str]] = None,
         envelope_signers: Sequence[EnvelopeSigner] = (),
         seal_path: Optional[str] = None,
+        witness_authority: Optional[str] = None,
+        retention_policy_digest: str = DEFAULT_RETENTION_POLICY_DIGEST,
+        settlement_window_seconds: int = DEFAULT_RETENTION_POLICY["settlement_window_s"],
     ) -> None:
         self.client = client
         self.component = component
@@ -300,6 +455,56 @@ class ServerLibraryIntegration:
 
         self.resolution = resolve_placement(Placement(declared_placement), PlacementEnforcement(enforcement))
         self._assurance = assurance_for(self.resolution.effective, self.attestation_outcome)
+        # WO-C1. The trust profile, derived from the EFFECTIVE placement —
+        # the one `resolve_placement()` produced after checking that the
+        # enforcement mechanism is actually there — and never from the
+        # declared one. A profile a host assigns itself is DEFECT-1 one
+        # level up.
+        self.trust_profile = profile_for(self.resolution.effective)
+
+        # WO-C2. The AUTHORITY IDENTITY that rides in the MAC preimage beside
+        # the endpoint — the witness's signing key id, as a verifier following
+        # the endpoint would check it.
+        #
+        # None unless the vendor enrolled one, and never defaulted to
+        # something plausible. Hand round 8: an endpoint is self-asserted by
+        # the emitter, so "the field has to carry the witness's key/authority
+        # identity alongside the URL, or a verifier following it just gets a
+        # cooperating liar at a valid address." Manufacturing that identity
+        # here would be manufacturing exactly what the sentence is about, and
+        # the route refuses to let a leaf with no authority name a checkpoint.
+        #
+        # The ENDPOINT is not a separate setting: it is ``client.base_url``,
+        # the service this integration actually submits to. Two settings for
+        # one fact is two answers.
+        self.witness_authority = witness_authority
+
+        # WO-C3. THE RETENTION POLICY THIS INTEGRATION EMITS UNDER, and the
+        # settlement window that policy binds.
+        #
+        # The digest names a policy the DEPLOYMENT enrolled — it binds the
+        # evidence retention DURATION and the named clock the durations are
+        # counted on, which is Architect's second settle condition: a digest
+        # over a policy IDENTITY leaves "a resolution attempt after the
+        # evidence is legitimately gone" "indistinguishable from a forged
+        # handle."
+        #
+        # ⚑ THE WINDOW MUST MATCH THE POLICY THE DIGEST NAMES. This object
+        # holds the digest, not the policy; the server holds the enrolled
+        # object and refuses a deadline that does not land where the named
+        # clock puts the end of that policy's window. A vendor who sets one
+        # and forgets the other finds out on the first leaf, with
+        # `settlement_deadline_unbound` and the skew in the detail — which is
+        # the intended place to find out.
+        #
+        # These two DEFAULT rather than being required, unlike
+        # `witness_authority` one field up, and the difference is real: an
+        # authority nobody enrolled is a cooperating liar and there is no safe
+        # default for it, while the default policy here is one the server
+        # actually seeds (migration 055), so a vendor who names it gets a
+        # digest that RESOLVES.
+        self.retention_policy_digest = retention_policy_digest
+        self.settlement_window_seconds = int(settlement_window_seconds)
 
     # -- posture ----------------------------------------------------------
 
@@ -447,7 +652,89 @@ class ServerLibraryIntegration:
             "close_detection": None,
             "workflow_hash": None,
             "observed_at": observed_at or _utc_now(),
-            "attestation_status": self._assurance.leaf,
+            # WO-C1. RESOLVED PER EMISSION, not read off a value fixed at
+            # construction. `verified` requires a quote that binds to THIS
+            # emission; a value captured once could only ever bind the
+            # construction, which is the config-inherited field class the
+            # council already refused.
+            #
+            # Today this is `stale` for every profile, because the witness
+            # and the verifier do not pass shared Merkle vectors and no
+            # checkpoint can be claimed settled (WO-C6). It is still
+            # COMPUTED rather than hardcoded: a constant is what the next
+            # contributor deletes without noticing what it was for.
+            #
+            # No quote source at `server-library`: the placement has no
+            # attestable compute, which is `passthrough` once the blocker
+            # lifts and `stale` until then.
+            "attestation_status": resolve_attestation_basis(
+                self.trust_profile, self.resolution.enforcement, None
+            ).basis.value,
+            "profile": self.trust_profile.value,
+            # WO-C4. `unknown`/`unknown`, and it is a measurement of the
+            # question rather than a shrug. The council's fact is the DEVICE
+            # PAIR — the ratchet state against a watched volume — and at
+            # `server-library` there is no watched volume: the vendor's
+            # handler is the observation and no directory is declared as the
+            # workload's output surface. There is therefore no pair to
+            # compare, and `confined` would claim a boundary nobody
+            # established. `storage_confinement.UNMEASURED` is that answer,
+            # named once so it cannot drift into a default.
+            #
+            # The startup half does not attach here either: the council bound
+            # the refusal to binding a proxy socket, and this placement binds
+            # none.
+            "confinement": _storage.UNMEASURED.confinement,
+            "confinement_source": _storage.UNMEASURED.source,
+            # WO-C5. `not_queried`, and it is the value the council insisted
+            # must stay distinguishable from "not enumerated because
+            # evicted/restarted". THIS PLACEMENT HAS NO UPSTREAM PROCESS TO
+            # ASK. The sidecar gate sits between a tenant and a separate
+            # ComfyUI whose in-memory `/history` ring can be silently reset
+            # under it; at `server-library` the vendor's handler IS the
+            # observation, in-process, with no `/system_stats` to poll and no
+            # history ring to lose. There is no upstream identity to record
+            # and no epoch to pin, so every one of these is None and the
+            # reason says WHY — "nobody asked", not "the enumeration failed".
+            #
+            # ⚑ `unknown`/`not_queried`/`unknown` IS NOT A WEAKER ANSWER HERE.
+            # It is the accurate one, and it is why the reason vocabulary has
+            # five values rather than a boolean.
+            "upstream_identity": None,
+            "upstream_epoch": None,
+            "upstream_continuity": _upstream.UNKNOWN,
+            "upstream_low_watermark_open": None,
+            "upstream_low_watermark_close": None,
+            "upstream_uncaptured_reason": _upstream.NOT_QUERIED,
+            "upstream_source": _upstream.SOURCE_UNKNOWN,
+            # WO-E2. `not_enumerated`, AND IT IS NOT AN EMPTY SET. The absence
+            # set is a diff between an upstream's `/history` and what a gate
+            # captured; this placement has neither, so there is nothing to
+            # enumerate and nothing to diff. A count of 0 would say the
+            # component looked and found nothing uncaptured, which would be a
+            # coverage claim made by a placement that never ran an
+            # enumeration. None is "did not look", and rule 8 refuses each of
+            # the two in the other's clothes.
+            **_uncaptured.UNENUMERATED,
+            # WO-D6. `blind`, AND IT IS THE ACCURATE ANSWER RATHER THAN A
+            # PLACEHOLDER. The host hook has two levels: Level 1 is a host
+            # whose bytes reach us with nobody naming them, Level 2 is a host
+            # that registered an adapter to supply the meaning the observation
+            # cannot carry. At `server-library` the vendor's own handler is
+            # the observation and no adapter was registered on it, so nothing
+            # named these bytes and the leaf says exactly that.
+            #
+            # ⚑ SENT RATHER THAN OMITTED, and the four siblings are sent as
+            # None rather than left out. A leaf that merely LACKED the
+            # semantics would be indistinguishable from a Level-2 leaf whose
+            # adapter is broken and from a leaf written before the field
+            # existed; `lib/leaf/captureClaims.ts` rule 7 refuses the absence
+            # for that reason, and "blind" costs nothing to say.
+            "host": None,
+            "host_adapter": None,
+            "host_evidence_type": None,
+            "host_semantics": "blind",
+            "host_evidence_hash": None,
         }
 
         # 3. The submission, assembled BEFORE the MAC, because the MAC is
@@ -463,11 +750,44 @@ class ServerLibraryIntegration:
                 "quote_ref": self.quote_ref,
             },
         }
+        # WO-C2. WHERE THIS LEAF'S EVIDENCE RESOLVES — inside the MAC, and a
+        # top-level block rather than a capture field because it is not an
+        # observation. The checkpoint half is None on every leaf today: no
+        # checkpoint can be claimed settled while the Merkle blocker stands,
+        # and the route refuses a `checkpoint_id` that says otherwise.
+        resolution_block: Dict[str, Any] = {
+            "witness_endpoint": getattr(self.client, "base_url", None),
+            "witness_authority": self.witness_authority,
+            "checkpoint_id": None,
+            "prev_checkpoint_id": None,
+            "prev_checkpoint_quote_time": None,
+            # WO-C3. WHEN THIS LEAF'S SILENCE BECOMES A FINDING, and the policy
+            # that bounds the evidence which would settle it.
+            #
+            # ⚑ THE DEADLINE IS COMPUTED FROM THIS MACHINE'S CLOCK AND THAT IS
+            # A CLAIM, stated plainly rather than dressed as a measurement. The
+            # council refused a deadline "derived from a locally-set timestamp"
+            # as a config-inherited field; the answer is not that the component
+            # stops declaring one — it is the only party that knows its own
+            # window — but that the SERVER checks the claim against a NAMED
+            # CLOCK before storing it and computes the terminal `expired` only
+            # from that clock. A host whose clock is two hours out is refused
+            # at ingest with `settlement_deadline_unbound`, which is the
+            # intended place to discover it.
+            #
+            # The digest names a policy the DEPLOYMENT enrolled. A component
+            # cannot enrol its own, because a component that could would be a
+            # component that could grant itself an unbounded window.
+            "settlement_deadline": _utc_in(self.settlement_window_seconds),
+            "retention_policy_digest": self.retention_policy_digest,
+        }
+
         body: Dict[str, Any] = {
             "baseline_ref": self.client.state.baseline_ref,
             "kind": kind,
             "content_hash": content_hash,
             "capture": capture_block,
+            "resolution": resolution_block,
             "component": component_envelope,
         }
         # MIME IS SENT WHEN IT WAS DECLARED AND OMITTED WHEN IT WAS NOT.

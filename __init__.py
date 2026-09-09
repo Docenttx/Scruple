@@ -44,6 +44,7 @@ def _load_modules():
         return _MODULES
     from adapter import preferences as _prefs
     from adapter import handlers as _handlers
+    from adapter import host_hook as _host_hook
     from panels import main as _panel_main
     from operators import (
         auth as _op_auth,
@@ -58,10 +59,12 @@ def _load_modules():
         payment_setup as _op_payment,
         resume_payment as _op_resume,
         dashboard as _op_dashboard,
+        host_hook as _op_host_hook,
     )
     _MODULES = {
         "preferences": _prefs,
         "handlers": _handlers,
+        "host_hook": _host_hook,
         "panel_main": _panel_main,
         "op_auth": _op_auth,
         "op_witness": _op_witness,
@@ -75,6 +78,7 @@ def _load_modules():
         "op_payment": _op_payment,
         "op_resume": _op_resume,
         "op_dashboard": _op_dashboard,
+        "op_host_hook": _op_host_hook,
     }
     return _MODULES
 
@@ -96,14 +100,30 @@ def register():
     # Before the panel: its regions draw these operators, and a panel
     # that references an unregistered operator id is a broken button.
     m["op_dashboard"].register()
+    m["op_host_hook"].register()
     m["panel_main"].register()
     m["handlers"].register()
+    # WO-E4. THE ADDON DECLARES ITSELF AS A LEVEL-2 HOST ADAPTER, here,
+    # at enable time, because HOST-HOOK.md says registration is static and
+    # build-time and this is the latest moment that is still true of.
+    #
+    # ⚑ It writes NOTHING unless SCRUPLE_COMFY_HOST_DIR is set, which only
+    # Desktop Studio sets. A standalone Blender enables this addon and no
+    # file appears anywhere: the two products stay mirrored, and this is
+    # the one `if` that keeps them so.
+    #
+    # It cannot fail the enable. `declare()` returns a result and raises
+    # nothing -- a host integration that cannot be set up must not take the
+    # host down, which is the same rule the gate follows when it refuses a
+    # declaration and carries on at Level 1.
+    m["host_hook"].declare()
 
 
 def unregister():
     m = _load_modules()
     m["handlers"].unregister()
     m["panel_main"].unregister()
+    m["op_host_hook"].unregister()
     m["op_dashboard"].unregister()
     m["op_resume"].unregister()
     m["op_payment"].unregister()

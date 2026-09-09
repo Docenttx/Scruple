@@ -293,3 +293,35 @@ def test_host_environment_carries_blenders_own_fields():
     env = _scene.host_environment()
     assert env["addon"] == "scruple-blender"
     assert "blender_version" in env
+
+
+# ---- WO-E4: the sample count belongs to the engine that is set -----------
+
+def test_samples_come_from_the_engine_that_is_actually_set():
+    """⚑ Finding E4-4, pinned. `scene.cycles` exists even when the engine is
+    EEVEE — the Cycles addon registers its property group on every scene —
+    so "take the first group with a .samples" reported Cycles' 4096 for a
+    4.2 EEVEE render. Measured on Blender 4.2.23."""
+    s = bpy_mock.Scene()
+    s.render.engine = "BLENDER_EEVEE_NEXT"
+    s.cycles.samples = 4096
+    s.eevee.taa_render_samples = 64
+    assert _scene.render_samples(s) == 64
+    assert _scene.read_render_settings(s)["samples"] == 64
+
+
+def test_cycles_still_reports_its_own_samples():
+    s = bpy_mock.Scene()
+    s.render.engine = "CYCLES"
+    s.cycles.samples = 4096
+    s.eevee.taa_render_samples = 64
+    assert _scene.render_samples(s) == 4096
+
+
+def test_an_engine_with_no_sample_count_reports_none_not_another_engines():
+    """Workbench has no sample count. A missing row is a missing row."""
+    s = bpy_mock.Scene()
+    s.render.engine = "BLENDER_WORKBENCH"
+    s.cycles.samples = 4096
+    assert _scene.render_samples(s) is None
+    assert _scene.read_render_settings(s)["samples"] is None

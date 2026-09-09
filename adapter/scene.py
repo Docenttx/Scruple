@@ -316,6 +316,55 @@ def scene_inventory(scene: Any) -> Dict[str, int]:
     return {"object_count": object_count, "material_count": material_count}
 
 
+#: Where each render engine keeps its sample count. WO-E4.
+#:
+#: ⚑ THE ENGINE DECIDES, and it has to, because `scene.cycles` EXISTS EVEN
+#: WHEN CYCLES IS NOT THE ENGINE -- the Cycles addon registers its property
+#: group on every scene. The code this replaced looked in ("cycles",
+#: "eevee") in order and took the first `.samples` it found, so a Blender
+#: 4.2 EEVEE render reported `samples: 4096`, which is Cycles' default and
+#: not a number that had anything to do with those pixels. Measured on
+#: 4.2.23 during WO-E4 and recorded there as finding E4-4.
+#:
+#: An engine with no row -- Workbench, or any third-party engine -- reports
+#: NO sample count rather than another engine's. The same rule as the MIME
+#: table above: a missing row is a missing row, not a default.
+ENGINE_SAMPLES: Dict[str, tuple] = {
+    "CYCLES": ("cycles", "samples"),
+    # EEVEE Next (4.2+) and legacy EEVEE both spell it this way. `taa_samples`
+    # is the VIEWPORT count and is not what rendered the file.
+    "BLENDER_EEVEE": ("eevee", "taa_render_samples"),
+    "BLENDER_EEVEE_NEXT": ("eevee", "taa_render_samples"),
+}
+
+
+def render_samples(scene: Any) -> Optional[int]:
+    """The sample count of the engine that is actually set, or None.
+
+    None means "this engine does not report one", which is a different
+    fact from zero and is why the callers omit the key rather than send 0.
+    """
+    source = ENGINE_SAMPLES.get(render_engine(scene))
+    if source is None:
+        return None
+    group, attr = source
+    sub = getattr(scene, group, None)
+    if sub is None:
+        return None
+    value = getattr(sub, attr, None)
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def render_engine(scene: Any) -> str:
+    """Blender's own id for the engine set on this scene, e.g. "CYCLES"."""
+    return (getattr(getattr(scene, "render", None), "engine", "") or "").upper()
+
+
 def read_render_settings(scene: Any) -> Dict[str, Any]:
     render = getattr(scene, "render", None)
     if render is None:
@@ -326,20 +375,11 @@ def read_render_settings(scene: Any) -> Dict[str, Any]:
     )
     engine = getattr(render, "engine", "") or ""
     camera = getattr(getattr(scene, "camera", None), "name", None)
-    samples: Optional[int] = None
-    for group in ("cycles", "eevee"):
-        sub = getattr(scene, group, None)
-        if sub is not None and hasattr(sub, "samples"):
-            try:
-                samples = int(sub.samples)
-                break
-            except (TypeError, ValueError):
-                pass
     return {
         "resolution": resolution,
         "engine": engine,
         "camera": camera,
-        "samples": samples,
+        "samples": render_samples(scene),
     }
 
 

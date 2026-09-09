@@ -56,6 +56,14 @@ def witness(
     model_fingerprints_hash: Optional[str] = None,
     component: Optional[Dict[str, Any]] = None,
     capture: Optional[Dict[str, Any]] = None,
+    # ---- WO-C2: the resolution handles --------------------------------
+    # Where this leaf's evidence is fetched and whose signature counts
+    # there. Passed through into the body, which means `component_preimage`
+    # folds all five into the MAC — Architect's settle condition, because
+    # moving the Merkle path and the raw quote OUT of the leaf makes the
+    # POINTER to them the thing worth attacking. The route REQUIRES this
+    # block on any submission carrying a `capture` block.
+    resolution: Optional[Dict[str, Any]] = None,
     mac: Optional[str] = None,
     ratchet: Optional[Any] = None,
 ) -> WitnessOutcome:
@@ -191,6 +199,12 @@ def witness(
         body["component"] = envelope
         if capture is not None:
             body["capture"] = capture
+        # BEFORE the preimage, like everything else that is MACed. A handle
+        # added after `component_preimage()` would be a handle on the wire
+        # that the MAC does not cover, which is the exact defect WO-C2 exists
+        # to close.
+        if resolution is not None:
+            body["resolution"] = resolution
 
         if ratchet is not None:
             # ONE function builds the preimage and every party calls the same
@@ -218,6 +232,14 @@ def witness(
             "what the COMPONENT saw; the route only reads it through the component "
             "preimage, so sending it alone would put an unauthenticated observation "
             "on the wire that nothing commits to."
+        )
+    elif resolution is not None:
+        raise ValueError(
+            "witness() was given a `resolution` block with no `component`. WO-C2: the "
+            "handles are security-critical precisely because the proof is NOT in the "
+            "leaf, and their only protection is the ratchet MAC that covers them. An "
+            "unsigned witness endpoint is an assertion by whoever sent it, sitting in "
+            "the field a verifier follows. The route refuses it, and so does this."
         )
 
     result = _http.submit(session, "POST", "/api/v2/witness", body=body, queue_kind="witness", queue_replay=body)
