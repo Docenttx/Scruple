@@ -30,6 +30,7 @@ import {
   assuranceForHost,
   type HostAssurance,
   type HostCaptureProfile,
+  type ObservationSink,
 } from '../../../lib/capture/surface';
 import { profileFor } from '../../../lib/leaf/attestationBasis';
 // WO-C4. Measured at startup AND re-measured on every emission. The module's
@@ -59,6 +60,37 @@ export interface ComponentDeps {
    *  `fetchImpl` so an API fixture cannot answer for ComfyUI. */
   upstreamFetchImpl?: typeof fetch;
   closeWriteSource?: CloseWriteSource;
+  /**
+   * WO-D4. THE HOST ADAPTER SEAM. A wrapper placed between the surfaces and
+   * the Submitter, so a host can add to an observation what the gate
+   * structurally cannot see.
+   *
+   * The gate observes a wire. A workflow that says `lora_name:
+   * "client-secret.safetensors"` gives it a STRING; turning that into the
+   * weights that were actually on the disk needs a model directory, and a
+   * component deployed in front of somebody else's ComfyUI does not have one.
+   * A desktop host does. Scruple Desktop Studio's `ModelStoreSink` uses this
+   * to supply `model_fingerprints`, which is the difference between "a file
+   * with that name was referenced" and "these bytes were there".
+   *
+   * IT IS AN `ObservationSink`, WHICH IS THE POINT. surface.ts already calls
+   * that "the interface a vendor implements for a host we have not met", so a
+   * host adapter is not a new contract — it is the existing one, composed. A
+   * wrapper sits ABOVE §5's ordering and below nothing: the Submitter it
+   * receives still owns derive → MAC → ratchet → persist → enqueue, and a
+   * wrapper cannot spend a counter, cannot MAC and cannot reach the network.
+   *
+   * IT MAY NOT SWALLOW. Both gate surfaces await `sink.emit` before
+   * forwarding a byte and fail closed if it throws, so a wrapper that dropped
+   * an observation would silently un-witness an artifact. That obligation is
+   * on the wrapper; nothing here can enforce it, which is why the seam takes
+   * a function rather than a list of fields to merge.
+   *
+   * Absent by default. A deployment that passes nothing gets exactly the
+   * component it got before this parameter existed — which is what makes
+   * "the same generation with no adapter" a usable control.
+   */
+  sinkWrap?: (sink: ObservationSink) => ObservationSink;
   log?: (line: string) => void;
 }
 
@@ -225,9 +257,16 @@ export class CaptureComponent {
       });
     });
 
-    await httpGate.open({ sink: submitter, placement: assurance.placement, config: {} });
-    await wsGate.open({ sink: submitter, placement: assurance.placement, config: { server } });
-    await fsWatch.open({ sink: submitter, placement: assurance.placement, config: {} });
+    // WO-D4. The one sink every surface emits into, after the host's adapter
+    // has had it. `submitter` stays the field on the component — `drain()`,
+    // the queue and the counter are all still its — and what the surfaces
+    // hold is the composition.
+    const sink: ObservationSink = deps.sinkWrap ? deps.sinkWrap(submitter) : submitter;
+    if (deps.sinkWrap) log('host adapter: an ObservationSink wrapper is in the path');
+
+    await httpGate.open({ sink, placement: assurance.placement, config: {} });
+    await wsGate.open({ sink, placement: assurance.placement, config: { server } });
+    await fsWatch.open({ sink, placement: assurance.placement, config: {} });
 
     // ---- WO-C4: THE STORAGE GATE, BEFORE THE SOCKET IS BOUND ----------
     //
