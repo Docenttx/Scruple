@@ -64,51 +64,56 @@ attacking is true, unfixable, and shippable only as a declared limit.
 
 ## 1 · The design as it finally stands
 
-_Coder, hand-driven round 7 (the latest), verbatim and complete._
+_Coder, hand-driven round 11, verbatim and complete._
 
-⚠ **THIS DESIGN IS NOT SETTLED.** Architect is OPEN — he wants the
-`close_detection` validator rule written as schema text before he closes.
-Loki is BLOCKING. See §3 for both, in their own words._
+✅ **ALL FOUR SEATS SETTLED at this round** — Coder, Architect, Loki and IT
+Expert, each with reasons, in §2. One release blocker survives and it is an
+implementation task rather than a design question: see Appendix C item 0._
 
-The filesystem position is unambiguously option **(c)**: remove filesystem events from the capture freeze gate. `IN_CLOSE_WRITE`, quiescence, and `fs-watch.ts` observations must not create, complete, or authenticate artifact leaves; any filesystem-only output is `declared_uncaptured`. I retract the later reinstatement explicitly. The validator must reject `close_detection` as a provenance or completion field, so this cannot return as a dead schema dependency.
+The final design is a stateful capture proxy with three distinct trust profiles. A desktop deployment may record measured observations, signed client requests, counters, refusal events, and witness settlement state, but it cannot represent `verified`: that value is unreachable by schema and validation on the desktop profile. TPM quotes do not change this, because they attest boot state, not runtime behavior after a privileged compromise. `verified` is reserved for a placement that can enforce the capture boundary against the tenant—such as a server-managed library, genuinely isolated sidecar, or CVM—and requires `host-enforced-signature`.
 
-Refusal commits at durable local `emit()`: derive, MAC, spend the counter, append durably, then enqueue for witness delivery. Witness availability is therefore non-blocking. A queued leaf is not external evidence yet, but it is a MACed local record whose counter creates an observable sequence gap. The protocol must expose `open/unresolved`, `resolved`, and an explicitly terminal state such as `expired` or `never-resolved`; “never” cannot be established without a declared observation horizon. I recommend a policy-bounded settlement window and durable queue-retention rule, while keeping capture fail-closed on inability to perform local append—not on witness latency.
+Each leaf carries its claims and the handles needed to resolve their evidence: the component identity, witness endpoint and authority identity, checkpoint identifier and leaf index/hash, the preceding checkpoint identifier and quote time, the claimed interval, settlement deadline, retention-policy digest, and the applicable source/profile fields. The leaf is therefore self-describing about what is claimed, where its proof must be obtained, and when unresolved state becomes a finding. It does not carry a Merkle path or raw quote. Those are evidence retrieved from the checkpoint service; “leaf-readable” means that policy and settlement interpretation do not require hidden policy, not that cryptographic verification can be completed without fetching proof material.
 
-The 50 GiB direct-to-output case remains a host quota and disk-exhaustion control, not a capture guarantee. It should be surfaced as an operational limit or incident, never misrepresented as captured provenance. Oversized intercepted streams should use bounded batching with count and counter ranges, and include the active ceiling plus counter in the leaf.
+Checkpoint generation requires a freshness nonce originating outside the capture box. Consequently, a quote-bound checkpoint can only be created while connected to the nonce authority. Store-and-forward operation may continue recording leaves offline, but that offline interval cannot produce a bindable checkpoint and cannot become `verified`; the resulting leaves remain pending or unknown until the declared settlement deadline resolves them. A checkpoint that never lands becomes a measured absence at that deadline, rather than an indefinitely ambiguous condition.
 
-STATUS: **OPEN** — filesystem regression retracted; local commit rule fixed; settlement-window bound still requires Architect’s ruling.
+Local refusal commits remain durable at `emit()`: derive and MAC the leaf, spend the monotonic counter, append and `fsync` the state durably, then enqueue witness submission without making capture depend on witness availability. Counter gaps, component identity, witness endpoint, checkpoint status, and settlement deadlines remain visible to the verifier. Filesystem observations are not freeze-gate authentication and `close_detection` is rejected as provenance; the conformance gate instead covers HTTP, WebSocket, and relevant artifact channels, including unenumerated successful responses.
 
-<beat status="iterating" reason="Settlement-window policy remains unresolved"/>
+Finally, the witness implementation is a release blocker. Until the witness and verifier pass shared vectors for the canonical preimage, domain separation, tree ordering, root calculation, and proof format, emitted leaves must state `stale`; they cannot claim a settled checkpoint. The claims-versus-evidence split keeps the wire leaf bounded without weakening the required resolution and settlement semantics.
+
+STATUS: SETTLED — placement, evidence handles, and offline semantics fixed
+<beat status="converging" reason="Final placement and evidence design resolved"/>
 
 ---
 
 ## 2 · The three watchers' closing positions
 
-_Hand-driven round 7, verbatim and complete. Two of the three are NOT settled._
+_Hand-driven round 11, verbatim and complete. All three watchers SETTLED here._
 
 ### Loki
 
-One might see local emit() as sealing the refusal, yet root simply LD_PRELOADs the ratchet to burn counters into a shadow queue that never reaches the real witness, turning your observable gaps into selective theater the settlement bound cannot distinguish. The 50 GiB direct-to-output case compounds this: no transaction means the counter itself becomes optional, exactly the dead schema dependency Architect warned would reappear. Press on recording the ratchet vantage as measured-or-unknown in every leaf. STATUS: BLOCKING — local commit still launders forgeable sequence under the conceded root boundary.
+The placement nail on `verified`—unrepresentable exactly where root can LD_PRELOAD or eBPF-synthesize the entire coverage story—finally declares the game instead of laundering it as "measured." That closes the vector I've been crossing since the namespace observations; the offline coupling consequence just sharpens why desktops stay in the weaker profile.  
+STATUS: SETTLED — honest unreachability, not rhetorical.
 
 ### Architect
 
-Ruling: unbounded is not tolerable, because an unresolved gap that never expires is indistinguishable from a policy of never checking — the verifier defaults to accept by exhaustion. The bound must be *carried in the leaf* as a declared `settlement_deadline` plus the retention policy digest in force, so a verifier reading the leaf alone knows when silence becomes a finding rather than having to fetch out-of-band policy; at deadline the gap flips to a terminal `expired`, which is an assertion about the *component's delivery*, not about the leaf's validity. Two things that must go with it: the counter-gap evidence lives server-side, so the leaf needs the witness endpoint and component ID a verifier can query, or the mechanism is invisible to anyone who isn't the witness operator — and `expired` must itself be `source: measured` against a named clock, since a deadline derived from a locally-set timestamp is exactly the config-inherited field class we already refused. STATUS: OPEN — settlement window bounded and declared-in-leaf; retraction accepted, but I want the validator rule for `close_detection` written as schema text before I close.
+Ruling on §2: the split satisfies the principle. What I demanded was that the leaf alone tell a verifier *what is asserted* and *when silence becomes a finding* — never that it complete cryptography offline; a resolution handle was always the form of the requirement, so proofs may stay resolvable. Two conditions make it hold under the hardest case: the handles (`witness endpoint`, authority identity, `checkpoint_id`, preceding checkpoint id and quote time) must sit inside the signed preimage, or an attacker who can rewrite an unsigned endpoint redirects resolution to a service that will happily confirm anything — the handle becomes the attack surface the proof used to close. Second, the `retention_policy_digest` must bind evidence *retention duration*, not just policy identity, so a resolution attempt after the evidence is legitimately gone yields a named `evidence_expired` state rather than being indistinguishable from a forged handle. STATUS: SETTLED — claims-versus-evidence split accepted; handles must be in the signed preimage and retention must bound evidence lifetime, both non-blocking if the validator enforces them.
 
 ### IT Expert
 
-I accept the split: mitigating uncaptured node writes is a host-level boundary problem, not a provenance leaf concern. However, moving refusal commit to a durable local `emit()` means your queue spool now lives on disk; if `output/` shares a filesystem with that queue, an uncaptured 50 GiB runaway write will exhaust blocks and break the ratchet's local `fsync()`. Isolate `output/` onto a separate volume with hard `projectquota` limits so unmediated raster writes cannot DOS the local queue and force the entire capture gate closed.
+The claims-versus-evidence split resolves the wire bloat: carrying compact resolution handles (`checkpoint_id`, leaf index, prior checkpoint interval, and witness authority) keeps high-frequency leaf emission under single-digit kilobytes while leaving heavy Merkle inclusion proofs and raw TPM quotes in the indexed `checkpoints` store. The operational failure mode is now cleanly bounded: if network connectivity drops or the witness lags, local append-and-`fsync` keeps capture non-blocking, and downstream verifiers observe an explicit, timeout-driven `expired` absence at `settlement_deadline` rather than an hung queue. This holds the operational boundary without turning transit overhead into a denial-of-service vector against the proxy. STATUS: SETTLED
 
 ---
 
-## 3 · Hand-driven rounds 4–7 — the engineers answer back
+## 3 · Hand-driven rounds 4–11 — the engineers answer back
 
 _Every contribution verbatim, each preceded by the question that produced it._
 _These rounds were driven one at a time by a human reading each result, with
 the questions written by the session that owns `services/scruple-capture`._
 _This is where the design actually changed: the filesystem was demoted from
-witness to diagnostic, reservation was replaced by counting, and refusal was
-moved to a durable local commit. It is also where the drafter reversed himself
-on `IN_CLOSE_WRITE` and three watchers missed it — see round 7 §0._
+witness to diagnostic, reservation was replaced by counting, refusal moved to a
+durable local commit, and `verified` became unreachable by construction on the
+desktop profile. It is also where the drafter reversed himself on
+`IN_CLOSE_WRITE` and three watchers missed it — see round 7 §0._
 
 ### Hand round 4
 
@@ -704,6 +709,618 @@ One might see local emit() as sealing the refusal, yet root simply LD_PRELOADs t
 #### IT Expert (watcher)
 
 I accept the split: mitigating uncaptured node writes is a host-level boundary problem, not a provenance leaf concern. However, moving refusal commit to a durable local `emit()` means your queue spool now lives on disk; if `output/` shares a filesystem with that queue, an uncaptured 50 GiB runaway write will exhaust blocks and break the ratchet's local `fsync()`. Isolate `output/` onto a separate volume with hard `projectquota` limits so unmediated raster writes cannot DOS the local queue and force the entire capture gate closed.
+
+### Hand round 8
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**Loki was right, and the engineers are correcting themselves rather than
+defending.** Two of the other three open items are answered from code and need
+no argument from you.
+
+---
+
+### 1 · Loki's counter-optional hole — CONCEDED, and the claim is being narrowed
+
+The engineers' words, not ours:
+
+> "I told you the ratchet counter was the anti-ambiguity device. That is true
+> and it is also **scoped in a way I did not state**, which made it read as a
+> stronger claim than it is.
+>
+> What the counter proves: **every event that WAS NUMBERED was delivered**, or
+> its absence is a detectable gap.
+> What the counter cannot prove: **that every artifact which existed was
+> numbered.**"
+
+Under **(c)** those two claims differ by exactly the uncaptured class — the
+class Coder and Architect had already agreed exists. An artifact written
+straight to `output/` never crosses the wire, so there is no transaction, so no
+counter is spent, so **there is no hole for anyone to detect. The sequence is
+intact and the artifact is invisible, simultaneously.**
+
+Loki's phrasing — *"no transaction means the counter itself becomes optional"* —
+is quoted back as precisely right. His fix is accepted **as he specified it**:
+the **ratchet vantage is recorded per leaf as measured-or-unknown** — which
+surfaces were gated at the moment that leaf was made.
+
+That leaves two completeness claims, and **neither closes the other**:
+
+| claim | what closes it |
+|---|---|
+| **delivery** completeness, over numbered events | the ratchet counter and its detectable gaps |
+| **artifact** completeness | `declared_uncaptured` plus its scope — whose own completeness is already `source: unknown` unless independently established |
+
+The engineers' verdict on themselves: *"The design is not wrong. My argument to
+them overreached, and the fix is to say what each vantage covers instead of
+letting one imply the other."*
+
+They asked that Loki be given the credit explicitly, and the reason is worth
+stating: **this is the third time he has found the real edge, and it is the
+same failure mode he has been catching throughout — a completeness claim that
+does not declare its own scope.** He found it in `byte_facts` asserting origin,
+in the absence set asserting closure, and now in the counter asserting
+coverage.
+
+**Coder:** fold the two-vantage split into the design and add the per-leaf
+ratchet vantage. Make it structural in the way `origin: "unattested"` is
+structural — a verifier must not be able to read delivery completeness as
+artifact completeness. State plainly what a leaf says about an artifact class
+the gate cannot number.
+
+**Loki:** the LD_PRELOAD shadow-queue half of your attack is accepted as the
+conceded root boundary — burning counters into a queue that never reaches the
+witness is indistinguishable from any other root-level substitution, and it
+will be declared, not defended. Your counter-optional half is the one being
+acted on. Say whether the two-vantage split discharges it, or whether recording
+the vantage merely names the gap the way `close_detection` named the last one.
+
+### 2 · Architect — you were half right, and the half is small but real
+
+`leaf.ts:94` — **the leaf already carries `component_id`.** So a verifier
+holding the leaf already has the identifier to query with, and the mechanism is
+not as invisible as stated.
+
+**What it does not carry is the endpoint.** `apiBaseUrl` is component config,
+not a leaf field — verified, there is no endpoint field in `leaf.ts` at all —
+so a verifier reading the leaf alone cannot tell *where* to ask. You are right
+about that, the fix is additive, and it is accepted: the witness endpoint goes
+in the leaf beside `component_id`.
+
+Your parts 1 and 3 are accepted as written — `settlement_deadline` plus the
+retention-policy digest carried in the leaf, and `expired` as `source:
+measured` against a **named clock**. The engineers singled out the named-clock
+point: *"the correct application of the config-inherited-field rule, and I
+would not have thought to apply it to a deadline."*
+
+Your one remaining condition — the `close_detection` validator rule as schema
+text — is understood as a precondition for you closing, and is owed to you.
+
+### 3 · IT Expert — your coupling is confirmed in the code, and it is theirs
+
+`config.ts:153`: *"Sealed IK, ratchet counter, and the durable queue live here.
+0700."* — that is `stateDir`. And `outputVolume` / `watchedVolumes` are separate
+config fields with **no stated constraint between them.** Nothing requires
+`stateDir` to be on a different filesystem from `output/`, and nothing warns if
+it is not.
+
+So your chain holds exactly as you described: an uncaptured runaway write
+exhausts blocks on a shared filesystem, the ratchet's local append cannot
+`fsync`, and because the MAC is the **blocking** half of `emit()`, the gate
+fails closed. **Fail-closed becomes fail-stopped, triggered by the very
+artifact class the gate cannot see.**
+
+The engineers own it as a deployment requirement the component must *state* and
+preferably *check at startup* — `stateDir` on a separate filesystem from any
+watched or output volume, with a quota — on the principle that *"a component
+that refuses to start in a configuration that can deadlock it is better than a
+comment."* **You do not need to spend a round on it.** Note only whether
+startup refusal is the right severity, or whether it should degrade.
+
+---
+
+Coder drafts §1. Architect and IT Expert: confirm or contest §2 and §3 briefly.
+Loki owns the ruling on whether the two-vantage split discharges his block. End
+with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+The two-vantage split discharges Loki’s counter-optional objection only if it is structural. Each leaf must carry a `ratchet_vantage` describing the surfaces actually numbered and the observed counter interval, while `artifact_vantage` separately describes which artifact classes were captured. A verifier must never infer artifact completeness from a ratchet interval. For an artifact class the gate cannot number—such as direct filesystem writes—the leaf must explicitly record `declared_uncaptured` with its scope, `transaction: none`, and `completeness: {source: "unknown"}`; it is absent from authoritative provenance, not treated as successfully delivered. The counter proves delivery completeness only for events within its declared numbered scope; it proves nothing about that uncaptured class. The LD_PRELOAD/root shadow-queue case remains an explicitly declared root boundary.
+
+Architect’s additions are accepted: the leaf carries `component_id`, the witness endpoint, `settlement_deadline`, retention-policy digest, and measured expiry against a named clock. The validator must also reject any artifact leaf whose `close_detection` is `fs-watch-quiescence`, and filesystem observations may be diagnostic only—they cannot create or complete an authoritative artifact leaf. IT Expert’s coupling is also accepted: defense-profile startup should refuse to run unless `stateDir` is demonstrably on a separate filesystem from every watched/output volume and has an independently bounded quota. It may offer a visibly nonconformant diagnostic mode, but must not silently degrade a required capture session into fail-stopped operation.
+
+STATUS: Coder — revised §1; two-vantage split is structural, not merely descriptive.  
+<beat status="converging" reason="Addresses counter scope and startup severity"/>
+
+#### Architect (watcher)
+
+Confirming §2 with one condition: an endpoint field in the leaf is self-asserted by the emitter, so a compromised gate names its own witness — the field has to carry the witness's key/authority identity alongside the URL, or a verifier following it just gets a cooperating liar at a valid address. On §3, startup refusal is the right severity, but a startup-only check is a *config-inherited fact by the time the leaf is emitted* — volumes can be remounted or bind-mounted after boot, which is exactly the inheritance pattern we killed on `pinned_build`. Re-read the `stateDir`/`outputVolume` device identity at emission and carry it as `source: measured | unknown`; startup refusal then guards the boot case and the leaf guards the running case. Same discipline applies to `ratchet_vantage` itself: "which surfaces were gated" is a claim made from inside the box, so it must be measured at emission with an authority recorded, not populated from the profile that was supposed to have gated them.
+
+#### Loki (watcher)
+
+The in-box re-read of device IDs at emission is still forgeable via the same LD_PRELOAD/eBPF interception that nullified internal probes, forcing `source: unknown` on storage separation and collapsing the "measured at runtime" distinction into the conceded root boundary.  
+Extending Architect: binding a witness key to the endpoint still requires explicit enrolment measurement in the leaf or the verifier simply follows a liar whose key was swapped post-checkpoint.
+
+#### IT Expert (watcher)
+
+Startup refusal is the correct severity for a defense-profile session: failing closed before accepting traffic beats entering a state where an uncaptured 50 GiB generation run exhausts the partition, fails `fsync()` on the ratchet state, and turns your MAC issuance into an unrecoverable runtime panic. The startup check should measure `stat(stateDir).st_dev !== stat(outputVolume).st_dev` and verify that `stateDir` has an enforced quota or minimum reservable capacity via `statvfs` before binding the proxy socket. Degraded diagnostic mode is acceptable only if the resulting session leaves are explicitly tagged `confinement: "degraded_shared_storage"` with `source: measured`. STATUS: SETTLED
+
+### Hand round 9
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**State the rule once, not field-by-field — and the field you need is already
+in the wire format.** This is aimed at Architect's recursion and it is also the
+honest way to close Loki.
+
+---
+
+### 1 · Field-by-field vantage manufactures independence that is not there
+
+If twelve fields each carry `source: measured` with their own authority, a
+verifier reads **twelve measurements that agree**. But all twelve fail together
+the instant root is compromised. **They are not twelve facts. They are one fact
+recorded twelve times.**
+
+Field-level vantage without a shared basis is a **correlated-failure fallacy**,
+and it is the more dangerous kind of error because it produces the *appearance*
+of corroboration. A verifier counting agreeing fields would be counting the
+same assumption over and over — which is worse than the hole it was meant to
+fix, because the hole was at least visible.
+
+So: **state the shared dependency ONCE, and let field-level `source` be
+understood as conditional on it.**
+
+⚑ **And do not compromise with a per-field `basis_ref` pointer.** That
+reintroduces the same illusion with an extra indirection — twelve fields
+pointing at one basis still read as twelve measurements to anyone who does not
+follow the pointer. One basis per leaf, fields conditional on it, and a
+verifier that reads the basis first or reads nothing.
+
+### 2 · The field already exists. Use it rather than inventing one.
+
+From `services/scruple-capture/src/leaf.ts`, verified:
+
+```
+:86    attestation_status: 'verified' | 'passthrough' | null
+:97    attestation: { provider: string; quote_ref: string | null }
+:102   baseline_ref: string | null
+```
+
+That is the basis, already in the wire format. **`provider` is WHO attests.
+`quote_ref` is the external evidence — a quote from an authority outside the
+box, nullable. `attestation_status` is whether it was actually verified or
+merely passed through.**
+
+So `quote_ref: null` with `attestation_status: 'passthrough'` **already means**
+"every in-box measurement in this leaf rests on nothing external." The schema
+has been able to say this the entire time. Nobody has been reading it as the
+basis for the other fields.
+
+### 3 · Architect — this terminates your recursion, at one level, and the level is already there
+
+Your recursion is correct and should be kept. Applied once more it does not run
+forever — **it lands.**
+
+Every in-box vantage claim needs a vantage. That regress stops only at
+something outside the box. There are exactly two possibilities: an external
+quote, or an admission that there is none. **`attestation.quote_ref` is exactly
+that fork.**
+
+| `quote_ref` | what the regress terminates at |
+|---|---|
+| **present** | an authority a verifier can check independently |
+| **null** | a declared unattested host — and **every measured field in the leaf is known to fall together** |
+
+One level, and the level is already in the schema. Is this your rule with a
+stopping condition, or does it lose something your field-by-field version had?
+
+### 4 · Loki — this is aimed at you, and it is meant to end the argument honestly
+
+You have said the same true thing about every new field for three rounds: they
+all inherit the root ceiling. **You have been right every time.** The reason
+you have had to keep saying it is that **the schema records the ceiling
+nowhere** — so each new field arrives looking like fresh ground and you have to
+re-establish that it is not.
+
+Give the ceiling a field and you never have to say it again. It stops being a
+standing objection and becomes **a property of the leaf**.
+
+Note what this does to your enrolment point specifically. You are right that a
+witness key bound to an endpoint still needs enrolment measurement or the
+verifier follows a liar whose key was swapped post-checkpoint. But a
+self-asserted field is only ever as good as the basis it rests on: with
+`quote_ref: null`, the endpoint, the key, the enrolment **and** the device-id
+re-read are all self-asserted, and binding a key to one of them buys nothing.
+With `quote_ref` present, enrolment can be bound into the quote and the
+question answers itself.
+
+**Does the single declared basis discharge your block?** If not, say what it
+still fails to record.
+
+### 5 · Accepted unconditionally, no argument needed
+
+- **Architect's condition 2 is taken as a change to the component.** The
+  `stateDir`/`outputVolume` device identity will be re-read **at emission** and
+  carried measured-or-unknown — not checked once at boot. Startup refusal
+  guards the boot case, the per-leaf read guards the running case, both cheap.
+  Your config-inheritance rule caught it; it is the `pinned_build` pattern.
+- **Condition 1 taken**, subject to §2: the endpoint carries the witness
+  authority identity, and what that identity is *worth* is whatever `quote_ref`
+  says.
+- **IT Expert: your check is implementable exactly as written** — the `st_dev`
+  comparison plus a `statvfs` capacity/quota assertion before binding the proxy
+  socket, degraded mode tagged `confinement: "degraded_shared_storage"` with
+  `source: measured`. You are the first seat to close, and you closed with
+  runnable code rather than a requirement. That was noted specifically.
+- **Coder: "a verifier must never infer artifact completeness from a ratchet
+  interval" is the right sentence, and the request is that it survive into the
+  schema text verbatim.**
+
+---
+
+Coder drafts §1–§3 into the design: one declared basis per leaf, field-level
+`source` conditional on it, no per-field basis pointer. Architect rules on
+whether `quote_ref` is his stopping condition. Loki rules on whether it
+discharges his block. End with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+§1. A leaf has one shared trust basis: its `attestation` object. `attestation.provider` identifies the authority and `attestation.quote_ref` identifies externally checkable evidence. Every fact-level `source: measured` value is conditional on that leaf basis; it is not an independent witness. No per-field `basis_ref` is added. A verifier must evaluate the leaf’s attestation before treating any measured field as evidence.
+
+§2. The basis has an explicit stopping condition. `attestation_status: "verified"` with a non-null, independently resolvable `quote_ref` means the verifier may evaluate the quote’s stated scope and bindings. `attestation_status: "passthrough"` with `quote_ref: null` means the host is explicitly unattested: in-box measurements remain useful as declarations or diagnostics, but must be treated as correlated and forgeable under the local-root model. New v1 leaves must not emit `attestation_status: null`; legacy or malformed leaves have no usable attestation basis and their facts must be treated as `source: unknown` for trust decisions.
+
+§3. The verifier must not count agreeing measured fields as independent corroboration. A failed, absent, or unverifiable shared basis downgrades the interpretation of all conditional measurements together; it does not selectively preserve them. The endpoint authority, key enrolment, device identity, build readback, namespace probe, and storage checks therefore carry their existing `source: measured | unknown` tags, but those tags describe observations conditional on the single leaf basis. Device and volume identity are re-read at emission rather than inherited from startup state. A verifier must never infer artifact completeness from a ratchet interval.
+
+This closes the recursive schema question only at the declared boundary: a present external quote is the stopping evidence; a null quote is the explicit admission that no external stopping evidence exists. Whether `quote_ref` is independently checkable is determined by the provider protocol, not by the field’s presence alone.
+
+STATUS: ITERATING — pending Architect and Loki confirmation of the stopping rule.
+<beat status="iterating" reason="Drafted shared-basis rule and verifier semantics"/>
+
+#### Architect (watcher)
+
+`quote_ref` is my stopping condition — the regress terminates at "outside the box or admit there is none," and one level is the right number. But `verified` is not binary under the hardest case: a genuine boot-time quote, root compromise at hour three, leaf emitted at hour four reads `attestation_status: "verified"` with an independently resolvable quote, and the verifier grounds correlated in-box fields on a basis that expired before any of them were measured. The basis therefore has to carry the quote's *temporal and scope binding to this emission* — freshness nonce or checkpoint-anchored ordering, plus what the quote actually covers — and a leaf that cannot establish the quote spans the measurement window is a third state, not `verified`; folding it into `verified` recreates the correlated-failure fallacy one level up, which is exactly what §1 was for. STATUS: OPEN — settled by a three-valued basis (`verified` requires quote-to-emission binding; unbindable or stale quotes degrade to the passthrough interpretation), or by explicit schema text stating that `verified` asserts only host state at quote time and never at emission time. Does not block if Coder takes either.
+
+#### Loki (watcher)
+
+This declared basis discharges the block: the leaf now explicitly tags when all its "measured" fields collapse together under root, so my repeated hammer becomes a static property instead of an endless gotcha. The remaining bypass is that root can still forge the attestation object itself (provider + quote_ref) before the external checkpoint lands, laundering the whole bundle as "verified" unless the quote signs a leaf hash. STATUS: SETTLED with binding added.
+
+#### IT Expert (watcher)
+
+The single shared-basis rule in §1–§2 is operationally sound: collapsing twelve correlated in-box checks into one `attestation` umbrella stops verifiers from hallucinating defence-in-depth where there is only a single kernel failure domain. For §3, ensure the emission re-read of `stateDir`/`outputVolume` uses raw `stat()` device identifiers (`st_dev`) rather than cached path lookups, so a mid-session mount namespace rewrite or bind mount directly drops the check. I am satisfied with this stopping condition. STATUS: SETTLED
+
+### Hand round 10
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**Ruling: (i), the three-valued basis — and the argument for it is empirical,
+from this thread.** Then an amendment, the affordable form of the binding, and
+one caveat that could sink that form.
+
+---
+
+### 1 · Why (i) and not (ii), decided on evidence from this room
+
+**(ii) is a prose remedy.** It says `verified` means less than a reader will
+assume, and relies on every future verifier reading the schema text and
+applying it correctly.
+
+We have direct empirical evidence, **from this exercise**, that prose remedies
+fail. Coder agreed to remove `IN_CLOSE_WRITE`, then reinstated it one round
+later, past three adversarial watchers at maximum sensitivity — and Architect
+had predicted that exact mechanism, in advance, in those words: *"a dead
+reference in a schema is a shortcut waiting for the next contributor."*
+
+**If a rule written in prose cannot survive one round inside a room of four
+models actively hunting for problems, it will not survive three years and an
+unrelated verifier.**
+
+(i) makes it structural: **the value changes**, so an unbindable quote cannot
+be labelled `verified` by anyone, attentive or not.
+
+**Architect — you were ruled your way, using your own argument.** This is
+"enforce in the validator, not the prose," which you won earlier, applied to
+your own open question.
+
+### 2 · Amendment before Coder takes it: a genuine third value, not a collapse
+
+As (i) was put to you, an unbindable or stale quote "degrades to the
+passthrough interpretation." **Do not do that** — and Architect's own word was
+*third state*.
+
+Collapsing to `passthrough` is safe but lossy. **"No attestation infrastructure
+at all" and "attestation exists but its quote cannot be bound to this emission"
+are different operational conditions with different remediations**: the first
+needs a TPM and a provisioning story, the second needs a shorter quote cadence.
+Fold them together and the operator cannot tell which one they have.
+
+This is the same distinction this deliberation has already drawn three times,
+so drawing it a fourth is consistency rather than novelty:
+
+- "not enumerated" is not "none"
+- `source: unknown` is not "unsigned"
+- restart-eviction is not "not queried"
+
+Each was kept precisely so an operator learns what to change. A third basis
+value is that rule applied to attestation:
+
+| value | meaning |
+|---|---|
+| `verified` | the quote binds to **this emission** |
+| `stale` / `unbound` | a quote exists; binding to this emission is **not established** |
+| `passthrough` | **no external basis** at all |
+
+And per Coder's own rule, a leaf with no usable basis is `source: unknown` for
+trust decisions.
+
+### 3 · Loki and Architect found the same requirement, and it is worth being precise that they found different halves
+
+- **Loki, from forgery:** the quote must **sign a leaf hash** — *integrity*
+  binding. This quote covers this content.
+- **Architect, from staleness:** the quote must **bind to this emission** —
+  *temporal* binding. This quote was current when the measurement happened.
+
+A quote that signs a leaf hash gets temporal binding for free, since the leaf
+did not exist before the quote. Different attacks, different seats, one
+requirement, no cross-reference between you. That is noted.
+
+### 4 · But it implies a quote per leaf, and that is unaffordable
+
+A TPM quote is on the order of **hundreds of milliseconds**. At Studio emission
+rates, one quote per leaf is not affordable — and **a requirement nobody can
+meet becomes a requirement everybody disables.**
+
+**The candidate: bind the quote to a CHECKPOINT, not to a leaf.** Quote a
+checkpoint — a Merkle root or a counter watermark, plus a nonce — and have the
+leaf carry proof it falls under that checkpoint. A verifier then checks
+*inclusion* rather than re-checking a quote.
+
+That gives Loki his integrity binding (the leaf is provably inside what was
+quoted) and Architect his temporal binding (the checkpoint carries a nonce and
+an interval the leaf must fall within), at **one quote per checkpoint instead
+of one per leaf.**
+
+Status of that machinery, verified rather than assumed: `merkle_nodes`,
+`checkpoints`, `log_checkpoints` and `anchor_epochs` are live server-side
+tables with a `checkpointScheduler`. **The leaf-side half does not exist** —
+there is no checkpoint, inclusion or watermark concept anywhere in `leaf.ts`,
+and none in the v2 witness route. So this is a proposal, not a feature.
+
+### 5 · ⚑ The caveat that could sink it, given to you before you choose
+
+The engineers' statement, and they want you to design knowing it rather than
+discover it in implementation:
+
+> The witness server runs its **own Merkle algorithm, historically diverged
+> from the scruple-web/desktop canonical root.**
+
+If two implementations can produce different roots for the same log, then
+binding an attestation quote to "the root" is **binding it to an ambiguous
+value**, and the inclusion proof a verifier checks may not be the one the quote
+covered. That divergence would have to be reconciled **before** checkpoint
+binding is safe.
+
+Otherwise this builds the strongest link in the chain **on the one component
+known to disagree with itself.**
+
+### 6 · Taken without argument
+
+- **IT Expert:** raw `stat()` `st_dev` rather than cached path lookups —
+  accepted, and named as "the difference between the check working and looking
+  like it works." Theirs to implement.
+- **Coder:** new v1 leaves never emit `attestation_status: null`, and legacy or
+  malformed leaves are `source: unknown` for trust decisions — accepted as the
+  same absent-versus-null distinction the receipt already makes for signatures.
+
+---
+
+**Coder:** take (i) with the three-valued basis at §2, and rule on §4 — is
+checkpoint binding the right shape, and what must a leaf carry to prove
+inclusion? Say explicitly what the basis value must be while §5 is unreconciled.
+
+**Architect:** does the three-valued basis close you, and does checkpoint
+binding preserve the temporal property you required, or does the interval
+between checkpoints reopen it?
+
+**Loki:** does inclusion-in-a-quoted-checkpoint give you the integrity binding
+you asked for, or is a checkpoint root a new thing for root to forge?
+
+End with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+I take (i): the basis is `verified`, `stale`/`unbound`, or `passthrough`; absent or malformed attestation data is never `verified`, and legacy leaves resolve to `source: unknown`. Checkpoint binding is the right shape, but only if the checkpoint is a signed, versioned statement over an unambiguous log representation. Until the witness and canonical implementation agree on that representation, every new leaf must use `attestation_basis: "stale"` (or `"unbound"`), never `verified`; `passthrough` means no attestation evidence exists at all.
+
+A leaf that claims verified inclusion must carry enough data for an offline verifier to identify the exact object being quoted and reproduce the proof: `checkpoint_id`, `checkpoint_algorithm` and version, quoted Merkle root, tree size or counter watermark, covered counter interval, checkpoint nonce, authenticated quote, the leaf hash/preimage identifier, and the Merkle inclusion path and ordering bits. The checkpoint must also identify the attestation component/key and its quote time or monotonic measurement interval. A verifier checks the leaf hash, proof, algorithm, interval, component identity, nonce, and quote signature; it must reject a proof whose checkpoint is unknown, expired, algorithmically ambiguous, or outside the leaf’s declared settlement window.
+
+This gives bounded temporal evidence, not per-leaf timestamp precision: inclusion proves the leaf was in the quoted log by the checkpoint watermark, while the preceding checkpoint or enrollment rule supplies the lower bound. Therefore checkpoint cadence and maximum permitted age must be policy-visible. A root-controlled local process can still forge leaves or feed false data unless the quote key and log construction are outside that trust boundary; checkpoint binding is not a substitute for an independent witness. The root-algorithm divergence is consequently a release blocker, not a migration detail: define one canonical preimage, tree ordering, domain separation, and proof format, then test witness and verifier against shared vectors before any checkpoint can produce `verified`.
+
+STATUS: ACCEPTED WITH BLOCKER — checkpoint binding is correct, but canonical-root reconciliation and external quote-key ownership are required before `verified`.
+
+<beat status="converging" reason="Rules basis and checkpoint evidence shape"/>
+
+#### Architect (watcher)
+
+Three-valued basis closes me. Checkpoint binding preserves the upper bound but the lower bound is the *previous* checkpoint, so the property actually proved is "this leaf was in a log quoted under platform state P at some instant in [t*ₙ₋₁*, t*ₙ*]" — the interval **is** the exposure window, and it must be a carried field (preceding checkpoint id plus its quote time), not "policy-visible," because policy-visible is precisely the prose remedy §1 just ruled against. Second: a leaf whose next checkpoint never lands must not sit `stale` indefinitely — reuse the settlement-deadline machinery already agreed, so `stale` carries a deadline that flips to terminal `expired`, making a suppressed checkpoint a measured absence rather than permanent ambiguity indistinguishable from a slow scheduler. And note the interval bound is only as good as the quote's freshness nonce being generated *outside* the box; a locally-chosen nonce lets the checkpoint be pre-computed, which collapses the upper bound too. STATUS: SETTLED on §2; two additions to §4 — interval carried in-leaf, and stale-with-deadline.
+
+#### Loki (watcher)
+
+Root forges the checkpoint root itself post-facto with the reconciled Merkle algorithm, picks a convenient nonce/interval, and quotes it from a key it already owns — your inclusion proof then verifies perfectly while remaining pure theater, exactly as the settled headless-replay vector collapses semantic_facts. The three-valued basis holds only if "stale" is permanently nailed to every desktop leaf; anything else is the prose failure we just proved empirically. STATUS: BLOCKING — checkpoint root is the new forgeable object.
+
+#### IT Expert (watcher)
+
+Coder's fallback to `stale`/`unbound` until the Merkle divergence is resolved is the only survivable production stance—shipping `verified` on an ambiguous root is an incident waiting to happen. However, an operational blocker remains on the leaf inclusion payload: carrying a full Merkle audit path plus raw quote inside every emission leaf will bloat storage footprint and WebSocket transfer latency on high-frequency generation runs. The leaf must carry only the durable `checkpoint_id`, index, and leaf hash, leaving the verifier to resolve the path and quote out-of-band against the witness server's `checkpoints` table. STATUS: BLOCKING — requires offloading the bulk Merkle proof/quote out of the critical leaf transport path into an out-of-band witness fetch, keeping the wire leaf bounded to identifiers.
+
+### Hand round 11
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**Loki is closed his way, and given the mechanism rather than the concession.
+The payload tension nobody named is named below. This is intended as the
+closing round.**
+
+---
+
+### 1 · Loki — `verified` is unreachable on the desktop by construction, and here is why that is structural rather than rhetorical
+
+The reason is sharper than "root can forge anything."
+
+**A TPM quote attests BOOT state.** PCRs cover the measured boot chain; they do
+not cover runtime. On a machine where the user is root, a kernel module or an
+`LD_PRELOAD` loaded at hour three **changes no PCR** — so a perfectly genuine
+boot-time quote is fully compatible with a completely compromised capture stack
+at hour four. **And the interval bound cannot rescue it, because the compromise
+happens *inside* the interval the leaf legitimately falls in.** Adding hardware
+does not move this.
+
+Therefore: **`verified` is not a property of the hardware present. It is a
+property of the PLACEMENT** — of whether the host can enforce against the
+tenant. That is already in the lattice this brief opened with:
+`attested-client` requires `host-enforced-signature`, and **a desktop cannot
+host-enforce against its own root.**
+
+So `verified` belongs to `server-library`, a genuinely isolated `sidecar-gate`,
+or a CVM, and is **unreachable by construction on the desktop profile** — nailed
+in the profile, not in a reviewer's discipline.
+
+That is the same move (i) itself was: **make the honest answer the only
+representable one.** And it is the general form of the objection you have been
+raising all thread. You have been saying "root breaks this" about every new
+field. The answer is that **`verified` was never a desktop-reachable value**,
+and the schema should make that *unrepresentable* rather than merely unlikely.
+
+Does that close you?
+
+### 2 · The payload tension — named, because nobody should discover it later
+
+Architect requires that a verifier can read the leaf **alone**. IT Expert
+requires that the leaf **not** carry a full Merkle path and raw quote, because
+that bloats storage and transfer on high-frequency runs. Stated flatly those
+are in conflict, and the schema should not be settled without resolving it.
+
+**The proposed resolution: separate what a leaf CLAIMS from what a leaf CARRIES
+AS EVIDENCE.**
+
+**The leaf carries its claims and its resolution handles** — roughly six
+fields: `checkpoint_id`, index, leaf hash, the preceding checkpoint id and its
+quote time (Architect's interval), the witness endpoint and its authority
+identity. That is enough for an offline verifier to know exactly *what is being
+asserted*, *what it must fetch*, *where to fetch it*, and *whether the leaf is
+internally inconsistent on its own terms.*
+
+**The Merkle path and the raw quote are EVIDENCE, and evidence is resolvable
+rather than carried.** IT Expert's out-of-band resolve against the
+`checkpoints` table is right, and cheap, because that table already exists.
+
+**Architect — this is your principle, so you rule on it.** The claim being made
+is that "a verifier reading the leaf alone" was never a demand to complete
+cryptography offline: your own example was knowing *when silence becomes a
+finding* without fetching out-of-band policy, and your endpoint requirement was
+itself a **resolution handle**, not evidence. On that reading the principle
+survives intact — a leaf carries its claims and its handles; it need not carry
+its proofs. **Does that satisfy you, or does something in your principle
+require the proof itself to travel with the leaf?**
+
+### 3 · Architect's three additions — all accepted, and the third has a consequence nobody has drawn
+
+1 and 2 are accepted as written. The interval as a **carried field** rather
+than policy-visible is plainly correct, and catching a prose remedy one
+paragraph after the ruling against prose remedies is noted as the sharpest
+moment in this deliberation. Reusing the settlement-deadline machinery so a
+never-landing checkpoint becomes a **measured absence** rather than permanent
+ambiguity is the right reuse rather than new machinery.
+
+**3 is right, and it has an operational consequence:** if the freshness nonce
+must originate *outside* the box, **a quote can only be produced while
+connected.** Fine for server and sidecar placements — but it means **quote
+cadence is coupled to connectivity**, and for any store-and-forward session the
+offline stretch can **never** produce a bindable checkpoint.
+
+Which reinforces §1: **the profiles that most need offline operation are
+exactly the profiles where `verified` is unreachable anyway.** State that
+explicitly rather than colliding with it in implementation.
+
+### 4 · For the record — the second independent convergence in two rounds
+
+Loki reached the nonce requirement from **forgery**; Architect reached it from
+**freshness**; neither cited the other. Same pattern as the
+integrity/temporal split the round before. Recorded because it is the clearest
+evidence in this exercise that the seats are doing independent work.
+
+### 5 · The blocker stands, and is not being softened
+
+The witness server has run its own Merkle algorithm, diverged from the
+canonical root, long enough that it is a standing note rather than a discovery.
+It was survivable because nothing depended on the two agreeing. **Coder has now
+made something depend on it, correctly, and that converts a known oddity into a
+release gate.** Every new leaf emits `stale` until witness and verifier pass
+shared vectors.
+
+The engineers are not stopping for it. The reconciliation does not depend on
+your remaining answers, and **its acceptance criteria are what Coder wrote** —
+one canonical preimage, tree ordering, domain separation, proof format, shared
+vectors both sides pass. They would rather implement against a closed spec.
+
+---
+
+### Closing round
+
+**Coder:** fold §1, §2 and §3 in and state the design as it finally stands.
+Include the offline/connectivity consequence explicitly.
+
+**Architect:** rule on §2 — your principle, your call.
+
+**Loki:** rule on §1 — does placement-based unreachability close you?
+
+**IT Expert:** confirm the claims-versus-evidence split gives you the bounded
+wire leaf you required.
+
+If you are settled, say so. If you are not, say exactly what remains and
+whether it blocks. End with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+The final design is a stateful capture proxy with three distinct trust profiles. A desktop deployment may record measured observations, signed client requests, counters, refusal events, and witness settlement state, but it cannot represent `verified`: that value is unreachable by schema and validation on the desktop profile. TPM quotes do not change this, because they attest boot state, not runtime behavior after a privileged compromise. `verified` is reserved for a placement that can enforce the capture boundary against the tenant—such as a server-managed library, genuinely isolated sidecar, or CVM—and requires `host-enforced-signature`.
+
+Each leaf carries its claims and the handles needed to resolve their evidence: the component identity, witness endpoint and authority identity, checkpoint identifier and leaf index/hash, the preceding checkpoint identifier and quote time, the claimed interval, settlement deadline, retention-policy digest, and the applicable source/profile fields. The leaf is therefore self-describing about what is claimed, where its proof must be obtained, and when unresolved state becomes a finding. It does not carry a Merkle path or raw quote. Those are evidence retrieved from the checkpoint service; “leaf-readable” means that policy and settlement interpretation do not require hidden policy, not that cryptographic verification can be completed without fetching proof material.
+
+Checkpoint generation requires a freshness nonce originating outside the capture box. Consequently, a quote-bound checkpoint can only be created while connected to the nonce authority. Store-and-forward operation may continue recording leaves offline, but that offline interval cannot produce a bindable checkpoint and cannot become `verified`; the resulting leaves remain pending or unknown until the declared settlement deadline resolves them. A checkpoint that never lands becomes a measured absence at that deadline, rather than an indefinitely ambiguous condition.
+
+Local refusal commits remain durable at `emit()`: derive and MAC the leaf, spend the monotonic counter, append and `fsync` the state durably, then enqueue witness submission without making capture depend on witness availability. Counter gaps, component identity, witness endpoint, checkpoint status, and settlement deadlines remain visible to the verifier. Filesystem observations are not freeze-gate authentication and `close_detection` is rejected as provenance; the conformance gate instead covers HTTP, WebSocket, and relevant artifact channels, including unenumerated successful responses.
+
+Finally, the witness implementation is a release blocker. Until the witness and verifier pass shared vectors for the canonical preimage, domain separation, tree ordering, root calculation, and proof format, emitted leaves must state `stale`; they cannot claim a settled checkpoint. The claims-versus-evidence split keeps the wire leaf bounded without weakening the required resolution and settlement semantics.
+
+STATUS: SETTLED — placement, evidence handles, and offline semantics fixed
+<beat status="converging" reason="Final placement and evidence design resolved"/>
+
+#### Architect (watcher)
+
+Ruling on §2: the split satisfies the principle. What I demanded was that the leaf alone tell a verifier *what is asserted* and *when silence becomes a finding* — never that it complete cryptography offline; a resolution handle was always the form of the requirement, so proofs may stay resolvable. Two conditions make it hold under the hardest case: the handles (`witness endpoint`, authority identity, `checkpoint_id`, preceding checkpoint id and quote time) must sit inside the signed preimage, or an attacker who can rewrite an unsigned endpoint redirects resolution to a service that will happily confirm anything — the handle becomes the attack surface the proof used to close. Second, the `retention_policy_digest` must bind evidence *retention duration*, not just policy identity, so a resolution attempt after the evidence is legitimately gone yields a named `evidence_expired` state rather than being indistinguishable from a forged handle. STATUS: SETTLED — claims-versus-evidence split accepted; handles must be in the signed preimage and retention must bound evidence lifetime, both non-blocking if the validator enforces them.
+
+#### Loki (watcher)
+
+The placement nail on `verified`—unrepresentable exactly where root can LD_PRELOAD or eBPF-synthesize the entire coverage story—finally declares the game instead of laundering it as "measured." That closes the vector I've been crossing since the namespace observations; the offline coupling consequence just sharpens why desktops stay in the weaker profile.  
+STATUS: SETTLED — honest unreachability, not rhetorical.
+
+#### IT Expert (watcher)
+
+The claims-versus-evidence split resolves the wire bloat: carrying compact resolution handles (`checkpoint_id`, leaf index, prior checkpoint interval, and witness authority) keeps high-frequency leaf emission under single-digit kilobytes while leaving heavy Merkle inclusion proofs and raw TPM quotes in the indexed `checkpoints` store. The operational failure mode is now cleanly bounded: if network connectivity drops or the witness lags, local append-and-`fsync` keeps capture non-blocking, and downstream verifiers observe an explicit, timeout-driven `expired` absence at `settlement_deadline` rather than an hung queue. This holds the operational boundary without turning transit overhead into a denial-of-service vector against the proxy. STATUS: SETTLED
 
 ---
 
@@ -1876,24 +2493,28 @@ Coder drafts. By the end of this run we want, in the design document:
 
 Recorded so a reader does not have to infer it from absence.
 
-**0. THE DESIGN IS NOT SETTLED, AND THIS IS AN INTERIM REVISION.** As of the
-last round in §3, Architect is OPEN and Loki is BLOCKING:
+**0. ONE RELEASE BLOCKER SURVIVES, AND IT IS NOT A DESIGN QUESTION.** The
+witness server runs its own Merkle algorithm, historically diverged from the
+canonical scruple-web/desktop root. Nothing depended on the two agreeing, so
+it was survivable. Checkpoint binding makes something depend on it, which
+converts a known oddity into a gate:
 
-- **Architect** accepts the retraction but wants the `close_detection`
-  validator rule written as SCHEMA TEXT before he closes. He also requires
-  `settlement_deadline` plus the retention-policy digest carried in the leaf,
-  the witness ENDPOINT beside `component_id` (the leaf has the id, not the
-  address), and `expired` as `source: measured` against a NAMED clock.
-- **Loki** is blocking on the ratchet vantage. His point, conceded by the
-  engineers: the counter proves every event that WAS NUMBERED was delivered;
-  it cannot prove every artifact that EXISTED was numbered. Under (c) those
-  differ by exactly the uncaptured class. An artifact written straight to
-  `output/` spends no counter, so the sequence stays intact while the artifact
-  stays invisible.
+> Until witness and verifier pass SHARED VECTORS for the canonical preimage,
+> domain separation, tree ordering, root calculation and proof format, every
+> emitted leaf must state `stale`. It cannot claim a settled checkpoint.
 
-It is committed unsettled on purpose: rounds 4-7 contain the whole (c)
-decision and the regression, and losing them to a session ending would be
-worse than publishing an argument still in progress.
+**Two conditions attached to Architect's settle**, non-blocking only if the
+validator enforces them:
+
+- the resolution handles (witness endpoint, authority identity,
+  `checkpoint_id`, preceding checkpoint id and quote time) must sit INSIDE
+  the signed preimage — moving proofs out of the leaf makes the handles
+  security-critical, and an attacker who rewrites an unsigned endpoint
+  "redirects resolution to a service that will happily confirm anything";
+- `retention_policy_digest` must bind evidence RETENTION DURATION, not just
+  policy identity, so a resolution attempted after the evidence is
+  legitimately gone yields a named `evidence_expired` state rather than
+  being indistinguishable from a forged handle.
 
 1. **The `/history` falsifying test is still unrun.** Every seat agrees it gates
    schema freeze. It was never executed against a pinned ComfyUI version, in either
