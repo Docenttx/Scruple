@@ -58,3 +58,7 @@ external/scruple-nodes/_upstream-snapshots/
 # The council-implementation series' sandbox app on :3902 builds here, so it
 # never touches the .next/ the live site on :3001 is serving.
 .next-council/
+
+# Gate scratch: scripts/e1-gate.sh writes app logs, captured environments and
+# signing probes here. Nothing under it is an input to anything.
+.run/

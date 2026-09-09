@@ -39,6 +39,15 @@ Result (success):
 
 Result (failure):
     { "ok": false, "error": "...", "trace": [...] }
+    { "ok": false, "code": "unsupported_format", "error": "..." }
+    { "ok": false, "code": "certificate_key_mismatch", "error": "...",
+      "key_binding": {"reason": "signature_does_not_verify", ...} }
+
+`certificate_key_mismatch` is a REFUSAL, not an outage: the certificate in
+`cert_path` does not belong to the key the signing path would use, so the
+credential could not be verified against the certificate shipped inside it.
+There is no override and no fall back to the local key. See the key-binding
+section of vault_sign.py.
 
 Signing path:
   c2pa-python 0.89 Signer.from_callback(vault_sign_es256, ES256, cert_pem, ta_url)
@@ -200,7 +209,13 @@ def main() -> int:
         HERE = Path(__file__).resolve().parent
         if str(HERE) not in sys.path:
             sys.path.insert(0, str(HERE))
-        from vault_sign import vault_sign_es256, signing_mode, signer_identity
+        from vault_sign import (
+            CertificateKeyMismatch,
+            assert_certificate_matches_signing_key,
+            signer_identity,
+            signing_mode,
+            vault_sign_es256,
+        )
         from signer_runtime import age_guard_verdict, runtime_assertion
         from os_patch_check import patch_recency_verdict
     except Exception as e:
@@ -273,6 +288,35 @@ def main() -> int:
         cert_bytes = cert_path.read_bytes()
         cert_str = cert_bytes.decode("utf-8")
         ta_url = os.environ.get("SCRUPLE_C2PA_TA_URL") or None
+
+        # KEY BINDING — the certificate must belong to the key that signs.
+        #
+        # WO-D7 found this open and docs/STATE.md §4.3 (desktop repo) wrote it
+        # down: `cert_path` arrives in the job spec and the signing key is
+        # chosen from the environment by vault_sign_es256, so the two were
+        # picked independently and nothing compared them. Configured with the
+        # surrogate key and the local certificate, this file returned ok:true
+        # and c2pa.Reader read back claimSignature.mismatch.
+        #
+        # Enforced HERE, and only here, for the reason the format gate gives
+        # one screen up: this is the end that owns the library and holds the
+        # signing callback, and a second caller of sign.py must not be able to
+        # route around it. The TypeScript side deliberately does not repeat
+        # the check -- re-deriving the signing key in a second place is the
+        # mistake vault_sign.local_key_path() exists to have stopped.
+        #
+        # It runs BEFORE the builder, before output_path.mkdir/unlink, before
+        # anything is written. A refusal leaves the filesystem as it found it.
+        try:
+            key_binding = assert_certificate_matches_signing_key(cert_bytes)
+        except CertificateKeyMismatch as e:
+            print(json.dumps({
+                "ok": False,
+                "code": "certificate_key_mismatch",
+                "error": str(e),
+                "key_binding": e.audit,
+            }))
+            return 1
 
         # Signer.from_callback: raw ES256 R||S (64 bytes) per RFC 8152.
         # Kwarg is `tsa_url` (matches c2pa-python 0.89).
@@ -395,6 +439,12 @@ def main() -> int:
             "signer_age_guard": guard,
             "os_patch_guard": patch_guard,
             "assertion_partition": partition_audit,
+            # What was checked, so a reader of the result can see that the
+            # binding was established rather than assumed. `matches: true`
+            # here is a measurement: the key that produced the claim
+            # signature also produced a challenge signature that the embedded
+            # certificate's public key verified.
+            "key_binding": key_binding,
         }))
         return 0
     except Exception as e:

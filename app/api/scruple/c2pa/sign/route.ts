@@ -206,12 +206,21 @@ export async function POST(req: NextRequest) {
     // caller as a 500 with a c2pa-rs exception in it — a .webm from a
     // txt2vid flow looked identical to the signer being down. The status
     // now says which it is, and `code` says it without prose matching.
+    //
+    // `certificate_key_mismatch` is 500 and is meant to be: the caller
+    // asked for nothing wrong. The certificate this deployment is
+    // configured to embed does not belong to the key it is configured to
+    // sign with, and the only honest answer is that no credential can be
+    // issued until an operator fixes SCRUPLE_C2PA_CERT. It is a refusal,
+    // not a crash — `code` is what tells the two apart, and the body
+    // carries it whatever the status is.
     const status =
       result.code === 'unsupported_format'
         ? 415
         : result.code === 'undeclared_source_type' || result.code === 'asset_not_found'
           ? 400
-          : 500;
+          : 500; // certificate_key_mismatch, signer_material_missing, and
+                 // an uncoded signer failure. All 500; `code` separates them.
     return NextResponse.json(
       { error: result.error, code: result.code, trace: result.trace },
       { status },

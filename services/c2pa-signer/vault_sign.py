@@ -53,9 +53,14 @@ import os
 from pathlib import Path
 from typing import Callable
 
+from cryptography import x509
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+from cryptography.hazmat.primitives.asymmetric.utils import (
+    decode_dss_signature,
+    encode_dss_signature,
+)
 
 
 #: The dev key that keys/regen-dev-cert.sh actually produces. Everything
@@ -309,3 +314,168 @@ def signer_identity() -> str:
     if not key_path.exists():
         raise LocalKeyMissing(key_path)
     return f"local:{key_path.resolve()}"
+
+
+# ---------------------------------------------------------------------------
+# The certificate must belong to the key that signs.
+# ---------------------------------------------------------------------------
+#
+# WO-D7 found the hole and docs/STATE.md §4.3 (desktop repo) recorded it: with
+# SCRUPLE_C2PA_VAULT_KEY_OCID + SCRUPLE_C2PA_KMS_ENDPOINT set, the signer signs
+# through the surrogate with one key and embeds keys/signer.pem -- the
+# certificate issued for the LOCAL key -- because lib/c2pa/signAsset.ts picks
+# `cert_path` (`?? DEV_CERT`) independently of which key `vault_sign_es256`
+# will dispatch to. The route answered ok:true and c2pa.Reader answered
+# ['signingCredential.untrusted', 'claimSignature.mismatch']: a credential
+# nothing can verify, from a call that reported success.
+#
+# HOW THE COMPARISON IS MADE, AND WHY NOT BY FETCHING A PUBLIC KEY.
+# The obvious implementation is to obtain the signing key's public half and
+# compare its SubjectPublicKeyInfo against the certificate's. That needs a
+# different answer per mode -- derive it from the PEM in local mode, GET
+# /testnet/pubkey.pem from the surrogate in kms-http mode, call the OCI
+# KMS *management* API (a different endpoint from the crypto one this module
+# holds) in vault mode -- so it is three code paths, two of which can only be
+# exercised where their service is. It is also weaker: a public key served by
+# an endpoint is a claim about the signing key, and the thing being guarded
+# against is precisely a configuration where the claim and the key disagree.
+#
+# So the comparison is a challenge instead. The signing path signs a
+# domain-separated probe; the certificate's public key verifies it. That is
+# the same question -- "is this certificate's key the key that signs?" --
+# asked of the signer rather than about it, it is one code path for all three
+# modes, and it cannot be satisfied by anything except the private key the
+# next signature will use.
+#
+# THERE IS NO OVERRIDE. Not an env var, not a warning, not a fall back to the
+# local key. A mismatch is a refusal, because every other outcome ships a
+# credential whose signature cannot be verified by the certificate shipped
+# with it, and does so silently.
+#
+# COST: one extra ES256 signature per sign call -- one more KMS round trip in
+# kms-http and vault mode. It is paid before anything is written.
+
+#: Domain separation. A C2PA claim signature is over a COSE Sig_structure,
+#: which begins b"\x84\x6aSignature1"; this prefix cannot collide with one,
+#: so a probe signature can never be replayed as a claim signature.
+_KEY_BINDING_PROBE_PREFIX = b"scruple.c2pa.key-binding-probe.v1\x00"
+
+
+class CertificateKeyMismatch(RuntimeError):
+    """The certificate does not belong to the key that would sign.
+
+    A distinct type, like LocalKeyMissing, because it is a configuration
+    fault rather than a signing outage: it fails 100% of the time and
+    retrying never helps. `reason` says which of the three ways it failed,
+    because the fix differs -- a wrong certificate file, a certificate for
+    the wrong algorithm, and a certificate on the wrong curve are three
+    different mistakes with three different corrections.
+    """
+
+    def __init__(self, reason: str, message: str, audit: dict) -> None:
+        self.reason = reason
+        self.audit = dict(audit, checked=True, matches=False, reason=reason)
+        super().__init__(message)
+
+
+def _leaf_public_key(cert_pem: bytes):
+    """The public key of the FIRST certificate in the chain PEM.
+
+    Leaf-first is the order c2pa-rs expects and the order both
+    keys/regen-dev-cert.sh and scripts/d7-surrogate-cert.sh emit, so the
+    first block is the end-entity certificate whose key must sign.
+    """
+    cert = x509.load_pem_x509_certificate(cert_pem)
+    return cert, cert.public_key()
+
+
+def _spki_sha256(public_key) -> str:
+    from hashlib import sha256
+
+    der = public_key.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return sha256(der).hexdigest()
+
+
+def assert_certificate_matches_signing_key(cert_pem: bytes) -> dict:
+    """Refuse unless the leaf certificate's key is the key that will sign.
+
+    Returns an audit dict on success. Raises CertificateKeyMismatch when the
+    two disagree.
+
+    It does NOT convert a signing outage into a mismatch: only the
+    verification step is caught. A KMS that is unreachable, a local key that
+    is not on disk, a malformed signature -- all of those propagate as
+    themselves, because "the signer is down" and "the certificate is for
+    another key" are different facts with different owners, and the second
+    one is permanent.
+    """
+    mode = signing_mode()
+    cert, pub = _leaf_public_key(cert_pem)
+    audit = {
+        "signing_mode": mode,
+        "cert_subject": cert.subject.rfc4514_string(),
+        "cert_serial": format(cert.serial_number, "x"),
+        "method": "es256-challenge",
+    }
+
+    if not isinstance(pub, ec.EllipticCurvePublicKey):
+        raise CertificateKeyMismatch(
+            "not_an_ec_key",
+            f"the certificate at the head of the chain carries a "
+            f"{type(pub).__name__}, and the signing path is ES256. Nothing "
+            f"this signer produces could ever verify under it. "
+            f"subject={audit['cert_subject']}",
+            audit,
+        )
+    audit["cert_spki_sha256"] = _spki_sha256(pub)
+    audit["cert_curve"] = pub.curve.name
+    if pub.curve.name != "secp256r1":
+        raise CertificateKeyMismatch(
+            "wrong_curve",
+            f"the certificate's key is on {pub.curve.name}; ES256 requires "
+            f"secp256r1 (P-256). subject={audit['cert_subject']}",
+            audit,
+        )
+
+    # The challenge. `vault_sign_es256` is the exact callback c2pa-python is
+    # about to be handed, so whatever it dispatches to is what signs the
+    # claim -- there is no second resolution of the key here that could
+    # disagree with the first.
+    probe = _KEY_BINDING_PROBE_PREFIX + os.urandom(32)
+    raw = vault_sign_es256(probe)
+    if len(raw) != 64:
+        raise RuntimeError(
+            f"signing callback returned {len(raw)} bytes; ES256 raw R||S is 64"
+        )
+    der = encode_dss_signature(
+        int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big")
+    )
+    try:
+        pub.verify(der, probe, ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        raise CertificateKeyMismatch(
+            "signature_does_not_verify",
+            f"the certificate does not belong to the key that would sign. "
+            f"signing_mode={mode}, signer={_identity_for_error()}, "
+            f"cert_subject={audit['cert_subject']}, "
+            f"cert_spki_sha256={audit['cert_spki_sha256']}. Embedding it "
+            f"would produce a credential whose claimSignature no verifier "
+            f"can check against the certificate shipped inside it. Point "
+            f"SCRUPLE_C2PA_CERT at a certificate issued for this key.",
+            audit,
+        ) from None
+
+    audit["checked"] = True
+    audit["matches"] = True
+    return audit
+
+
+def _identity_for_error() -> str:
+    """signer_identity(), but never raising -- this runs inside an error path."""
+    try:
+        return signer_identity()
+    except Exception as e:  # pragma: no cover - defensive
+        return f"<identity unavailable: {type(e).__name__}>"

@@ -194,14 +194,38 @@ export interface SignAssetError {
    *   'unsupported_format'     — the MIME has no c2pa-rs handler. 415.
    *   'asset_not_found'        — 400.
    *   'signer_material_missing'— the box has no cert/key. 500, ours.
+   *   'certificate_key_mismatch'— the certificate is not for the key that
+   *                              would sign. 500, ours, and a REFUSAL: see
+   *                              the note above the job spec below.
    *   undefined                — the signer failed. 500.
+   *
+   * Every one of these can arrive from the subprocess as well as from the
+   * checks in this file. sign.py owns the library end and re-checks the
+   * format there; before WO-E1 its `code` was dropped on the floor by the
+   * result parser below, so a sign.py-side `unsupported_format` reached the
+   * route as an anonymous 500 — the exact confusion the field was added to
+   * end. SIGNER_CODES is the allowlist that lets it through.
    */
   code?:
     | 'undeclared_source_type'
     | 'unsupported_format'
     | 'asset_not_found'
-    | 'signer_material_missing';
+    | 'signer_material_missing'
+    | 'certificate_key_mismatch';
 }
+
+/**
+ * The `code` values sign.py is allowed to set on this result.
+ *
+ * An allowlist rather than a pass-through: `code` is a typed contract the
+ * route switches on to pick an HTTP status, and an unrecognised string from
+ * a subprocess must not be able to enter it. Anything else becomes an
+ * undefined code and a 500, which is what an unknown signer failure is.
+ */
+const SIGNER_CODES: ReadonlySet<string> = new Set([
+  'unsupported_format',
+  'certificate_key_mismatch',
+]);
 
 async function sha256HexOfFile(filePath: string): Promise<string> {
   const buf = await fs.readFile(filePath);
@@ -411,6 +435,26 @@ export async function signAsset(
     };
   }
 
+  // ⚑ `cert_path` and the signing key are still chosen independently here,
+  // and they cannot sensibly be chosen together: the key is resolved inside
+  // the signer from SCRUPLE_C2PA_VAULT_KEY_OCID / SCRUPLE_C2PA_KMS_ENDPOINT,
+  // and in vault and kms-http modes this process never holds it. That
+  // independence is not itself the bug — the bug was that NOTHING COMPARED
+  // THEM. With the surrogate key configured and SCRUPLE_C2PA_CERT unset,
+  // `?? DEV_CERT` embedded the certificate issued for the LOCAL key, this
+  // function returned ok:true, and c2pa.Reader read back
+  // ['signingCredential.untrusted', 'claimSignature.mismatch'] — a
+  // credential nothing can verify, from a call that reported success.
+  // docs/STATE.md §4.3 in the desktop repo, found by WO-D7.
+  //
+  // WO-E1 puts the comparison in services/c2pa-signer/vault_sign.py
+  // (assert_certificate_matches_signing_key), where the signing callback
+  // lives, and sign.py calls it before it writes anything. It is NOT
+  // repeated here. This module would have to re-derive which key signs — a
+  // second, independent resolution of exactly the thing that already went
+  // wrong four times over (see the DEV_CERT note at the top of this file),
+  // and one that could not reach a Vault key at all. One resolver, one
+  // check, at the end that owns both.
   const job = {
     asset_path: input.assetPath,
     output_path: input.outputPath,
@@ -450,6 +494,7 @@ export async function signAsset(
           signing_mode?: 'vault' | 'local';
           signer_identity?: string;
           error?: string;
+          code?: string;
           trace?: string[];
         };
         if (parsed.ok && parsed.output_path && typeof parsed.bytes === 'number') {
@@ -480,7 +525,14 @@ export async function signAsset(
             );
           return;
         }
-        return resolve({ ok: false, error: parsed.error ?? 'unknown signer error', trace: parsed.trace });
+        return resolve({
+          ok: false,
+          error: parsed.error ?? 'unknown signer error',
+          ...(parsed.code && SIGNER_CODES.has(parsed.code)
+            ? { code: parsed.code as SignAssetError['code'] }
+            : {}),
+          trace: parsed.trace,
+        });
       } catch (e) {
         return resolve({
           ok: false,
