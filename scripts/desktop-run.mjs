@@ -248,6 +248,118 @@ const MUTATIONS = {
       return 'no x-scruple-profile header on any request';
     },
   },
+  // ── WO-D6's mutations. The hook has two levels and one of these takes the
+  // deployment from the second to the first; the other three are the ways a
+  // Level-2 deployment can fail to have anything to say, and each must be
+  // DISTINGUISHABLE on the leaf from having nobody to ask.
+  'no-host-adapter': {
+    when: 'env',
+    describe: 'run the identical gate with NO host adapter — Level 1, and the leaf must SAY so',
+    // ⚑ THE CONTROL WO-D6 NAMES. Same gate, same generation, same artifact,
+    // same leaf — and `host_semantics` becomes `blind`, because the SDK's leaf
+    // builder defaults to it when nothing supplied a value. The Level-1 leaf
+    // is not merely thinner: it declares its blindness. scenarios/host-blind
+    // asserts that positively; this asserts it as a difference.
+    apply(ctx) {
+      ctx.env.SCRUPLE_COMFY_HOST_ADAPTER = 'off';
+      return 'the gate started with no host directory — nobody registered';
+    },
+  },
+  'no-announcement': {
+    when: 'before',
+    describe: 'the host registered and then announced nothing for this generation',
+    // ⚑ NOT THE SAME AS `no-host-adapter`, AND THAT IS THE WHOLE REASON
+    // `declined` exists as a third value. Here an adapter WAS registered and
+    // had nothing to say: an integration that is not working. There an
+    // integration was never done. Different fixes, different owners, and a
+    // leaf that read the same for both would send an operator to the wrong
+    // file. The leaf still NAMES the host — that is a fact about the
+    // deployment, true whether or not this observation was announced.
+    apply(ctx) {
+      rmSync(ctx.fixtures.phantom.announcePath, { force: true });
+      return `deleted ${ctx.fixtures.phantom.announcePath}`;
+    },
+  },
+  'partial-announcement': {
+    when: 'before',
+    describe: "drop `camera` from the announcement — the host's OWN schema requires it",
+    // A partial announcement is DECLINED rather than supplied-with-holes. The
+    // leaf either carries the document its evidence type promises or it says
+    // it has none; filling the gap with a plausible default is the defect this
+    // series refuses everywhere else and would be no better here.
+    apply(ctx) {
+      const p = ctx.fixtures.phantom.announcePath;
+      const doc = JSON.parse(readFileSync(p, 'utf8'));
+      delete doc.camera;
+      writeFileSync(p, JSON.stringify(doc, null, 2));
+      return 'the announcement now satisfies two of the three required fields';
+    },
+  },
+  'forge-the-declaration': {
+    when: 'before',
+    describe: 'the host grades itself in its own declaration — registration must REFUSE',
+    // A host declares WHAT IT IS, never HOW GOOD IT IS. `assuranceForHost`
+    // derives the outcome from the RESOLVED placement; a host handing in its
+    // own `attestation` would be grading its own exam. The refusal is
+    // recorded and the run continues at Level 1, because a third-party add-on
+    // with a bad manifest must not be able to stop a tenant's ComfyUI — and
+    // must not be able to get its meaning onto a leaf either.
+    apply(ctx) {
+      const p = ctx.fixtures.phantom.declarationPath;
+      const doc = JSON.parse(readFileSync(p, 'utf8'));
+      doc.attestation = 'verified';
+      writeFileSync(p, JSON.stringify(doc, null, 2));
+      return 'the declaration now carries attestation: "verified"';
+    },
+  },
+  'host-declares-itself': {
+    when: 'spec',
+    describe: 'ADD the declaration and announcement a Level-1 scenario deliberately lacks',
+    // ⚑ AN INVERSE CONTROL, and scenarios/host-blind.json cannot mean anything
+    // without it. That scenario asserts `host_semantics: "blind"`; a field
+    // that reported `blind` whether or not a host had registered would satisfy
+    // it forever and would be a constant with a comment. This adds a host —
+    // the declaration, the announcement, and the prompt id that ties them
+    // together — and the blindness assertions must all go RED.
+    //
+    // It writes the same two files scenarios/host-adapter.json's fixture
+    // writes, because that IS the Level-2 integration: a directory, a
+    // declaration, and one JSON document per generation.
+    apply(ctx) {
+      const dir = join(ctx.runDir, 'late-host');
+      mkdirSync(join(dir, 'announce'), { recursive: true });
+      const promptId = `late-${Date.now().toString(36)}`;
+      writeFileSync(
+        join(dir, 'scruple-host.json'),
+        JSON.stringify({
+          host: 'phantom-cam',
+          hostVersion: '4.2.1',
+          adapter: 'viewport',
+          adapterVersion: '1.0.0',
+          evidenceType: 'scruple.dev/evidence/phantom-cam-viewport/v1',
+          hooks: ['artifact.produced', 'graph.execute'],
+          surfaces: ['host-api-callback'],
+          fidelity: 'as-written',
+          declaredPlacement: 'attested-client',
+          enforcement: 'none',
+          schema: {
+            type: 'object',
+            required: ['scene', 'frame', 'camera'],
+            properties: { scene: { type: 'string' }, frame: { type: 'integer' }, camera: { type: 'string' } },
+          },
+        }, null, 2),
+      );
+      writeFileSync(
+        join(dir, 'announce', `${promptId}.json`),
+        JSON.stringify({ scene: 'late-arrival', frame: 1, camera: 'CAM_late' }, null, 2),
+      );
+      ctx.env.SCRUPLE_COMFY_HOST_DIR = dir;
+      const gen = (ctx.spec.steps || []).find((x) => x.call === 'comfyGenerate');
+      if (!gen) throw new Error('this scenario has no comfyGenerate step to announce against');
+      gen.args[0] = { ...gen.args[0], promptId };
+      return `phantom-cam declared itself in ${dir} and announced ${promptId}`;
+    },
+  },
   'assert-expectation': {
     when: 'spec',
     describe: "rewrite one assertion's expected value to a wrong constant",
@@ -591,6 +703,47 @@ const KINDS = {
       },
     };
   },
+  // ── WO-D6. What the HOST said, read out of the app database HERE. The gate
+  // observes a wire and a wire cannot carry "scene X, frame Y, camera Z"; a
+  // registered adapter supplies it. These assertions compare the leaf's
+  // manifest against the document the DRIVER wrote before the app was started,
+  // which is what makes "its semantics reached the leaf" a measurement rather
+  // than a round trip through our own code.
+  'host-evidence': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const row = iterationRow(hash, ['host_evidence', 'host_semantics']);
+    if (!row) return { pass: false, detail: { contentHash: hash, why: 'no iteration row for these bytes' } };
+    if (!row.host_evidence) {
+      return { pass: false, detail: { contentHash: hash, semantics: row.host_semantics, why: 'the leaf carries no host_evidence' } };
+    }
+    let doc;
+    try { doc = JSON.parse(row.host_evidence); }
+    catch (err) { return { pass: false, detail: `host_evidence is not JSON: ${String(err.message || err)}` }; }
+    const want = ctx.resolve(a.expected);
+    const got = doc[a.field];
+    return {
+      pass: String(got) === String(want),
+      detail: { field: a.field, got, expected: want, semantics: row.host_semantics },
+    };
+  },
+  // The manifest and the hash on the leaf agree. Weak-looking and not weak, for
+  // `model-fingerprints-hash-agrees`'s reason and one more: the hash is INSIDE
+  // the MAC and the document is not, so /api/v2/witness recomputes it and
+  // refuses a pair that disagrees. A green here is the server's arithmetic over
+  // bytes that a signature covers.
+  'host-evidence-hash-agrees': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const row = iterationRow(hash, ['host_evidence', 'host_evidence_hash']);
+    if (!row) return { pass: false, detail: { contentHash: hash, why: 'no iteration row' } };
+    if (!row.host_evidence || !row.host_evidence_hash) {
+      return { pass: false, detail: { why: 'one half is missing', row } };
+    }
+    const recomputed = createHash('sha256').update(row.host_evidence, 'utf8').digest('hex');
+    return {
+      pass: recomputed === row.host_evidence_hash,
+      detail: { stored: row.host_evidence_hash, recomputed },
+    };
+  },
   'file-bytes': (a, ctx) => {
     const p = ctx.resolve(a.path);
     const want = ctx.resolve(a.bytes);
@@ -741,6 +894,55 @@ function materialiseModelStore(sourceDir, id, spec) {
   return { ...spec, path: baseDir, baseDir, modelRoot, files };
 }
 
+/**
+ * A LEVEL-2 HOST, MATERIALISED — a host we have not met, playing itself.
+ *
+ * WO-D6. The fixture IS the fake host: it writes the two files a Level-2 host
+ * writes and nothing else. The desktop's adapter reads them; the SDK composes
+ * that adapter with the Submitter; the gate never changes. That is the whole
+ * claim of the hook being host-agnostic, and it is why this is a driver
+ * fixture rather than code in `app/`.
+ *
+ *   <hostDir>/scruple-host.json          the DECLARATION — who I am, what my
+ *                                        evidence is called, what it contains
+ *   <hostDir>/announce/<promptId>.json   the ANNOUNCEMENT — what THIS
+ *                                        generation was, keyed by the prompt
+ *                                        id the host itself will submit
+ *
+ * ⚑ WRITTEN BEFORE THE APP STARTS, and the values are derived from this run's
+ * nonce, so the manifest a leaf ends up carrying can be compared against a
+ * document the app never composed. A round trip through our own code would
+ * prove that a field survives; this proves it CAME FROM THE HOST.
+ *
+ * `phantom-cam` is deliberately not Blender. docs/DESIGN.md: "Blender is the
+ * first consumer of this hook, not a special case", and a gate that could only
+ * be satisfied by the host we happen to have would be testing the special case.
+ */
+function materialiseHost(sourceDir, id, spec, nonce) {
+  const hostDir = join(sourceDir, spec.name || id);
+  const announceDir = join(hostDir, 'announce');
+  mkdirSync(announceDir, { recursive: true });
+
+  const declarationPath = join(hostDir, 'scruple-host.json');
+  writeFileSync(declarationPath, JSON.stringify(spec.declaration, null, 2));
+
+  // Unique to this run in every field an assertion reads, so a leaf written by
+  // an earlier run cannot satisfy one of them.
+  const promptId = `${spec.promptPrefix || 'host'}-${nonce}`;
+  const evidence = {};
+  for (const [k, v] of Object.entries(spec.evidence || {})) {
+    evidence[k] = typeof v === 'string' ? v.replace('${nonce}', nonce) : v;
+  }
+  if (evidence.frame === '${nonceInt}') evidence.frame = parseInt(nonce.slice(0, 6), 16);
+  const announcePath = join(announceDir, `${promptId}.json`);
+  writeFileSync(announcePath, JSON.stringify(evidence, null, 2));
+
+  return {
+    ...spec, path: hostDir, hostDir, announceDir,
+    declarationPath, announcePath, promptId, evidence,
+  };
+}
+
 /** The scratch app credentials the GATE needs, under its own baseline. The
  *  baseline_ref is the tamper surface of app/comfy/ — the code doing the
  *  measuring — so a change in the vault surface cannot show up as drift here
@@ -856,6 +1058,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   for (const [id, f] of Object.entries(spec.fixtures || {})) {
     if (f.kind === 'vault') { fixtures[id] = materialiseVault(sourceDir, id, f, nonce); continue; }
     if (f.kind === 'model-store') { fixtures[id] = materialiseModelStore(sourceDir, id, f); continue; }
+    if (f.kind === 'host') { fixtures[id] = materialiseHost(sourceDir, id, f, nonce); continue; }
     const bytes = deterministicBytes(f.seed || id, f.bytes);
     const path_ = join(sourceDir, f.name || id);
     writeFileSync(path_, bytes);
@@ -919,6 +1122,14 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     env.SCRUPLE_COMFY_MAIN = process.env.SCRUPLE_COMFY_MAIN
       || '/data/reference/ui-inspire/ComfyUI/main.py';
     env.SCRUPLE_COMFY_PYTHON = process.env.SCRUPLE_COMFY_PYTHON || 'python3';
+    // WO-D6. WHERE A HOST DECLARES ITSELF, from here for the reason the model
+    // root is from here: a renderer that could name this directory could drop
+    // its own declaration in it and have the leaf carry any meaning it liked.
+    // A scenario with no host fixture leaves it UNSET, which is Level 1 —
+    // "point ComfyUI at the gate" with nothing else, exactly as a Level-1 host
+    // experiences it.
+    const host = Object.values(fixtures).find((f) => f && f.kind === 'host');
+    if (host) env.SCRUPLE_COMFY_HOST_DIR = host.hostDir;
     mkdirSync(env.SCRUPLE_COMFY_STATE, { recursive: true, mode: 0o700 });
   }
 

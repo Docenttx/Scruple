@@ -11,3 +11,21 @@
 06:20:56Z  DONE   WO-D4  (36m)  head=fce1d16
 06:20:56Z  START  WO-D5
 07:01:01Z  WO-D5 gate passed — 38 checks, 0 failures; sweep clean (see .run/d5/gate.log)
+07:01:30Z  DONE   WO-D5  (40m)  head=f452cc1
+07:01:30Z  START  WO-D6
+09:15:12Z  WO-D6 gate passed — both levels observable; blind/declined/supplied
+           distinct on three real leaves; stage-1 controls RED before, GREEN after
+           (see .run/d6-gate.log)
+09:15:12Z  ⚑ found on the way: /api/v2/witness still allocated run_sequence with
+           MAX+1 — the race migration 051 fixed in the OTHER door. One ComfyUI
+           generation makes two concurrent observations, so it fired live.
+           Fixed; canvas baseline re-recorded (server 4ee9370).
+09:15:12Z  ⚑ found on the way: scripts/d5-gate.sh pinned its "RED before" to
+           HEAD, which stopped being the pre-change tree the moment WO-D5
+           committed. It passed once and was red on every re-run since. Both it
+           and d6-gate.sh now resolve the before-tree from the commit that
+           introduced the change.
+09:15:12Z  gates re-run after the change: d1 d2 d3 d4 PASS, d5 PASS (after the
+           fix above), d6 PASS. Server suites: v2 863/863, conformance 47/47,
+           integration 19/19, host SDK 214 pass / 2 pre-existing red.
+

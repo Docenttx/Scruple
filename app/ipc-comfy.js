@@ -115,6 +115,15 @@ function registerComfyIpc() {
       token: process.env.SCRUPLE_COMFY_PROVISIONING_TOKEN || null,
       appUrl: process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902',
       fingerprints: (process.env.SCRUPLE_COMFY_FINGERPRINTS || 'on') !== 'off',
+      // WO-D6. WHERE A HOST DECLARES ITSELF. Configuration, from the
+      // environment, for the reason the model root is: a page that could name
+      // this directory could drop its own `scruple-host.json` in it and have
+      // the leaf carry any meaning it liked. Unset is LEVEL 1 and is not an
+      // error — Level 1 is the integration that costs a host nothing.
+      hostDir:
+        (process.env.SCRUPLE_COMFY_HOST_ADAPTER || 'on') === 'off'
+          ? null
+          : process.env.SCRUPLE_COMFY_HOST_DIR || null,
       modelCeiling: process.env.SCRUPLE_COMFY_MODEL_CEILING_BYTES
         ? Number(process.env.SCRUPLE_COMFY_MODEL_CEILING_BYTES)
         : undefined,
@@ -200,6 +209,7 @@ function registerComfyIpc() {
         resultPath: gateResultPath,
         ...(cfg.modelCeiling ? { modelCeilingBytes: cfg.modelCeiling } : {}),
         fingerprints: cfg.fingerprints,
+        hostDir: cfg.hostDir,
       }, null, 2),
       { mode: 0o600 },
     );
@@ -237,6 +247,7 @@ function registerComfyIpc() {
       // WITHOUT asking ComfyUI again. Re-measuring on every dashboard render
       // would put a page in a position to make this process talk to a tenant.
       adapter: ready.adapter,
+      hostHook: ready.hostHook || null,
       version: stats.system ? stats.system.comfyui_version : null,
     });
 
@@ -270,6 +281,10 @@ function registerComfyIpc() {
         componentId: ready.componentId,
         buildMeasurement: ready.buildMeasurement,
         adapter: ready.adapter,
+        // WO-D6. Which LEVEL this deployment came up at, read off the gate's
+        // own ready file — including a declaration it refused, which is Level
+        // 1 with a reason rather than Level 1 by silence.
+        hostHook: ready.hostHook || null,
         assurance: ready.assurance,
         watchedVolumes: ready.watchedVolumes,
       },
@@ -288,6 +303,22 @@ function registerComfyIpc() {
     if (!req || typeof req.workflow !== 'object' || req.workflow === null) {
       return refuse('no workflow given');
     }
+    // WO-D6. A HOST MAY CHOOSE ITS OWN PROMPT ID, and ComfyUI supports it:
+    // server.py does `prompt_id = str(json_data.get("prompt_id", uuid4()))`.
+    // That is the correlation a Level-2 host announces against — it writes
+    // `announce/<id>.json` before it submits, and the gate's correlator keys
+    // outputs to prompts by the same id, so the announcement and the
+    // observation meet with no new plumbing.
+    //
+    // ⚑ AND IT GRANTS NOTHING. The announcement directory is named by THIS
+    // process from the environment and is not reachable from a workflow; an
+    // id nobody announced reads back as `declined`, and a document that does
+    // not satisfy the host's own declared schema reads back as `declined`
+    // too. The worst a chosen id can do is make a leaf say less.
+    const hostPromptId =
+      typeof req.promptId === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(req.promptId)
+        ? req.promptId
+        : null;
 
     // THE ONE PLACE THE TENANT PATH IS CHOSEN, and it is chosen from the
     // ENVIRONMENT, never from the payload. `SCRUPLE_COMFY_BYPASS_GATE=1` sends
@@ -303,7 +334,10 @@ function registerComfyIpc() {
       const r = await fetch(`${endpoint}/prompt`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: req.workflow }),
+        body: JSON.stringify({
+          prompt: req.workflow,
+          ...(hostPromptId ? { prompt_id: hostPromptId } : {}),
+        }),
         signal: AbortSignal.timeout(30000),
       });
       const body = await r.json();
@@ -364,6 +398,9 @@ function registerComfyIpc() {
       ok: images.length > 0 && images.every((i) => i.sha256),
       outcome: images.length ? 'generated' : 'no-artifacts',
       promptId,
+      // Recorded so an assertion can check that ComfyUI honoured the id the
+      // host chose, rather than assuming it did.
+      hostChosePromptId: hostPromptId !== null && hostPromptId === promptId,
       endpoint,
       // Recorded, not inferred. A run that bypassed the gate must say so on
       // its own record rather than be diagnosed from a missing leaf.
@@ -436,6 +473,7 @@ function comfySession() {
     upstreamUrl: session.upstreamUrl || null,
     modelRoot: session.modelRoot || null,
     adapter: session.adapter || null,
+    hostHook: session.hostHook || null,
     version: session.version || null,
     running: !!(session.comfy && session.comfy.exitCode === null),
   };

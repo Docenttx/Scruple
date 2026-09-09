@@ -113,6 +113,15 @@ So the hook is: **the gate is host-agnostic; the meaning is host-supplied.**
 Adding Photoshop, ToonBoom or Meshroom later is a Level-2 adapter, not a new
 capture path. The gate never changes.
 
+⚑ **Built by WO-D6, and specified in `HOST-HOOK.md`.** One thing that section
+did not say and the implementation had to settle: the level is on the leaf, and
+**Level 1 declares itself**. `capture.host_semantics` is three-valued — `blind`,
+`declined`, `supplied` — never null on a component leaf, and inside the MAC. A
+Level-1 leaf is not a Level-2 leaf minus some fields; it says it had nobody to
+ask. And `declined` is a third value rather than a shade of `blind` because "an
+integration that is not working" and "an integration that was never done" have
+different fixes.
+
 ## What is kept, what is replaced
 
 | kept | replaced |

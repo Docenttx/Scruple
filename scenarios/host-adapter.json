@@ -1,0 +1,355 @@
+{
+  "scenario": "host-adapter",
+  "description": "WO-D6 LEVEL 2: a host we have not met \u2014 `phantom-cam` \u2014 declares itself by dropping a scruple-host.json where the app told it to, announces what THIS generation is, and submits the prompt under an id it chose itself. The gate is unchanged from WO-D4: it still observes a wire, and a wire still cannot carry 'this was the viewport of scene X at frame Y through camera Z'. The registered adapter supplies exactly that, and the leaf carries it beside the model fingerprints \u2014 two adapters through one seam, neither aware of the other.",
+  "needs": "comfy",
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "comfy-base",
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    },
+    "phantom": {
+      "kind": "host",
+      "name": "phantom-host",
+      "promptPrefix": "phantom",
+      "declaration": {
+        "host": "phantom-cam",
+        "hostVersion": "4.2.1",
+        "adapter": "viewport",
+        "adapterVersion": "1.0.0",
+        "evidenceType": "scruple.dev/evidence/phantom-cam-viewport/v1",
+        "hooks": [
+          "artifact.produced",
+          "graph.execute"
+        ],
+        "surfaces": [
+          "host-api-callback"
+        ],
+        "fidelity": "as-written",
+        "declaredPlacement": "attested-client",
+        "enforcement": "none",
+        "schema": {
+          "type": "object",
+          "required": [
+            "scene",
+            "frame",
+            "camera"
+          ],
+          "properties": {
+            "scene": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "integer"
+            },
+            "camera": {
+              "type": "string"
+            }
+          }
+        },
+        "capabilityClasses": [
+          "authoring-application"
+        ],
+        "custodyLocus": "tenant-custody"
+      },
+      "evidence": {
+        "scene": "atrium-${nonce}",
+        "frame": "${nonceInt}",
+        "camera": "CAM_hero"
+      }
+    }
+  },
+  "steps": [
+    {
+      "as": "launch",
+      "call": "comfyLaunch",
+      "args": []
+    },
+    {
+      "as": "gen",
+      "call": "comfyGenerate",
+      "args": [
+        {
+          "workflow": {
+            "1": {
+              "class_type": "EmptyImage",
+              "inputs": {
+                "width": 32,
+                "height": 32,
+                "batch_size": 1,
+                "color": "${driver.nonceInt}"
+              }
+            },
+            "2": {
+              "class_type": "UpscaleModelLoader",
+              "inputs": {
+                "model_name": "scruple-tiny-x2.safetensors"
+              }
+            },
+            "3": {
+              "class_type": "ImageUpscaleWithModel",
+              "inputs": {
+                "upscale_model": [
+                  "2",
+                  0
+                ],
+                "image": [
+                  "1",
+                  0
+                ]
+              }
+            },
+            "4": {
+              "class_type": "SaveImage",
+              "inputs": {
+                "images": [
+                  "3",
+                  0
+                ],
+                "filename_prefix": "scruple-d6"
+              }
+            }
+          },
+          "promptId": "${fixtures.phantom.promptId}"
+        }
+      ]
+    },
+    {
+      "as": "stop",
+      "call": "comfyStop",
+      "args": []
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "launch-succeeded",
+      "kind": "step-succeeded",
+      "step": "launch"
+    },
+    {
+      "id": "generate-succeeded",
+      "kind": "step-succeeded",
+      "step": "gen"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "gen"
+    },
+    {
+      "id": "gate-registered-the-host",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.registered.host}",
+      "expected": "phantom-cam",
+      "note": "the app validated a declaration it did not write, through registerHost()"
+    },
+    {
+      "id": "gate-is-at-level-2",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.level}",
+      "expected": 2
+    },
+    {
+      "id": "no-declaration-was-refused",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.refused}",
+      "expected": null,
+      "note": "a run where the declaration was refused is Level 1 with a reason, and must not pass for Level 2"
+    },
+    {
+      "id": "placement-is-DERIVED-not-declared",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.registered.effectivePlacement}",
+      "expected": "unattested-client",
+      "note": "\u2691 the host DECLARED attested-client and nothing enforces it, so assuranceForHost degrades it. A host that could grade itself would be DEFECT-1 one axis over; this is the degradation happening on a declaration we did not write."
+    },
+    {
+      "id": "the-model-store-adapter-is-still-there",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.adapter}",
+      "expected": "model-store",
+      "note": "two adapters through one seam \u2014 the host hook did not displace WO-D4's"
+    },
+    {
+      "id": "comfyui-honoured-the-host's-prompt-id",
+      "kind": "equals",
+      "actual": "${steps.gen.value.hostChosePromptId}",
+      "expected": true,
+      "note": "server.py: prompt_id = str(json_data.get('prompt_id', uuid4())). The correlation the host announced against is the one the gate used."
+    },
+    {
+      "id": "generation-went-through-the-gate",
+      "kind": "equals",
+      "actual": "${steps.gen.value.viaGate}",
+      "expected": true
+    },
+    {
+      "id": "artifact-on-disk",
+      "kind": "file-exists",
+      "path": "${steps.gen.value.images.0.storePath}"
+    },
+    {
+      "id": "artifact-rehashes",
+      "kind": "file-rehashes",
+      "path": "${steps.gen.value.images.0.storePath}",
+      "sha256": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "artifact-has-a-leaf",
+      "kind": "witness-row",
+      "contentHash": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "leaf-says-the-meaning-was-SUPPLIED",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_semantics",
+      "expected": "supplied",
+      "note": "\u2691 THE GATE. Three-valued and signed: blind (Level 1), declined (Level 2 with nothing to say), supplied."
+    },
+    {
+      "id": "leaf-names-the-host",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host",
+      "expected": "phantom-cam"
+    },
+    {
+      "id": "leaf-names-the-adapter",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_adapter",
+      "expected": "viewport@1.0.0"
+    },
+    {
+      "id": "leaf-names-the-evidence-type",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_evidence_type",
+      "expected": "scruple.dev/evidence/phantom-cam-viewport/v1",
+      "note": "versioned, so a verifier knows which document host_evidence is before reading a byte of it"
+    },
+    {
+      "id": "leaf-carries-the-scene",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "scene",
+      "expected": "${fixtures.phantom.evidence.scene}",
+      "note": "\u2691 THE WHOLE OF LEVEL 2. This string was written by the HOST into a file before the app was launched, and the gate could not have known it: a wire carries bytes and a graph, not a scene name."
+    },
+    {
+      "id": "leaf-carries-the-frame",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "frame",
+      "expected": "${fixtures.phantom.evidence.frame}"
+    },
+    {
+      "id": "leaf-carries-the-camera",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "camera",
+      "expected": "CAM_hero"
+    },
+    {
+      "id": "host-evidence-hash-agrees",
+      "kind": "host-evidence-hash-agrees",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "note": "/api/v2/witness recomputes this from the manifest and refuses a submission whose halves disagree \u2014 and the HASH is inside the MAC while the document is not, so a green here is a signed claim over reproducible bytes"
+    },
+    {
+      "id": "the-adapter-recorded-what-it-did",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.hostEnrichments.0.state}",
+      "expected": "supplied",
+      "note": "the sidecar's own per-observation record, so a run where nothing was enriched cannot look like a run with no adapter"
+    },
+    {
+      "id": "model-fingerprints-still-there",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "sha256": "${fixtures.models.files.upscaler.sha256}",
+      "note": "WO-D4's claim survives WO-D6's adapter sitting above it in the same sink chain"
+    },
+    {
+      "id": "no-leaf-claims-verified",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "attestation_basis",
+      "expected": "stale",
+      "note": "\ud83d\udd34 the surrogate is SOFTWARE-backed and the profile is desktop; `verified` is unrepresentable by construction"
+    },
+    {
+      "id": "queue-drained",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.queueDepth}",
+      "expected": 0
+    }
+  ],
+  "auditNote": "What each break must do. The four WO-D6 mutations are four different ways a Level-2 deployment can end up with nothing on the leaf, and the point of the design is that they are NOT the same fact.\n\n`no-host-adapter` is the control the work order names: the identical gate with nobody registered. Every Level-2 assertion goes red \u2014 and the leaf still exists, the artifact still re-hashes, the model fingerprints are still there. What changed is that `host_semantics` reads `blind`, which scenarios/host-blind.json asserts POSITIVELY. Level 1 is not a thinner leaf; it is a leaf that says it had nobody to ask.\n\n`no-announcement` and `partial-announcement` produce `declined`, NOT `blind`, and that difference is the reason the field has three values rather than two. An adapter that was registered and had nothing to say is an integration that is not working; no adapter at all is an integration that was never done. They redden the same assertions about the DOCUMENT and leave `leaf-names-the-host` GREEN, because naming the host is a fact about the deployment that stays true when an announcement is missing.\n\n`forge-the-declaration` is the registration control. A host declares what it is, never how good it is: an `attestation` key on the declaration is refused by registerHost(), the run continues at Level 1, and the refusal is recorded rather than swallowed. It reddens `gate-registered-the-host`, `gate-is-at-level-2`, `no-declaration-was-refused` and `placement-is-DERIVED-not-declared` as well as every leaf assertion \u2014 a host that lies about its grade gets no meaning onto a leaf at all.\n\n`model-swap` is listed here unchanged from WO-D4 and reddens exactly one assertion, which is worth keeping visible: WO-D6 added a second adapter to the same sink chain and did not disturb the first.\n\nAND NOTE WHICH ASSERTION SEPARATES TWO OF THEM. `no-declaration-was-refused` stays GREEN under `no-host-adapter` and goes RED under `forge-the-declaration`, because Level 1 by absence and Level 1 because a declaration was rejected are different facts about a deployment and the gate records which. That distinction was found by the sweep \u2014 the first pass declared the two sets identically and the sweep reported OVERREACH.",
+  "audit": {
+    "no-host-adapter": [
+      "gate-registered-the-host",
+      "gate-is-at-level-2",
+      "placement-is-DERIVED-not-declared",
+      "leaf-says-the-meaning-was-SUPPLIED",
+      "leaf-names-the-host",
+      "leaf-names-the-adapter",
+      "leaf-names-the-evidence-type",
+      "leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "no-announcement": [
+      "leaf-says-the-meaning-was-SUPPLIED",
+      "leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "partial-announcement": [
+      "leaf-says-the-meaning-was-SUPPLIED",
+      "leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "forge-the-declaration": [
+      "gate-registered-the-host",
+      "gate-is-at-level-2",
+      "no-declaration-was-refused",
+      "placement-is-DERIVED-not-declared",
+      "leaf-says-the-meaning-was-SUPPLIED",
+      "leaf-names-the-host",
+      "leaf-names-the-adapter",
+      "leaf-names-the-evidence-type",
+      "leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "host-evidence-hash-agrees",
+      "the-adapter-recorded-what-it-did"
+    ],
+    "model-swap": [
+      "model-fingerprints-still-there"
+    ],
+    "assert-expectation": [
+      "leaf-names-the-host"
+    ]
+  }
+}

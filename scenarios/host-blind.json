@@ -1,0 +1,208 @@
+{
+  "scenario": "host-blind",
+  "description": "WO-D6 LEVEL 1: a host points its ComfyUI address at the gate and does nothing else \u2014 no declaration, no announcement, no code from us. The capture is complete: the workflow, the bytes and the model fingerprints are all on the leaf. What the leaf does NOT have is meaning, and the whole point of this scenario is that it SAYS SO. `host_semantics: \"blind\"` is a value in the MAC preimage, not an absent field; the SDK's leaf builder defaults to it, so blindness is declared by the code that runs when there is no adapter and cannot be forgotten by an adapter that is not there.",
+  "needs": "comfy",
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "comfy-base",
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "as": "launch",
+      "call": "comfyLaunch",
+      "args": []
+    },
+    {
+      "as": "gen",
+      "call": "comfyGenerate",
+      "args": [
+        {
+          "workflow": {
+            "1": {
+              "class_type": "EmptyImage",
+              "inputs": {
+                "width": 32,
+                "height": 32,
+                "batch_size": 1,
+                "color": "${driver.nonceInt}"
+              }
+            },
+            "2": {
+              "class_type": "UpscaleModelLoader",
+              "inputs": {
+                "model_name": "scruple-tiny-x2.safetensors"
+              }
+            },
+            "3": {
+              "class_type": "ImageUpscaleWithModel",
+              "inputs": {
+                "upscale_model": [
+                  "2",
+                  0
+                ],
+                "image": [
+                  "1",
+                  0
+                ]
+              }
+            },
+            "4": {
+              "class_type": "SaveImage",
+              "inputs": {
+                "images": [
+                  "3",
+                  0
+                ],
+                "filename_prefix": "scruple-d6-blind"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "as": "stop",
+      "call": "comfyStop",
+      "args": []
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "launch-succeeded",
+      "kind": "step-succeeded",
+      "step": "launch"
+    },
+    {
+      "id": "generate-succeeded",
+      "kind": "step-succeeded",
+      "step": "gen"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "gen"
+    },
+    {
+      "id": "gate-is-at-level-1",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.level}",
+      "expected": 1,
+      "note": "no host declared itself, and that is the ENTIRE Level-1 integration"
+    },
+    {
+      "id": "nobody-registered",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.registered}",
+      "expected": null
+    },
+    {
+      "id": "and-nothing-was-refused-either",
+      "kind": "equals",
+      "actual": "${steps.launch.value.gate.hostHook.refused}",
+      "expected": null,
+      "note": "Level 1 by absence, not Level 1 because a declaration was rejected \u2014 the two are different facts and the gate records which"
+    },
+    {
+      "id": "the-capture-is-still-complete",
+      "kind": "equals",
+      "actual": "${steps.gen.value.viaGate}",
+      "expected": true
+    },
+    {
+      "id": "artifact-on-disk",
+      "kind": "file-exists",
+      "path": "${steps.gen.value.images.0.storePath}"
+    },
+    {
+      "id": "artifact-rehashes",
+      "kind": "file-rehashes",
+      "path": "${steps.gen.value.images.0.storePath}",
+      "sha256": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "artifact-has-a-leaf",
+      "kind": "witness-row",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "note": "Level 1 costs the host nothing and loses no COVERAGE. surface.ts: the surface axis affects coverage, and this is full coverage with no meaning."
+    },
+    {
+      "id": "model-fingerprints-are-still-there",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "sha256": "${fixtures.models.files.upscaler.sha256}",
+      "note": "the model store adapter is OURS and does not need a host, so a Level-1 leaf still binds the weights"
+    },
+    {
+      "id": "\u2691-the-leaf-DECLARES-that-it-is-blind",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_semantics",
+      "expected": "blind",
+      "note": "THE CONTROL WO-D6 NAMES, asserted POSITIVELY. Not absent, not null, not merely thinner than a Level-2 leaf: a value, in the MAC preimage, that a party in the middle cannot promote to `supplied` without breaking the signature."
+    },
+    {
+      "id": "and-names-nobody",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host",
+      "isNull": true
+    },
+    {
+      "id": "and-carries-no-document",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_evidence",
+      "isNull": true
+    },
+    {
+      "id": "and-no-adapter",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_adapter",
+      "isNull": true,
+      "note": "migration 058 refuses `blind` beside any of these at the database, so this is three guards agreeing rather than one being trusted"
+    },
+    {
+      "id": "no-leaf-claims-verified",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "attestation_basis",
+      "expected": "stale"
+    },
+    {
+      "id": "queue-drained",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.queueDepth}",
+      "expected": 0
+    }
+  ],
+  "auditNote": "This scenario has one mutation and it is the INVERSE control. `host-declares-itself` is not a corruption: it ADDS the declaration this scenario deliberately does not have, and the blindness assertions must go RED. A leaf that reported `blind` whether or not a host had registered would pass every assertion above and would be measuring nothing \u2014 it would be a constant with a comment. The mutation is what establishes that `blind` is a reading.\n\nNote which assertions do NOT move under it: the artifact, its leaf, and the model fingerprints. Level 1 loses meaning, never coverage.",
+  "audit": {
+    "host-declares-itself": [
+      "gate-is-at-level-1",
+      "nobody-registered",
+      "\u2691-the-leaf-DECLARES-that-it-is-blind",
+      "and-names-nobody",
+      "and-carries-no-document",
+      "and-no-adapter"
+    ],
+    "assert-expectation": [
+      "\u2691-the-leaf-DECLARES-that-it-is-blind"
+    ]
+  }
+}

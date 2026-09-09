@@ -47,3 +47,27 @@ export {
   DEFAULT_UPSTREAM_ANCHOR_WINDOW,
   DEFAULT_UPSTREAM_POLL_INTERVAL_MS,
 } from '../../vendor/scruple-web/lib/capture/upstreamEpoch';
+//
+//   registerHost        WO-D6. How a host DECLARES ITSELF, with every refusal
+//   hostAdapterSink     the SDK's own composition of an adapter with the
+//                       Submitter. ⚑ We do not write this and must not: a
+//                       host that wrote its own sink could swallow an
+//                       observation, decide a MIME or spend a counter. What
+//                       this repo supplies is `semanticsFor`, a pure function,
+//                       and the SDK supplies everything around it.
+//   hashHostEvidence    host_evidence_hash — a PREIMAGE, and the route
+//                       recomputes it from the manifest and refuses a pair
+//                       that disagrees. WO-D3's rule binds hardest here, for
+//                       the reason hashModelFingerprints does.
+export {
+  HostRegistrationError,
+  hashHostEvidence,
+  hostAdapterSink,
+  hostCaptureLevel,
+  registerHost,
+  registeredHosts,
+  type HostAdapter,
+  type HostEnrichmentRecord,
+  type HostRegistration,
+  type HostSemanticsState,
+} from '../../vendor/scruple-web/lib/capture/hostRegistry';

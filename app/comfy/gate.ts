@@ -20,6 +20,15 @@
 // no adapter and produces a leaf with `model_fingerprints` NULL. That is the
 // control, and it is one environment variable rather than a second code path.
 //
+// AND WO-D6 ADDS A SECOND ADAPTER THROUGH THE SAME SEAM, WHICH IS THE FINDING.
+// `sinkWrap` takes one function and returns one sink; nothing in it says how
+// many decorators may be inside. So the host hook needed no new seam at all:
+// `hostAdapterSink` composes with `ModelStoreSink`, the host adapter adds what
+// the HOST knows and the model store adapter adds what THIS MACHINE knows, and
+// the two are independently switchable. A deployment with neither is Level 1
+// and its leaves DECLARE `host_semantics: "blind"` — the SDK's leaf builder
+// defaults to it, so blindness cannot be forgotten by the code that is absent.
+//
 // 🔴 The rails are enforced here rather than remembered: this process refuses
 // to submit to :5799 or :3001 and refuses an upstream on either.
 
@@ -28,6 +37,7 @@ import path from 'node:path';
 
 import {
   CaptureComponent,
+  hostAdapterSink,
   DEFAULT_RETENTION_POLICY,
   DEFAULT_RETENTION_POLICY_DIGEST,
   DEFAULT_UPSTREAM_ANCHOR_WINDOW,
@@ -35,6 +45,7 @@ import {
   type CaptureConfig,
 } from './sdk';
 import { ModelStoreSink } from './modelSink';
+import { openHostDeclaration } from './hostAdapter';
 import { readNamespaceIsolation } from './namespace';
 
 export interface GateRequest {
@@ -58,6 +69,12 @@ export interface GateRequest {
   modelCeilingBytes?: number;
   /** Off means: no adapter in the path. The control. */
   fingerprints: boolean;
+  /**
+   * WO-D6. Where a HOST declares itself and announces its generations. null
+   * is Level 1 — the whole integration is "point ComfyUI at the gate", which
+   * is the point of there being a Level 1 at all.
+   */
+  hostDir?: string | null;
 }
 
 const log = (l: string) => console.log(`[comfy-gate] ${l}`);
@@ -123,24 +140,54 @@ async function main(): Promise<void> {
     heartbeatWindowSeconds: 300,
   };
 
+  // WO-D6. THE HOST HOOK, RESOLVED BEFORE THE COMPONENT STARTS. Reading the
+  // declaration here rather than lazily means a refusal is visible in the
+  // ready file — an operator learns that an add-on's manifest was rejected
+  // when the gate comes up, not after a day of leaves that quietly say
+  // `blind`.
+  const host = openHostDeclaration(req.hostDir ?? null);
+  log(`host hook: level ${host.outcome.level} — ${host.outcome.reason}`);
+  if (host.outcome.refused) log(`host declaration REFUSED: ${host.outcome.refused.code}`);
+
   const modelSinks: ModelStoreSink[] = [];
-  const component = await CaptureComponent.start(cfg, {
-    log,
-    ...(req.fingerprints
+  const hostSinks: Array<{ enrichments: unknown[] }> = [];
+
+  // TWO ADAPTERS, COMPOSED, AND THAT IS THE SEAM WORKING AS DESIGNED.
+  // `ComponentDeps.sinkWrap` takes one function and returns one sink; nothing
+  // in it says how many decorators may be inside. The host adapter runs first
+  // and adds what the HOST knows, the model store adapter runs next and adds
+  // what THIS MACHINE knows, and the Submitter — which owns §5's ordering —
+  // is underneath both and unaware of either.
+  //
+  // Each is independently switchable, which is what makes the controls
+  // separable: SCRUPLE_COMFY_FINGERPRINTS=off removes one, a missing host
+  // declaration removes the other, and neither removal is a second code path.
+  const wrap =
+    req.fingerprints || host.adapter
       ? {
-          sinkWrap: (inner) => {
-            const s = new ModelStoreSink({
-              inner,
-              modelRoot: req.modelRoot,
-              ...(req.modelCeilingBytes ? { ceilingBytes: req.modelCeilingBytes } : {}),
-              log,
-            });
-            modelSinks.push(s);
-            return s;
+          sinkWrap: (submitter: import('./sdk').ObservationSink) => {
+            let sink: import('./sdk').ObservationSink = submitter;
+            if (req.fingerprints) {
+              const s = new ModelStoreSink({
+                inner: sink,
+                modelRoot: req.modelRoot,
+                ...(req.modelCeilingBytes ? { ceilingBytes: req.modelCeilingBytes } : {}),
+                log,
+              });
+              modelSinks.push(s);
+              sink = s;
+            }
+            if (host.adapter) {
+              const h = hostAdapterSink({ adapter: host.adapter, inner: sink, log });
+              hostSinks.push(h as unknown as { enrichments: unknown[] });
+              sink = h;
+            }
+            return sink;
           },
         }
-      : {}),
-  });
+      : {};
+
+  const component = await CaptureComponent.start(cfg, { log, ...wrap });
 
   const ready = {
     pid: process.pid,
@@ -153,6 +200,9 @@ async function main(): Promise<void> {
     componentId: component.identity.componentId,
     buildMeasurement: component.identity.buildMeasurement,
     adapter: req.fingerprints ? 'model-store' : null,
+    // WO-D6. WHICH LEVEL THIS DEPLOYMENT RUNS AT, and why — including a
+    // refused declaration, which is Level 1 for a reason worth reading.
+    hostHook: host.outcome,
     // MEASURED, beside the placement the component DECLARES. See
     // app/comfy/namespace.ts: on a desktop the two disagree, and the record
     // says so rather than letting the string stand unexamined.
@@ -188,6 +238,11 @@ async function main(): Promise<void> {
           // not look like a run with no adapter.
           enrichments: sink ? sink.enrichments : [],
           modelStoreReport: sink ? sink.lastReport : null,
+          // WO-D6. What the HOST adapter did, per observation, including the
+          // ones it declined and why. A run where the adapter was registered
+          // and announced nothing must not look like a run with no adapter,
+          // and this is where the operator sees which it was.
+          hostEnrichments: hostSinks[0] ? hostSinks[0].enrichments : [],
           unenumeratedEgress: component.httpGate.unenumeratedEgress,
         },
         null,

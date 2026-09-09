@@ -53,8 +53,23 @@ done
 stage "stage 1 — the RED BEFORE, read out of git"
 # docs/DESIGN.md: "the two share ZERO tokens today". This is that sentence,
 # measured against the commit this WO started from rather than recalled.
-before_tokens=$(git -C "$WEB" show HEAD:app/globals.css 2>/dev/null | grep -c -- '--bg-primary')
-before_hex=$(git -C "$WEB" show HEAD:tailwind.config.ts 2>/dev/null | grep -c -- '#00d9ff')
+#
+# ⚑ FIXED BY WO-D6, AND THE BUG IS WORTH THE PARAGRAPH. This read
+# `HEAD:tailwind.config.ts`, which WAS the pre-change tree while WO-D5's work
+# was uncommitted — and stopped being it the instant WO-D5 committed. The gate
+# passed once, at the only moment it could, and then went red forever on a
+# repository that had not regressed at all. A control pinned to a moving
+# reference measures the reference.
+#
+# The before-tree is now resolved from the change itself: the parent of the
+# commit that first added app/theme/canon.css. That commit cannot move, so the
+# comparison keeps meaning the same thing however many work orders land after it.
+D5_COMMIT=$(git -C "$WEB" log --diff-filter=A --format=%H -- app/theme/canon.css | tail -1)
+BEFORE_REF="${D5_COMMIT:+$D5_COMMIT^}"
+BEFORE_REF="${BEFORE_REF:-HEAD}"
+echo "   (the before-tree is $BEFORE_REF — the parent of the commit that added canon.css)"
+before_tokens=$(git -C "$WEB" show "$BEFORE_REF:app/globals.css" 2>/dev/null | grep -c -- '--bg-primary')
+before_hex=$(git -C "$WEB" show "$BEFORE_REF:tailwind.config.ts" 2>/dev/null | grep -c -- '#00d9ff')
 check "canon tokens in the shared theme BEFORE" "$before_tokens" "0"
 [ "$before_hex" -ge 1 ] && ok "the palette was hard-coded BEFORE ($before_hex literal #00d9ff in tailwind.config.ts)" \
   || bad "expected the pre-change tailwind config to hard-code the palette"
