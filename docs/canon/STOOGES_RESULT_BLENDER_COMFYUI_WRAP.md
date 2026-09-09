@@ -64,50 +64,650 @@ attacking is true, unfixable, and shippable only as a declared limit.
 
 ## 1 · The design as it finally stands
 
-_Coder, run 3 round 14, verbatim and complete. This supersedes the run 2
-position reproduced at §4 — see §0 on why there is a run 3._
+_Coder, hand-driven round 7 (the latest), verbatim and complete._
 
-I am changing the isolation claim. A UNIX-domain socket and a network namespace are not equivalent: a UDS can mediate inbound access to ComfyUI, but it does not prevent ComfyUI from making outbound connections. Therefore the release has two explicit profiles. The full defence profile requires ComfyUI to run in an isolated network namespace whose ingress and egress policy is measured at session open and close. A strictly measured UDS is permitted only for an inbound-capture profile; its egress fields are recorded as `source: "unknown"` unless an independently enforced egress boundary exists. UDS alone can no longer satisfy the full confinement gate.
+⚠ **THIS DESIGN IS NOT SETTLED.** Architect is OPEN — he wants the
+`close_detection` validator rule written as schema text before he closes.
+Loki is BLOCKING. See §3 for both, in their own words._
 
-The capture architecture remains a mandatory stateful proxy, not a thin HTTP sidecar. It terminates or mediates HTTP, websocket, and artifact-bearing responses, parses websocket framing, correlates binary image frames with execution identifiers, buffers until the relevant integrity checks complete, and fails closed rather than forwarding an unrecorded successful artifact. Filesystem observation covers `output/`, `temp/`, and configured input paths. Image hashes are taken only after native close-write notification (`IN_CLOSE_WRITE`), so a leaf cannot claim a completed file from a partial flush. `/history` remains a conformance probe for one response path, not the completeness gate; the freeze gate is the pinned-source suite exercising every supported artifact channel, including websocket-only delivery and successful responses that are not represented in `/history`.
+The filesystem position is unambiguously option **(c)**: remove filesystem events from the capture freeze gate. `IN_CLOSE_WRITE`, quiescence, and `fs-watch.ts` observations must not create, complete, or authenticate artifact leaves; any filesystem-only output is `declared_uncaptured`. I retract the later reinstatement explicitly. The validator must reject `close_detection` as a provenance or completion field, so this cannot return as a dead schema dependency.
 
-I am also tightening authorship rather than treating capture as authorship. The client signs the exact request bytes before submission, together with a session nonce, request identifier, and protocol version. The proxy records those exact bytes, their hash, signature, key identifier, and arrival sequence; replay protection requires a verifier-known key association and non-reused nonce or monotonic counter. If the workflow is transformed before execution, both the signed ingress bytes and the execution bytes are recorded, with the transformation relation explicitly marked as proxy-observed rather than client-authored. An unsigned request may still be captured in a weak mode, but its author field is `origin: "unattested"` and it cannot pass the defence-profile authorship gate. This positively captures what the client submitted without claiming that ComfyUI executed an authentic server-originated program.
+Refusal commits at durable local `emit()`: derive, MAC, spend the counter, append durably, then enqueue for witness delivery. Witness availability is therefore non-blocking. A queued leaf is not external evidence yet, but it is a MACed local record whose counter creates an observable sequence gap. The protocol must expose `open/unresolved`, `resolved`, and an explicitly terminal state such as `expired` or `never-resolved`; “never” cannot be established without a declared observation horizon. I recommend a policy-bounded settlement window and durable queue-retention rule, while keeping capture fail-closed on inability to perform local append—not on witness latency.
 
-Every factual leaf field is schema-validated to contain a provenance source. The validator rejects missing provenance; this is not an authoring convention. `signed-input` identifies bytes covered by the client signature, `proxy-observed` identifies bytes or events directly captured by the proxy, `measured` identifies a probe result under the declared measurement basis, `derived` identifies verifier computation from recorded facts, and `unknown` identifies an unavailable fact. `unattested` is reserved for the explicit trust level where an input or origin lacks the required attestation. A leaf containing only unknown values is valid as an abstention record but cannot satisfy the defence gate. The useful result is a leaf with signed inputs and positively observed outputs, while server-origin authenticity remains outside the claim.
+The 50 GiB direct-to-output case remains a host quota and disk-exhaustion control, not a capture guarantee. It should be surfaced as an operational limit or incident, never misrepresented as captured provenance. Oversized intercepted streams should use bounded batching with count and counter ranges, and include the active ceiling plus counter in the leaf.
 
-I am holding my ground on the root-controlled-desktop boundary. Local TLS, a proxy-held secret, subprocess separation, signatures, hash chains, and Merkle commitments do not prove that the intended ComfyUI binary produced the observed result when an administrator can replace binaries, preload code, alter loopback traffic, or control the signing environment. The system therefore claims capture and client-input authorship, not ComfyUI provenance or execution authenticity. Leaves remain locally `pending` until their signed content or Merkle commitment reaches an external append-only checkpoint; publication strengthens availability and ordering, but does not repair a false local observation.
+STATUS: **OPEN** — filesystem regression retracted; local commit rule fixed; settlement-window bound still requires Architect’s ruling.
 
-Loki’s eBPF objection is true, but it changes the claim boundary rather than requiring every measurement to become unknown. Bracketing probes are recorded with their execution context, isolation mode, probe identity, and measurement basis. In the network-namespace profile they establish the observed policy transition under the trusted-kernel assumption; they do not establish truth against a hostile host root or a kernel/eBPF actor able to rewrite probe outcomes. If probe integrity or the measurement basis is not independently established, the affected vector is `unknown`, not `measured`. An eBPF-capable host administrator remains an unfixable non-blocking limitation because defending against that actor would require a trusted execution or external measurement authority that this product does not possess. It is now declared directly in the leaf instead of being hidden behind a generic “isolated” flag.
-
-Architect’s objection is settled by the explicit transport discriminator and validator rule: each leaf records `transport_mode` as `network_namespace` or `uds`, and confinement assertions are profile-specific. UDS no longer inherits namespace semantics, and `pinned_build` is recorded as an explicit instance rather than silently inheriting from a conformance run. Loki’s objection is settled as a scope correction: probe results remain useful observations when their stated assumptions hold, but they are downgraded to `unknown` when those assumptions are absent, and neither mode claims to defeat a hostile host root. Both objections therefore block the previous design but not this revised v1, provided the full defence release uses the namespace profile and the conformance suite enforces these distinctions.
-
-STATUS: REVISED — full proxy, signed inputs, profile-specific isolation, and measured-or-unknown enforcement now define v1.
-<beat status="converging" reason="Isolation and probe objections resolved by explicit profiles"/>
+<beat status="iterating" reason="Settlement-window policy remains unresolved"/>
 
 ---
 
 ## 2 · The three watchers' closing positions
 
-_Run 3 round 14, verbatim and complete._
+_Hand-driven round 7, verbatim and complete. Two of the three are NOT settled._
 
 ### Loki
 
-The sharpened objective holds: signed client inputs and profile-specific measured-or-unknown now capture authorship without laundering server-origin or kernel truth. Root shim of the supervisor pre-launch remains the exact vector your boundary concedes, yet the leaf tags it explicitly instead of implying coverage.  
-True, unfixable without the external authority this v1 refuses, non-blocking.  
-SETTLED: positives stay declared diagnostic theater.  
-STATUS: Loki=SETTLED
+One might see local emit() as sealing the refusal, yet root simply LD_PRELOADs the ratchet to burn counters into a shadow queue that never reaches the real witness, turning your observable gaps into selective theater the settlement bound cannot distinguish. The 50 GiB direct-to-output case compounds this: no transaction means the counter itself becomes optional, exactly the dead schema dependency Architect warned would reappear. Press on recording the ratchet vantage as measured-or-unknown in every leaf. STATUS: BLOCKING — local commit still launders forgeable sequence under the conceded root boundary.
 
 ### Architect
 
-SETTLED on the transport discriminator — `transport_mode` as a recorded per-leaf fact with profile-specific confinement assertions, plus `pinned_build` read live rather than inherited, is exactly the rule-as-check I asked for, and it can't quietly decay because the validator rejects a fact field without `source`. One item carries rather than reopens: the revision now makes a positive authorship claim, and the *key-to-identity binding* is the one fact in it that hasn't been given the same treatment as everything else. "A verifier-known key association" is doing load-bearing work while sitting outside the source taxonomy — the leaf can honestly say "a holder of key K signed these bytes," but any consumer will read the enrolment as "this named person," and enrolment is typically configuration, which the invariant already forbids as a fact source. Settle it with an `identity_binding.source` of `enrolled-in-session | self-asserted | unknown`, defaulting to `self-asserted` for a bare public key; that's a one-field addition and does not block v1. STATUS: Architect=SETTLED
+Ruling: unbounded is not tolerable, because an unresolved gap that never expires is indistinguishable from a policy of never checking — the verifier defaults to accept by exhaustion. The bound must be *carried in the leaf* as a declared `settlement_deadline` plus the retention policy digest in force, so a verifier reading the leaf alone knows when silence becomes a finding rather than having to fetch out-of-band policy; at deadline the gap flips to a terminal `expired`, which is an assertion about the *component's delivery*, not about the leaf's validity. Two things that must go with it: the counter-gap evidence lives server-side, so the leaf needs the witness endpoint and component ID a verifier can query, or the mechanism is invisible to anyone who isn't the witness operator — and `expired` must itself be `source: measured` against a named clock, since a deadline derived from a locally-set timestamp is exactly the config-inherited field class we already refused. STATUS: OPEN — settlement window bounded and declared-in-leaf; retraction accepted, but I want the validator rule for `close_detection` written as schema text before I close.
 
 ### IT Expert
 
-The two distinct transport profiles (`network_namespace` vs `uds`) and schema-enforced provenance sources settle the isolation and egress boundary issues; forcing unmeasured egress in UDS mode directly to `source: "unknown"` eliminates false containment claims. Moving artifact capture to kernel-level `IN_CLOSE_WRITE` alongside fail-closed stream buffering ensures partial writes and race conditions cannot produce false positive assertions. Operationally, the host boundary and root vectors remain unfixable without hardware-backed roots of trust, but declaring them as explicit limits rather than laundered coverage makes this production-defensible. STATUS: IT Expert=SETTLED
+I accept the split: mitigating uncaptured node writes is a host-level boundary problem, not a provenance leaf concern. However, moving refusal commit to a durable local `emit()` means your queue spool now lives on disk; if `output/` shares a filesystem with that queue, an uncaptured 50 GiB runaway write will exhaust blocks and break the ratchet's local `fsync()`. Isolate `output/` onto a separate volume with hard `projectquota` limits so unmediated raster writes cannot DOS the local queue and force the entire capture gate closed.
 
 ---
 
-## 3 · Run 3 — the built code as new evidence, rounds 1–14
+## 3 · Hand-driven rounds 4–7 — the engineers answer back
+
+_Every contribution verbatim, each preceded by the question that produced it._
+_These rounds were driven one at a time by a human reading each result, with
+the questions written by the session that owns `services/scruple-capture`._
+_This is where the design actually changed: the filesystem was demoted from
+witness to diagnostic, reservation was replaced by counting, and refusal was
+moved to a durable local commit. It is also where the drafter reversed himself
+on `IN_CLOSE_WRITE` and three watchers missed it — see round 7 §0._
+
+### Hand round 4
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**A question from the engineers who own the capture component.** It is aimed
+at your threat model, not your ergonomics, and it says your freeze gate
+specifies something the implementation cannot produce.
+
+Your design requires that a file is hashed only after `IN_CLOSE_WRITE`, so a
+leaf cannot claim a completed file from a partial flush. **We cannot produce
+that event.** `services/scruple-capture/src/surfaces/fs-watch.ts` says so in
+its own header — *"NODE CANNOT SEE IN_CLOSE_WRITE. Say it, do not paper over
+it."* On Linux libuv registers `IN_ATTRIB | IN_CREATE | IN_MODIFY | IN_DELETE |
+IN_DELETE_SELF | IN_MOVED_TO | IN_MOVED_FROM` and reports only
+`'rename'`/`'change'`. There is no close event in the set and no flag that adds
+one.
+
+That much is only an implementation gap, and a seam already exists:
+`CloseWriteSource` is an interface whose `method` is either
+`'inotify-close-write'` or `'fs-watch-quiescence'`, precisely so a real
+close-write signal from an `inotifywait(1)` subprocess or a native addon can be
+dropped in. Neither is a dependency the component takes today, and
+`inotifywait` is **not installed on the reference host** — verified, not
+assumed.
+
+**Here is the part that should concern you.**
+
+The default source approximates close-write by quiescence: after the last
+`'change'` for a path, wait `settleMs` for a stable size, then hash. Its
+documented failure mode is that a writer which stalls longer than `settleMs`
+gets its **PARTIAL file hashed**, and then emits a second event and a second
+hash when it finishes.
+
+The record then shows **two hashes for one artifact — byte-for-byte
+indistinguishable from a substitution.**
+
+So the question is not which trigger to use. It is: **does your
+provenance-source schema let a leaf distinguish "two hashes because the writer
+was slow" from "two hashes because someone swapped the file"?** If it cannot,
+then on any host without a real close-write source the gate does not merely
+lose coverage — it **manufactures evidence of an attack that did not happen**,
+and the defence gate becomes a false-accusation generator under exactly the
+load (big renders, slow disks) where it is most likely to fire.
+
+One fact you should have before you answer, which the engineers did not
+mention and which we verified in the code: **`close_detection` is already
+plumbed end to end.** `fs-watch.ts:339` writes `source.method` into the
+observation, `leaf.ts:51/83/150/206` carries it, and
+`lib/leaf/componentPreimage.ts:58/107` puts it in the **signed** preimage. So a
+verifier can already tell that a hash came from a quiescence timer rather than
+a real close event. Decide whether that is sufficient, or whether it is a field
+that names the weakness without discharging it.
+
+**Give us the required behaviour, and pick ONE rather than describing the
+space.**
+
+**(a)** Refuse to emit a file-derived leaf at all until a real
+`CloseWriteSource` is present — making `inotify-tools` or a native addon a hard
+install dependency, with the friction cost that implies on Windows and macOS.
+Note if you choose this: the reference host does not have it installed, so
+"hard dependency" means someone owns making that true on three platforms.
+
+**(b)** Emit with a declared source marking the hash provisional. Then say
+exactly what `unresolved` must contain, what supersedes a provisional leaf, and
+**how a verifier three years later tells a superseded provisional hash from a
+detected swap.**
+
+**(c)** Drop the filesystem trigger from the freeze gate entirely and make the
+wire the only authoritative witness. You may already be entitled to this:
+`SaveImageWebsocket` forced you to concede the gate must be a stateful proxy
+over artifact-bearing responses regardless, so the proxy already sees every
+artifact the file would have carried.
+
+If you choose **(c)**, name the artifacts for which the on-disk copy is
+authoritative and the wire copy is not. **If that list is empty, then the
+filesystem watcher is a convenience and not a witness, and it should not be
+gating anything.**
+
+Coder drafts and picks one. Watchers: attack the choice, and say plainly if you
+think a different one was correct. End with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+I choose **(c)**: remove the filesystem trigger from the freeze gate entirely. The authoritative artifact set is the complete byte stream of artifact-bearing HTTP and WebSocket responses observed by the stateful capture proxy, including `SaveImageWebsocket`; the list of artifacts for which an on-disk copy is authoritative while the wire copy is not is **empty**. A file that exists only on disk, or whose wire transfer was not captured, is omitted from authoritative provenance rather than promoted through a quiescence guess. `fs-watch.ts` may remain as diagnostic corroboration, but its observations—including `close_detection: "fs-watch-quiescence"`—must not create or complete an artifact leaf. The signed artifact record must identify the captured response, session/request correlation, exact bytes, and hash; a verifier three years later therefore sees one wire-derived claim, not two competing filesystem hashes. This eliminates the false-substitution ambiguity instead of merely naming it. It makes proxy completeness and confinement release requirements, but those are already prerequisites of the full-channel design; accepting a provisional filesystem hash would weaken the defence gate precisely where its evidence is least reliable.
+
+STATUS: CONVERGING — filesystem is no longer an authoritative witness.
+<beat status="converging" reason="Selected wire-only authoritative evidence"/>
+
+#### Architect (watcher)
+
+(c) is right, and the empty list holds — but only because you must now also retract the earlier release requirement that made `IN_CLOSE_WRITE` a gating dependency, or the schema keeps a dead reference that the next contributor re-enables as a shortcut. The hard case (c) doesn't yet cover: the wire only carries bytes someone asks for, so a workflow that writes 200 files to `output/` while the client fetches four `/view`s produces a record where 196 artifacts are *silently absent*, and absence-because-uncaptured is indistinguishable from absence-because-never-produced. Apply your own measured-or-unknown invariant to absence: keep `fs-watch` demoted exactly as you say, but require the leaf to carry a `declared_uncaptured` set (filenames from `/history`, plus fs-observed paths, with `source: "fs-watch-diagnostic"` and no hash) so the gap is a recorded fact rather than a hole — and enforce "no fs observation may complete a leaf" in the validator, not the prose. STATUS: CONVERGING
+
+#### Loki (watcher)
+
+The (c) choice stands under the nastiest case I can conjure: an adversary with root, eBPF hooks, and a deliberately sluggish render that dribbles bytes across the quiescence window on a host without inotify-tools. By making the proxy's captured wire stream the sole signed authority and declaring the on-disk list empty, the leaf records one immutable hash tied to the exact response bytes instead of two competing ones that a verifier three years later could never disambiguate as "slow writer" versus "substitution." The FS watcher stays a diagnostic at best; anything it alone sees is simply omitted from provenance. No false accusations, no laundered coverage. STATUS: SETTLED — (c) with empty list.
+
+#### IT Expert (watcher)
+
+Choosing **(c)** is operationally sound because relying on `fs.watch` quiescence timers on Linux guarantees false-positive substitution alerts under disk I/O pressure, and taking a hard cross-platform native dependency for **(a)** breaks deployability on baseline hosts. However, by declaring the wire the *sole* authoritative witness, the proxy’s memory and spooling architecture become your primary failure domain: ComfyUI image batches and video generation pipelines can spit multi-gigabyte payloads across WebSocket/HTTP streams, so your stateful capture proxy must fail closed on backpressure or disk-spool saturation without dropping or truncating streams. If the proxy runs out of buffer memory or worker disk and terminates the connection mid-flight, verify whether the operational failure mode degrades cleanly or leaves the generation pipeline completely wedge-locked. STATUS: CONVERGING
+
+### Hand round 5
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**Answers from the engineers who own the component, and one new condition.**
+Two of your three CONVERGING positions are now resolved against real code
+rather than a hypothetical. Read the facts before you revise.
+
+---
+
+### 1 · IT Expert's backpressure question — answered, and the obvious fix is foreclosed
+
+You asked whether the proxy degrades cleanly under a multi-gigabyte payload.
+**It does not degrade at all, because there is no degradation path.**
+
+`http-gate.ts:178-192` splits every request two ways, and the comment gives the
+reason in its own words:
+
+> "A captured route is BUFFERED, never streamed. The client must not hold a
+> byte before the counter is spent; streaming and hashing in flight would
+> deliver the artifact and the leaf concurrently, and a crash between them
+> leaves an artifact with no leaf."
+
+Captured and buffered: `/view`, `/userdata/*`, `/api/assets/<uuid>/content`,
+`/experiment/models/preview/*`, plus `POST /prompt` and `POST
+/upload/image|mask`. Everything else streams through `r.pipe(res)`.
+
+The buffering is total on both sides — `readBody()` concatenates the whole
+request body unconditionally, `proxyBuffered()` the whole response — and a grep
+across all 31 TypeScript files for `maxBytes`, limits, 413, truncation and disk
+spooling finds **nothing**. No cap, no spool, no backpressure handling.
+
+So the answer is definite. On a multi-GB artifact the gate's RSS grows to the
+size of the artifact and **the process dies.** What survives is the correctness
+invariant: buffering completes before any byte reaches the client, so an OOM
+kills the connection with **no artifact delivered and no leaf written** — the
+safe direction. What does not survive is availability. IT Expert's wedge-lock
+is real.
+
+**And you cannot fix this by streaming.** Streaming is the specific thing the
+buffer exists to prevent, and the ordering it buys — no byte to the client
+before the leaf is committed — is load-bearing for the design you just made
+wire-authoritative. Under (c) the wire is the *only* witness, so weakening that
+ordering to relieve memory pressure trades the one guarantee you have left for
+throughput.
+
+The engineers' view of the shape of a real fix — offered as a shape, not a
+number: a **bounded disk spool with an explicit refusal past the bound**, where
+refusal is a recorded outcome and not a silent pass-through. That pattern
+already exists elsewhere in the stack ("over the inline limit is refused as an
+outcome, not a `none`"). **They want you to specify the bound and the refusal
+semantics rather than have them pick a number.**
+
+### 2 · Architect's condition 1 — accepted, and owned
+
+The `IN_CLOSE_WRITE` release requirement will be **retracted explicitly**, not
+merely left unused. Your reasoning was accepted verbatim: a dead reference in a
+schema is a shortcut waiting for the next contributor.
+
+### 3 · `declared_uncaptured` — shape accepted, one condition, and it is this round
+
+Your diagnosis was accepted and the symmetry you spotted is agreed: you killed
+"two hashes, cannot tell slow from swapped" and replaced it with "no hash,
+cannot tell uncaptured from never-produced."
+
+But the fix is only as sound as the enumeration behind it, and there is a
+ComfyUI fact you were not given. **ComfyUI writes artifacts to THREE
+directories.** `PreviewImage` is a `SaveImage` subclass whose `output_dir` is
+`folder_paths.get_temp_directory()` — it writes full images to `temp/`, not
+`output/`. `LoadImage` inputs live in `input/`. `GET /view?type=` selects among
+them.
+
+The component already models this: `WatchedVolumeType = 'output' | 'temp' |
+'input' | 'unspecified'`, with typed roots and nested roots refused on purpose
+so one write cannot fire two watchers. **But nothing requires all three to be
+declared, and `'unspecified'` is a permitted type.** So an operator who
+configures only an `output` root gets temp-written artifacts that are absent
+from the captured set *and* absent from `declared_uncaptured` — and the
+ambiguity you just killed reappears one level up, now **wearing a completeness
+claim**, which is worse than the bare hole because it reads as coverage.
+
+**The condition, put to you as a question rather than a ruling:**
+must `declared_uncaptured` carry the scope it enumerated over — which root
+types were configured, and whether any were `unspecified` — or does it assert a
+closure it does not have? That is your own measured-or-unknown invariant
+applied one level up: the *completeness of the absence set* is itself a fact,
+and it needs a source like every other fact.
+
+### 4 · Two facts we verified in the ComfyUI source for this round
+
+Neither side was sure, so we checked rather than let you reason about it.
+
+**(a) `/history` DOES enumerate `temp/` writes.** `PreviewImage` sets
+`self.type = "temp"` (`nodes.py:1684-1690`) and `SaveImage.save_images` emits
+`"type": self.type` per file (`nodes.py:1678`), returning `{"ui": {"images":
+results}}`. `execution.py:802-803` puts that in `history_result["outputs"]`,
+and `task_done` (`:1237-1242`) merges it into history. So a `temp/` artifact IS
+listed in `/history`, tagged `type: "temp"`, even though it is never written to
+`output/`. Architect's proposed source for the absence set therefore does reach
+temp — good for the proposal.
+
+**(b) But that source is ephemeral, and this is new to everyone.**
+`execution.py:1186` sets `MAXIMUM_HISTORY_SIZE = 10000` and `task_done` evicts
+the oldest entry past it (`:1227-1228`). `self.history` is an in-memory dict on
+`PromptQueue` — **it does not survive a ComfyUI restart, and it is a bounded
+ring.**
+
+So `declared_uncaptured`, whose whole job is to make a gap a recorded fact,
+would draw its filenames from a source that is capped at 10,000 prompts, held
+in memory, and lost on restart. **Does that change your answer?** Consider
+specifically: a leaf built from `/history` at time T asserts an absence set;
+the same query at T+1 may return nothing at all, not because the artifacts
+never existed but because ComfyUI restarted. Is an absence set sourced from a
+volatile enumeration worth more than no absence set, or does it need its own
+`source:` value distinguishing "enumerated from live history" from "history
+unavailable"?
+
+---
+
+### What to produce
+
+Coder drafts:
+
+1. The bound and the refusal semantics for the spool. A number and a rule, not
+   a range — the engineers explicitly declined to pick for you. Say what the
+   leaf records when a capture is refused for size, and confirm that refusal
+   preserves the no-byte-before-leaf ordering.
+2. Your answer on the `declared_uncaptured` scope condition.
+3. Your answer on fact (b) — whether a volatile enumeration can source an
+   absence set, and what `source:` values that requires.
+
+Watchers: attack all three. Note that the backpressure fix and the absence set
+now interact — a refused-for-size capture is *also* an uncaptured artifact, and
+it should not be discoverable only by reading two unrelated fields.
+
+End with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+The spool bound is 10 GiB per gate process, enforced as an atomic aggregate reservation across all active buffered transactions. Each transaction must reserve space before accepting buffered bytes; if the reservation cannot be made, or the transaction reaches its remaining reservation, the gate aborts that transaction and forwards no artifact bytes. It commits a signed refusal outcome before responding—`capture_status: "refused_size"`, the route and correlation identifiers, configured limit, observed byte count, and any declared content length separately marked as an observation—then returns an error such as 413 for an oversized request or 502/507 for an oversized upstream response. No partial digest is presented as an artifact digest, and no partial payload is delivered. The refusal outcome is also linked directly to the transaction's `uncaptured` status, so consumers need not infer it by comparing unrelated fields. This preserves the existing no-byte-before-leaf rule; the cost is explicit capture failure rather than availability degradation or silent pass-through.
+
+`declared_uncaptured` must be scoped, never treated as a global absence claim. Its record needs the configured volume types and roots (`output`, `temp`, `input`), the query interval or history watermark, whether any `unspecified` volume exists, and a completeness result. A complete absence enumeration is permitted only when all relevant typed roots are covered and no relevant root is `unspecified`; otherwise the set is explicitly partial and cannot support a closure claim. The former `IN_CLOSE_WRITE` requirement should be removed from the schema and implementation requirements rather than retained as an unused release condition.
+
+A live `/history` query can provide a measured enumeration of what that history instance currently reports, including `temp` artifacts, but it cannot by itself prove that unreported artifacts never existed. The history epoch is bounded by restart and the 10,000-entry retention limit. Therefore `source: measured` applies to the returned enumeration itself, with `enumeration_method: "live_history"` and its observed scope; completeness is `source: unknown` unless an independent observer establishes the relevant history window and continuity. If history is unavailable, restarted, evicted, or outside the requested interval, the absence set must be omitted or marked empty only as “not enumerated”—never as “none”—with `source: unknown` and an explicit reason. Size refusals are recorded immediately as direct uncaptured outcomes regardless of whether `/history` later retains or loses the corresponding prompt.
+
+STATUS: CONVERGING — all three requested semantics are specified.
+<beat status="converging" reason="Specified bounded refusal and scoped absence evidence"/>
+
+#### Architect (watcher)
+
+The aggregate reservation is the flaw: with one 10 GiB pool shared across transactions, whether an artifact is captured or `refused_size` depends on what *other* sessions are doing, so the same workflow is nondeterministically capturable and a single client parking 9.9 GiB reserved becomes a refusal-injection channel against everyone else. Split it — a per-transaction bound that is a property of the artifact, and an aggregate that is a property of the host — and make the leaf record **which** bound fired, because "this artifact exceeded 2 GiB" and "the gate was contended" are different facts and only the first is about the thing being attested.
+
+Second, apply your own invariant to the refusal itself: `observed byte count` at abort is a *lower bound*, not a size, and the declared content length is attacker-chosen, so neither may be presented as the artifact's size — tag them `truncated_at` and `client_declared` explicitly or a verifier will read a floor as a measurement. Third, on (b): "not enumerated" is right, but the reason field needs to distinguish restart/eviction (bounded, detectable if you record the history epoch identity and the low watermark at both query ends) from "history simply not queried" — otherwise the volatile source degrades to unknown for both the recoverable and unrecoverable cases and you lose the only signal that would tell an operator to shorten their query interval.
+
+#### Loki (watcher)
+
+The refused_size linkage into uncaptured is an incremental patch, but your live_history enumeration (capped at 10k, restart-evicted) still leaves a refused multi-GB prompt indistinguishable from one that never reached the gate once the ring buffer turns over—exactly the swapped-vs-slow ambiguity you claimed to kill, now wearing a scoped "partial" badge. Root swapping the gate binary to inflate the 10 GiB reservation or suppress the refusal leaf before checkpoint makes the whole measured-or-unknown invariant theater again.  
+STATUS: BLOCKING — reopens unverifiable absence without external refusal ordering.
+
+#### IT Expert (watcher)
+
+Coder’s aggregate 10 GiB reservation correctly arrests OOM panics, but an operational deadlock remains: if an upstream ComfyUI response omits `Content-Length` (common on dynamic image chunking), the gate cannot know how many bytes to reserve upfront, risking incremental starvation where concurrent transfers exhaust the pool and abort midway. You must define a per-transaction chunked allocation policy—reserving in dynamic blocks up to a strict single-transaction ceiling—and enforce disk unlinking on transaction abort so orphaned spool files do not permanently wedge the 10 GiB aggregate quota. Furthermore, pinning `/history` enumeration completeness to `source: unknown` under restarts is accurate, but the proxy must actively detect ComfyUI restarts via PID/uptime tracking or connection reset; otherwise, a silent restart that resets the in-memory ring buffer will masquerade as a normal short history rather than triggering the required eviction-uncertainty flag. STATUS: CONVERGING
+
+### Hand round 6
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**Both code questions are answered, and together they do not patch Architect's
+flaw and IT Expert's constraint — they dissolve them.** One challenge back to
+Loki at the end.
+
+---
+
+### 1 · Content-Length: the gate never reads it. It writes it.
+
+`http-gate.ts:435` sets `h['content-length'] = String(r.body.length)` from the
+bytes it actually buffered, and `stripHopByHop` (`:441-444`) deletes the
+upstream's own `content-length` along with the other hop-by-hop headers. We
+grepped the whole component: **there is exactly one occurrence of
+`content-length` in `src/`, and it is that write.** No code path anywhere
+trusts a declared length.
+
+This is more than trivia, and it lands on Architect's second point. He warned
+that declared content-length is attacker-chosen. He is right — and today the
+component has **zero** dependency on it. Coder's upfront aggregate reservation
+would be the first thing in the component's history to need a size *before the
+bytes arrive*. So the reservation does not merely add complexity: **it
+introduces a trust dependency on an attacker-influenced field where none
+currently exists.** IT Expert's constraint 1 is that same observation arriving
+from the operational side.
+
+### 2 · Restart detection: absent, confirmed, and owned by us
+
+Nothing in the component tracks upstream identity — no call to
+`/system_stats`, no upstream id, no version pin. The only restart handling is
+of our own identity (`identity.ts`: if the seal cannot be restored we
+re-provision as a NEW `component_id` at n=0, deliberately, so the old one goes
+silent as an operator signal). We never ask ComfyUI who it is.
+
+So IT Expert is right on both counts: a silent ComfyUI restart is invisible to
+us today, and it is a change to our component rather than to your schema.
+ComfyUI exposes `/system_stats`, which we do not call. The engineers own this
+and will fix it. **Note that this and Coder's fact (b) are the same fact seen
+twice** — recording the history epoch identity at both ends of a query, which
+Architect asked for, is exactly what `/system_stats` would provide.
+
+### 3 · The reframe: do not reserve. Count.
+
+**Architect's refusal-injection channel exists because a reservation can be
+parked. IT Expert's starvation exists because a reservation must be sized
+upfront. Both are properties of RESERVING, not of BOUNDING.**
+
+The component already counts bytes as they arrive — that is precisely why it
+can rewrite `content-length` truthfully at `:435`. So a per-transaction ceiling
+needs no reservation at all: it is a counter that trips at N bytes and aborts.
+The aggregate is a second counter that trips at M. **Nothing is held. Nothing
+is sized in advance.**
+
+- A client cannot park 9.9 GiB it has not actually sent, so the
+  refusal-injection channel **does not exist**.
+- A missing `Content-Length` is **irrelevant**, because nothing was ever
+  allocated on the strength of it.
+
+Architect's substantive point survives intact and gets cheaper: **record WHICH
+counter tripped.** "This artifact exceeded the per-transaction ceiling" is a
+fact about the artifact; "the host was contended" is a fact about the host; and
+only the first is about the thing being attested. His `truncated_at` /
+`client_declared` tagging stands unchanged — and note that under counting,
+**`truncated_at` is the only size fact that exists**, because there was never a
+declared one to compete with it.
+
+**The question: does counting satisfy both objections, or is there a reason to
+hold bytes that we are not seeing?** Coder, revise the spool specification on
+that basis or say why reservation is required. If you keep a reservation, you
+must now also say what the gate does when no length is declared, and justify
+depending on a field the component has never trusted.
+
+### 4 · Loki — a direct challenge to your first attack
+
+You went BLOCKING on two grounds. The engineers' position is that **your first
+collapses into your second, and is not independently real.** You should have
+the chance to show that is wrong.
+
+Their reasoning: the refusal leaf is **signed and committed before the
+response**, into our witness log, which is **append-only and has nothing to do
+with ComfyUI's in-memory ring.** So:
+
+- a refused multi-GB prompt leaves a **permanent signed record**;
+- a prompt that never reached the gate leaves **no leaf at all**;
+- those are distinguishable by the *presence of the leaf*, and ring turnover
+  destroys neither. The 10,000-entry ring is the source for
+  `declared_uncaptured` **enumeration**, not for **refusals**.
+
+On that reading, "refused" and "never reached the gate" are indistinguishable
+only if the refusal leaf can be **suppressed** — which is your attack (2), root
+swapping the gate binary. And (2) is the desktop threat model this council
+already conceded: true, unfixable on a root-owned host, to be declared rather
+than defended. If that holds, your BLOCKING rests on one attack, not two, and
+the design does not have the gap you say it has.
+
+**So: defend attack (1) or withdraw it.** Specifically — is there a state in
+which a refusal leaf is legitimately absent for an artifact that was in fact
+refused, without root having intervened? If there is, name it, because that is
+a real hole and the engineers have not seen it. If there is not, say so, and
+say whether (2) alone still blocks.
+
+This is not a request to concede. You have been the seat that moved this design
+the most, and the engineers explicitly said they would rather you showed them
+why they are wrong than that they proceed quietly.
+
+### 5 · Credit where it is due
+
+Coder's fact (b) — completeness sourced from a bounded, in-memory, restart-
+volatile ring — was called the best finding of the round by the engineers, and
+neither they nor we had it. The ruling it produced (completeness is
+`source: unknown` unless independently established; empty is "not enumerated",
+never "none") is accepted as the right shape.
+
+---
+
+Coder drafts. Watchers attack. End with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+The spool should use post-arrival counting, not reservation. The gate must never allocate or reserve based on `Content-Length`—declared, absent, chunked, and malformed lengths are all handled identically. Each transaction has a byte counter and each session has an aggregate counter; bytes are charged atomically before they enter memory or disk spool, with bounded read chunks and backpressure. If charging would cross either ceiling, the gate stops accepting that transaction, records the exact counter and `truncated_at` value, and discards the remainder. Concurrent streams must use one shared aggregate counter, so the implementation cannot overshoot merely because several readers race; any unavoidable transport-buffer bytes are not counted as accepted artifact bytes.
+
+The refusal outcome has a precise commit point. A transaction is not described as “refused” until its signed refusal leaf has been durably appended to the external witness; the gate commits that leaf before sending the refusal response or closing the stream. If signing or witness append fails, the gate sends no successful refusal classification—it fails closed with an indeterminate transport failure, and the verifier sees the missing refusal leaf as “no committed refusal,” not as proof that no bytes arrived. This removes the crash window by defining refusal semantically at the durable commit, rather than pretending a pre-commit local event is evidence.
+
+The same counter semantics apply to HTTP bodies, websocket binary frames, and filesystem artifacts. Filesystem capture remains gated on `IN_CLOSE_WRITE`; a file that exceeds its limit is marked truncated and never presented as complete. `client_declared` is retained only as an explicitly untrusted declaration when present, while `truncated_at` is the sole measured size for a capped stream. Aggregate exhaustion must identify the transaction and whether the per-transaction or aggregate counter caused the cutoff. The witness log must remain independent of the volatile ComfyUI history ring, whose empty or incomplete state continues to mean `source: unknown`, never “no refusal occurred.”
+
+Loki’s first attack therefore does not survive this definition unless a non-root crash/state is identified in which the system both semantically refuses an artifact and successfully returns a refusal outcome without first committing its leaf. Root replacement remains the separate, already-declared desktop-boundary failure.
+
+<beat status="converging" reason="Counting and refusal commit semantics resolved"/>
+
+#### Architect (watcher)
+
+Counting is right, and the commit-point definition of "refused" is the strongest part of this draft — but it hands Loki attack (1) back without root. If refusal is only real once the leaf is durably appended externally, then any non-root party who can make the witness slow or unreachable (saturation, rate limit, append latency past the gate's timeout) turns every refusal into an indeterminate transport failure, which is exactly the "refused vs. never arrived" ambiguity the engineers claimed required binary swapping. That also means an attacker can force one witness append per oversized stream: we closed the memory-parking channel and opened a witness-write-amplification channel, so refusal leaves need rate bounding or batching with a count, not one-leaf-per-attempt. One schema point: `truncated_at` is uninterpretable alone — the leaf must record the ceiling value and which counter was in force at cutoff, or the same number means "huge artifact" under one policy and "tight host" under another.
+
+#### Loki (watcher)
+
+One might see the mischief in a root adversary ptracing the gate to split the commit from the refusal send: append the leaf, then swap the response for the full artifact from an external source before the client sees the 429. Your durable-before-response rule assumes atomicity that doesn't survive the same process boundary you already declared unfixable. That collapses my first attack as you say, but only by laundering it back into the conceded desktop theater. STATUS: SETTLED — refusal leaf now correctly documented as unattested under root.
+
+#### IT Expert (watcher)
+
+Post-arrival counting directly cures the OOM and starvation traps of upfront reservations, and charging atomically before buffering preserves host stability without trusting declared sizes. However, on filesystem capture gated by `IN_CLOSE_WRITE`, a runaway custom node writing a 50 GiB tensor directly to `output/` will bypass gate backpressure and exhaust the disk before the close event ever fires; you must enforce hard filesystem quotas or periodic size polling on disk spools to prevent host drive starvation. Operationally, the durable witness append before responding is clean, provided that transport dropouts during commit transition the transaction to an explicit `transport_indeterminate` timeout state rather than leaking open descriptors. STATUS: CONVERGING
+
+### Hand round 7
+
+<details><summary>The question put to them</summary>
+
+```markdown
+**Architect's reopen is correct, and the reason is that Coder's commit-point
+rule contradicts code that already solved this the other way.** Also one fact
+about this deliberation that you all need, stated first because it is the more
+important of the two.
+
+---
+
+### 0 · A regression in this deliberation that three watchers missed
+
+Coder wrote, last round:
+
+> "Filesystem capture remains gated on `IN_CLOSE_WRITE`; a file that exceeds
+> its limit is marked truncated and never presented as complete."
+
+That contradicts his own two immediately preceding drafts:
+
+> **Round A:** "I choose **(c)**: remove the filesystem trigger from the freeze
+> gate entirely." … "`fs-watch.ts` may remain as diagnostic corroboration, but
+> its observations — including `close_detection: "fs-watch-quiescence"` — must
+> not create or complete an artifact leaf."
+
+> **Round B:** "The former `IN_CLOSE_WRITE` requirement should be removed from
+> the schema and implementation requirements rather than retained as an unused
+> release condition."
+
+Same author, next round, reversed with no acknowledgement. Watcher coverage:
+**Loki — no mention. Architect — no mention. IT Expert — built on the
+reinstated version**, since the 50 GiB runaway-node point assumes filesystem
+capture is gated on it.
+
+State this plainly rather than defensively, because it is evidence and not an
+accusation: Architect predicted this exact mechanism — *"a dead reference in a
+schema is a shortcut waiting for the next contributor"* — and it fired one
+round later, by the drafter who had agreed to delete it, past three adversarial
+watchers at maximum sensitivity. **It is the strongest argument in this whole
+exercise for Architect's own condition: retract explicitly, and enforce in the
+validator, not in the prose.** Coder: restate the filesystem position
+unambiguously and say which of the two it is.
+
+### 1 · Your commit-point rule reintroduces a dependency the component was built to avoid
+
+Coder defined refusal as durable append to the **external** witness. The
+capture component decided this the other way, and says so in `submitter.ts`,
+verbatim:
+
+> "**TWO THINGS BLOCK AND ONE DOES NOT, and the split is the design:**
+>
+> **BLOCKING — the MAC.** `emit()` does not resolve until the counter is spent
+> and the entry is on disk. The gate awaits `emit()` before it forwards a
+> single byte, so there is no window in which a tenant holds an artifact that
+> no leaf covers. If the ratchet cannot MAC, the gate fails closed.
+>
+> **NOT BLOCKING — the witness.** Capture must not depend on witness-server
+> health; that is the design choice `/api/v2/witness` makes too. A failed
+> submission is a queued submission, and the queue is a file."
+
+And the ordering above it: *"derive, MAC, ratchet, persist, then enqueue. The
+counter is consumed when the MAC is computed, NOT when the submission
+succeeds."*
+
+So Architect's non-root attack is real **because the rule was written in prose
+against code neither of you can see** — which is the same failure as §0, one
+round apart.
+
+**The fix is one word.** Refusal becomes real at durable **LOCAL** append with
+the counter spent — that is `emit()` — not at external append. A witness that
+is slow, rate-limited or unreachable does not make a refusal indeterminate. It
+makes it **queued**, which is a different and recoverable state.
+
+### 2 · Architect's question, answered by an existing mechanism
+
+You asked whether refusal can be defined so a slow witness is distinguishable
+from an absent one, without admitting a pre-commit local event as evidence.
+Yes — and by adding nothing.
+
+**The ratchet counter is the anti-ambiguity device.** Every leaf carries a
+monotonic per-component counter spent at MAC time, so an undelivered leaf
+leaves a **hole in the delivered sequence**, and the server detects holes. This
+was proven by hand on 2026-09-07 against the real routes: provision a
+component, send counter 0 (verified, gap 0), deliberately skip counter 1, send
+counter 2 — the server reported `component {counter: 2, verified: true, gap:
+1}`, and `/api/v2/components/status` listed
+`gaps {open: 1, missing: 1, list: [{from_counter: 1, to_counter: 1,
+missing_count: 1}]}`.
+
+So:
+
+| | |
+|---|---|
+| slow / saturated witness | a gap that later **RESOLVES** when the queue drains |
+| never arrived | a gap that **NEVER** resolves |
+
+Distinguishable, by a mechanism that already exists and is already tested, with
+no pre-commit local event admitted as evidence. The non-root attacker you
+describe can delay the network; he cannot erase a MACed, numbered, on-disk
+entry, and cannot forge a counter he has no key to advance.
+
+**Architect, the attack surface is the settlement window**, and you should be
+the one to rule on it: between the local append and the drain, an outside
+verifier sees an open gap and cannot yet tell which kind it is. The engineers'
+position is that this is honest and acceptable — "open gap, unresolved" is a
+third state and your schema already carries `unresolved` as a mandatory emitted
+fact. **Is an unresolved window of unbounded length tolerable, or does it need
+a bound?**
+
+### 3 · Conceded to Architect, without argument
+
+- **Witness write-amplification is real.** One queued leaf per oversized stream
+  is still an attacker-forced write, just local. Batching-with-a-count is the
+  right shape, and the counter is what makes batching safe: the *sequence*
+  carries the completeness claim, not the number of round trips.
+- **`truncated_at` uninterpretable alone — accepted.** The leaf must record the
+  ceiling value and which counter was in force, or the same integer means two
+  different things under two policies.
+
+### 4 · Loki
+
+Your ptrace exit is accepted and will not be argued. Splitting commit from send
+across a process boundary already declared unfixable is exactly right, and "the
+refusal leaf is unattested under root" is the honest way to carry it.
+
+### 5 · IT Expert — your 50 GiB survives, but it is not a provenance problem
+
+A runaway custom node writing straight to `output/` never touches the wire, so
+under **(c)** it is not a capture failure: the artifact is **correctly
+uncaptured** and belongs in `declared_uncaptured`. But it is still
+disk-exhaustion, and the gate has no lever on it because **there is no
+transaction to count**. That is a host-level quota problem, and it should be
+recorded as such rather than solved in the schema. Do you accept that split, or
+do you think the leaf must say something about it?
+
+### 6 · A number you are deliberately not being given
+
+You are not getting a witness-latency figure. The queue makes the witness
+non-blocking by design, so a p99 would be a fact that gates nothing — and
+handing you a number invites a rule built on it. **If the design ever makes
+capture wait on the witness again, that is the thing to reject, not the
+latency.**
+
+---
+
+Coder drafts: §0 restated unambiguously, refusal redefined at local append, and
+the counter-gap mechanism folded in. Watchers attack. Architect owns the
+settlement-window ruling. End with your STATUS line.
+```
+
+</details>
+
+#### Coder (drafter)
+
+The filesystem position is unambiguously option **(c)**: remove filesystem events from the capture freeze gate. `IN_CLOSE_WRITE`, quiescence, and `fs-watch.ts` observations must not create, complete, or authenticate artifact leaves; any filesystem-only output is `declared_uncaptured`. I retract the later reinstatement explicitly. The validator must reject `close_detection` as a provenance or completion field, so this cannot return as a dead schema dependency.
+
+Refusal commits at durable local `emit()`: derive, MAC, spend the counter, append durably, then enqueue for witness delivery. Witness availability is therefore non-blocking. A queued leaf is not external evidence yet, but it is a MACed local record whose counter creates an observable sequence gap. The protocol must expose `open/unresolved`, `resolved`, and an explicitly terminal state such as `expired` or `never-resolved`; “never” cannot be established without a declared observation horizon. I recommend a policy-bounded settlement window and durable queue-retention rule, while keeping capture fail-closed on inability to perform local append—not on witness latency.
+
+The 50 GiB direct-to-output case remains a host quota and disk-exhaustion control, not a capture guarantee. It should be surfaced as an operational limit or incident, never misrepresented as captured provenance. Oversized intercepted streams should use bounded batching with count and counter ranges, and include the active ceiling plus counter in the leaf.
+
+STATUS: **OPEN** — filesystem regression retracted; local commit rule fixed; settlement-window bound still requires Architect’s ruling.
+
+<beat status="iterating" reason="Settlement-window policy remains unresolved"/>
+
+#### Architect (watcher)
+
+Ruling: unbounded is not tolerable, because an unresolved gap that never expires is indistinguishable from a policy of never checking — the verifier defaults to accept by exhaustion. The bound must be *carried in the leaf* as a declared `settlement_deadline` plus the retention policy digest in force, so a verifier reading the leaf alone knows when silence becomes a finding rather than having to fetch out-of-band policy; at deadline the gap flips to a terminal `expired`, which is an assertion about the *component's delivery*, not about the leaf's validity. Two things that must go with it: the counter-gap evidence lives server-side, so the leaf needs the witness endpoint and component ID a verifier can query, or the mechanism is invisible to anyone who isn't the witness operator — and `expired` must itself be `source: measured` against a named clock, since a deadline derived from a locally-set timestamp is exactly the config-inherited field class we already refused. STATUS: OPEN — settlement window bounded and declared-in-leaf; retraction accepted, but I want the validator rule for `close_detection` written as schema text before I close.
+
+#### Loki (watcher)
+
+One might see local emit() as sealing the refusal, yet root simply LD_PRELOADs the ratchet to burn counters into a shadow queue that never reaches the real witness, turning your observable gaps into selective theater the settlement bound cannot distinguish. The 50 GiB direct-to-output case compounds this: no transaction means the counter itself becomes optional, exactly the dead schema dependency Architect warned would reappear. Press on recording the ratchet vantage as measured-or-unknown in every leaf. STATUS: BLOCKING — local commit still launders forgeable sequence under the conceded root boundary.
+
+#### IT Expert (watcher)
+
+I accept the split: mitigating uncaptured node writes is a host-level boundary problem, not a provenance leaf concern. However, moving refusal commit to a durable local `emit()` means your queue spool now lives on disk; if `output/` shares a filesystem with that queue, an uncaptured 50 GiB runaway write will exhaust blocks and break the ratchet's local `fsync()`. Isolate `output/` onto a separate volume with hard `projectquota` limits so unmediated raster writes cannot DOS the local queue and force the entire capture gate closed.
+
+---
+
+## 4 · Run 3 — the built code as new evidence, rounds 1–14
 
 _Every contribution, verbatim. Opened by handing the council findings from
 `services/scruple-capture` — 3,533 lines already in this repo — which contradicted
@@ -623,7 +1223,7 @@ The two distinct transport profiles (`network_namespace` vs `uds`) and schema-en
 
 ---
 
-## 4 · Run 2 — the amended objective, rounds 1–4
+## 5 · Run 2 — the amended objective, rounds 1–4
 
 _Every contribution, verbatim. Round 4 is repeated here so this section stands
 alone as the run._
@@ -810,7 +1410,7 @@ Coder’s revision settles my primary operational blocking condition: the pollin
 
 ---
 
-## 5 · Run 1 — the original brief, rounds 1–8
+## 6 · Run 1 — the original brief, rounds 1–8
 
 _Every contribution, verbatim. This run did NOT converge: it stopped at its
 eight-round runaway guard with Loki, Architect and IT Expert all still holding
@@ -1275,6 +1875,25 @@ Coder drafts. By the end of this run we want, in the design document:
 ## Appendix C — what this run did not establish
 
 Recorded so a reader does not have to infer it from absence.
+
+**0. THE DESIGN IS NOT SETTLED, AND THIS IS AN INTERIM REVISION.** As of the
+last round in §3, Architect is OPEN and Loki is BLOCKING:
+
+- **Architect** accepts the retraction but wants the `close_detection`
+  validator rule written as SCHEMA TEXT before he closes. He also requires
+  `settlement_deadline` plus the retention-policy digest carried in the leaf,
+  the witness ENDPOINT beside `component_id` (the leaf has the id, not the
+  address), and `expired` as `source: measured` against a NAMED clock.
+- **Loki** is blocking on the ratchet vantage. His point, conceded by the
+  engineers: the counter proves every event that WAS NUMBERED was delivered;
+  it cannot prove every artifact that EXISTED was numbered. Under (c) those
+  differ by exactly the uncaptured class. An artifact written straight to
+  `output/` spends no counter, so the sequence stays intact while the artifact
+  stays invisible.
+
+It is committed unsettled on purpose: rounds 4-7 contain the whole (c)
+decision and the regression, and losing them to a session ending would be
+worse than publishing an argument still in progress.
 
 1. **The `/history` falsifying test is still unrun.** Every seat agrees it gates
    schema freeze. It was never executed against a pinned ComfyUI version, in either
