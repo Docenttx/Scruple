@@ -48,10 +48,15 @@ export const dynamic = 'force-dynamic';
 export default async function StudioPage({
   searchParams,
 }: {
-  searchParams: { profile?: string };
+  searchParams: { profile?: string; host_apps?: string };
 }) {
   const h = headers();
   const declared = searchParams?.profile ?? h.get('x-scruple-profile');
+  // ⚑ WO-E5. The second announcement, forwarded verbatim. This page does not
+  // parse it, does not validate it and does not default it: the capabilities
+  // endpoint owns that, and a typo'd id lands in the refusal below rather than
+  // in a region quietly not being drawn.
+  const hostApps = searchParams?.host_apps ?? h.get('x-scruple-host-apps');
 
   if (declared != null && !isDeploymentProfile(declared)) {
     return (
@@ -65,7 +70,11 @@ export default async function StudioPage({
 
   const host = h.get('host') ?? '127.0.0.1:3000';
   const proto = h.get('x-forwarded-proto') ?? (host.startsWith('127.0.0.1') || host.startsWith('localhost') ? 'http' : 'https');
-  const url = `${proto}://${host}/api/v2/capabilities?profile=${encodeURIComponent(profile)}`;
+  const url =
+    `${proto}://${host}/api/v2/capabilities?profile=${encodeURIComponent(profile)}` +
+    (hostApps === null || hostApps === undefined
+      ? ''
+      : `&host_apps=${encodeURIComponent(hostApps)}`);
 
   let caps: DeploymentCapabilities;
   try {

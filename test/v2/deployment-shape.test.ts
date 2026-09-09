@@ -148,6 +148,90 @@ describe('absent, not empty', () => {
     );
   });
 
+  // ── WO-E5. One region whose applicability is a fact about the MACHINE, not
+  // about the deployment, and the three answers that are not two.
+  test('the Blender region applies only when the host announced a Blender', () => {
+    const drawn = deploymentCapabilities('desktop', ['comfyui', 'blender']);
+    assert.equal(drawn.regions.find((r) => r.region === 'blender')!.applies, true);
+
+    const looked = deploymentCapabilities('desktop', ['comfyui']);
+    assert.equal(looked.regions.find((r) => r.region === 'blender')!.applies, false);
+
+    const silent = deploymentCapabilities('desktop');
+    assert.equal(silent.regions.find((r) => r.region === 'blender')!.applies, false);
+  });
+
+  test('“the host found none” and “nothing measured this machine” are different answers', () => {
+    // Both leave the region undrawn, and they have different owners: one is a
+    // box without Blender, the other is a host that never told anyone
+    // anything. A `reason` that read the same for both would send someone to
+    // the wrong file, which is why `blind` and `declined` exist one layer down.
+    const looked = deploymentCapabilities('desktop', ['comfyui']);
+    const silent = deploymentCapabilities('desktop');
+    const reason = (c: typeof looked) => c.regions.find((r) => r.region === 'blender')!.reason;
+    assert.notEqual(reason(looked), reason(silent));
+    assert.equal(looked.host_apps.honoured, true);
+    assert.equal(silent.host_apps.honoured, false);
+    assert.deepEqual(looked.host_apps.announced, ['comfyui']);
+    assert.equal(silent.host_apps.announced, null);
+  });
+
+  test('an empty announcement is an announcement, not silence', () => {
+    const none = deploymentCapabilities('desktop', []);
+    assert.deepEqual(none.host_apps.announced, []);
+    assert.equal(none.host_apps.honoured, true);
+    assert.notEqual(
+      none.regions.find((r) => r.region === 'blender')!.reason,
+      deploymentCapabilities('desktop').regions.find((r) => r.region === 'blender')!.reason,
+    );
+  });
+
+  test('a served deployment records that it ignored an announcement', () => {
+    const web = deploymentCapabilities('web', ['blender']);
+    assert.equal(web.regions.find((r) => r.region === 'blender')!.applies, false);
+    assert.equal(web.host_apps.honoured, false);
+    // ⚑ Recorded, not dropped: an ignored input that left no trace would make
+    // this answer identical to one where nothing was announced.
+    assert.deepEqual(web.host_apps.announced, ['blender']);
+    assert.notEqual(web.host_apps.reason, deploymentCapabilities('web').host_apps.reason);
+  });
+
+  test('the Blender APP is listed whatever the announcement says — only the REGION comes and goes', () => {
+    // docs/STATE.md §0: "a dashboard that quietly omitted them would be the
+    // failure mode." The entry is always there; `available` and the reason are
+    // what move.
+    for (const announced of [undefined, [], ['comfyui'], ['comfyui', 'blender']] as const) {
+      const caps = deploymentCapabilities('desktop', announced as never);
+      const entry = caps.compute.find((c) => c.id === 'blender');
+      assert.ok(entry, `no Blender entry for announcement ${JSON.stringify(announced)}`);
+      assert.equal(entry!.source, 'host');
+    }
+    assert.equal(deploymentCapabilities('desktop', ['blender']).compute.find((c) => c.id === 'blender')!.available, true);
+    assert.equal(deploymentCapabilities('desktop', []).compute.find((c) => c.id === 'blender')!.available, false);
+  });
+
+  test('the region drawn for an announced Blender contains no reading of its own', () => {
+    // The server draws the frame; every value inside it comes over the preload
+    // bridge. A server-rendered version number would be the failure this whole
+    // split exists to prevent, so the markup must not contain one.
+    const html = renderToStaticMarkup(
+      createElement(StudioDashboard, { caps: deploymentCapabilities('desktop', ['blender']) }),
+    );
+    assert.ok(html.includes('data-region="blender"'));
+    assert.equal(/\b\d+\.\d+\.\d+\b/.test(html.split('data-region="blender"')[1].slice(0, 1200)), false,
+      'the server-rendered Blender region contains something version-shaped');
+  });
+
+  test('a desktop dashboard with no announcement mentions the Blender region nowhere', () => {
+    const html = renderToStaticMarkup(
+      createElement(StudioDashboard, { caps: deploymentCapabilities('desktop') }),
+    );
+    assert.equal(html.split('data-region="blender"').length - 1, 0);
+    assert.equal(html.split('data-host-fact="blender"').length - 1, 0);
+    // …and the app is still on the list, which is the distinction.
+    assert.ok(html.includes('data-compute="blender"'));
+  });
+
   test('applicableRegions never returns a region that does not apply', () => {
     for (const profile of ['desktop', 'web'] as const) {
       const caps = deploymentCapabilities(profile);

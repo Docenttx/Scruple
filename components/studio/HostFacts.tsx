@@ -19,7 +19,22 @@
 // runner's JSX transform needs `React` in scope.
 import React, { useEffect, useState } from 'react';
 
-type Fact = 'apps' | 'gate' | 'vault' | 'modelStore';
+type Fact = 'apps' | 'gate' | 'vault' | 'modelStore' | 'blender';
+
+/** ⚑ WO-E5. Which bridge method answers each fact. `blender` is on a channel
+ *  of its own because it is a different KIND of reading: the others are an
+ *  `fs.existsSync` and a live session object, and this one starts a Blender and
+ *  asks it. Putting it on `scruple:profile` would make every dashboard render
+ *  wait for a headless Blender, and a bridge with no `blender` method — an
+ *  older host, or one built without it — reads `unavailable` here instead of
+ *  making the other four panels unreadable. */
+const CHANNEL: Record<Fact, 'profile' | 'blender'> = {
+  apps: 'profile',
+  gate: 'profile',
+  vault: 'profile',
+  modelStore: 'profile',
+  blender: 'blender',
+};
 
 interface HostProfile {
   ok?: boolean;
@@ -29,6 +44,13 @@ interface HostProfile {
   vault?: { dir: string | null; ceilingBytes: number | null; configured: boolean } | null;
   modelStore?: { root: string | null; files: number | null } | null;
   mainPid?: number;
+  // WO-E5. Only on the `blender` channel's reply. Every sub-reading carries
+  // its own state and its own reason, because "there is no addon" and "the
+  // Blender that would have told us never answered" are different facts.
+  binary?: { path: string | null; source: string; exists: boolean } | null;
+  version?: { state: string; value: string | null; reason: string } | null;
+  addon?: { state: string; module: string | null; enabled: boolean | null; reason: string } | null;
+  bridge?: { state: string; address: string | null; gateUrl: string | null; reason: string } | null;
 }
 
 declare global {
@@ -36,6 +58,7 @@ declare global {
     scruple?: {
       host?: string;
       profile?: () => Promise<HostProfile>;
+      blender?: () => Promise<HostProfile>;
       [k: string]: unknown;
     };
   }
@@ -49,26 +72,46 @@ export default function HostFacts({ fact }: { fact: Fact }) {
   useEffect(() => {
     let live = true;
     const bridge = typeof window !== 'undefined' ? window.scruple : undefined;
-    if (!bridge || typeof bridge.profile !== 'function') {
+    const method = CHANNEL[fact];
+    const call = bridge ? (bridge as Record<string, unknown>)[method] : undefined;
+    if (!bridge || typeof call !== 'function') {
       setState('unavailable');
       return;
     }
-    bridge
-      .profile()
-      .then((p) => {
-        if (!live) return;
-        setProfile(p);
-        setState(p && p.ok === false ? 'refused' : 'measured');
-      })
-      .catch((e) => {
-        if (!live) return;
-        setError(String((e && (e as Error).message) || e));
-        setState('refused');
-      });
+    // ⚑ A READING THAT IS NOT YET ANSWERABLE IS RE-ASKED, and only that one.
+    // `bridge.state === 'unknown'` means "there is no gate running to compare
+    // an address against" — not an answer, a not-yet. A panel that asked once
+    // and froze on it would be showing a stale non-answer for the rest of the
+    // session, which on a desktop is the whole session: the user launches
+    // ComfyUI after opening the dashboard, not before. Nothing else here
+    // re-polls, and a `none`/`elsewhere`/`at-the-gate` answer is final.
+    const pending = (p: HostProfile) => fact === 'blender' && p && p.bridge && p.bridge.state === 'unknown';
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const ask = () => {
+      (call as () => Promise<HostProfile>)
+        .call(bridge)
+        .then((p) => {
+          if (!live) return;
+          setProfile(p);
+          setState(p && p.ok === false ? 'refused' : 'measured');
+          if (pending(p) && tries < 20) {
+            tries += 1;
+            timer = setTimeout(ask, 3000);
+          }
+        })
+        .catch((e) => {
+          if (!live) return;
+          setError(String((e && (e as Error).message) || e));
+          setState('refused');
+        });
+    };
+    ask();
     return () => {
       live = false;
+      if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [fact]);
 
   if (state === 'reading') {
     return (
@@ -117,6 +160,38 @@ function rows(fact: Fact, p: HostProfile | null): Array<[string, string]> {
       ['adapter', p.gate.adapter ?? '—'],
       ['running', String(p.gate.running)],
     ];
+  }
+  if (fact === 'blender') {
+    // ⚑ THE THREE THINGS THE WORK ORDER ASKS THE REGION TO NAME, each with the
+    // state of its own reading in front of it. A reading that did not happen
+    // says so; none of these falls back to a plausible value.
+    const out: Array<[string, string]> = [];
+    out.push(['binary', p.binary && p.binary.path ? `${p.binary.path} (${p.binary.source})` : 'none found']);
+    out.push([
+      'version',
+      p.version && p.version.state === 'measured' && p.version.value
+        ? p.version.value
+        : `unread — ${(p.version && p.version.reason) || 'no reason given'}`,
+    ]);
+    out.push([
+      'addon',
+      p.addon && p.addon.state === 'measured'
+        ? p.addon.enabled
+          ? `enabled — ${p.addon.module}`
+          : `not enabled — ${p.addon.reason}`
+        : `unread — ${(p.addon && p.addon.reason) || 'no reason given'}`,
+    ]);
+    out.push([
+      'bridge',
+      p.bridge
+        ? p.bridge.state === 'at-the-gate'
+          ? `pointed at the gate — ${p.bridge.address}`
+          : p.bridge.state === 'elsewhere'
+            ? `pointed elsewhere — ${p.bridge.address}`
+            : `${p.bridge.state} — ${p.bridge.reason}`
+        : 'unread — the host returned nothing for the bridge',
+    ]);
+    return out;
   }
   if (fact === 'vault') {
     if (!p.vault) return [['vault', 'not configured']];

@@ -57,6 +57,37 @@
 //
 // A dashboard that printed "ComfyUI 0.18.1" because the server told it so would
 // be inventing a measurement, which is the failure this whole estate is about.
+//
+// ---------------------------------------------------------------------------
+// ⚑ WO-E5: ONE REGION WHOSE APPLICABILITY IS NOT THE SERVER'S TO KNOW
+// ---------------------------------------------------------------------------
+//
+// Every region above applies because of what the DEPLOYMENT is. `blender` is
+// different: whether there is a Blender on the box is a fact about the box, and
+// the paragraph above says in as many words that the server does not have it.
+//
+// So the host announces it, the same way it announces which deployment it is —
+// `x-scruple-host-apps: comfyui,blender`, set in scruple-desktop's main process
+// on the window's session, measured with `fs.existsSync` at the moment the
+// header is built (scruple-desktop/app/ipc-blender.js `installedAppIds()`).
+// The server does not guess, does not probe, and does not default:
+//
+//   announced, contains blender   → the region applies and the HOST fills it
+//   announced, does not           → it does not apply. The box has no Blender.
+//   not announced at all          → it does not apply, and for a DIFFERENT
+//                                   reason: nothing has measured this machine.
+//
+// The two negatives are one boolean here and two sentences in `reason`, which
+// is the same asymmetry `blind` and `declined` hold open one layer down
+// (scruple-desktop/docs/HOST-HOOK.md): "never installed" and "not measured"
+// have different owners and a UI that read the same for both would send someone
+// to the wrong file.
+//
+// ⚑ AND THE APP IS STILL LISTED. `compute` keeps its Blender entry in all three
+// cases, marked unavailable with the reason. STATE.md §0: "a dashboard that
+// quietly omitted them would be the failure mode." The REGION is the thing that
+// is absent — a panel of readings nobody took — not the fact that this
+// deployment is for a local Blender.
 
 import { APPS } from '@/lib/apps/registry';
 import type { SessionBackendId } from '@/lib/apps/session-backends';
@@ -81,6 +112,7 @@ export const REGION_IDS = [
   'capture-gate',     // the gate in the path between a host and ComfyUI
   'vault',            // a directory of files at a moment, hashed as a unit
   'model-store',      // fingerprints computed from the files on this disk
+  'blender',          // ⚑ WO-E5. ONLY when the host announced one — see below
   'cloud-compute',    // Modal / RunPod session backends
   'machine-tiers',    // pick a GPU; only meaningful when someone else runs it
   'billing',          // metered compute someone is charged for
@@ -107,6 +139,23 @@ export interface ComputeEntry {
   reason: string;
 }
 
+/**
+ * The local apps a host may announce. Closed, and validated at the route: an
+ * id nobody here knows is REFUSED rather than dropped, for the reason `mime`
+ * and `profile` are — a silently ignored input is a wrong answer that looks
+ * exactly like a right one.
+ */
+export const HOST_APP_IDS = ['comfyui', 'kohya', 'blender'] as const;
+export type HostAppId = (typeof HOST_APP_IDS)[number];
+
+export function isHostAppId(v: unknown): v is HostAppId {
+  return typeof v === 'string' && (HOST_APP_IDS as readonly string[]).includes(v);
+}
+
+/** What the host announced about itself, or `null` when it announced nothing.
+ *  An empty array is an announcement: "I looked, and there is nothing." */
+export type HostAppAnnouncement = readonly HostAppId[] | null;
+
 export interface DeploymentCapabilities {
   profile: DeploymentProfile;
   /** The capture profile a leaf written by this deployment carries. */
@@ -119,6 +168,15 @@ export interface DeploymentCapabilities {
   };
   /** Facts this answer deliberately does not contain, and who has them. */
   host_facts: 'required' | 'none';
+  /** ⚑ WO-E5. What the host said it has, whether this answer used it, and why.
+   *  Present on both profiles: a web deployment that was handed an
+   *  announcement records that it ignored one rather than ignoring it
+   *  silently. */
+  host_apps: {
+    announced: HostAppId[] | null;
+    honoured: boolean;
+    reason: string;
+  };
 }
 
 /** The capture profile each deployment shape writes leaves under. */
@@ -127,7 +185,8 @@ const CAPTURE_PROFILE: Record<DeploymentProfile, CaptureProfile> = {
   web: 'server-managed',
 };
 
-function desktopCompute(): ComputeEntry[] {
+function desktopCompute(announced: HostAppAnnouncement): ComputeEntry[] {
+  const has = (id: HostAppId) => announced !== null && announced.includes(id);
   return [
     {
       id: 'comfyui',
@@ -156,11 +215,24 @@ function desktopCompute(): ComputeEntry[] {
       name: 'Blender',
       backend: 'local',
       source: 'host',
-      available: false,
-      reason:
-        '⛑ Blender is not installed in this app yet. The gate it would plug ' +
-        'into is host-agnostic and already in the path; what is missing is the ' +
-        'launcher and the Level-2 adapter that supplies the meaning.',
+      // ⚑ WO-E5. This entry is ALWAYS here — the app is what this deployment
+      // is for, and omitting it when the box has none would hide the answer
+      // rather than give it. What changes is `available` and, more usefully,
+      // the reason, which distinguishes "the host looked and found none" from
+      // "nothing has looked".
+      available: has('blender'),
+      reason: has('blender')
+        ? 'Announced by the host on this request. The version comes from the running ' +
+          'binary, the addon’s enabled state from the Blender that loaded it, and a ' +
+          'bridge’s address from that bridge’s own preferences — all of them readings ' +
+          'the host takes, none of them values this answer supplies.'
+        : announced !== null
+          ? 'The host announced its local apps on this request and no Blender was among ' +
+            'them. Listed because a local Blender is what this deployment is FOR; ' +
+            'unavailable because this machine has none where the app looks.'
+          : 'No host announcement on this request, so nothing has measured this machine. ' +
+            'Unavailable is what an UNMEASURED app is here — it is not a claim that no ' +
+            'Blender is installed, which is a reading only the host can take.',
     },
   ];
 }
@@ -183,13 +255,25 @@ function webCompute(): ComputeEntry[] {
   }));
 }
 
-export function computeFor(profile: DeploymentProfile): ComputeEntry[] {
-  return profile === 'desktop' ? desktopCompute() : webCompute();
+export function computeFor(
+  profile: DeploymentProfile,
+  announced: HostAppAnnouncement = null,
+): ComputeEntry[] {
+  return profile === 'desktop' ? desktopCompute(announced) : webCompute();
 }
 
-export function deploymentCapabilities(profile: DeploymentProfile): DeploymentCapabilities {
-  const compute = computeFor(profile);
+export function deploymentCapabilities(
+  profile: DeploymentProfile,
+  hostApps: HostAppAnnouncement = null,
+): DeploymentCapabilities {
   const desktop = profile === 'desktop';
+  // A served deployment has no host, so an announcement made to one is
+  // RECORDED AND NOT USED. Ignoring it silently would be the same defect as
+  // coercing a typo'd profile: the answer would look identical to one where
+  // nothing was announced at all.
+  const announced: HostAppAnnouncement = desktop ? hostApps : null;
+  const hasApp = (id: HostAppId) => announced !== null && announced.includes(id);
+  const compute = computeFor(profile, announced);
 
   // `enforcement` is 'none' for a server-managed deployment until a placement
   // says otherwise; this reports what a leaf written RIGHT NOW would be able to
@@ -225,6 +309,20 @@ export function deploymentCapabilities(profile: DeploymentProfile): DeploymentCa
       reason: desktop
         ? 'Fingerprints computed from the files in the local model store — the only way to answer “was a proprietary LoRA used” rather than “a file with that name was referenced”.'
         : 'Models live in the container the workflow runs in; the fingerprints come off that box, not off this one.',
+    },
+    // ⚑ WO-E5. THE ONE REGION THAT IS NOT THE SERVER'S TO DECIDE. See the
+    // header. `applies` follows the host's announcement and nothing else; the
+    // two ways it can be false are one boolean and two different sentences.
+    blender: {
+      region: 'blender',
+      applies: desktop && hasApp('blender'),
+      reason: !desktop
+        ? 'A served deployment never launches Blender on the user’s machine, so there is no binary to read a version out of and no addon to ask.'
+        : hasApp('blender')
+          ? 'The host announced a Blender on this machine. What version it is, whether the Scruple addon is enabled and where a bridge is pointed are readings the HOST takes — this answer only says the region has something to draw.'
+          : announced !== null
+            ? 'The host announced its local apps on this request and Blender was not among them. There is nothing on this machine for the region to report, and a Blender panel here would be chrome for a thing the box does not have.'
+            : 'Nothing announced its local apps on this request. The server cannot know whether a Blender is installed and will not draw a region for one it has not been told about — which is a different fact from having been told there is none.',
     },
     'cloud-compute': {
       region: 'cloud-compute',
@@ -273,6 +371,17 @@ export function deploymentCapabilities(profile: DeploymentProfile): DeploymentCa
           : 'This deployment has no placement enforcement configured, so a leaf it writes cannot claim `verified` today.',
     },
     host_facts: desktop ? 'required' : 'none',
+    host_apps: {
+      announced: hostApps === null ? null : [...hostApps],
+      honoured: desktop && hostApps !== null,
+      reason: !desktop
+        ? hostApps === null
+          ? 'A served deployment has no host to have apps, and none was announced.'
+          : 'An announcement was made to a served deployment and was NOT used. Recorded rather than dropped: an ignored input that left no trace would make this answer indistinguishable from one where nothing was announced.'
+        : hostApps === null
+          ? 'Nothing announced its local apps on this request. Regions that depend on a reading of this machine do not apply, because no reading was offered.'
+          : 'The host announced its local apps on this request and this answer used them.',
+    },
   };
 }
 

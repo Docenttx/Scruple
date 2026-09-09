@@ -122,6 +122,21 @@ export const RENDERERS: Record<
     </Section>
   ),
 
+  // ⚑ WO-E5. Drawn only when the host announced a Blender — `applicableRegions`
+  // filters and this map is never reached otherwise, which is why there is no
+  // "no Blender detected" branch anywhere below. The panel's three readings are
+  // the host's; this component contributes no value of its own.
+  blender: () => (
+    <Section region="blender" title="Blender">
+      <p className="hint">
+        On this machine, read from the Blender that is on it: the version from
+        the running binary, the addon’s state from the Blender that loaded it,
+        and a bridge’s address from that bridge’s own preferences.
+      </p>
+      <HostFacts fact="blender" />
+    </Section>
+  ),
+
   'cloud-compute': (caps) => (
     <Section region="cloud-compute" title="Cloud compute">
       <p className="hint">Sessions spawn on someone else’s machine.</p>
