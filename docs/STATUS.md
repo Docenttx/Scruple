@@ -28,4 +28,4 @@
 09:15:12Z  gates re-run after the change: d1 d2 d3 d4 PASS, d5 PASS (after the
            fix above), d6 PASS. Server suites: v2 863/863, conformance 47/47,
            integration 19/19, host SDK 214 pass / 2 pre-existing red.
-
+09:15:12Z  DONE   WO-D6  head=fcd5841  (server head=4ee9370)
