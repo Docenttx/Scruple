@@ -32,3 +32,5 @@ Sandbox: witness http://127.0.0.1:5899 · app http://127.0.0.1:3902 · surrogate
                   ⚑ 2 host-SDK tests are RED and were RED at HEAD before this WO
                   (proved on a clean worktree). Left red on purpose — see §10(b).
 05:00Z  DONE   WO-C6  head=1bbd8b4
+04:56:45Z  DONE   WO-C6  (21m)  head=a9f66a3
+04:56:45Z  ALL WORK ORDERS COMPLETE

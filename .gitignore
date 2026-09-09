@@ -20,6 +20,12 @@ dist/
 *.db-wal
 data/scruple.db
 
+# Witness client credentials. `data/witness/<witness-id>.json` holds an apiKey
+# and an hmacSecret, written at runtime with mode 600 when a component
+# registers. Untracked is not enough — nothing here matched it, so a single
+# `git add .` would have committed a live credential.
+data/witness/
+
 # Logs
 *.log
 npm-debug.log*
