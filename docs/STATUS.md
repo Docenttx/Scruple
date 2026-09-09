@@ -70,4 +70,4 @@
            PASS. Server (no code changed by this WO): v2 863/863, conformance
            47/47, integration 19/19, host SDK 214 pass / 2 pre-existing red
            (test_model_write.py, red before this WO started).
-10:12:30Z  DONE   WO-D7  head=(this commit)  — docs/STATE.md is the close-out
+10:12:30Z  DONE   WO-D7  head=880ceee  — docs/STATE.md is the close-out
