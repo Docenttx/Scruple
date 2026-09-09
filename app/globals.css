@@ -1,3 +1,9 @@
+/* The canon desktop design, carried across once (WO-D5). It declares the 20
+   canon tokens on :root — which tailwind.config.ts reads, so the palette has
+   ONE definition — and the workspace/wallet layouts under .scruple-canon.
+   Generated: scripts/port-canon-css.mjs. */
+@import './theme/canon.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

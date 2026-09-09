@@ -25,21 +25,37 @@ const config: Config = {
     extend: {
       colors: {
         scruple: {
-          // ── Canonical desktop palette (1:1 from main.css :root) ──────
-          'bg-primary': '#0a0f1c',
-          'bg-secondary': '#111827',
-          'bg-tertiary': '#1f2937',
-          'bg-hover': '#374151',
-          'text-primary': '#f9fafb',
-          'text-secondary': '#9ca3af',
-          'text-deep-muted': '#6b7280',
-          'accent-primary': '#00d9ff',
-          'accent-secondary': '#3b82f6',
-          'accent-purple': '#8b5cf6',
-          'border-color': '#374151',
-          'border-light': '#4b5563',
+          // ── Canonical desktop palette ────────────────────────────────
+          // NOT hex any more. Every one of these reads the token declared by
+          // app/theme/canon.css, which is generated from the canon stylesheet
+          // itself — so `bg-scruple-bg` and a canon rule saying
+          // `background: var(--bg-primary)` are now the SAME value by
+          // construction rather than by two people keeping two files in step.
+          //
+          // The `rgb(<channels> / <alpha-value>)` form is what makes the
+          // opacity modifiers already in use (bg-scruple-accent/10 and 34
+          // others) keep working against a variable.
+          'bg-primary': 'rgb(var(--bg-primary-rgb) / <alpha-value>)',
+          'bg-secondary': 'rgb(var(--bg-secondary-rgb) / <alpha-value>)',
+          'bg-tertiary': 'rgb(var(--bg-tertiary-rgb) / <alpha-value>)',
+          'bg-hover': 'rgb(var(--bg-hover-rgb) / <alpha-value>)',
+          'text-primary': 'rgb(var(--text-primary-rgb) / <alpha-value>)',
+          'text-secondary': 'rgb(var(--text-secondary-rgb) / <alpha-value>)',
+          'text-deep-muted': 'rgb(var(--text-muted-rgb) / <alpha-value>)',
+          'accent-primary': 'rgb(var(--accent-primary-rgb) / <alpha-value>)',
+          'accent-secondary': 'rgb(var(--accent-secondary-rgb) / <alpha-value>)',
+          'accent-purple': 'rgb(var(--accent-purple-rgb) / <alpha-value>)',
+          'border-color': 'rgb(var(--border-color-rgb) / <alpha-value>)',
+          'border-light': 'rgb(var(--border-light-rgb) / <alpha-value>)',
 
-          // ── Wallet-specific fallback colors (from wallet.css) ────────
+          // ── Wallet fallback colours (from wallet.css) ────────────────
+          // STILL LITERALS, and deliberately. wallet.css declares no tokens at
+          // all; it reads names nothing defines and renders the fallback. Two
+          // of those names carry MORE THAN ONE fallback at different sites
+          // (--code-bg is #2a2a2a in one rule and #1a1a1a in another), so there
+          // is no single token to point at. Hoisting them would have to pick a
+          // winner and would silently restyle the loser. See the defect list at
+          // the top of app/theme/canon.css.
           'panel-bg': '#1e1e1e',
           'panel-header-bg': '#252525',
           'panel-footer-bg': '#1a1a1a',
@@ -47,25 +63,26 @@ const config: Config = {
           'status-bg': '#2a2a2a',
           'code-bg': '#2a2a2a',
           'input-bg': '#2a2a2a',
-          'wallet-accent': '#4a9eff',         // wallet primary accent (different from main!)
+          'wallet-accent': '#4a9eff',
           'wallet-success': '#28a745',
           'wallet-warning': '#ffc107',
           'wallet-danger': '#dc3545',
 
-          // ── Legacy aliases — same Tailwind keys, retuned to desktop ──
-          bg: '#0a0f1c',
-          surface: '#111827',
-          border: '#374151',
-          text: '#f9fafb',
-          muted: '#9ca3af',
-          accent: '#00d9ff',
-          success: '#10b981',
-          warn: '#f59e0b',
-          danger: '#ef4444',
+          // ── Legacy aliases — same Tailwind keys, same canon tokens ────
+          bg: 'rgb(var(--bg-primary-rgb) / <alpha-value>)',
+          surface: 'rgb(var(--bg-secondary-rgb) / <alpha-value>)',
+          border: 'rgb(var(--border-color-rgb) / <alpha-value>)',
+          text: 'rgb(var(--text-primary-rgb) / <alpha-value>)',
+          muted: 'rgb(var(--text-secondary-rgb) / <alpha-value>)',
+          accent: 'rgb(var(--accent-primary-rgb) / <alpha-value>)',
+          success: 'rgb(var(--accent-success-rgb) / <alpha-value>)',
+          warn: 'rgb(var(--accent-warning-rgb) / <alpha-value>)',
+          danger: 'rgb(var(--accent-error-rgb) / <alpha-value>)',
         },
       },
       width: {
-        sidebar: '220px',
+        // The canon token, not a copy of it.
+        sidebar: 'var(--sidebar-width)',
       },
       gridTemplateColumns: {
         shell: '220px 1fr',
@@ -78,6 +95,10 @@ const config: Config = {
         locks: 'repeat(3, 1fr)',
       },
       transitionDuration: {
+        // --transition-fast is `150ms ease` in the canon: a duration AND an
+        // easing in one token, which a Tailwind duration utility cannot take.
+        // The durations are therefore still literals here, and the test pins
+        // them against the canon token so they cannot drift apart.
         fast: '150ms',
         normal: '250ms',
       },
@@ -106,6 +127,10 @@ const config: Config = {
       },
       // Desktop keyframes (catalog §7)
       animation: {
+        // These point at Tailwind's own keyframes below. The canon's keyframes
+        // live in app/theme/canon.css under `canon-` names — @keyframes has one
+        // global namespace, and two `spin`s fighting over it is exactly what
+        // the port refused to leave in place.
         spin: 'spin 1s linear infinite',
         'spin-slow': 'spin 1.5s linear infinite',
         pulse: 'pulse 1.5s ease-in-out infinite',
