@@ -92,16 +92,35 @@
 //
 // Measured 2026-09-09: three live Merkle constructions that do not agree
 // (`lib/scruple/merkle.ts` sorted-pair, no domain separation;
-// `lib/witness/merkle.ts` RFC 6962; `/opt/scruple-witness/server.js:490` hex
-// concat), and the witness anchors whichever root the caller supplies. "The
-// root" is not a well-defined value today, so no checkpoint can be claimed
-// settled by anybody.
+// `lib/witness/merkle.ts` domain-separated but NOT RFC 6962 — see below;
+// `/opt/scruple-witness/server.js:483` hex concat), and the witness anchors
+// whichever root the caller supplies (`server.js:911`). "The root" is not a
+// well-defined value today, so no checkpoint can be claimed settled by anybody.
 //
 // THAT SENTENCE IS A CONSTANT IN THIS FILE AND NOT A COMMENT ANYWHERE,
 // because the council's own failure mode — twice — was a retracted
 // requirement surviving as prose and being re-enabled by the next
 // contributor. WO-C6 flips CHECKPOINT_VECTORS_SETTLED when the vectors pass.
 // Nothing else may.
+//
+// ⚑ WO-C6 LANDED AS A PLAN AND VECTORS, AND THE FLAG DID NOT MOVE.
+// `test/vectors/merkle-vectors.json` is the shared vector file Appendix C
+// item 0 names; `npm run merkle:conformance` runs it against all three
+// constructions plus the verifier copy. Result on 2026-09-09: NONE of the four
+// passes and no two of them agree on more than one tree. The plan, the
+// deletion list and the cutover order are in
+// `docs/canon/council-impl/WO-C6.md`; the flag flips in WO-C7 step 7, after
+// the witness deploy in step 6 and never before it.
+//
+// ⚑ AND ONE CORRECTION TO THE LINE ABOVE, WHICH IS WHY THE SURVIVOR IS NOT
+// ALREADY CORRECT. `lib/witness/merkle.ts` calls itself "RFC 6962-style" and
+// is not RFC 6962: its tags are swapped (`0x01` leaf / `0x00` node against the
+// RFC's `0x00`/`0x01`) and it duplicates the last leaf instead of splitting at
+// the largest power of two below n. The second is CVE-2012-2459 — measured in
+// `test/v2/merkle-conformance.test.ts`, `MTH([a,b,c]) === MTH([a,b,c,c])` — a
+// live second-preimage weakness in the construction the checkpoint scheduler
+// writes into `log_checkpoints` today. It survives the cutover as a LOCATION,
+// not as an algorithm.
 
 import type { Placement, PlacementEnforcement } from '@/lib/capture/surface';
 

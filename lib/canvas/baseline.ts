@@ -292,5 +292,22 @@ export const CANVAS_BASELINE = {
   //
   // The previous value, for the record: 8daff6dacc99c8c3d699c5527b9316c4
   // 70f4492c811b76e416cdfefbf10f6e3a (WO-25, the seal stamp).
-  tamper_surface_hash: '53b4f837aad3560c6450678463cee0049326d8e36b54d46bc9e873cb8d0066ba',
+  //
+  // Re-recorded by WO-C6. WHY THE HASH MOVED, AND IT IS NOT THE CAPTURE PATH:
+  // `package.json` again, twice over. It gained two npm scripts
+  // (`gen:merkle-vectors`, `merkle:conformance`), and — the one worth reading
+  // — its `test:v2` file list was `grep -v conformance.test.ts`, an unanchored
+  // substring filter that silently excluded the NEW
+  // `test/v2/merkle-conformance.test.ts` along with the intended
+  // `test/v2/conformance.test.ts`. The suite reported 808 passing tests both
+  // before and after the file was added, which is a green suite quietly not
+  // running a test. It is now `grep -vx test/v2/conformance.test.ts`.
+  // Nothing canvas captures, records or is permitted to claim changed, and no
+  // dependency pin moved; `package.json` is on TRACKED for the pins and this
+  // list hashes whole files. Same false-positive-by-design as WO-C3, recorded
+  // as what it is.
+  //
+  // The previous value, for the record: 53b4f837aad3560c6450678463cee004
+  // 9326d8e36b54d46bc9e873cb8d0066ba (WO-S1(a), above).
+  tamper_surface_hash: '7f0d12a70483a882971b784b188a81bad29756d602cc30ded548842d75eb82a1',
 } as const;

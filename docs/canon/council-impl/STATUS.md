@@ -20,3 +20,14 @@ Sandbox: witness http://127.0.0.1:5899 · app http://127.0.0.1:3902 · surrogate
 03:53:51Z  START  WO-C5
 04:35:10Z  DONE   WO-C5        gate PASSED — see docs/canon/council-impl/WO-C5.md
 2026-09-09T04:35:00Z  DONE   WO-C5  head=fcbfe91
+04:35:35Z  DONE   WO-C5  (41m)  head=a8f91e2
+04:35:35Z  START  WO-C6
+05:00:00Z  DONE   WO-C6        gate PASSED — plan + vectors + runner; see docs/canon/council-impl/WO-C6.md
+                  ⚑ WO-C6 does NOT lift the blocker. None of the 4 live Merkle
+                  implementations passes the shared vectors; CHECKPOINT_VECTORS_SETTLED
+                  stays false and every leaf keeps saying `stale`. Cutover = WO-C7,
+                  and its step 6 is a /opt/scruple-witness deploy — founder only.
+                  ⚑ Found on the way: npm run test:v2's glob silently excluded the new
+                  test file (unanchored `grep -v conformance.test.ts`) — fixed, 818 now.
+                  ⚑ 2 host-SDK tests are RED and were RED at HEAD before this WO
+                  (proved on a clean worktree). Left red on purpose — see §10(b).
