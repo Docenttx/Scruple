@@ -56,12 +56,48 @@ true statement, and it needs to be on the leaf, not in a footnote.
 
 ## Blender on this box
 
-🔴 `/usr/bin/blender` is **3.0.1**. The addon's own `bl_info` declares
-`"blender": (3, 6, 0)` and `blender_manifest.toml` declares
-`blender_version_min = "4.2.0"`. **The installed Blender cannot load the addon
-we ship**, and the manifest path — the one 4.2+ users actually get — has never
-run here. WO-E3 exists because of this and nothing downstream is trustworthy
-until it passes.
+_Rewritten by WO-E3, 2026-09-09, from measurements. What stood here before was
+written from the two declared minimums and one of its two sentences was wrong._
+
+`/usr/bin/blender` is **3.0.1**, and it stays 3.0.1 — WO-E3's control needs it.
+Beside it, in this repo's own tree, is **Blender 4.2.23 LTS**:
+`vendor/blender/bin/blender`, put there by `scripts/e3-install-blender.sh` and
+gitignored. The manifest path — the one 4.2+ users actually get — now runs
+here, proved by `scripts/e3-gate.sh`.
+
+Two claims, and only one of them survived contact:
+
+- ✅ **The manifest path did not exist on this box, and now does.** 3.0.1 has
+  no extensions system at all: `"extensions" in dir(bpy.ops)` is `False` and
+  `bpy.context.preferences.extensions` is absent. The zip could only ever
+  arrive there as a classic addon under `scripts/addons/`, read through
+  `bl_info`. On 4.2.23 it installs as `bl_ext.user_default.scruple_blender`,
+  and the running Blender reports the floor as `(4, 2, 0)` and the description
+  as the manifest's `tagline` — both of which differ from `bl_info`'s, so the
+  reported values name the file Blender actually read.
+- ❌ ⚑ **"The installed Blender cannot load the addon we ship" is FALSE.**
+  Measured: 3.0.1 installs and enables the shipped zip, `enable()` raises
+  nothing, and all six `SCRUPLE_PT_*` panels register — *despite* `bl_info`
+  declaring `"blender": (3, 6, 0)`. Blender's `addon_utils.enable()` never
+  reads that field. On the legacy path the declared minimum is **advisory**:
+  shown in the preferences UI and enforced by nothing.
+
+The floor that **is** enforced is `blender_manifest.toml`'s, and only on 4.2+.
+Moving it to `4.9.0` gets the same zip refused by 4.2.23 with nothing left on
+disk and no fall back to `bl_info`. So the addon's shipping story is: 4.2+
+users are version-gated by the manifest; 3.x users are not gated at all and
+will load an addon built against an API three years newer than theirs. Whether
+`register()` should refuse below its own declared minimum is a product decision
+WO-E3 did not take — it is finding **E3-1** in `docs/WO-E3.md`.
+
+⚑ **blender.org publishes no Linux ARM64 build**, and this box is `aarch64`.
+Checked 2026-09-09 across the 4.2, 4.3, 4.4 and 4.5 release directories: each
+carries `linux-x64` and nothing else, and Ubuntu jammy's arm64 archive tops out
+at the 3.0.1 already here. The official `linux-x64` tarball is therefore
+installed unmodified, digest-checked, and run under `qemu-user` against an
+amd64 sysroot built in the same tree. Blender reports its own version through
+that shim and the addon loads through it, but **every Blender measurement in
+this series is taken on an emulated CPU** — recorded as finding **E3-2**.
 
 ## Where the bridge fits
 
