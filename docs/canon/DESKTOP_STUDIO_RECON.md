@@ -155,3 +155,58 @@ exists today.
 because it is not being replaced** — it is the canon the web UI was cloned from.
 Its own item is: establish the shared design-token source, so desktop and web
 stop drifting silently.
+
+---
+
+## Founder decisions, 2026-09-09
+
+### D · One UI, served — not two, and not bundled
+
+The dashboard is **one Next application**, served. Web Studio serves it directly;
+Desktop Studio hosts the same routes in a `BrowserWindow`. This is the pattern
+already proven on a real install by `app/embed/fusion/page.tsx` — a Next route
+designed to be mounted by a desktop host, with a host↔page bridge. Electron is
+the same shape with a preload script in place of `sendInfoToHTML`.
+
+What differs between the two is **capability, not code**.
+`GET /api/v2/capabilities` was built for exactly this and says so: *"applicability
+is not secret, and a client should be able to render its UI before the user has
+signed in."* Desktop reports local ComfyUI/Kohya, the vault, the wallet; web
+reports Modal and RunPod. Same components, different answers.
+
+⚑ This **dissolves** the drift rather than managing it. The proposal of a shared
+design-token source was the right fix for *two* implementations; with one, there
+is nothing to diverge. The canon design — 21 tokens, 2,175 lines of `main.css` —
+is ported **into** the shared theme once, and maintained in one place thereafter.
+
+**Not bundled.** Electron points at the served UI rather than shipping a local
+Next server. See the decision below for why the offline argument does not hold.
+
+### D · No offline mode. The queue is fault tolerance, not offline support
+
+**Both signatures require the network.** C2PA is `vault_sign_es256` against OCI
+Vault KMS; the leaf is H-1, ECDSA in an HSM via the same KMS Sign API. The
+local-file and kms-http paths are surrogate/sandbox only and produce
+`passthrough`, never `verified`. The key is deliberately somewhere the desktop
+cannot reach — that is the whole of the custody claim.
+
+So offline capture would need **its own attestation standard, signed by something
+on the user's machine** — and `verified` is already unrepresentable on a desktop
+because PCRs attest boot while the threat is runtime root. That standard would be
+a second, weaker tier beneath the weakest tier we offer. **Rejected: a whole
+specification to produce a claim nobody should rely on.**
+
+🔴 **Do not read this as "delete the queue."** Store-and-forward is fault
+tolerance for a system that requires the network — a witness that is slow,
+saturated or restarting, which is Architect's scenario and IT Expert's, both with
+the user fully online. Without it a three-second hiccup either loses a capture or
+blocks a render. `settlement_deadline`, `unresolved` and terminal `expired` all
+stay: they describe a leaf waiting on a hiccup, not a user on a plane.
+
+### What the product therefore is
+
+**Scruple Desktop Studio is a local agent with a dashboard, not a standalone
+application.** It owns what genuinely requires being on the machine — the
+launches, the gate, the vault, the model fingerprints — and it is honest about
+being useless without the server rather than claiming a self-sufficiency it
+cannot back.
