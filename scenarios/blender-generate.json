@@ -306,7 +306,7 @@
       "expected": 0
     }
   ],
-  "auditNote": "Four mutations, and the point of the design is that no two of them read the same.\n\n`model-swap` is WO-D4's, unchanged, and must redden EXACTLY ONE assertion — the fingerprint of the bytes. New weights under the same filename, the same length and the same safetensors header: the graph is unmoved, the scene is unmoved, the leaf is still there. Three adapters deep in one sink chain, that difference still arrives alone.\n\n`bridge-around-the-gate` is control (b) and it is NOT `bypass-the-gate`: it changes the one string in a third-party add-on's preferences that IS the Level-1 integration. The generation still happens and the artifact is still witnessed — by the output-volume watcher — with no graph, no fingerprints and `blind` semantics. Bypassing produces a thinner record, never an absent one (finding D4-2).\n\n`blender-does-not-announce` leaves the addon installed, enabled and declared, and says nothing about THIS generation. `declined`, not `blind`: the leaf still names the host, because that is a fact about the deployment which stays true when an announcement is missing.\n\n`announce-the-phantom-under-the-real-id` changes ONE thing about the phantom announcement the clean run already writes: the id. The same document then DOES reach the leaf, which is how we know the prompt id is what kept it off.",
+  "auditNote": "Four mutations, and the point of the design is that no two of them read the same.\n\n`model-swap` is WO-D4's, unchanged, and must redden EXACTLY ONE assertion — the fingerprint of the bytes. New weights under the same filename, the same length and the same safetensors header: the graph is unmoved, the scene is unmoved, the leaf is still there. Three adapters deep in one sink chain, that difference still arrives alone.\n\n`bridge-around-the-gate` is control (b) and it is NOT `bypass-the-gate`: it changes the one string in a third-party add-on's preferences that IS the Level-1 integration. The generation still happens and the artifact is still witnessed — by the output-volume watcher — with no graph and no fingerprints. ⚑ AND IT IS NOT `blind`, which is what the work order predicted and what WO-D4 measured with nobody registered: the addon IS registered here, so the leaf reads `declined` and STILL NAMES THE HOST. `leaf-names-the-host` and `leaf-names-the-adapter-and-its-version` stay GREEN under this mutation, which is why they are not in its list. An operator reading that leaf learns two separate things — a Level-2 deployment exists, and this artifact came in past its gate. Finding E6-5.\n\n`blender-does-not-announce` leaves the addon installed, enabled and declared, and says nothing about THIS generation. `declined`, not `blind`: the leaf still names the host, because that is a fact about the deployment which stays true when an announcement is missing.\n\n`announce-the-phantom-under-the-real-id` changes ONE thing about the phantom announcement the clean run already writes: the id. The same document then DOES reach the leaf, which is how we know the prompt id is what kept it off.",
   "audit": {
     "bridge-around-the-gate": [
       "⚑-the-bridge-was-pointed-at-the-gate",
@@ -317,8 +317,6 @@
       "⚑-leaf-carries-the-model-fingerprint-of-the-BYTES",
       "fingerprints-hash-agrees",
       "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
-      "leaf-names-the-host",
-      "leaf-names-the-adapter-and-its-version",
       "⚑-leaf-carries-the-scene",
       "leaf-carries-the-frame",
       "leaf-carries-the-camera",

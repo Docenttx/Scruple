@@ -147,3 +147,25 @@
 19:56:00Z  DONE   WO-E5  (54m)  desktop=88d2628 web=01a8a55
 20:06:47Z  DONE   WO-E5  (63m)  desktop=a9782dd web=01a8a55
 20:06:47Z  START  WO-E6
+20:32:50Z  WO-E6 clean run PASSED twice: 36/36 assertions. A real third-party
+           bridge (alexisrolland/ComfyUI-Blender v3.3.4, release zip, digest
+           pinned, unmodified) inside Blender 4.2.23, pointed at the gate by
+           one string in its own AddonPreferences — the port the kernel gave
+           the gate. It POSTed /prompt, opened /ws and downloaded /view there.
+           ONE leaf: workflow_hash (recomputed here from the bridge own
+           client_id with the SDK hashWorkflow — it MATCHES), model
+           fingerprints over the file ComfyUI loaded, host_semantics=supplied
+           with scene/frame/camera/engine out of bpy.
+20:32:50Z  ⚑ E6-5: the work order predicted the bypassed leaf reads 'blind'.
+           MEASURED: 'declined', and it still NAMES the host — because the
+           addon IS registered, unlike WO-D4 where blind was right. Two
+           assertions stay green under bridge-around-the-gate and the audit
+           list says so. Reported, not bent to the prediction.
+20:32:50Z  ⚑ E6-1: this bridge sends NO prompt_id — HOST-HOOK.md assumed the host
+           mints one and announces BEFORE submitting. It cannot: the id only
+           exists after /prompt answers. Measured margin 1.8s. And an
+           unmodified bridge never calls bpy.ops.scruple.host_announce; the
+           caller here is the script standing in for the user's hand. Largest
+           unfinished product design in the series, named not hidden.
+           ⚑ E6-2: the bridge declares bl_info blender=(4,5,0) and ran on
+           4.2.23 anyway — E3-1 on a third party's addon.

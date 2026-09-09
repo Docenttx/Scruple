@@ -200,7 +200,14 @@ if [ -n "$BHASH" ]; then
   [ "$BW" -ge 1 ] && BWOK=yes || BWOK=no
   check "⚑ the bypassed artifact IS witnessed anyway (the watcher)" "yes" "$BWOK"
   check "…with no graph" "(null)" "$(sqlite3 "file:$DB?mode=ro" -batch "SELECT COALESCE(workflow_hash,'(null)') FROM iterations WHERE output_hash='$BHASH' ORDER BY id DESC LIMIT 1;")"
-  check "…and blind" "blind" "$(sqlite3 "file:$DB?mode=ro" -batch "SELECT host_semantics FROM iterations WHERE output_hash='$BHASH' ORDER BY id DESC LIMIT 1;")"
+  # ⚑ FINDING E6-5. The work order predicted `blind` here and WO-D4 measured
+  # `blind` — with nobody registered. The addon IS registered in this run, so
+  # the honest value is `declined`: an adapter was there and had nothing to say
+  # about an observation the gate never correlated to a prompt. The leaf still
+  # NAMES the host, which is a fact about the deployment rather than about this
+  # artifact. Asserted as measured, not as predicted.
+  check "…and DECLINED, not blind — the adapter is registered (E6-5)" "declined" "$(sqlite3 "file:$DB?mode=ro" -batch "SELECT host_semantics FROM iterations WHERE output_hash='$BHASH' ORDER BY id DESC LIMIT 1;")"
+  check "…and it still names the host, which stayed true" "blender" "$(sqlite3 "file:$DB?mode=ro" -batch "SELECT COALESCE(host,'(null)') FROM iterations WHERE output_hash='$BHASH' ORDER BY id DESC LIMIT 1;")"
 else
   echo "   FAIL  the bypassed run produced no artifact to look at — INCONCLUSIVE, not a pass"
   fail=$((fail+1))
