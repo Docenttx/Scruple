@@ -85,6 +85,12 @@ before_detail=$(git show "$D_BEFORE:app/ipc-profile.js" 2>/dev/null | grep -c "n
   && ok "the app said 'not installed in this app yet' BEFORE ($before_detail)" \
   || bad "expected the pre-change app to report Blender as not installed"
 check "it still says that AFTER" "$(grep -c 'not installed in this app yet' app/ipc-profile.js)" "0"
+# ⚑ Including in a comment. The first run of this gate went red here because a
+# comment explaining the change quoted the sentence it retired, and a control
+# that matches its own documentation is not measuring the code. The comment was
+# reworded; the check was widened rather than narrowed.
+check "…anywhere under app/" \
+  "$(grep -rc 'not installed in this app yet' app/ 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')" "0"
 
 stage "stage 2 — the shape follows the ANNOUNCEMENT, from the shell"
 # Independent of node, of the driver and of the app process: curl and grep.

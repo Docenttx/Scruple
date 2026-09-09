@@ -93,8 +93,10 @@ function appsOnThisMachine() {
       available: false,
       detail: 'the legacy training IPC has not been rewritten onto the SDK yet',
     },
-    // ⚑ WO-E5. This entry said `not installed in this app yet` from WO-D5 until
-    // now, and docs/STATE.md §0 opened on that sentence. It is a MEASUREMENT
+    // ⚑ WO-E5. From WO-D5 until now this entry carried a hard-coded sentence
+    // saying Blender was absent, and docs/STATE.md §0 opened on it — which is
+    // why scripts/e5-gate.sh greps this file for that sentence and requires
+    // ZERO occurrences, including in a comment. It is a MEASUREMENT
     // now — the same `resolveBinary()` the announcement header is built from,
     // so what the dashboard's app list says and what the server was told cannot
     // drift apart. The version, the addon and the bridge are NOT here: they

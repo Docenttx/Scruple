@@ -91,3 +91,53 @@
            `phantom-cam` (degraded) produce indistinguishable leaves (E4-6).
            Every Blender measurement is on an emulated CPU (E3-2).
 19:05:00Z  DONE   WO-E4  gate 9 stages pass / 0 fail  addon=47bc3d6
+19:02:57Z  DONE   WO-E4  (42m)  desktop=ecb8d96 web=634c66e
+19:02:57Z  START  WO-E5
+19:48:00Z  WO-E5 RED demonstrated at the parents of 63ce1b4 (desktop) and
+           01a8a55 (web), resolved FROM THE CHANGE rather than from HEAD: no
+           `blender` in the server's region list, no `blender:` renderer, no
+           x-scruple-host-apps announcement anywhere, and app/ipc-profile.js
+           reporting `not installed in this app yet` — docs/STATE.md §0's
+           opening sentence. That string is now absent from all of app/.
+19:48:00Z  the design question E5 had to answer first: every WO-D5 region
+           applies because of what the DEPLOYMENT is, and whether a Blender is
+           on someone's laptop is not something a server has. The host
+           announces (x-scruple-host-apps, built from fs.existsSync in main),
+           the server decides and RECORDS that it was told. Three answers, not
+           two: announced-and-present draws it; announced-and-absent does not;
+           NOTHING ANNOUNCED does not either, for a different reason — the same
+           distinction blind/declined holds open one layer down.
+19:48:00Z  the region, measured in a real window: version 4.2.23 from
+           `blender --version`, addon bl_ext.user_default.scruple_blender from
+           a running Blender's own preferences, bridge `at-the-gate` at
+           http://127.0.0.1:44219 — a port the kernel gave the gate 70s
+           earlier. Re-taken FROM THE SHELL against the same profile: all
+           three agree. THE CONTROL: with no Blender where the app looks the
+           region has count 0 AND zero occurrences, while the APP stays on the
+           local-apps list, unavailable, with the reason.
+19:48:00Z  ⚑ E5-2: `at-the-gate` is proved with scripts/e5-stub-bridge — a
+           bridge-SHAPED addon written here, not one of the eleven and not a
+           fork of one. The comparison is real (an address in an addon's own
+           AddonPreferences vs an allocated port) but no real bridge was
+           installed or run. WO-E6 owns that.
+19:48:00Z  ⚑ E5-1: the announcement is trusted for the SHAPE and is not a
+           measurement. A host that announces a Blender it does not have gets
+           its region drawn — and every reading in it says `none found` /
+           `unread`. Measured, as blender-absent.json's second mutation.
+19:48:00Z  ⚑ the gate caught its own documentation, then I broke its own
+           transcript. Stage 1's grep went red on a COMMENT that quoted the
+           sentence it retired (check widened to grep -r over app/, not
+           narrowed); and fixing that line while the gate was RUNNING shifted
+           the script under bash's byte offsets, re-running two stages and
+           exiting 127 in one. First run kept unedited as
+           .run/e5/gate-run1-selfcorrupted.txt; gate re-run untouched.
+19:48:00Z  suites: deployment-shape + canon-theme 27 pass / 0 fail (7 new
+           tests); dashboard-shape (WO-D5) PASSED and comfy-generate (WO-D4)
+           PASSED with a Blender probe in the same window. ⚑ WO-D5's own audit
+           sweep and `npm run gate` were NOT re-run — no time; named rather
+           than implied.
+19:48:00Z  ⚑ not covered: nothing was LAUNCHED and nothing was rendered; no
+           leaf was written by this WO; app/comfy and lib/capture are
+           byte-identical to WO-E4 (0 files changed) and the addon repo has no
+           commit from E5 at all. Every Blender measurement is still on an
+           emulated CPU (E3-2).
