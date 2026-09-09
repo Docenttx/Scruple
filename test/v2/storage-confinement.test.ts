@@ -135,6 +135,16 @@ function captureBlock(over: Record<string, unknown> = {}): Record<string, unknow
     upstream_low_watermark_close: 0,
     upstream_uncaptured_reason: 'enumerated',
     upstream_source: 'measured',
+    // WO-E2 rule 8. A capture-bearing leaf must say what its absence set
+    // enumerated over. These fixtures enumerate nothing — there is no
+    // upstream ring behind them — so they carry the `not_enumerated` shape,
+    // whose count and hash are NULL. An enumerated set carries a count even
+    // when it is 0, and that is the distinction rule 8 refuses to collapse.
+    uncaptured_enumeration_method: 'none',
+    uncaptured_scope: 'not_enumerated',
+    uncaptured_scope_source: 'unknown',
+    declared_uncaptured_count: null,
+    declared_uncaptured_hash: null,
     // WO-D6 rule 7. A capture-bearing leaf must say which LEVEL its host
     // hook ran at, and these fixtures are Level 1: no adapter was
     // registered, so nothing named the bytes. 'blind' is the honest value

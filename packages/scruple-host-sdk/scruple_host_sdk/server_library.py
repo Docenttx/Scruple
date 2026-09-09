@@ -106,6 +106,7 @@ from . import http as _http
 # WO-C4. The per-leaf storage measurement, shared with model_write.py so the
 # two placements cannot answer the same question two ways.
 from . import storage_confinement as _storage
+from . import declared_uncaptured as _uncaptured
 from . import upstream_epoch as _upstream
 from .envelope import (
     ComponentIdentity,
@@ -222,6 +223,29 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         "upstream_low_watermark_close": c.get("upstream_low_watermark_close"),
         "upstream_uncaptured_reason": c.get("upstream_uncaptured_reason"),
         "upstream_source": c.get("upstream_source"),
+        # WO-E2. WHAT THE UPSTREAM SAID IT PRODUCED THAT THE COMPONENT DID NOT
+        # CAPTURE, AND THE SCOPE THAT ENUMERATION RANGED OVER.
+        #
+        # Five keys, always present, null when this placement enumerated
+        # nothing — the same absent-is-null discipline as every key above.
+        #
+        # In the MAC because the signed half is a COMPLETENESS CLAIM: a
+        # `uncaptured_scope` a party in the middle could promote from "partial"
+        # to "complete" is a coverage claim nobody made, which is precisely
+        # what round 5 §3 refused ("the ambiguity you just killed reappears one
+        # level up, now WEARING A COMPLETENESS CLAIM"). The DOCUMENT rides at
+        # the top level and only `declared_uncaptured_hash` is signed — the
+        # `host_evidence` arrangement, for the reason a list cannot be a MAC
+        # preimage field.
+        #
+        # ⚑ AND `declared_uncaptured_count` IS SIGNED SEPARATELY FROM THE HASH.
+        # 0 is "looked and found nothing"; None is "did not look". Without the
+        # count in the MAC those two are one dropped attachment apart.
+        "uncaptured_enumeration_method": c.get("uncaptured_enumeration_method"),
+        "uncaptured_scope": c.get("uncaptured_scope"),
+        "uncaptured_scope_source": c.get("uncaptured_scope_source"),
+        "declared_uncaptured_count": c.get("declared_uncaptured_count"),
+        "declared_uncaptured_hash": c.get("declared_uncaptured_hash"),
         # WO-D6. WHO SUPPLIED THE MEANING, AND WHETHER ANYBODY DID.
         #
         # ``lib/capture/hostRegistry.ts`` splits every host integration in
@@ -683,6 +707,15 @@ class ServerLibraryIntegration:
             "upstream_low_watermark_close": None,
             "upstream_uncaptured_reason": _upstream.NOT_QUERIED,
             "upstream_source": _upstream.SOURCE_UNKNOWN,
+            # WO-E2. `not_enumerated`, AND IT IS NOT AN EMPTY SET. The absence
+            # set is a diff between an upstream's `/history` and what a gate
+            # captured; this placement has neither, so there is nothing to
+            # enumerate and nothing to diff. A count of 0 would say the
+            # component looked and found nothing uncaptured, which would be a
+            # coverage claim made by a placement that never ran an
+            # enumeration. None is "did not look", and rule 8 refuses each of
+            # the two in the other's clothes.
+            **_uncaptured.UNENUMERATED,
             # WO-D6. `blind`, AND IT IS THE ACCURATE ANSWER RATHER THAN A
             # PLACEHOLDER. The host hook has two levels: Level 1 is a host
             # whose bytes reach us with nobody naming them, Level 2 is a host

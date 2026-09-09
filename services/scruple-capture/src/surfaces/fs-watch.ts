@@ -58,6 +58,7 @@ import type {
   Placement,
   PlacementEnforcement,
 } from '../../../../lib/capture/surface';
+import type { ArtifactRef } from '../../../../lib/capture/declaredUncaptured';
 import { resolveWatchedVolumes, type WatchedVolume } from '../config';
 import type { Correlator } from '../correlation';
 import { mimeFromVendorConfig } from '../mime';
@@ -179,6 +180,27 @@ export interface FsWatchOptions {
  */
 export function egressFor(volume: WatchedVolume, abs: string): string {
   return `file:${volume.type}:${path.relative(volume.path, abs)}`;
+}
+
+/**
+ * WO-E2. `{type, subfolder, filename}` for a file that closed in a watched
+ * root — the same triple `history[*].outputs` emits and `/view` takes.
+ *
+ * The volume's DECLARED type is the type; an `unspecified` root yields an
+ * `unspecified` ref, which is what makes the closure condition in
+ * `declaredUncaptured.ts` bite rather than being a configuration note. A
+ * subfolder is relative to the typed root and `''` at its top, which is
+ * exactly what ComfyUI emits (`folder_paths.get_save_image_path` returns the
+ * subfolder it computed, empty for a bare prefix).
+ */
+export function artifactRefFor(volume: WatchedVolume, abs: string): ArtifactRef {
+  const rel = path.relative(volume.path, abs);
+  const dir = path.dirname(rel);
+  return {
+    type: volume.type,
+    subfolder: dir === '.' ? '' : dir,
+    filename: path.basename(rel),
+  };
 }
 
 export class FsWatchSurface implements CaptureSurface {
@@ -340,6 +362,13 @@ export class FsWatchSurface implements CaptureSurface {
       },
       evidence: {
         egress: egressFor(volume, abs),
+        // WO-E2. The same artifact, in the upstream's naming. `egress` above
+        // is the SIGNED record of the typed path; this is the LEDGER KEY, and
+        // they are separate because `egress` is a string a leaf carries and
+        // this is a triple the `/history` enumeration is also expressed in.
+        // Deriving one from the other by parsing would put a string format in
+        // the middle of a comparison that has to be exact.
+        artifact_ref: artifactRefFor(volume, abs),
         // Diagnostic corroboration. It does not create or complete this
         // leaf: the leaf is created by the hash of bytes already on disk,
         // and `capture.close_detection` goes to the wire pinned at null.

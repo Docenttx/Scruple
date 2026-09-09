@@ -55,6 +55,16 @@ import {
   type UpstreamObservation,
   type UpstreamSource,
 } from '../../../lib/capture/upstreamEpoch';
+// WO-E2. The absence set, and the scope it enumerated over.
+import {
+  NOT_ENUMERATED,
+  type ArtifactRef,
+  type DeclaredUncapturedDocument,
+  type UncapturedEnumerationMethod,
+  type UncapturedObservation,
+  type UncapturedScope,
+  type UncapturedScopeSource,
+} from '../../../lib/capture/declaredUncaptured';
 import type { PreimageFields } from '../../../lib/ratchet/ratchet';
 
 export interface LeafContext {
@@ -169,6 +179,30 @@ export interface LeafContext {
    * distinguishable from "not enumerated because evicted/restarted".
    */
   upstreamFor?: (observedAtMs: number) => UpstreamObservation;
+  /**
+   * WO-E2. WHAT THE UPSTREAM SAID IT PRODUCED THAT THIS COMPONENT DID NOT
+   * CAPTURE, and the scope that enumeration ranged over.
+   *
+   * ⚑ IT TAKES THE UPSTREAM OBSERVATION RATHER THAN RE-DERIVING ONE, and that
+   * is structural rather than tidy. `uncaptured_scope: "complete"` beside an
+   * `upstream_uncaptured_reason` that is not `enumerated` is a leaf claiming
+   * closure over a window it also says it could not enumerate — a
+   * contradiction `captureClaims.ts` rule 8 returns 422 for. Two calls to two
+   * readers could produce exactly that pair on a leaf emitted across a poll
+   * boundary; one reading passed to both cannot.
+   *
+   * Absent means this placement enumerates nothing — no upstream to ask —
+   * and the leaf then says `not_enumerated`, which is a different fact from an
+   * empty set and is why the count is null there and 0 here.
+   */
+  uncapturedFor?: (
+    upstream: UpstreamObservation,
+    observedAtMs: number,
+  ) => {
+    observation: UncapturedObservation;
+    document: DeclaredUncapturedDocument | null;
+    reason: string;
+  };
 }
 
 /** What the surface put on the observation's `evidence`. */
@@ -235,6 +269,22 @@ export interface ObservationEvidence {
    *  `model_fingerprints` / `model_fingerprints_hash` already uses. */
   host_evidence?: Record<string, unknown> | null;
   host_evidence_hash?: string | null;
+  /**
+   * WO-E2. WHICH ARTIFACT, IN THE UPSTREAM'S OWN NAMING, THESE BYTES ARE —
+   * `{type, subfolder, filename}`, the triple `/view` takes and
+   * `history[*].outputs[*]` emits.
+   *
+   * ⚑ IT DOES NOT REACH THE LEAF, and it is not meant to. `capture.egress`
+   * already carries the route or the typed path, inside the MAC. This exists
+   * so the component's captured-set ledger can be keyed the same way the
+   * `/history` enumeration is, which is the whole of what makes the diff a
+   * diff and not a comparison of two different naming schemes. A surface that
+   * cannot name the artifact that way — a WS preview frame, which becomes no
+   * file and appears in no `/history` output — leaves it absent, and absent
+   * means "this observation is not one of the things the absence set ranges
+   * over" rather than "uncaptured".
+   */
+  artifact_ref?: ArtifactRef | null;
 }
 
 export type LeafKind = 'document_save' | 'artifact' | 'graph_execute' | 'model_write';
@@ -336,6 +386,28 @@ export interface CaptureBlock {
   host_evidence_type: string | null;
   host_semantics: HostSemanticsState;
   host_evidence_hash: string | null;
+  /**
+   * WO-E2. THE ABSENCE SET'S SCOPE, ON THE LEAF, ALL FIVE SIGNED.
+   *
+   * Round 5 §3 asked whether the set "carries the scope it enumerated over ...
+   * or asserts a closure it does not have", and line 369 answered that it
+   * needs an `enumeration_method`, an observed scope and a completeness result.
+   * These are that answer as scalars; the set itself is a list and rides at the
+   * top level with only its hash in the MAC, exactly as `model_fingerprints`
+   * and `host_evidence` do.
+   *
+   * ⚑ `declared_uncaptured_count` IS SIGNED EVEN THOUGH THE DOCUMENT CARRIES
+   * IT. 0 is "the component looked and found nothing uncaptured"; null is "the
+   * component did not look". Those are different operational conditions with
+   * different owners, and a verifier must be able to tell them apart from the
+   * signed fields alone rather than by fetching an unsigned attachment. Same
+   * distinction `blind`/`declined` holds open one block over.
+   */
+  uncaptured_enumeration_method: UncapturedEnumerationMethod;
+  uncaptured_scope: UncapturedScope;
+  uncaptured_scope_source: UncapturedScopeSource;
+  declared_uncaptured_count: number | null;
+  declared_uncaptured_hash: string | null;
 }
 
 export interface ComponentEnvelope {
@@ -363,6 +435,11 @@ export interface Submission {
    *  this is what the HOST said. The route recomputes the hash from it and
    *  refuses a submission whose two halves disagree. */
   host_evidence?: Record<string, unknown>;
+  /** WO-E2. The absence set and its scope. TOP-LEVEL for the reason
+   *  `model_fingerprints` and `host_evidence` are: only the hash rides in the
+   *  MAC, and the route recomputes the hash from the document and refuses a
+   *  pair that disagrees. Absent exactly when the leaf says `not_enumerated`. */
+  declared_uncaptured?: DeclaredUncapturedDocument;
   machine_manifest_hash?: string;
   /** The route recomputes workflow_hash from this (lib/leaf/hashes.ts), so a
    *  verifier can check it against capture.workflow_hash. */
@@ -442,6 +519,18 @@ export function preimageOf(s: Submission): PreimageFields {
     host_evidence_type: s.capture.host_evidence_type,
     host_semantics: s.capture.host_semantics,
     host_evidence_hash: s.capture.host_evidence_hash,
+    // WO-E2. Five keys, always present. The COUNT and the HASH are both signed
+    // and that is deliberate: the hash binds WHICH artifacts are in the set,
+    // and the count binds THAT THERE WERE NONE in the case where the document
+    // would otherwise be an empty list nobody could tell from a missing one.
+    // The scope and its source are signed because a closure claim a party in
+    // the middle could promote from `partial` to `complete` is worth exactly
+    // nothing — it is the whole content of round 5 §3's condition.
+    uncaptured_enumeration_method: s.capture.uncaptured_enumeration_method,
+    uncaptured_scope: s.capture.uncaptured_scope,
+    uncaptured_scope_source: s.capture.uncaptured_scope_source,
+    declared_uncaptured_count: s.capture.declared_uncaptured_count,
+    declared_uncaptured_hash: s.capture.declared_uncaptured_hash,
     // WO-C2. Five keys, always present, null when unknown — so a party in the
     // middle can neither rewrite a handle nor add one. Architect's settle
     // condition: moving the proof out of the leaf makes the pointer to the
@@ -459,6 +548,10 @@ export interface BuiltLeaf {
   /** WO-C4. Why the confinement value is what it is. Logged on change by the
    *  Submitter, never sent — same rule as `basisReason`. */
   confinementReason: string;
+  /** WO-E2. Why the absence set is or is not a closure. Logged, never sent —
+   *  same rule as `basisReason`: the document carries the machine-readable
+   *  `completeness.reasons`, and this is the sentence for the operator's log. */
+  uncapturedReason: string;
   /** False when nothing was entitled to declare a MIME. See the note below. */
   mimeDeclared: boolean;
 }
@@ -504,6 +597,22 @@ export function buildLeaf(
     ? ctx.upstreamFor(Date.parse(o.observedAt))
     : UNQUERIED_UPSTREAM;
 
+  // WO-E2. BUILT FROM THE OBSERVATION ABOVE, not from a second reading of the
+  // tracker. See LeafContext.uncapturedFor: the scope's closure claim is
+  // conditional on `upstream_uncaptured_reason`, and two readers could hand
+  // one leaf a `complete` scope beside a reason that says the window was never
+  // enumerated. One reading cannot.
+  const uncaptured = ctx.uncapturedFor
+    ? ctx.uncapturedFor(upstream, Date.parse(o.observedAt))
+    : {
+        observation: NOT_ENUMERATED,
+        document: null,
+        reason:
+          'this placement enumerates nothing: there is no upstream holding a history ring to ' +
+          'diff a captured set against. `not_enumerated` is that fact, and it is not an empty ' +
+          'set — an empty set would say the component looked and found nothing uncaptured.',
+      };
+
   const submission: Submission = {
     baseline_ref: ctx.baselineRef,
     kind: ev.kind ?? 'artifact',
@@ -525,6 +634,10 @@ export function buildLeaf(
     ...(ev.model_fingerprints ? { model_fingerprints: ev.model_fingerprints } : {}),
     ...(ev.machine_manifest_hash ? { machine_manifest_hash: ev.machine_manifest_hash } : {}),
     ...(ev.host_evidence ? { host_evidence: ev.host_evidence } : {}),
+    // WO-E2. ABSENT exactly when the observation says `not_enumerated`, which
+    // is the one state in which there is no set to carry. An enumerated set
+    // that happened to be empty is PRESENT, with `artifacts: []`.
+    ...(uncaptured.document ? { declared_uncaptured: uncaptured.document } : {}),
     ...(graph ? { graph } : {}),
     capture: {
       surface: o.surface,
@@ -561,6 +674,11 @@ export function buildLeaf(
       host_evidence_type: ev.host_evidence_type ?? null,
       host_semantics: ev.host_semantics ?? 'blind',
       host_evidence_hash: ev.host_evidence_hash ?? null,
+      // WO-E2. Spread, not assembled field by field, for the reason the
+      // upstream block above is: the observation IS the five keys, and a second
+      // field list here would be a second answer to drift against
+      // `UncapturedObservation`.
+      ...uncaptured.observation,
       ...(ev.fs_diagnostic ? { fs_diagnostic: ev.fs_diagnostic } : {}),
       ...(ev.header_hash ? { header_hash: ev.header_hash } : {}),
     },
@@ -606,5 +724,6 @@ export function buildLeaf(
     basisReason: basis.reason,
     confinementReason:
       storage?.reason ?? 'no storage surface was measurable from this placement',
+    uncapturedReason: uncaptured.reason,
   };
 }

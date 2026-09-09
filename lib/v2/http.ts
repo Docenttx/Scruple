@@ -91,6 +91,26 @@ export type V2ErrorCode =
   //                            document, or a host field sent outside the MAC
   | 'host_semantics_required'
   | 'host_semantics_refused'
+  // WO-E2. `declared_uncaptured` — the artifacts the upstream said it produced
+  // that the component did not capture, and THE SCOPE THAT ENUMERATION RANGED
+  // OVER. 422 for both, for the reason above: the caller authenticated and the
+  // JSON parsed; what is refused is a completeness claim.
+  //
+  //   declared_uncaptured_required  a capture-bearing leaf that will not say
+  //                                 what it enumerated over — and
+  //                                 "not_enumerated" is free, so absent is not
+  //                                 "nothing to report", it is a leaf whose
+  //                                 absence set has no scope at all
+  //   declared_uncaptured_refused   a closure claimed over a window the same
+  //                                 leaf says it could not enumerate; an
+  //                                 enumerated set with a null count, where 0
+  //                                 is a count and null is "did not look"; a
+  //                                 `not_enumerated` carrying a set anyway; a
+  //                                 completeness `measured` while no
+  //                                 independent observer exists; or a scope
+  //                                 field sent outside the MAC
+  | 'declared_uncaptured_required'
+  | 'declared_uncaptured_refused'
   // WO-C3. The other half of Architect's settle: a handle must say how long
   // the thing it points at will be there, and a deadline must be bound to a
   // clock somebody named. Two codes, because the two failures have different
@@ -126,6 +146,8 @@ const STATUS: Record<V2ErrorCode, number> = {
   upstream_epoch_refused: 422,
   host_semantics_required: 422,
   host_semantics_refused: 422,
+  declared_uncaptured_required: 422,
+  declared_uncaptured_refused: 422,
   retention_policy_unresolvable: 422,
   settlement_deadline_unbound: 422,
   signer_unavailable: 503,

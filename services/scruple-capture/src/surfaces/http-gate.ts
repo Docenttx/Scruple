@@ -64,8 +64,38 @@ import type {
   Placement,
   PlacementEnforcement,
 } from '../../../../lib/capture/surface';
+import {
+  isArtifactVolumeType,
+  type ArtifactRef,
+} from '../../../../lib/capture/declaredUncaptured';
 import type { Correlator } from '../correlation';
 import { mimeFromVendorConfig, type DeclaredMime } from '../mime';
+
+/**
+ * WO-E2. `{type, subfolder, filename}` for a `/view` retrieval, or null.
+ *
+ * ComfyUI's `/view` (server.py:501) takes `filename`, `subfolder` and `type`,
+ * and `SaveImage.save_images` emits the SAME three per file into
+ * `history[*].outputs` (nodes.py:1678). That coincidence is the whole reason
+ * the absence set is a diff at all: the two halves name an artifact
+ * identically without either of them being taught the other's scheme.
+ *
+ * `type` DEFAULTS TO `output` because `/view` itself does
+ * (`folder_paths.get_directory_by_type` falls back to the output directory) —
+ * this is transcribing the upstream's default, not guessing one. An
+ * unrecognised type reads `unspecified` rather than being coerced.
+ */
+function artifactRefForView(routePath: string, q: URLSearchParams): ArtifactRef | null {
+  if (!/^\/(api\/)?view$/.test(routePath)) return null;
+  const filename = q.get('filename');
+  if (!filename) return null;
+  const t = q.get('type') ?? 'output';
+  return {
+    type: isArtifactVolumeType(t) ? t : 'unspecified',
+    subfolder: q.get('subfolder') ?? '',
+    filename,
+  };
+}
 
 /** Routes known to return artifact bytes. Suffix-matched so the `/api/`
  *  prefix modern ComfyUI adds to both spellings is covered once. */
@@ -239,6 +269,7 @@ export class HttpGate implements CaptureSurface {
       const contentHash = sha256(upstreamRes.body);
       const filename = reqUrl.searchParams.get('filename') ?? routePath.split('/').pop() ?? '';
       const att = this.opts.correlator.attribute(filename);
+      const artifactRef = artifactRefForView(routePath, reqUrl.searchParams);
 
       try {
         await ctx.sink.emit({
@@ -253,6 +284,20 @@ export class HttpGate implements CaptureSurface {
           },
           evidence: {
             egress: routePath,
+            // WO-E2. THE ARTIFACT, IN THE UPSTREAM'S OWN NAMING, so the
+            // captured-set ledger is keyed the way `/history` keys its
+            // outputs. `/view` takes exactly the triple ComfyUI emits per
+            // saved file (server.py:501; nodes.py:1678), so this is a read of
+            // the request the tenant made, not a reconstruction.
+            //
+            // ⚑ ONLY ON `/view`, AND THE OTHER THREE EGRESS ROUTES SEND NONE.
+            // `/userdata`, `/assets/{id}/content` and the model-preview route
+            // serve bytes that no `history[*].outputs` entry ever names —
+            // there is nothing for the absence set to range over — and
+            // inventing a ref for them would put a key in the ledger that the
+            // enumeration can never match, which reads as coverage of
+            // something nobody enumerated.
+            ...(artifactRef ? { artifact_ref: artifactRef } : {}),
             workflow_hash: att.prompt?.workflowHash ?? null,
             input_hash: att.prompt?.inputHash ?? null,
             correlation_method: att.method,

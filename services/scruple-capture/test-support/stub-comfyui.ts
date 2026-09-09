@@ -48,6 +48,10 @@ export const PNG_1x1 = Buffer.from(
 
 export interface StubDirs {
   output: string;
+  /** WO-E2. `folder_paths.get_temp_directory()`. `PreviewImage` is a
+   *  `SaveImage` subclass whose `output_dir` is THIS one (nodes.py:1684-1690),
+   *  so it writes FULL IMAGES here and never to `output/`. */
+  temp: string;
   input: string;
   user: string;
   web: string;
@@ -87,6 +91,7 @@ function contentTypeFor(p: string): string {
 export async function startStubComfyUI(root: string): Promise<StubComfyUI> {
   const dirs: StubDirs = {
     output: path.join(root, 'output'),
+    temp: path.join(root, 'temp'),
     input: path.join(root, 'input'),
     user: path.join(root, 'user'),
     web: path.join(root, 'web'),
@@ -184,6 +189,9 @@ export async function startStubComfyUI(root: string): Promise<StubComfyUI> {
       // history[prompt[1]]["prompt"], so prompt[0] is the number.
       history[promptId] = {
         prompt: [n, promptId, graph, {}, []],
+        // Filled in by `execute` below, exactly as task_done merges
+        // `history_result["outputs"]` after execution (execution.py:802-803,
+        // 1237-1242) rather than at enqueue.
         outputs: {},
         status: { status_str: 'success', completed: true, messages: [] },
       };
@@ -206,7 +214,10 @@ export async function startStubComfyUI(root: string): Promise<StubComfyUI> {
     if (req.method === 'GET' && p === '/view') {
       const filename = url.searchParams.get('filename') ?? '';
       const type = url.searchParams.get('type') ?? 'output';
-      const base = type === 'input' ? dirs.input : dirs.output;
+      // server.py:501 → folder_paths.get_directory_by_type, which returns
+      // the OUTPUT directory for an unrecognised type. Transcribed, not
+      // guessed: it is the default `artifactRefForView` reads back.
+      const base = type === 'input' ? dirs.input : type === 'temp' ? dirs.temp : dirs.output;
       const abs = path.join(base, filename);
       if (!fs.existsSync(abs)) {
         res.writeHead(404).end('not found');
@@ -280,11 +291,21 @@ export async function startStubComfyUI(root: string): Promise<StubComfyUI> {
     for (const ws of sockets) if (ws.readyState === WebSocket.OPEN) ws.send(frame, { binary: true });
   }
 
+  /** WO-E2. `history_result["outputs"][node_id]["images"].append(...)`, which
+   *  task_done merges into the ring (execution.py:1237-1242). */
+  function record(promptId: string, nodeId: string, file: Record<string, string>): void {
+    const entry = history[promptId] as { outputs?: Record<string, unknown> } | undefined;
+    if (!entry) return;
+    const outs = (entry.outputs ??= {}) as Record<string, { images?: unknown[] }>;
+    const perNode = (outs[nodeId] ??= { images: [] });
+    (perNode.images ??= []).push(file);
+  }
+
   async function execute(promptId: string, graph: Record<string, unknown>): Promise<void> {
     broadcastJson('executing', { prompt_id: promptId, node: '1' });
     await tick(5);
 
-    for (const node of Object.values(graph)) {
+    for (const [nodeId, node] of Object.entries(graph)) {
       if (typeof node !== 'object' || node === null) continue;
       const n = node as { class_type?: string; inputs?: Record<string, unknown> };
 
@@ -294,10 +315,29 @@ export async function startStubComfyUI(root: string): Promise<StubComfyUI> {
         const prefix = typeof n.inputs?.filename_prefix === 'string' ? n.inputs.filename_prefix : 'ComfyUI';
         const file = `${path.basename(prefix)}_00001_.png`;
         fs.writeFileSync(path.join(dirs.output, file), PNG_1x1);
+        // nodes.py:1678 — `"type": self.type` per file, into
+        // `{"ui": {"images": results}}`.
+        record(promptId, nodeId, { filename: file, subfolder: '', type: 'output' });
+      }
+
+      // WO-E2. ⚑ `PreviewImage` IS A `SaveImage` SUBCLASS AND IT WRITES A FULL
+      // IMAGE TO `temp/` (nodes.py:1684-1690), tagged `type: "temp"` in
+      // `/history`. It is the artifact class an `output`-only deployment
+      // cannot see, and round 5 §4(a) verified in the ComfyUI source that
+      // `/history` DOES enumerate it — which is what makes an absence set
+      // drawn from `/history` reach a volume the filesystem watcher may not.
+      if (n.class_type === 'PreviewImage') {
+        const file = `ComfyUI_temp_${nodeId}_00001_.png`;
+        fs.writeFileSync(path.join(dirs.temp, file), PNG_1x1);
+        record(promptId, nodeId, { filename: file, subfolder: '', type: 'temp' });
       }
 
       if (n.class_type === 'SaveImageWebsocket') {
-        // The path that never becomes a file.
+        // The path that never becomes a file — and, deliberately, one that
+        // records NO history output either. ComfyUI's own
+        // websockets_api_example_ws_images.py exists to get images "without
+        // them being saved to disk", so there is nothing for an absence set to
+        // range over and the gate's capture of it is not a member of one.
         broadcastBinary(previewImageFrame(PNG_1x1, 2));
       }
     }

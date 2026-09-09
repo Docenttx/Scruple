@@ -299,10 +299,31 @@ export interface HistoryReading {
   high: number | null;
   /** (number, prompt_id) for every entry this read returned. */
   anchors: Array<{ number: number | null; prompt_id: string }>;
+  /**
+   * WO-E2. The `outputs` object of every entry this read returned, VERBATIM
+   * and uninterpreted, keyed by prompt id.
+   *
+   * ⚑ CARRIED RAW RATHER THAN PARSED HERE, and the direction of the dependency
+   * is the reason. `lib/capture/declaredUncaptured.ts` needs this file's
+   * `UpstreamObservation` to decide whether an absence set is a closure; if
+   * this file also called that file's `artifactsInOutputs()` the two would be a
+   * value cycle. The epoch is about WHICH RUN answered and knows nothing about
+   * artifacts; the absence set is about WHAT IT PRODUCED and owns the shape.
+   * Keeping the split here costs one `unknown` and keeps the two designs
+   * separable.
+   */
+  outputs: Array<{ prompt_id: string; outputs: unknown }>;
   error: string | null;
 }
 
-const EMPTY_READING: HistoryReading = { ok: true, low: null, high: null, anchors: [], error: null };
+const EMPTY_READING: HistoryReading = {
+  ok: true,
+  low: null,
+  high: null,
+  anchors: [],
+  outputs: [],
+  error: null,
+};
 
 /**
  * Parse a `/history` body. ComfyUI returns `{prompt_id: {prompt: [number,
@@ -317,9 +338,17 @@ const EMPTY_READING: HistoryReading = { ok: true, low: null, high: null, anchors
  */
 export function parseHistory(body: unknown): HistoryReading {
   if (!isRecord(body)) {
-    return { ok: false, low: null, high: null, anchors: [], error: 'history body is not an object' };
+    return {
+      ok: false,
+      low: null,
+      high: null,
+      anchors: [],
+      outputs: [],
+      error: 'history body is not an object',
+    };
   }
   const anchors: HistoryReading['anchors'] = [];
+  const outputs: HistoryReading['outputs'] = [];
   let low: number | null = null;
   let high: number | null = null;
   for (const [key, value] of Object.entries(body)) {
@@ -329,12 +358,17 @@ export function parseHistory(body: unknown): HistoryReading {
     const rawId = typeof tuple[1] === 'string' ? tuple[1] : key;
     const n = Number.isSafeInteger(rawNumber) ? (rawNumber as number) : null;
     anchors.push({ number: n, prompt_id: rawId });
+    // WO-E2. `history_result["outputs"]` (execution.py:802-803), merged in by
+    // task_done (:1237-1242). Present on every completed entry and `{}` on one
+    // that produced nothing — both are kept, because "this prompt produced no
+    // artifact" and "this prompt is not in the window" are different facts.
+    outputs.push({ prompt_id: rawId, outputs: entry.outputs ?? null });
     if (n !== null) {
       low = low === null || n < low ? n : low;
       high = high === null || n > high ? n : high;
     }
   }
-  return { ok: true, low, high, anchors, error: null };
+  return { ok: true, low, high, anchors, outputs, error: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -728,6 +762,19 @@ export class UpstreamTracker {
    * record, not an absent one.
    */
   private pendingDiscontinuity: { reason: string; epochBefore: string | null } | null = null;
+  /**
+   * WO-E2. THE NEWEST ENUMERATION WINDOW, kept so the absence set can be built
+   * from the same bracket the epoch was decided by.
+   *
+   * It is a separate field rather than part of `last` because the two have
+   * different lifetimes: `observationFor()` may hand a leaf a HELD
+   * discontinuity from an earlier bracket, while the enumeration is always the
+   * newest window that was actually read. A leaf therefore gets a real
+   * enumeration and the reason the enumeration is not a closure, which is the
+   * pair the absence set needs — rather than an enumeration invented to match
+   * the observation.
+   */
+  private lastWindow: HistoryReading | null = null;
   private readonly fetchImpl: typeof fetch;
   private readonly log: (line: string) => void;
   private readonly now: () => number;
@@ -744,6 +791,12 @@ export class UpstreamTracker {
   /** Take one bracket. Exposed so a test drives it without a timer. */
   async poll(): Promise<UpstreamReading> {
     const read = await this.bracket();
+    // WO-E2. Only a SUCCESSFUL window read replaces the enumeration. A failed
+    // one leaves the previous window standing and the reason on the leaf says
+    // `history_unavailable`, which `buildAbsenceSet` turns into
+    // `not_enumerated` — the reading is not silently reused as though it still
+    // described the present.
+    this.lastWindow = read.window.ok ? read.window : null;
     const { next, observation, reason } = compareEpoch(this.state, read);
     this.state = next;
     const reading: UpstreamReading = { observation, reason, observedAtMs: this.now() };
@@ -765,6 +818,19 @@ export class UpstreamTracker {
       this.log(`upstream ${observation.upstream_continuity} → ${reason}`);
     }
     return reading;
+  }
+
+  /** WO-E2. `max_items` the enumeration asks for. The absence set records it
+   *  beside how many entries came back, because equal means the WINDOW may
+   *  have truncated the ring rather than the ring being exhausted. */
+  get anchorWindow(): number {
+    return this.opts.anchorWindow;
+  }
+
+  /** WO-E2. The newest successfully-read `/history` window, or null when the
+   *  last read of it failed. Raw: the caller owns the artifact shape. */
+  enumerationWindow(): HistoryReading | null {
+    return this.lastWindow;
   }
 
   start(): void {
@@ -863,7 +929,9 @@ export class UpstreamTracker {
 
   private async readHistory(query: string): Promise<HistoryReading> {
     const res = await this.get(`/history${query}`);
-    if (!res.ok) return { ok: false, low: null, high: null, anchors: [], error: res.error };
+    if (!res.ok) {
+      return { ok: false, low: null, high: null, anchors: [], outputs: [], error: res.error };
+    }
     const parsed = parseHistory(res.body);
     // An empty ring is a successful reading of an empty ring.
     return parsed.anchors.length === 0 && parsed.ok ? { ...EMPTY_READING } : parsed;

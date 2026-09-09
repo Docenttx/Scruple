@@ -43,6 +43,15 @@ import {
 // WO-C5. The council owned upstream restart detection rather than pushing it
 // into the schema: "we never ask ComfyUI who it is."
 import { UpstreamTracker } from '../../../lib/capture/upstreamEpoch';
+// WO-E2. The absence set: `/history`'s outputs, minus what this component
+// captured, carrying the scope it enumerated over.
+import {
+  CapturedLedger,
+  artifactsInOutputs,
+  buildAbsenceSet,
+  type ArtifactRef,
+  type ArtifactVolumeType,
+} from '../../../lib/capture/declaredUncaptured';
 import type { CaptureConfig } from './config';
 import { resolveWatchedVolumes, topologyAdvisory } from './config';
 import { Correlator } from './correlation';
@@ -114,6 +123,14 @@ export class CaptureComponent {
      */
     readonly upstream: UpstreamTracker,
     /**
+     * WO-E2. THE CAPTURED-SET LEDGER — what this component actually witnessed,
+     * keyed the way `/history` keys its outputs. Held on the component so an
+     * acceptance test can read `size` and `intact` directly rather than
+     * inferring them from a leaf, and because the bound is a fact about the
+     * session rather than about any one emission.
+     */
+    readonly captured: CapturedLedger,
+    /**
      * WO-C4. THE STARTUP READING, KEPT SO IT CAN BE COMPARED AGAINST — never
      * so it can be reused. Every leaf re-measures; this one exists only for
      * the operator's log and for the test that proves a startup-only check
@@ -184,6 +201,20 @@ export class CaptureComponent {
       log,
     });
 
+    // WO-E2. Built here rather than inside the Submitter because it is a
+    // SESSION-scoped fact: the same ledger has to see every surface's captures,
+    // and a per-leaf object would be an empty ledger on every diff.
+    const captured = new CapturedLedger();
+
+    // WO-E2. The typed roots, as the absence set records them. Same resolution
+    // the watcher and the confinement measurement use — one answer to what is
+    // configured, not three.
+    const declaredRoots: Array<{ type: ArtifactVolumeType; path: string }> =
+      resolveWatchedVolumes(cfg, 'CaptureComponent.start').map((v) => ({
+        type: v.type,
+        path: v.path,
+      }));
+
     const submitter = new Submitter({
       identity,
       queue,
@@ -220,6 +251,36 @@ export class CaptureComponent {
       // config-inherited class the council killed on `pinned_build` and is
       // precisely the defect that makes a restart look like a quiet afternoon.
       upstreamFor: (observedAtMs: number) => upstream.observationFor(observedAtMs).observation,
+      // WO-E2. THE ABSENCE SET, BUILT FROM THE UPSTREAM OBSERVATION THE LEAF
+      // ALREADY CARRIES — `buildLeaf` passes it in rather than this closure
+      // reading the tracker a second time. A `complete` scope beside an
+      // `upstream_uncaptured_reason` that is not `enumerated` is a closure
+      // claimed over a window the same leaf says it could not enumerate, and
+      // `captureClaims.ts` rule 8 returns 422 for exactly that pair. Two
+      // readings taken either side of a poll boundary could produce it; one
+      // reading passed to both cannot.
+      uncapturedFor: (upstreamObservation) => {
+        const window = upstream.enumerationWindow();
+        const enumerated =
+          window === null
+            ? null
+            : window.outputs.flatMap((e) =>
+                artifactsInOutputs(e.outputs).map((a) => ({ ...a, prompt_id: e.prompt_id })),
+              );
+        const built = buildAbsenceSet({
+          enumerated,
+          anchorWindow: upstream.anchorWindow,
+          entriesEnumerated: window?.outputs.length ?? 0,
+          roots: declaredRoots,
+          isCaptured: (r: ArtifactRef) => captured.has(r),
+          ledgerIntact: captured.intact,
+          upstream: upstreamObservation,
+        });
+        return { observation: built.observation, document: built.document, reason: built.reason };
+      },
+      // WO-E2. The write side, called before the leaf is built. See
+      // SubmitterOptions.recordCaptured for why the order is the point.
+      recordCaptured: (ref: ArtifactRef) => captured.record(ref),
       // No quote source: this component has no attestable compute. That is
       // `passthrough` once the Merkle blocker lifts, and `stale` until then.
       // `sealToMeasurement()` in identity.ts is the seam where a real one
@@ -337,6 +398,7 @@ export class CaptureComponent {
       server,
       assurance,
       upstream,
+      captured,
       storageAtStartup,
     );
   }

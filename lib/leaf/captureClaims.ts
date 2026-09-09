@@ -203,6 +203,74 @@ import {
 // force a Level-2 host to choose between two lies. Same shape as WO-C5's
 // deliberate non-refusal of `upstream_continuity: 'unknown'`.
 
+// ---------------------------------------------------------------------------
+// RULE 8 — AN ABSENCE SET CARRIES THE SCOPE IT ENUMERATED OVER, AND A CLOSURE
+//          IS REFUSED TO A LEAF THAT ALSO SAYS IT COULD NOT ENUMERATE
+// ---------------------------------------------------------------------------
+//
+// WO-E2, and the settled rule is `docs/canon/DECLARED_UNCAPTURED.md`. Round 5
+// §3 put the question to Coder as a question rather than a ruling:
+//
+//   "must `declared_uncaptured` carry the scope it enumerated over — which root
+//   types were configured, and whether any were `unspecified` — or does it
+//   assert a closure it does not have? That is your own measured-or-unknown
+//   invariant applied one level up: THE COMPLETENESS OF THE ABSENCE SET IS
+//   ITSELF A FACT, and it needs a source like every other fact."
+//
+// Six refusals, and each is a way the scope could be present and worth nothing:
+//
+//   a. ABSENT or malformed on a capture-bearing leaf. Rules 2, 5, 6 and 7's
+//      argument exactly. `none`/`not_enumerated`/`unknown` is available and
+//      free for a placement that enumerates nothing, so absent means something
+//      rewrote the fields out on the way.
+//   b. `not_enumerated` CARRYING A COUNT OR A HASH, or a method other than
+//      `none`. Nothing was enumerated, so there is no set, no digest of one,
+//      and no method that produced it.
+//   c. AN ENUMERATED SCOPE WITH A NULL COUNT OR A NULL HASH. ⚑ THIS IS THE
+//      "EMPTY SET THAT IS PRESENT" RULE, at the wire. 0 is a count; null is the
+//      absence of one. A component that enumerated and found nothing must say
+//      0, because "looked and found nothing" and "did not look" are different
+//      operational conditions with different owners — the distinction
+//      `blind`/`declined` holds open one rule up and `not_queried` holds open
+//      one rule down.
+//   d. `uncaptured_scope_source: "measured"` WHILE THE INDEPENDENT-OBSERVER
+//      BLOCKER STANDS. Rule 4's shape. Coder's answer on round 5 fact (b) is
+//      that completeness is `source: unknown` unless an INDEPENDENT observer
+//      establishes the history window and continuity; the only party reading
+//      /history today is the component that emits the leaf, which is not
+//      independent of its own claim.
+//   e. `uncaptured_scope: "complete"` ON A LEAF WHOSE
+//      `upstream_uncaptured_reason` IS NOT `enumerated`, or whose
+//      `upstream_source` is not `measured`. THE CROSS-RULE, and the one that
+//      matters most: a leaf claiming a closure over a window it says in the
+//      next field it could not enumerate is internally contradictory, and it
+//      is exactly the shape round 5 §3 warned about — "the ambiguity you just
+//      killed reappears one level up, now WEARING A COMPLETENESS CLAIM, which
+//      is worse than the bare hole because it reads as coverage."
+//   f. A COUNT THAT IS NOT A SAFE NON-NEGATIVE INTEGER; and any of the five
+//      keys sent ONE LEVEL UP, where `componentPreimage()` would not read them
+//      and the field would sit outside the MAC looking exactly like a signed
+//      one. `declared_uncaptured` — the document — is the exception and MUST be
+//      top level, for `model_fingerprints`'s and `host_evidence`'s reason.
+//
+// ⚑ WHAT IS *NOT* REFUSED: `complete` beside `uncaptured_scope_source:
+// "unknown"`. Those are two facts, not a contradiction — the first says every
+// condition closure requires holds as the component measured them, the second
+// says nobody outside the box confirmed the window. WO-C5 settled the identical
+// shape when it accepted `upstream_continuity: "unknown"` beside
+// `upstream_source: "measured"`, and collapsing them would force a component
+// to lie in one direction or the other.
+
+import {
+  UNCAPTURED_INDEPENDENT_OBSERVER,
+  UNCAPTURED_OBSERVER_BLOCKER_REASON,
+  isUncapturedEnumerationMethod,
+  isUncapturedScope,
+  isUncapturedScopeSource,
+  type UncapturedEnumerationMethod,
+  type UncapturedScope,
+  type UncapturedScopeSource,
+} from '@/lib/capture/declaredUncaptured';
 import {
   isUncapturedReason,
   isUpstreamContinuity,
@@ -236,7 +304,9 @@ export type CaptureClaimCode =
   | 'upstream_epoch_required'
   | 'upstream_epoch_refused'
   | 'host_semantics_required'
-  | 'host_semantics_refused';
+  | 'host_semantics_refused'
+  | 'declared_uncaptured_required'
+  | 'declared_uncaptured_refused';
 
 export interface CaptureClaimRefusal {
   ok: false;
@@ -258,6 +328,20 @@ export interface CaptureClaimAccepted {
   /** WO-D6. null on a legacy leaf; never null on a leaf carrying a capture
    *  block, because the level is not a question a component may leave open. */
   host: HostClaims | null;
+  /** WO-E2. null on a legacy leaf; never null on a leaf carrying a capture
+   *  block, because the scope of an absence set is not a question a component
+   *  may leave open. */
+  uncaptured: UncapturedClaims | null;
+}
+
+/** WO-E2. What the component enumerated, and what its enumeration is worth. */
+export interface UncapturedClaims {
+  method: UncapturedEnumerationMethod;
+  scope: UncapturedScope;
+  scopeSource: UncapturedScopeSource;
+  /** 0 is a count. null exactly when `scope` is `not_enumerated`. */
+  count: number | null;
+  hash: string | null;
 }
 
 /** WO-D6. Which level the host hook ran at, and who said so. */
@@ -299,7 +383,7 @@ function closeDetectionSites(
 
 export function validateCaptureClaims(
   body: Record<string, unknown>,
-  opts: { vectorsSettled?: boolean } = {},
+  opts: { vectorsSettled?: boolean; independentObserver?: boolean } = {},
 ): CaptureClaimResult {
   const settled = opts.vectorsSettled ?? CHECKPOINT_VECTORS_SETTLED;
   const capture =
@@ -340,6 +424,7 @@ export function validateCaptureClaims(
       confinementSource: null,
       upstream: null,
       host: null,
+      uncaptured: null,
     };
   }
 
@@ -428,6 +513,14 @@ export function validateCaptureClaims(
   const host = validateHost(body, capture);
   if (!host.ok) return host;
 
+  // ---- Rule 8 -------------------------------------------------------
+  // AFTER rule 6, and the order is load-bearing: refusal (e) reads the
+  // upstream reason that rule 6 has just established is one of the five, so a
+  // malformed reason is a rule-6 refusal rather than an unreadable cross-check
+  // here.
+  const unc = validateUncaptured(body, capture, up.upstream, opts);
+  if (!unc.ok) return unc;
+
   return {
     ok: true,
     basis,
@@ -436,6 +529,7 @@ export function validateCaptureClaims(
     confinementSource: conf.confinementSource,
     upstream: up.upstream,
     host: host.host,
+    uncaptured: unc.uncaptured,
   };
 }
 
@@ -585,6 +679,7 @@ function validateHost(
       evidenceType,
       evidenceHash,
     },
+    uncaptured: null,
   };
 }
 
@@ -678,6 +773,7 @@ function validateConfinement(
     confinementSource: rawSource,
     upstream: null,
     host: null,
+    uncaptured: null,
   };
 }
 
@@ -838,6 +934,209 @@ function validateUpstream(
       source,
     },
     host: null,
+    uncaptured: null,
+  };
+}
+
+/** Rule 8, split out for the reason rules 5, 6 and 7 are: six refusals and one
+ *  accept do not read as a rule when they are inline. */
+function validateUncaptured(
+  body: Record<string, unknown>,
+  capture: Record<string, unknown>,
+  upstream: UpstreamClaims | null,
+  opts: { independentObserver?: boolean },
+): CaptureClaimAccepted | CaptureClaimRefusal {
+  const KEYS = [
+    'uncaptured_enumeration_method',
+    'uncaptured_scope',
+    'uncaptured_scope_source',
+    'declared_uncaptured_count',
+    'declared_uncaptured_hash',
+  ] as const;
+
+  const refuse = (message: string, detail: Record<string, unknown>): CaptureClaimRefusal => ({
+    ok: false,
+    code: 'declared_uncaptured_refused',
+    message,
+    detail,
+  });
+
+  // (f-ii) the five scalars sent one level up, where the preimage does not
+  //        read them.
+  const misplaced = KEYS.filter((k) => k in body);
+  if (misplaced.length > 0) {
+    return refuse(
+      `${misplaced.join(', ')} sent at the top level. The absence set's SCOPE fields are ` +
+        'CAPTURE fields — `componentPreimage()` reads them out of `capture`, so a copy one ' +
+        'level up is outside the MAC while looking exactly like a signed closure claim. The ' +
+        'DOCUMENT `declared_uncaptured` is the one that belongs at the top level, beside ' +
+        '`model_fingerprints` and `host_evidence`, because only its hash is signed.',
+      { misplaced },
+    );
+  }
+
+  // (f-iii) …and the document sent one level DOWN, inside `capture`, where the
+  //         route would not hash it and the leaf would carry a digest of
+  //         nothing.
+  if ('declared_uncaptured' in capture) {
+    return refuse(
+      '`declared_uncaptured` sent inside `capture`. The document is top-level, like ' +
+        '`model_fingerprints` and `host_evidence`: `capture` is what the component OBSERVED, ' +
+        'and the route recomputes `capture.declared_uncaptured_hash` from the top-level ' +
+        'document. A copy inside `capture` would never be hashed and the signed digest would ' +
+        'cover nothing.',
+      { at: 'capture.declared_uncaptured' },
+    );
+  }
+
+  const method = capture.uncaptured_enumeration_method;
+  const scope = capture.uncaptured_scope;
+  const scopeSource = capture.uncaptured_scope_source;
+
+  // (a) absent, or malformed.
+  if (
+    !isUncapturedEnumerationMethod(method) ||
+    !isUncapturedScope(scope) ||
+    !isUncapturedScopeSource(scopeSource)
+  ) {
+    return {
+      ok: false,
+      code: 'declared_uncaptured_required',
+      message:
+        'A leaf carrying a `capture` block must declare ' +
+        '`capture.uncaptured_enumeration_method` as "live_history" or "none", ' +
+        '`capture.uncaptured_scope` as one of "complete" | "partial" | "not_enumerated", and ' +
+        '`capture.uncaptured_scope_source` as "measured" or "unknown". Received ' +
+        `${JSON.stringify(method ?? null)} / ${JSON.stringify(scope ?? null)} / ` +
+        `${JSON.stringify(scopeSource ?? null)}. An absence set that does not say what it ` +
+        'enumerated over asserts a closure it does not have, which is worse than the bare ' +
+        'hole because it reads as coverage; a placement with nothing to enumerate declares ' +
+        '"none"/"not_enumerated"/"unknown", which is a different thing from a component that ' +
+        'never said.',
+      detail: {
+        uncaptured_enumeration_method: method ?? null,
+        uncaptured_scope: scope ?? null,
+        uncaptured_scope_source: scopeSource ?? null,
+      },
+    };
+  }
+
+  const rawCount = capture.declared_uncaptured_count;
+  const count =
+    rawCount === undefined || rawCount === null
+      ? null
+      : Number.isSafeInteger(rawCount) && (rawCount as number) >= 0
+        ? (rawCount as number)
+        : false;
+  const hash =
+    typeof capture.declared_uncaptured_hash === 'string' ? capture.declared_uncaptured_hash : null;
+
+  // (f-i) a count that is not a safe non-negative integer.
+  if (count === false) {
+    return refuse(
+      '`declared_uncaptured_count` must be a non-negative safe integer or null. A float in ' +
+        'the MAC preimage is a MAC that fails unreproducibly and only sometimes (§10 C-1), ' +
+        'and a negative cardinality is not a set.',
+      { declared_uncaptured_count: rawCount ?? null },
+    );
+  }
+
+  // (b) nothing was enumerated, so there is nothing to have counted or hashed.
+  if (scope === 'not_enumerated') {
+    if (count !== null || hash !== null || method !== 'none') {
+      return refuse(
+        '`uncaptured_scope: "not_enumerated"` with a count, a hash or an enumeration method ' +
+          'is refused. "Not enumerated" means no enumeration was performed: there is no set ' +
+          'to count, no digest of one, and no method that produced it. If the component ' +
+          'enumerated and found nothing uncaptured, the value for that is a count of 0 with ' +
+          'a scope of "complete" or "partial" — an empty set that is PRESENT, which is a ' +
+          'different fact from an absent one.',
+        {
+          uncaptured_scope: scope,
+          uncaptured_enumeration_method: method,
+          declared_uncaptured_count: count,
+          declared_uncaptured_hash: hash,
+        },
+      );
+    }
+  } else {
+    // (c) ⚑ THE EMPTY-SET-IS-PRESENT RULE. An enumerated scope always has a
+    //     count and a digest, and 0 is a count.
+    if (count === null || hash === null || method === 'none') {
+      return refuse(
+        `\`uncaptured_scope: "${scope}"\` with ` +
+          `${count === null ? 'no count' : 'a count'}, ` +
+          `${hash === null ? 'no hash' : 'a hash'} and method "${method}" is refused. An ` +
+          'enumerated set always carries its cardinality and the digest of its document — ' +
+          'and 0 IS A CARDINALITY. Null is the absence of one, which is "the component did ' +
+          'not look", and that state is spelled "not_enumerated". Collapsing the two would ' +
+          'make "looked and found nothing" unreadable, which is the distinction this field ' +
+          'exists to hold open.',
+        {
+          uncaptured_scope: scope,
+          uncaptured_enumeration_method: method,
+          declared_uncaptured_count: count,
+          declared_uncaptured_hash: hash,
+        },
+      );
+    }
+  }
+
+  // (d) the independent-observer blocker. Rule 4's shape: computed against the
+  //     flag rather than hardcoded, so the day an independent observer exists
+  //     this refusal lifts without a schema change.
+  const independent = opts.independentObserver ?? UNCAPTURED_INDEPENDENT_OBSERVER;
+  if (scopeSource === 'measured' && !independent) {
+    return refuse(
+      '`uncaptured_scope_source: "measured"` is refused today, and this is a refusal rather ' +
+        `than a downgrade. Because ${UNCAPTURED_OBSERVER_BLOCKER_REASON} Emit "unknown". ` +
+        'Note that "unknown" here is about the COMPLETENESS of the absence set, not about ' +
+        'the enumeration: the artifacts listed were really reported by the upstream and ' +
+        'really not captured, and `upstream_source` carries that half.',
+      { uncaptured_scope_source: scopeSource, independent_observer: independent },
+    );
+  }
+
+  // (e) THE CROSS-RULE. A closure claimed over a window the same leaf says it
+  //     could not enumerate.
+  if (
+    scope === 'complete' &&
+    (upstream === null ||
+      upstream.uncapturedReason !== 'enumerated' ||
+      upstream.source !== 'measured')
+  ) {
+    return refuse(
+      '`uncaptured_scope: "complete"` on a leaf whose `upstream_uncaptured_reason` is ' +
+        `"${upstream?.uncapturedReason ?? '(absent)'}" with \`upstream_source\` ` +
+        `"${upstream?.source ?? '(absent)'}" is refused. A closure over the upstream's ` +
+        'output enumeration requires that the enumeration covered this leaf\'s interval and ' +
+        'that the history ring held across both ends of the bracket — which is exactly what ' +
+        'WO-C5\'s reason field says, and this leaf says it did not. The ambiguity round 5 §3 ' +
+        'closed must not reappear one level up wearing a completeness claim, which is worse ' +
+        'than the bare hole because it reads as coverage. Declare "partial".',
+      {
+        uncaptured_scope: scope,
+        upstream_uncaptured_reason: upstream?.uncapturedReason ?? null,
+        upstream_source: upstream?.source ?? null,
+      },
+    );
+  }
+
+  return {
+    ok: true,
+    basis: null,
+    profile: null,
+    confinement: null,
+    confinementSource: null,
+    upstream: null,
+    host: null,
+    uncaptured: {
+      method,
+      scope,
+      scopeSource,
+      count,
+      hash,
+    },
   };
 }
 

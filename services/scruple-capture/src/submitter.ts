@@ -32,6 +32,11 @@ import type {
 import type { CaptureProfile, QuoteBinding } from '../../../lib/leaf/attestationBasis';
 import type { StorageMeasurement } from '../../../lib/capture/storageConfinement';
 import type { UpstreamObservation } from '../../../lib/capture/upstreamEpoch';
+import type {
+  ArtifactRef,
+  DeclaredUncapturedDocument,
+  UncapturedObservation,
+} from '../../../lib/capture/declaredUncaptured';
 import { buildLeaf, type LeafContext, type Submission } from './leaf';
 import { QueueStore, isDue, type QueueEntry } from './queue';
 import type { Identity } from './identity';
@@ -106,6 +111,36 @@ export interface SubmitterOptions {
    * operational condition from `evicted_or_restarted` and must stay so.
    */
   upstreamFor?: (observedAtMs: number) => UpstreamObservation;
+  /**
+   * WO-E2. The absence set and its scope, built from the SAME upstream
+   * observation this leaf carries — see `LeafContext.uncapturedFor` for why
+   * that is structural and not tidiness.
+   *
+   * Optional, because a placement with no upstream enumerates nothing; a
+   * Submitter with none emits `not_enumerated`, which is a different fact
+   * from an empty set and is why one has a null count and the other has 0.
+   */
+  uncapturedFor?: (
+    upstream: UpstreamObservation,
+    observedAtMs: number,
+  ) => {
+    observation: UncapturedObservation;
+    document: DeclaredUncapturedDocument | null;
+    reason: string;
+  };
+  /**
+   * WO-E2. THE CAPTURED-SET LEDGER'S WRITE SIDE, and the order in `capture()`
+   * is the whole of why it is a separate call rather than something the leaf
+   * builder does.
+   *
+   * It is called BEFORE `buildLeaf`, so an artifact is in the captured set by
+   * the time its own leaf's absence set is computed. Called after, every leaf
+   * would name the artifact it is the leaf FOR as uncaptured — the enumeration
+   * comes from the upstream's `/history`, which lists the prompt whose output
+   * these bytes are, and the diff would find it missing from a ledger it had
+   * not been added to yet.
+   */
+  recordCaptured?: (ref: ArtifactRef) => void;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -134,6 +169,9 @@ export class Submitter implements ObservationSink {
    *  the whole point of the field is that a restart must not pass unnoticed,
    *  so the TRANSITION is what gets a line. */
   private lastLoggedUpstream: string | null = null;
+  /** WO-E2. And again for the absence set's scope — a session that loses its
+   *  closure claim mid-run is the transition an operator is owed. */
+  private lastLoggedUncaptured: string | null = null;
 
   constructor(private readonly opts: SubmitterOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -160,6 +198,9 @@ export class Submitter implements ObservationSink {
       // WO-C5. Who the upstream is and whether its history ring survived,
       // evaluated against each leaf's observation time.
       ...(opts.upstreamFor ? { upstreamFor: opts.upstreamFor } : {}),
+      // WO-E2. What the upstream said it produced that this component did not
+      // capture, and the scope that enumeration ranged over.
+      ...(opts.uncapturedFor ? { uncapturedFor: opts.uncapturedFor } : {}),
     };
   }
 
@@ -177,6 +218,17 @@ export class Submitter implements ObservationSink {
   }
 
   async capture(o: CaptureObservation, graph?: Record<string, unknown>): Promise<SubmittedEvent> {
+    // 0. LEDGER — WO-E2, and it is BEFORE the derive on purpose. The absence
+    //    set is `/history`'s outputs minus what this component captured, and
+    //    `/history` already lists the prompt these bytes came out of. Recording
+    //    after `buildLeaf` would make every artifact's own leaf name it as
+    //    uncaptured. A surface that cannot name the artifact the way ComfyUI
+    //    names it — a WS preview frame, which becomes no file and appears in
+    //    no `/history` output — sends no ref, and that is not a gap: it is an
+    //    observation the absence set does not range over.
+    const ref = (o.evidence as { artifact_ref?: ArtifactRef | null } | undefined)?.artifact_ref;
+    if (ref && this.opts.recordCaptured) this.opts.recordCaptured(ref);
+
     // 1. DERIVE — read the counter this event will carry BEFORE spending it,
     //    because the counter is inside what gets MACed (leaf.ts preimageOf).
     const counter = this.opts.identity.counter;
@@ -217,6 +269,21 @@ export class Submitter implements ObservationSink {
       this.log(
         `upstream ${up.upstream_continuity} · absence ${up.upstream_uncaptured_reason} ` +
           `· epoch ${up.upstream_epoch ?? '(none)'}`,
+      );
+    }
+
+    // WO-E2. Same treatment, one field over, and for the sharpest version of
+    // the reason: a leaf that goes from `complete` to `partial` mid-session
+    // has just stopped being able to support a coverage claim, and the reason
+    // says which of the four closure conditions broke. A count that rises is
+    // the operator's other signal — artifacts the upstream reported and this
+    // component did not capture.
+    const uncKey = `${up.uncaptured_scope}/${up.uncaptured_scope_source}`;
+    if (uncKey !== this.lastLoggedUncaptured) {
+      this.lastLoggedUncaptured = uncKey;
+      this.log(
+        `absence set ${up.uncaptured_scope} · ${up.declared_uncaptured_count ?? '(no set)'} ` +
+          `uncaptured — ${leaf.uncapturedReason}`,
       );
     }
 

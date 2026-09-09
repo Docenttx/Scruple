@@ -331,5 +331,26 @@ export const CANVAS_BASELINE = {
   //
   // Recorded as what it is: a real change to a file on the shared ingest path,
   // caught by the mechanism that exists to catch it.
-  tamper_surface_hash: '0fc212d71163f0185873888abc01c58e0700fbacef64bc41da66aeaf00a32d8a',
+  //
+  // ── Re-recorded by WO-E2, and it is `http-gate.ts` this time ───────────
+  //
+  // The gate's `/view` handler now puts `artifact_ref` — ComfyUI's own
+  // `{type, subfolder, filename}` triple, read off the request the tenant
+  // made — on the observation it emits. It is the LEDGER KEY for the absence
+  // set (`declared_uncaptured`): the component's captured artifacts have to be
+  // named the way `history[*].outputs` names them, or the diff between what
+  // the upstream reported and what was captured is a comparison of two
+  // different schemes.
+  //
+  // ⚑ NOTHING CANVAS DOES MOVED. `artifact_ref` never reaches a leaf — it is
+  // not a capture field, it is not in any preimage, and `capture.egress` is
+  // unchanged. Canvas does not construct one and does not read one. What
+  // changed on canvas's tamper surface is that a file canvas's egress table is
+  // checked against gained a function and one evidence key, which is exactly
+  // the class of change this list exists to make visible rather than the class
+  // it exists to prevent.
+  //
+  // The previous value, for the record: 0fc212d71163f0185873888abc01c58e
+  // 0700fbacef64bc41da66aeaf00a32d8a (WO-D6, above).
+  tamper_surface_hash: '7deafc3bb43a47e1efc5f4906ba80eeea0119ad9195d9ce66787f1e73a74b833',
 } as const;

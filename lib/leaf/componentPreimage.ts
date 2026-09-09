@@ -54,6 +54,11 @@ import type {
   UpstreamContinuity,
   UpstreamSource,
 } from '@/lib/capture/upstreamEpoch';
+import type {
+  UncapturedEnumerationMethod,
+  UncapturedScope,
+  UncapturedScopeSource,
+} from '@/lib/capture/declaredUncaptured';
 import {
   resolutionPreimageFields,
   type ResolutionHandles,
@@ -176,6 +181,23 @@ export interface ComponentCaptureBlock {
   host_evidence_type?: string | null;
   host_semantics?: HostSemanticsState | null;
   host_evidence_hash?: string | null;
+  /**
+   * WO-E2. THE ABSENCE SET'S SCOPE, AND ALL FIVE ARE IN THE PREIMAGE.
+   *
+   * Round 5 §3's condition, one level up from every other field here: the
+   * completeness of an absence set is itself a fact, so it needs a source —
+   * and a closure claim a party in the middle could promote from `partial` to
+   * `complete` would be a coverage claim nobody made. `declared_uncaptured` is
+   * the document and is NOT in the preimage; `declared_uncaptured_hash` binds
+   * it, and `declared_uncaptured_count` is signed separately so that an
+   * enumerated-and-empty set cannot be made to read as an absent one by
+   * dropping an unsigned attachment.
+   */
+  uncaptured_enumeration_method?: UncapturedEnumerationMethod | null;
+  uncaptured_scope?: UncapturedScope | null;
+  uncaptured_scope_source?: UncapturedScopeSource | null;
+  declared_uncaptured_count?: number | null;
+  declared_uncaptured_hash?: string | null;
 }
 
 export interface ComponentEnvelope {
@@ -206,6 +228,13 @@ export interface ComponentSubmission {
    * sometimes (§10 C-1).
    */
   host_evidence?: Record<string, unknown> | null;
+  /**
+   * WO-E2. The absence set and the scope it enumerated over. TOP-LEVEL for
+   * `host_evidence`'s reason and, like it, NOT in the preimage: the digest is,
+   * and the route recomputes the digest from this document and refuses a pair
+   * that disagrees.
+   */
+  declared_uncaptured?: Record<string, unknown> | null;
   capture?: ComponentCaptureBlock | null;
   /**
    * WO-C2. THE RESOLUTION HANDLES, AND THEY ARE IN THE MAC.
@@ -278,6 +307,15 @@ export function componentPreimage(s: ComponentSubmission): PreimageFields {
     host_evidence_type: c.host_evidence_type ?? null,
     host_semantics: c.host_semantics ?? null,
     host_evidence_hash: c.host_evidence_hash ?? null,
+    // WO-E2. Five keys, always present, null when the component sent nothing —
+    // the same absent-is-null discipline the seven above use. A legacy leaf
+    // reads null across all five, which is "the question was never asked of
+    // this leaf" and is a different thing from `not_enumerated`.
+    uncaptured_enumeration_method: c.uncaptured_enumeration_method ?? null,
+    uncaptured_scope: c.uncaptured_scope ?? null,
+    uncaptured_scope_source: c.uncaptured_scope_source ?? null,
+    declared_uncaptured_count: c.declared_uncaptured_count ?? null,
+    declared_uncaptured_hash: c.declared_uncaptured_hash ?? null,
     // WO-C2. Always five keys, prefixed `resolution_`, null when the block is
     // absent. The absence is therefore SIGNED: a party between the component
     // and this route can no more add a witness endpoint than rewrite one.

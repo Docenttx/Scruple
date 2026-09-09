@@ -117,6 +117,15 @@ function captureBlock(over: Record<string, unknown> = {}): Record<string, unknow
     upstream_low_watermark_close: 4096,
     upstream_uncaptured_reason: 'enumerated',
     upstream_source: 'measured',
+    // WO-E2 rule 8. A capture-bearing leaf must say what its absence set
+    // enumerated over. This fixture enumerates nothing, which is the
+    // `not_enumerated` shape: null count, null hash. Rule 8 refuses the
+    // other writing of it.
+    uncaptured_enumeration_method: 'none',
+    uncaptured_scope: 'not_enumerated',
+    uncaptured_scope_source: 'unknown',
+    declared_uncaptured_count: null,
+    declared_uncaptured_hash: null,
     // WO-D6 rule 7. A capture-bearing leaf must say which LEVEL its host
     // hook ran at, and these fixtures are Level 1: no adapter was
     // registered, so nothing named the bytes. 'blind' is the honest value
@@ -282,6 +291,9 @@ const reading = (
   low: pairs.reduce<number | null>((a, [n]) => (n === null ? a : a === null || n < a ? n : a), null),
   high: pairs.reduce<number | null>((a, [n]) => (n === null ? a : a === null || n > a ? n : a), null),
   anchors: pairs.map(([number, prompt_id]) => ({ number, prompt_id })),
+  // WO-E2. The enumeration rides on the same reading; these fixtures exercise
+  // the epoch fold, which does not read it.
+  outputs: pairs.map(([, prompt_id]) => ({ prompt_id, outputs: {} })),
   error: null,
 });
 
@@ -516,9 +528,9 @@ describe('WO-C5 — the epoch fold, driven by a table', () => {
     const failed: BracketedRead = {
       identity: null,
       identityOk: false,
-      open: { ok: false, low: null, high: null, anchors: [], error: 'ECONNREFUSED' },
-      window: { ok: false, low: null, high: null, anchors: [], error: 'ECONNREFUSED' },
-      close: { ok: false, low: null, high: null, anchors: [], error: 'ECONNREFUSED' },
+      open: { ok: false, low: null, high: null, anchors: [], outputs: [], error: 'ECONNREFUSED' },
+      window: { ok: false, low: null, high: null, anchors: [], outputs: [], error: 'ECONNREFUSED' },
+      close: { ok: false, low: null, high: null, anchors: [], outputs: [], error: 'ECONNREFUSED' },
     };
     const r = compareEpoch(prev, failed);
     assert.equal(r.observation.upstream_continuity, 'unknown');

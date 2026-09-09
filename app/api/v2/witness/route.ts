@@ -102,7 +102,8 @@ import {
   hashModelFingerprints,
   hashRunInputs,
 } from '@/lib/leaf/hashes';
-import { CANONICALIZATION_PROFILE } from '@/lib/leaf/canonicalJson';
+import { CANONICALIZATION_PROFILE, canonicalize } from '@/lib/leaf/canonicalJson';
+import { sha256Hex } from '@/lib/scruple/hash';
 import { releaseRunSequence, reserveRunSequence } from '@/lib/iterations/ingest';
 import { discloseLeafSignature } from '@/lib/leaf/signatureDisclosure';
 import { checkDeploymentSeal, componentDeployment } from '@/lib/seal/registry';
@@ -158,6 +159,15 @@ const Body = z.object({
   // than here, because `capture` is a free record on this route and every
   // rule that matters about those fields is cross-field.
   host_evidence: z.record(z.unknown()).optional(),
+  // WO-E2. THE ABSENCE SET AND ITS SCOPE — the artifacts the upstream said it
+  // produced that the component did not capture. Top level for the reason
+  // `host_evidence` and `model_fingerprints` are: `capture` is what the
+  // component OBSERVED, this is the diff against what the upstream REPORTED,
+  // and only the document's hash rides in the MAC. The five scalars in
+  // `capture` are validated by validateCaptureClaims() rather than here,
+  // because `capture` is a free record on this route and every rule that
+  // matters about them is cross-field.
+  declared_uncaptured: z.record(z.unknown()).optional(),
   attestation: z.object({ type: z.string().min(1), report: z.string().min(1) }).optional(),
   continuity: z
     .object({
@@ -607,6 +617,70 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // declared_uncaptured_hash. WO-E2, and the third instance of the same
+  // arrangement in this route for the third time's reason: the caller sends
+  // BOTH halves, we recompute one from the other, and we REFUSE rather than
+  // pick a winner.
+  //
+  // It matters here for a reason the other two do not have. The signed half is
+  // a COMPLETENESS CLAIM — `uncaptured_scope`, and a digest of the set that
+  // claim ranges over. A document that disagreed with its digest would let a
+  // party in the middle add or remove members of an absence set while the
+  // signature vouched for a scope that no longer described it: the leaf would
+  // say "complete, 3 uncaptured" and the stored set would name two, and a
+  // verifier could not tell which half moved. Recomputing here is what keeps
+  // the unsigned half honest.
+  //
+  // `claims.uncaptured` has already been checked for internal consistency by
+  // rule 8, so by the time control reaches here a `not_enumerated` cannot be
+  // carrying a hash and an enumerated scope cannot be missing one. What is
+  // left is arithmetic.
+  const uncapturedDoc = body.declared_uncaptured as
+    | Record<string, unknown>
+    | undefined;
+  const uncapturedHashed =
+    uncapturedDoc && Object.keys(uncapturedDoc).length > 0
+      ? (() => {
+          const json = canonicalize(uncapturedDoc);
+          return { json, hash: sha256Hex(json) };
+        })()
+      : null;
+  const declaredUncapturedHash = claims.uncaptured?.hash ?? null;
+  if (uncapturedHashed && declaredUncapturedHash && uncapturedHashed.hash !== declaredUncapturedHash) {
+    return v2Error(
+      'invalid_body',
+      'declared_uncaptured and capture.declared_uncaptured_hash disagree. The hash is inside ' +
+        'the MAC and the document is not, so accepting a pair that does not match would sign ' +
+        'a completeness claim about a set nobody can reproduce.',
+      { computed: uncapturedHashed.hash, supplied: declaredUncapturedHash },
+    );
+  }
+  // ⚑ AND THE TWO DIRECTIONS OF ABSENCE ARE BOTH REFUSED, because each is a
+  // way the signed half and the unsigned half could be separated in flight:
+  // a digest with no document to reproduce it from, and a document nothing
+  // signed. Rule 8 refuses a hash without an enumerated scope; this refuses a
+  // hash without the bytes it covers.
+  if (declaredUncapturedHash && !uncapturedHashed) {
+    return v2Error(
+      'declared_uncaptured_refused',
+      '`capture.declared_uncaptured_hash` is set and `declared_uncaptured` is absent. The ' +
+        'digest is signed and the document is not, so a leaf carrying the digest alone ' +
+        'commits to a set no verifier can ever read — an absence set nobody can inspect is ' +
+        'the bare hole this field exists to close, wearing a signature.',
+      { supplied: declaredUncapturedHash },
+    );
+  }
+  if (uncapturedHashed && !declaredUncapturedHash) {
+    return v2Error(
+      'declared_uncaptured_refused',
+      '`declared_uncaptured` was sent with no `capture.declared_uncaptured_hash`. The ' +
+        'document is outside the MAC; without the digest beside it inside the MAC it is an ' +
+        'unsigned attachment that a party in the middle could have written, and storing it ' +
+        'would make it look exactly like a signed one.',
+      { computed: uncapturedHashed.hash },
+    );
+  }
+
 
   // ---- witness (non-blocking by design) -----------------------------
   let leafHash = body.content_hash;
@@ -708,13 +782,15 @@ export async function POST(req: NextRequest) {
           upstream_uncaptured_reason, upstream_source,
           host, host_adapter, host_evidence_type, host_semantics,
           host_evidence, host_evidence_hash,
+          uncaptured_enumeration_method, uncaptured_scope, uncaptured_scope_source,
+          declared_uncaptured_count, declared_uncaptured_hash, declared_uncaptured,
           resolution_witness_endpoint, resolution_witness_authority,
           resolution_checkpoint_id, resolution_prev_checkpoint_id,
           resolution_prev_checkpoint_quote_time,
           resolution_settlement_deadline, resolution_retention_policy_digest,
           settlement_clock, settlement_clock_authority, settlement_observed_at,
           evidence_retained_until)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -822,6 +898,27 @@ export async function POST(req: NextRequest) {
       claims.host?.semantics ?? null,
       hostEvidence?.json ?? null,
       claims.host?.evidenceHash ?? hostEvidence?.hash ?? null,
+      // Migration 059, WO-E2. THE ABSENCE SET AND THE SCOPE IT ENUMERATED
+      // OVER, and NULL for a leaf with no capture block — for 056's, 057's and
+      // 058's reason: NULL is "the question was never asked of this leaf",
+      // 'not_enumerated' is "asked, and there was nothing to enumerate".
+      //
+      // ⚑ `declared_uncaptured_count` IS 0 AND NOT NULL when the component
+      // enumerated and found nothing uncaptured. That is the distinction the
+      // whole field turns on and 059's CHECK 2 refuses the other writing of
+      // it. Rule 8 above has already refused every combination these columns
+      // must never hold.
+      //
+      // The document is stored as the CANONICAL BYTES THAT WERE HASHED, not as
+      // a re-serialization of the parsed body — so a verifier holding this
+      // column can reproduce `declared_uncaptured_hash` directly. Same
+      // correction `hashModelFingerprints` and `host_evidence` carry.
+      claims.uncaptured?.method ?? null,
+      claims.uncaptured?.scope ?? null,
+      claims.uncaptured?.scopeSource ?? null,
+      claims.uncaptured?.count ?? null,
+      claims.uncaptured?.hash ?? uncapturedHashed?.hash ?? null,
+      uncapturedHashed?.json ?? null,
       // Migration 054, WO-C2. WHAT THE COMPONENT SIGNED, not what this server
       // knows about itself. The endpoint is self-asserted by the emitter and
       // is deliberately NOT overwritten with our own address: a compromised

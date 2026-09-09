@@ -422,6 +422,16 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
             # exists to prevent.
             "host", "host_adapter", "host_evidence_type", "host_semantics",
             "host_evidence_hash",
+            # WO-E2. The absence set's scope. Five keys, listed by hand for the
+            # reason every field above is: this placement enumerates nothing,
+            # so all five carry the `not_enumerated` shape — and a
+            # `declared_uncaptured_count` that quietly left the preimage would
+            # let a party in the middle turn "did not look" into "looked and
+            # found nothing", which is a coverage claim made by dropping a
+            # field rather than by making one.
+            "uncaptured_enumeration_method", "uncaptured_scope",
+            "uncaptured_scope_source", "declared_uncaptured_count",
+            "declared_uncaptured_hash",
         )},
         # WO-C2. The resolution handles, prefixed, INSIDE the MAC. Spelled out
         # here by hand for the same reason every other field above is: this
