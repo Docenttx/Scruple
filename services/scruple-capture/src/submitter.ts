@@ -24,7 +24,12 @@
 
 import crypto from 'node:crypto';
 
-import type { CaptureObservation, ObservationSink } from '../../../lib/capture/surface';
+import type {
+  CaptureObservation,
+  ObservationSink,
+  PlacementEnforcement,
+} from '../../../lib/capture/surface';
+import type { CaptureProfile, QuoteBinding } from '../../../lib/leaf/attestationBasis';
 import { buildLeaf, type LeafContext, type Submission } from './leaf';
 import { QueueStore, isDue, type QueueEntry } from './queue';
 import type { Identity } from './identity';
@@ -37,6 +42,15 @@ export interface SubmitterOptions {
   apiBaseUrl: string;
   apiKey: string;
   baselineRef: string | null;
+  /**
+   * WO-C1. The trust profile and the enforcement that earned it. Passed in
+   * rather than derived here because `resolvePlacement()` already did the
+   * work in component.ts, and a second derivation is a second answer.
+   */
+  profile: CaptureProfile;
+  enforcement: PlacementEnforcement;
+  /** Per-emission quote binding. See LeafContext.quoteFor. */
+  quoteFor?: (o: CaptureObservation) => QuoteBinding | null;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -56,6 +70,7 @@ export class Submitter implements ObservationSink {
   /** Every event this process MACed, in counter order. Diagnostics and the
    *  acceptance tests; the durable record is the queue and the server. */
   readonly emitted: SubmittedEvent[] = [];
+  private lastLoggedBasis: string | null = null;
 
   constructor(private readonly opts: SubmitterOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -63,8 +78,10 @@ export class Submitter implements ObservationSink {
     this.ctx = {
       componentId: opts.identity.componentId,
       buildMeasurement: opts.identity.buildMeasurement,
-      attestationStatus: opts.identity.attestationStatus,
       baselineRef: opts.baselineRef,
+      profile: opts.profile,
+      enforcement: opts.enforcement,
+      ...(opts.quoteFor ? { quoteFor: opts.quoteFor } : {}),
     };
   }
 
@@ -86,6 +103,18 @@ export class Submitter implements ObservationSink {
     //    because the counter is inside what gets MACed (leaf.ts preimageOf).
     const counter = this.opts.identity.counter;
     const leaf = buildLeaf(o, this.ctx, counter, graph);
+
+    // WO-C1. The basis is resolved per emission, so log it when it CHANGES
+    // rather than on every leaf: a line per artifact is noise an operator
+    // learns to skip, and a transition from `stale` to `passthrough` — which
+    // is what WO-C6 landing looks like from in here — is the one thing they
+    // must not miss. The reason is logged, never sent: an explanation on the
+    // wire is a field to be forged.
+    const basis = leaf.submission.capture.attestation_status;
+    if (basis !== this.lastLoggedBasis) {
+      this.lastLoggedBasis = basis;
+      this.log(`attestation basis → ${basis} (${leaf.basisReason})`);
+    }
 
     // 2/3/4. MAC, RATCHET, PERSIST. One call, in that order, and it fsyncs
     //    the new state before returning (identity.ts macAndAdvance).

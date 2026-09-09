@@ -396,7 +396,7 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
         **{k: body["capture"][k] for k in (
             "surface", "hook", "fidelity", "size_bytes", "mime_source", "correlation_id",
             "correlation_method", "egress", "close_detection", "workflow_hash", "observed_at",
-            "attestation_status",
+            "attestation_status", "profile",
         )},
     }
     k0 = derive_ik(BDK, COMPONENT_ID)

@@ -31,6 +31,7 @@ import {
   type HostAssurance,
   type HostCaptureProfile,
 } from '../../../lib/capture/surface';
+import { profileFor } from '../../../lib/leaf/attestationBasis';
 import type { CaptureConfig } from './config';
 import { resolveWatchedVolumes, topologyAdvisory } from './config';
 import { Correlator } from './correlation';
@@ -73,12 +74,45 @@ export class CaptureComponent {
     const identity = deps.identity ?? (await Identity.open(cfg, deps.fetchImpl));
     const queue = new QueueStore(path.join(cfg.stateDir, 'queue.jsonl'));
     const correlator = new Correlator(cfg.correlationTtlMs);
+    const profile: HostCaptureProfile = {
+      host: 'comfyui',
+      hooks: ['graph.execute', 'artifact.produced'],
+      // BOTH, and this is the whole finding. A config naming one is
+      // expressible and wrong — lib/capture/surface.ts calls that DEFECT-2
+      // and says completeness is established outside the model, by H-4 §7
+      // probes 4 and 5 and by ratchet gap accounting.
+      surfaces: ['network-gate', 'filesystem-watch'],
+      fidelity: 'as-delivered',
+      declaredPlacement: 'sidecar-gate',
+      enforcement: 'isolated-namespace',
+      // No attestable compute here, so the IK is software-protected, the
+      // build↔key binding is an assertion, and the leaf is `passthrough`
+      // and says so (§4.3).
+      attestation: identity.attestationStatus ?? 'none',
+    };
+    const assurance = assuranceForHost(profile);
+
+    // WO-C1. The trust profile is derived from the EFFECTIVE placement — the
+    // one `resolvePlacement()` produced after checking that the enforcement
+    // mechanism is actually there — and never from `declaredPlacement`. A
+    // profile a host assigns itself is DEFECT-1 one level up.
+    //
+    // This block moved ABOVE the Submitter in WO-C1, because the Submitter
+    // now needs it. Nothing in it changed.
+    const trustProfile = profileFor(assurance.resolution.effective);
+
     const submitter = new Submitter({
       identity,
       queue,
       apiBaseUrl: cfg.apiBaseUrl,
       apiKey: cfg.apiKey,
       baselineRef: cfg.baselineRef,
+      profile: trustProfile,
+      enforcement: assurance.resolution.enforcement,
+      // No quote source: this component has no attestable compute. That is
+      // `passthrough` once the Merkle blocker lifts, and `stale` until then.
+      // `sealToMeasurement()` in identity.ts is the seam where a real one
+      // goes; it throws rather than returning something that pretends.
       fetchImpl: deps.fetchImpl,
       log,
     });
@@ -111,24 +145,6 @@ export class CaptureComponent {
         res.end('scruple-capture: gate error\n');
       });
     });
-
-    const profile: HostCaptureProfile = {
-      host: 'comfyui',
-      hooks: ['graph.execute', 'artifact.produced'],
-      // BOTH, and this is the whole finding. A config naming one is
-      // expressible and wrong — lib/capture/surface.ts calls that DEFECT-2
-      // and says completeness is established outside the model, by H-4 §7
-      // probes 4 and 5 and by ratchet gap accounting.
-      surfaces: ['network-gate', 'filesystem-watch'],
-      fidelity: 'as-delivered',
-      declaredPlacement: 'sidecar-gate',
-      enforcement: 'isolated-namespace',
-      // No attestable compute here, so the IK is software-protected, the
-      // build↔key binding is an assertion, and the leaf is `passthrough`
-      // and says so (§4.3).
-      attestation: identity.attestationStatus ?? 'none',
-    };
-    const assurance = assuranceForHost(profile);
 
     await httpGate.open({ sink: submitter, placement: assurance.placement, config: {} });
     await wsGate.open({ sink: submitter, placement: assurance.placement, config: { server } });

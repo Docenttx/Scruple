@@ -217,6 +217,10 @@ function makeSubmitter(stateDir: string) {
     chain_key_hex: r.ikHex,
     counter: 0,
     build_measurement: measurement,
+    // The PROVISIONING POSTURE — what the server said backed this component
+    // when it redeemed its token. NOT the leaf's attestation basis: WO-C1
+    // resolves that per emission in buildLeaf(), and null here is an honest
+    // "no attestation envelope was supplied", which is a different question.
     attestation_status: null,
     provisioned_at: r.provisionedAt,
   });
@@ -227,6 +231,10 @@ function makeSubmitter(stateDir: string) {
     apiBaseUrl: 'https://scruple.test',
     apiKey,
     baselineRef: BASELINE,
+    // WO-C1. Kohya's checkpoint watcher runs where the tenant has root, so
+    // the honest profile is 'desktop' and `verified` is unreachable for it.
+    profile: 'desktop',
+    enforcement: 'none',
     log: () => undefined,
     // The route handler IS the network. No server to start, no port to race.
     fetchImpl: async (url: string, init: RequestInit) => {

@@ -111,10 +111,18 @@ const CAPTURE = {
   correlation_id: null,
   correlation_method: null,
   egress: null,
+  // WO-C1. PINNED AT null AND IT MAY NEVER BE ANYTHING ELSE — the key is
+  // in the MAC so the absence is signed, and the validator returns 422 for
+  // any value. test/v2/attestation-basis.test.ts is the control.
   close_detection: null,
   workflow_hash: null,
   observed_at: '2026-08-30T00:00:00.000Z',
-  attestation_status: 'passthrough' as const,
+  // WO-C1. Three-valued, and `stale` is the only basis a leaf may emit
+  // until the witness and the verifier pass shared Merkle vectors (WO-C6).
+  // `profile` rides in the preimage with it: the basis is conditional on
+  // the profile, so an unsigned profile is an unsigned basis.
+  attestation_status: 'stale' as const,
+  profile: 'server-managed' as const,
 };
 
 /**

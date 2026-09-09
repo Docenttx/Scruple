@@ -158,7 +158,11 @@ export class CheckpointWatchSurface implements CaptureSurface {
       type: 'object',
       properties: {
         egress: { type: 'string' },
-        close_detection: { type: 'string' },
+        // WO-C1: RENAMED, AND DEMOTED WITH IT. `close_detection` was
+        // provenance and is now refused as provenance by the validator
+        // (lib/leaf/captureClaims.ts). What the watcher saw is still
+        // reported, under a name that says what it is worth.
+        fs_diagnostic: { type: 'string' },
         header_hash: { type: ['string', 'null'] },
         structural_summary: { type: ['object', 'null'] },
         mime_source: { type: ['string', 'null'] },
@@ -246,7 +250,8 @@ export class CheckpointWatchSurface implements CaptureSurface {
       evidence: {
         kind: isCheckpoint ? 'model_write' : 'artifact',
         egress: `file:${path.relative(this.opts.volume, abs)}`,
-        close_detection: this.source.method,
+        // Diagnostic corroboration only — see fs-watch.ts and WO-C1.
+        fs_diagnostic: this.source.method,
         mime_source: declared?.source ?? null,
         // The structural fingerprint the in-pod hook produced, preserved
         // across the move. Null when the file is not safetensors or its

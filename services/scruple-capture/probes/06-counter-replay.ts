@@ -235,7 +235,12 @@ function forgedSubmission(componentId: string, counter: number): Record<string, 
       close_detection: null,
       workflow_hash: null,
       observed_at: observedAt,
-      attestation_status: 'passthrough',
+      // WO-C1. `stale` until the Merkle vectors agree, and the profile the
+      // basis is conditional on rides in the MAC preimage with it. A forged
+      // replay must be indistinguishable from a real leaf in every respect
+      // except the counter, or the probe proves the wrong thing.
+      attestation_status: 'stale',
+      profile: 'isolated-sidecar',
     },
     component: {
       component_id: componentId,

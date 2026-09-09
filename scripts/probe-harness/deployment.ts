@@ -267,6 +267,10 @@ async function main(): Promise<void> {
     chain_key_hex: redeemed.ikHex,
     counter: 0,
     build_measurement: measurement,
+    // The PROVISIONING POSTURE — what the server said backed this component
+    // when it redeemed its token. NOT the leaf's attestation basis: WO-C1
+    // resolves that per emission in buildLeaf(), and null here is an honest
+    // "no attestation envelope was supplied", which is a different question.
     attestation_status: null,
     provisioned_at: redeemed.provisionedAt,
   });
@@ -426,6 +430,11 @@ async function startHttpOnlyGate(a: {
     apiBaseUrl: a.cfg.apiBaseUrl as string,
     apiKey: 'sk_harness_component',
     baselineRef: 'ab'.repeat(32),
+    // The harness stands the component up in the shape H-4 §2 requires, so
+    // it runs at the sidecar profile. What it emits is still `stale` — the
+    // Merkle blocker is global and no deployment shape lifts it.
+    profile: 'isolated-sidecar',
+    enforcement: 'isolated-namespace',
     log: () => undefined,
   });
   const gate = new HttpGate({

@@ -91,6 +91,8 @@ import { requireScope } from '@/lib/v2/auth';
 import { v2Error, v2Ok } from '@/lib/v2/http';
 import { verifySubmission } from '@/lib/ratchet/verify';
 import { componentPreimage } from '@/lib/leaf/componentPreimage';
+import { validateCaptureClaims } from '@/lib/leaf/captureClaims';
+import { basisForTrust } from '@/lib/leaf/attestationBasis';
 import { witness } from '@/lib/scruple/witness';
 import {
   hashGraphOrTraining,
@@ -184,9 +186,21 @@ export async function POST(req: NextRequest) {
   if ('response' in gate) return gate.response;
   const { principal } = gate;
 
+  // THE RAW JSON IS KEPT, and that is not a stylistic choice. Zod STRIPS
+  // unknown top-level keys, so a rule written against the parsed body cannot
+  // see a field the schema does not declare — and `close_detection` is
+  // precisely a field the schema does not declare. Validating the parsed body
+  // would have refused it inside `capture` and waved it through one level up,
+  // which is the shape of the bypass, not a corner case. Found by the control
+  // in test/v2/attestation-basis.test.ts, which was written to look for it.
+  let raw: Record<string, unknown> = {};
   let body: z.infer<typeof Body>;
   try {
-    body = Body.parse(await req.json());
+    const parsed: unknown = await req.json();
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      raw = parsed as Record<string, unknown>;
+    }
+    body = Body.parse(parsed);
   } catch (e) {
     return v2Error(
       'invalid_body',
@@ -217,6 +231,25 @@ export async function POST(req: NextRequest) {
       'This baseline has been retired by a later transition. Re-read GET /api/v2/baseline/current and retry — leaves must reference the active baseline (§4).',
     );
   }
+
+  // ---- WO-C1: what the capture block is ENTITLED TO CLAIM ----------
+  //
+  // Before the ratchet, and deliberately: this is a refusal about the
+  // CONTENT of a claim, and it does not need the component to be
+  // authenticated to be true. It is also above every write, so a refused
+  // claim leaves no row — which is the difference between a validator and
+  // a comment.
+  //
+  // Three rules, all from the settled design and none of them in prose:
+  //   1. `close_detection` is rejected as a provenance or completion field;
+  //   2. a capture-bearing leaf must declare one of the three bases, and
+  //      `attestation_status: null` is not one of them;
+  //   3. `verified` is unreachable on the desktop profile by construction,
+  //      and while the Merkle blocker stands `stale` is the only basis.
+  //
+  // lib/leaf/captureClaims.ts carries the argument for each.
+  const claims = validateCaptureClaims(raw);
+  if (!claims.ok) return v2Error(claims.code, claims.message, claims.detail);
 
   // ---- the component envelope (H-4 §4.3), verified — or its absence
   // ---- recorded (WO-6, §10 C-6) -------------------------------------
@@ -545,8 +578,9 @@ export async function POST(req: NextRequest) {
           deployment_id, seal_state, seal_ref,
           canonicalization_profile,
           leaf_signature, leaf_signer_key_id, leaf_signature_alg,
-          leaf_signer_surrogate, leaf_signature_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          leaf_signer_surrogate, leaf_signature_state,
+          attestation_basis, attestation_profile)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -599,6 +633,13 @@ export async function POST(req: NextRequest) {
       leafSignatureAlg,
       leafSignerSurrogate,
       leafSigState,
+      // Migration 053, WO-C1. NULL for a leaf with no capture block — a
+      // legacy leaf, read back as 'unknown' rather than defaulted to
+      // anything. `validateCaptureClaims()` above has already refused every
+      // combination this column must never hold, so what lands here is what
+      // the component said, not what the server decided it meant.
+      claims.basis,
+      claims.profile,
     );
 
   return v2Ok(
@@ -630,6 +671,19 @@ export async function POST(req: NextRequest) {
       ),
       canonicalization_profile: workflowHash ? CANONICALIZATION_PROFILE : null,
       attestation: attestationStatus ? { status: attestationStatus } : null,
+      // WO-C1. The per-leaf basis every field-level `source: measured` on
+      // this leaf is conditional on, returned through the SAME reader a
+      // trust decision must use. A leaf with no capture block reads
+      // 'unknown' here rather than null, because 'unknown' is a state a
+      // consumer can act on and an absent key is one nobody reads.
+      //
+      // Every leaf emitted today reads `stale`: the witness and the
+      // verifier do not pass shared Merkle vectors, so no checkpoint can
+      // be claimed settled. WO-C6.
+      attestation_basis: {
+        basis: basisForTrust(claims.basis),
+        profile: claims.profile,
+      },
       // What this leaf actually commits to. A caller that sent a graph
       // is entitled to see that it was folded in rather than dropped —
       // which is exactly what could not be seen before WO-1.

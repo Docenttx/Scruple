@@ -143,7 +143,12 @@ COPY lib/capture ./lib/capture
 # key-schedule arithmetic with no database import — verified, not assumed, by
 # the closure that produced this list.
 COPY lib/ratchet/ratchet.ts ./lib/ratchet/
-COPY lib/leaf/hashes.ts lib/leaf/canonicalJson.ts ./lib/leaf/
+# WO-C1 adds `attestationBasis.ts` to that named set, for the same reason and
+# under the same rule: `src/leaf.ts` resolves the per-leaf basis at emission,
+# so the container needs the resolver. It is a pure function of (profile,
+# enforcement, quote, blocker) with no database import and no BDK — the same
+# closure check that admitted `ratchet.ts` admits it.
+COPY lib/leaf/hashes.ts lib/leaf/canonicalJson.ts lib/leaf/attestationBasis.ts ./lib/leaf/
 COPY lib/scruple/hash.ts ./lib/scruple/
 COPY tsconfig.json ./
 # tsx is a devDependency, and the component is run through it — so this is

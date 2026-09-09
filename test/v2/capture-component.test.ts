@@ -124,6 +124,10 @@ function provisionedIdentity(stateDir: string) {
     chain_key_hex: r.ikHex, // K_0 = IK, n = 0
     counter: 0,
     build_measurement: measurement,
+    // The PROVISIONING POSTURE — what the server said backed this component
+    // when it redeemed its token. NOT the leaf's attestation basis: WO-C1
+    // resolves that per emission in buildLeaf(), and null here is an honest
+    // "no attestation envelope was supplied", which is a different question.
     attestation_status: null,
     provisioned_at: r.provisionedAt,
   });
@@ -371,7 +375,18 @@ describe('§2 path 1 — the output volume, which a network gate cannot see', ()
       assert.equal(sub.mime, 'image/png');
       assert.equal(cap.mime_source, 'node');
       assert.ok(cap.workflow_hash, 'the graph the gate teed is folded in');
-      assert.equal(cap.close_detection, 'fs-watch-quiescence');
+      // WO-C1. The watcher still SEES the close, and what it saw still
+      // reaches the wire — but as `fs_diagnostic`, uncovered by the MAC and
+      // creating nothing. `close_detection` is pinned at null, and the
+      // validator returns 422 for any other value: a filesystem observation
+      // is not freeze-gate authentication.
+      //
+      // BOTH assertions, not just the first. Checking only that the value
+      // moved would pass if the observation had been dropped entirely, and
+      // dropping it is the other way to fail this — the council kept fs-watch
+      // as diagnostic corroboration, it did not delete it.
+      assert.equal(cap.close_detection, null);
+      assert.equal(cap.fs_diagnostic, 'fs-watch-quiescence');
     } finally {
       await h.stop();
     }

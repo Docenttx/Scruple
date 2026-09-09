@@ -29,6 +29,7 @@ import { Identity } from '../src/identity';
 import { QueueStore } from '../src/queue';
 import { Submitter } from '../src/submitter';
 import { CheckpointWatchSurface, DEFAULT_CHECKPOINT_SETTLE_MS } from './checkpoint-watch';
+import { profileFor } from '../../../lib/leaf/attestationBasis';
 import type { CloseWriteSource } from '../src/surfaces/fs-watch';
 import {
   resolveKohyaPlacement,
@@ -128,6 +129,15 @@ export class KohyaCapture {
       apiBaseUrl: cfg.apiBaseUrl,
       apiKey: cfg.apiKey,
       baselineRef: cfg.baselineRef,
+      // WO-C1. From the RESOLVED placement, not the declared one. On RunPod's
+      // Pods `resolveKohyaPlacement()` answers `enforcement: 'none'` and the
+      // effective placement is `unattested-client`, so the trust profile here
+      // is 'desktop' — the tenant has root in the container, which is the
+      // same adversary the desktop argument is about, wearing a datacentre.
+      // `verified` is unreachable, and the type says so before the validator
+      // gets a chance to.
+      profile: profileFor(assurance.resolution.effective),
+      enforcement: assurance.resolution.enforcement,
       fetchImpl: deps.fetchImpl,
       log,
     });

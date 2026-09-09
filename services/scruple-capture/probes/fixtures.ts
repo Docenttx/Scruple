@@ -212,6 +212,10 @@ export async function startNonConformant(opts: FixtureOptions): Promise<Deployme
     apiBaseUrl: ingest.url,
     apiKey: 'sk_test_nonconformant',
     baselineRef: 'ab'.repeat(32),
+    // The fixture is deliberately NON-CONFORMANT: one surface, no isolation.
+    // Its trust profile is the honest one for that shape.
+    profile: 'desktop',
+    enforcement: 'none',
     log: () => undefined,
   });
 

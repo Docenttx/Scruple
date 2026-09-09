@@ -292,7 +292,10 @@ def main() -> int:
             "close_detection": None,
             "workflow_hash": None,
             "observed_at": "2026-08-30T00:00:00.000Z",
-            "attestation_status": "passthrough",
+            # WO-C1. `stale` until the witness and the verifier pass shared
+            # Merkle vectors; the SDK resolves it, this literal only mirrors it.
+            "attestation_status": "stale",
+            "profile": "server-managed",
         },
         "component": {
             "component_id": integ4.component.component_id,

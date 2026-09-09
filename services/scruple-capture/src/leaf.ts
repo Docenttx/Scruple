@@ -30,14 +30,38 @@
 // a string, a safe integer, or null.
 
 import { hashWorkflow } from '../../../lib/leaf/hashes';
-import type { CaptureObservation } from '../../../lib/capture/surface';
+import {
+  resolveAttestationBasis,
+  type AttestationBasis,
+  type CaptureProfile,
+  type QuoteBinding,
+} from '../../../lib/leaf/attestationBasis';
+import type { CaptureObservation, PlacementEnforcement } from '../../../lib/capture/surface';
 import type { PreimageFields } from '../../../lib/ratchet/ratchet';
 
 export interface LeafContext {
   componentId: string;
   buildMeasurement: string;
-  attestationStatus: 'verified' | 'passthrough' | null;
   baselineRef: string | null;
+  /**
+   * WO-C1. The trust profile this component runs at, derived from the
+   * EFFECTIVE placement (`profileFor()`), never self-declared. The basis is
+   * conditional on it, and it rides in the MAC preimage so it cannot be
+   * rewritten between here and the route.
+   */
+  profile: CaptureProfile;
+  /** What actually keeps the measured party out of the capture process. */
+  enforcement: PlacementEnforcement;
+  /**
+   * THE QUOTE IS FETCHED PER EMISSION, NOT PER PROCESS, and the function
+   * type is the whole reason. `verified` requires a quote that binds to THIS
+   * emission — a freshness nonce from outside the box, covering this event.
+   * A value captured at startup could only ever bind the startup, which is
+   * the config-inherited field class the council already refused for
+   * `pinned_build`. Returns null when the placement has no attestable
+   * compute: that is `passthrough`, not a failure.
+   */
+  quoteFor?: (o: CaptureObservation) => QuoteBinding | null;
 }
 
 /** What the surface put on the observation's `evidence`. */
@@ -48,7 +72,21 @@ export interface ObservationEvidence {
   machine_manifest_hash?: string | null;
   mime_source?: string | null;
   correlation_method?: string | null;
-  close_detection?: string | null;
+  /**
+   * WO-C1. DIAGNOSTIC CORROBORATION ONLY. What the filesystem watcher saw —
+   * `IN_CLOSE_WRITE`, `fs-watch-quiescence`, whatever it actually had. It
+   * used to be `close_detection` and to travel in the MAC preimage as
+   * provenance; the council retracted that ("filesystem observations are not
+   * freeze-gate authentication and `close_detection` is rejected as
+   * provenance") and `lib/leaf/captureClaims.ts` now returns 422 for any
+   * non-null `close_detection`.
+   *
+   * It is CARRIED rather than dropped, for the reason `header_hash` below is
+   * carried: an observation that reaches the wire can be promoted later, one
+   * the component never sent cannot be recovered at all. It creates and
+   * completes nothing.
+   */
+  fs_diagnostic?: string | null;
   /** The ComfyUI route or frame type the bytes left by. Recorded so a
    *  coverage gap shows up as an absent VALUE rather than an absent event. */
   egress?: string | null;
@@ -80,10 +118,18 @@ export interface CaptureBlock {
   correlation_id: string | null;
   correlation_method: string | null;
   egress: string | null;
-  close_detection: string | null;
+  /** PINNED AT null. See ObservationEvidence.fs_diagnostic and
+   *  lib/leaf/componentPreimage.ts — the key stays in the MAC so the absence
+   *  is signed, and no value may ever fill it. */
+  close_detection: null;
   workflow_hash: string | null;
   observed_at: string;
-  attestation_status: 'verified' | 'passthrough' | null;
+  /** WO-C1. Three-valued, never null on a leaf this component emits. */
+  attestation_status: AttestationBasis;
+  /** WO-C1. In the MAC preimage; the basis is conditional on it. */
+  profile: CaptureProfile;
+  /** UNCOVERED BY THE MAC, like header_hash. Diagnostic only. */
+  fs_diagnostic?: string | null;
   /** UNCOVERED BY THE MAC, and that is not an oversight — see
    *  ObservationEvidence.header_hash. `preimageOf()` below does not read it,
    *  and neither does the server's `componentPreimage()`. */
@@ -151,12 +197,16 @@ export function preimageOf(s: Submission): PreimageFields {
     workflow_hash: s.capture.workflow_hash,
     observed_at: s.capture.observed_at,
     attestation_status: s.capture.attestation_status,
+    profile: s.capture.profile,
   };
 }
 
 export interface BuiltLeaf {
   submission: Submission;
   preimage: PreimageFields;
+  /** Why the basis on this leaf is what it is. Logged, never sent: it is an
+   *  explanation, and an explanation on the wire is a field to be forged. */
+  basisReason: string;
   /** False when nothing was entitled to declare a MIME. See the note below. */
   mimeDeclared: boolean;
 }
@@ -172,6 +222,18 @@ export function buildLeaf(
   if (!bytes) throw new Error('buildLeaf: observation carries no bytes');
 
   const workflowHash = ev.workflow_hash ?? (graph ? hashWorkflow(graph) : null);
+
+  // WO-C1. RESOLVED HERE, PER EMISSION, and not read off a field the
+  // component set once at startup. Today it returns `stale` for every
+  // profile — the witness and the verifier do not pass shared Merkle
+  // vectors, so no checkpoint can be claimed settled (WO-C6, Appendix C
+  // item 0). It is still computed rather than hardcoded, because a constant
+  // is what a future contributor deletes without noticing what it was for.
+  const basis = resolveAttestationBasis({
+    profile: ctx.profile,
+    enforcement: ctx.enforcement,
+    quote: ctx.quoteFor ? ctx.quoteFor(o) : null,
+  });
 
   const submission: Submission = {
     baseline_ref: ctx.baselineRef,
@@ -203,10 +265,13 @@ export function buildLeaf(
       correlation_id: o.correlationId ?? null,
       correlation_method: ev.correlation_method ?? null,
       egress: ev.egress ?? null,
-      close_detection: ev.close_detection ?? null,
+      // NEVER ev.<anything>. The key is signed and the value is fixed.
+      close_detection: null,
       workflow_hash: workflowHash,
       observed_at: o.observedAt,
-      attestation_status: ctx.attestationStatus,
+      attestation_status: basis.basis,
+      profile: ctx.profile,
+      ...(ev.fs_diagnostic ? { fs_diagnostic: ev.fs_diagnostic } : {}),
       ...(ev.header_hash ? { header_hash: ev.header_hash } : {}),
     },
     component: {
@@ -221,5 +286,10 @@ export function buildLeaf(
     },
   };
 
-  return { submission, preimage: preimageOf(submission), mimeDeclared: Boolean(bytes.mime) };
+  return {
+    submission,
+    preimage: preimageOf(submission),
+    mimeDeclared: Boolean(bytes.mime),
+    basisReason: basis.reason,
+  };
 }

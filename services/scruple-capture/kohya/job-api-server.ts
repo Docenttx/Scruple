@@ -114,6 +114,20 @@ async function main(): Promise<void> {
     apiBaseUrl: cfg.apiBaseUrl,
     apiKey: cfg.apiKey,
     baselineRef: cfg.baselineRef,
+    // WO-C1. THE MODEL'S REFUSING DEFAULT, STATED RATHER THAN DERIVED.
+    //
+    // index.ts runs `resolveKohyaPlacement()` against a declared topology
+    // before it will start. This door does not — it takes its roots from the
+    // environment and has no topology to check — and §4.2 is explicit that a
+    // placement without its enforcement resolves to `unattested-client`, not
+    // to an intermediate tier. So the honest values here are the ones an
+    // unchecked deployment is entitled to, and they are written literally so
+    // that nobody reads a derivation that did not happen.
+    //
+    // The tenant has root in a Kohya pod. That is the desktop adversary in a
+    // datacentre, and `verified` is unreachable for it by construction.
+    profile: 'desktop',
+    enforcement: 'none',
   });
 
   const runner = await StudioJobRunner.start(

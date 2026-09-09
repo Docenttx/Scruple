@@ -244,7 +244,11 @@ export class FsWatchSurface implements CaptureSurface {
       type: 'object',
       properties: {
         egress: { type: 'string' },
-        close_detection: { type: 'string' },
+        // WO-C1: RENAMED, AND DEMOTED WITH IT. `close_detection` was
+        // provenance and is now refused as provenance by the validator
+        // (lib/leaf/captureClaims.ts). What the watcher saw is still
+        // reported, under a name that says what it is worth.
+        fs_diagnostic: { type: 'string' },
         correlation_method: { type: ['string', 'null'] },
         mime_source: { type: ['string', 'null'] },
       },
@@ -336,7 +340,10 @@ export class FsWatchSurface implements CaptureSurface {
       },
       evidence: {
         egress: egressFor(volume, abs),
-        close_detection: source.method,
+        // Diagnostic corroboration. It does not create or complete this
+        // leaf: the leaf is created by the hash of bytes already on disk,
+        // and `capture.close_detection` goes to the wire pinned at null.
+        fs_diagnostic: source.method,
         workflow_hash: att.prompt?.workflowHash ?? null,
         input_hash: att.prompt?.inputHash ?? null,
         correlation_method: att.method,

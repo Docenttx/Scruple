@@ -80,6 +80,10 @@ from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
+from scruple_api.attestation_basis import (
+    profile_for,
+    resolve_attestation_basis,
+)
 from scruple_api.capture import capture as _capture_file
 from scruple_api.surface import (
     Assurance,
@@ -166,10 +170,23 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         "correlation_id": c.get("correlation_id"),
         "correlation_method": c.get("correlation_method"),
         "egress": c.get("egress"),
+        # WO-C1. RETRACTED AS PROVENANCE AND HELD AT null. The server's
+        # validator returns 422 for any non-null value: a filesystem
+        # observation may not create, complete or authenticate an artifact
+        # leaf. The KEY stays in the preimage because dropping it would change
+        # the canonical JSON and therefore every MAC across three
+        # implementations — and because keeping it makes the MAC cover the
+        # ASSERTION that there is no close detection, so a proxy cannot add
+        # one in flight. Dead as provenance, load-bearing as a negative.
         "close_detection": c.get("close_detection"),
         "workflow_hash": c.get("workflow_hash"),
         "observed_at": c.get("observed_at"),
         "attestation_status": c.get("attestation_status"),
+        # WO-C1. The profile the basis is conditional on, IN THE PREIMAGE: a
+        # basis whose precondition travels unsigned is a basis an attacker
+        # rewrites, and `verified` is refused on `desktop` by the same
+        # validator that would then be reading a forgeable field.
+        "profile": c.get("profile"),
     }
 
 
@@ -300,6 +317,12 @@ class ServerLibraryIntegration:
 
         self.resolution = resolve_placement(Placement(declared_placement), PlacementEnforcement(enforcement))
         self._assurance = assurance_for(self.resolution.effective, self.attestation_outcome)
+        # WO-C1. The trust profile, derived from the EFFECTIVE placement —
+        # the one `resolve_placement()` produced after checking that the
+        # enforcement mechanism is actually there — and never from the
+        # declared one. A profile a host assigns itself is DEFECT-1 one
+        # level up.
+        self.trust_profile = profile_for(self.resolution.effective)
 
     # -- posture ----------------------------------------------------------
 
@@ -447,7 +470,25 @@ class ServerLibraryIntegration:
             "close_detection": None,
             "workflow_hash": None,
             "observed_at": observed_at or _utc_now(),
-            "attestation_status": self._assurance.leaf,
+            # WO-C1. RESOLVED PER EMISSION, not read off a value fixed at
+            # construction. `verified` requires a quote that binds to THIS
+            # emission; a value captured once could only ever bind the
+            # construction, which is the config-inherited field class the
+            # council already refused.
+            #
+            # Today this is `stale` for every profile, because the witness
+            # and the verifier do not pass shared Merkle vectors and no
+            # checkpoint can be claimed settled (WO-C6). It is still
+            # COMPUTED rather than hardcoded: a constant is what the next
+            # contributor deletes without noticing what it was for.
+            #
+            # No quote source at `server-library`: the placement has no
+            # attestable compute, which is `passthrough` once the blocker
+            # lifts and `stale` until then.
+            "attestation_status": resolve_attestation_basis(
+                self.trust_profile, self.resolution.enforcement, None
+            ).basis.value,
+            "profile": self.trust_profile.value,
         }
 
         # 3. The submission, assembled BEFORE the MAC, because the MAC is

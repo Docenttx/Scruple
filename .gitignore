@@ -49,3 +49,6 @@ external/scruple-nodes/_upstream-snapshots/
 
 # scratch build dir for a second dev server (see scripts/overnight-blender-l2.sh)
 .next-blender-l2/
+# The council-implementation series' sandbox app on :3902 builds here, so it
+# never touches the .next/ the live site on :3001 is serving.
+.next-council/

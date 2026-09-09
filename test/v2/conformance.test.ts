@@ -122,6 +122,10 @@ function makeIdentity(stateDir: string) {
     chain_key_hex: r.ikHex,
     counter: 0,
     build_measurement: measurement,
+    // The PROVISIONING POSTURE — what the server said backed this component
+    // when it redeemed its token. NOT the leaf's attestation basis: WO-C1
+    // resolves that per emission in buildLeaf(), and null here is an honest
+    // "no attestation envelope was supplied", which is a different question.
     attestation_status: null,
     provisioned_at: r.provisionedAt,
   });

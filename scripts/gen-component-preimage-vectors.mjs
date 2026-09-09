@@ -62,7 +62,10 @@ const cases = [
         close_detection: null,
         workflow_hash: null,
         observed_at: '2026-08-30T00:00:00.000Z',
-        attestation_status: 'passthrough',
+        // WO-C1. Three-valued, and `stale` is what every leaf emits until
+        // the witness and the verifier pass shared Merkle vectors.
+        attestation_status: 'stale',
+        profile: 'server-managed',
       },
       component: {
         component_id: COMPONENT_ID,
@@ -77,7 +80,12 @@ const cases = [
     note:
       'The absence is IN the preimage as a null, so a proxy cannot add a type in flight ' +
       'without breaking the MAC. That is the property that makes accepting an undeclared ' +
-      'MIME safe rather than merely permissive.',
+      'MIME safe rather than merely permissive. WO-C1: `close_detection` was ' +
+      "'IN_CLOSE_WRITE' in this vector until 2026-09-09 and is now null, which is the " +
+      'ONLY value it may ever hold — the council retracted the filesystem trigger from ' +
+      'the freeze gate and lib/leaf/captureClaims.ts returns 422 for anything else. A ' +
+      'vector carrying the retracted value is the dead schema reference the retraction ' +
+      'was meant to prevent; the next contributor copies vectors.',
     submission: {
       baseline_ref: 'b'.repeat(64),
       kind: 'artifact',
@@ -91,10 +99,11 @@ const cases = [
         correlation_id: null,
         correlation_method: null,
         egress: null,
-        close_detection: 'IN_CLOSE_WRITE',
+        close_detection: null,
         workflow_hash: null,
         observed_at: '2026-08-30T00:00:01.000Z',
-        attestation_status: 'passthrough',
+        attestation_status: 'stale',
+        profile: 'isolated-sidecar',
       },
       component: {
         component_id: COMPONENT_ID,

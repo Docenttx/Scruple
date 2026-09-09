@@ -10,10 +10,18 @@
 //
 // STEP 4 HERE IS THE 0600 FILE, and it is worth being blunt about which of
 // the two §4.3 postures that buys. Sealing to a measurement makes a modified
-// build unable to unseal the key, and the leaf is `verified`. A 0600 file
-// makes the binding an ASSERTION, and the leaf is `passthrough` and says so.
+// build unable to unseal the key. A 0600 file makes the binding an ASSERTION.
 // This component ships the second. `sealToMeasurement` is the seam where the
 // first goes; it is not stubbed with something that pretends.
+//
+// WHAT THAT MAKES THE LEAF SAY IS NO LONGER DECIDED HERE (WO-C1). The basis is
+// three-valued — `verified` | `stale` | `passthrough` — and it is resolved per
+// emission in `buildLeaf()` against `lib/leaf/attestationBasis.ts`. A 0600 file
+// would yield `passthrough`; today it yields `stale`, because the witness and
+// the verifier do not pass shared Merkle vectors and NO checkpoint can be
+// claimed settled by anybody (Appendix C item 0, WO-C6). Even a measurement-
+// sealed key would emit `stale` until that lands, and on the desktop profile
+// `verified` is unreachable however the key is held.
 //
 // THE RATCHET IS lib/ratchet/ratchet.ts. Not a copy of it. That module is
 // pure node:crypto and reaches no database, so a Node sidecar can import it
@@ -40,6 +48,21 @@ export interface SealedState {
   /** n — the counter the NEXT event will carry. */
   counter: number;
   build_measurement: string;
+  /**
+   * THE PROVISIONING POSTURE, AND NOT THE LEAF'S ATTESTATION BASIS.
+   *
+   * What the server said backed this component when it redeemed its token:
+   * H-5's two-valued answer about the attestation envelope, or null for "none
+   * was supplied". WO-C1 made the two questions distinct and this one did not
+   * move — `buildLeaf()` now resolves the three-valued BASIS per emission
+   * (`lib/leaf/attestationBasis.ts`), because `verified` requires a quote that
+   * binds to THIS emission and a value sealed at provisioning could only ever
+   * bind the provisioning.
+   *
+   * So nothing on the leaf path reads this field any more. It is kept because
+   * it is the honest record of what the server said, and because deleting it
+   * would silently re-provision every component whose seal it appears in.
+   */
   attestation_status: 'verified' | 'passthrough' | null;
   provisioned_at: string;
 }

@@ -11,6 +11,7 @@
 import { conn } from '@/lib/db/sqlite';
 import { v2Error, v2Ok } from '@/lib/v2/http';
 import { discloseLeafSignature } from '@/lib/leaf/signatureDisclosure';
+import { basisForTrust } from '@/lib/leaf/attestationBasis';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,8 @@ interface Row {
   modalities_applied: string | null;
   modalities_outstanding: string | null;
   platform_attestation_status: string | null;
+  attestation_basis: string | null;
+  attestation_profile: string | null;
   continuity_json: string | null;
   // WO-S1(a) / migration 052.
   leaf_signature: string | null;
@@ -55,7 +58,8 @@ export async function GET(
       `SELECT id, leaf_hash, output_hash, output_content_type, witnessed,
               leaf_scheme, baseline_hash, timestamp,
               modalities_requested, modalities_applied, modalities_outstanding,
-              platform_attestation_status, continuity_json,
+              platform_attestation_status, attestation_basis, attestation_profile,
+              continuity_json,
               leaf_signature, leaf_signer_key_id, leaf_signature_alg,
               leaf_signer_surrogate, leaf_signature_state,
               canonicalization_profile,
@@ -87,6 +91,23 @@ export async function GET(
     attestation: row.platform_attestation_status
       ? { status: row.platform_attestation_status }
       : null,
+    // WO-C1. The per-leaf basis, read through the ONLY reader a trust
+    // decision may use. `basisForTrust()` maps absent, null and malformed to
+    // 'unknown' — never to 'verified' — so a leaf written before migration
+    // 053 reads as a leaf nobody asked the question of, which is what it is.
+    //
+    // ALWAYS PRESENT, INCLUDING WHEN IT IS 'unknown'. An absent key is a
+    // fact nobody reads; 'unknown' is a fact a consumer can act on. This is
+    // the same argument `component: null` won on the witness response.
+    attestation_basis: {
+      basis: basisForTrust(row.attestation_basis),
+      profile: row.attestation_profile,
+      // Every field-level `source: measured` on this leaf is conditional on
+      // the basis above. One basis per leaf; there is no per-field pointer,
+      // because twelve fields pointing at one basis still read as twelve
+      // measurements to anyone not following the pointer.
+      conditions_measured_fields: true,
+    },
     // §9.6 — produced outside the witness path.
     continuity: parse(row.continuity_json),
 

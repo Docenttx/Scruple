@@ -44,6 +44,7 @@
 // in a stable shape rather than a different shape.
 
 import type { PreimageFields } from '@/lib/ratchet/ratchet';
+import type { AttestationBasis, CaptureProfile } from '@/lib/leaf/attestationBasis';
 
 /** What the component saw, as distinct from what the leaf commits to. */
 export interface ComponentCaptureBlock {
@@ -55,10 +56,33 @@ export interface ComponentCaptureBlock {
   correlation_id?: string | null;
   correlation_method?: string | null;
   egress?: string | null;
-  close_detection?: string | null;
+  /**
+   * RETRACTED AS PROVENANCE (WO-C1), AND HELD HERE AT null ON PURPOSE.
+   *
+   * `lib/leaf/captureClaims.ts` rejects any non-null value: a filesystem
+   * observation may not create, complete or authenticate an artifact leaf.
+   * The KEY stays in the preimage because dropping it would change the
+   * canonical JSON and therefore every MAC across three implementations for
+   * a cosmetic gain — and because keeping it makes the MAC cover the
+   * ASSERTION THAT THERE IS NO CLOSE DETECTION. A proxy cannot add one in
+   * flight without breaking the signature. Dead as provenance, load-bearing
+   * as a negative. The observation itself rides in `capture.fs_diagnostic`,
+   * which nothing below reads.
+   */
+  close_detection?: null;
   workflow_hash?: string | null;
   observed_at?: string | null;
-  attestation_status?: 'verified' | 'passthrough' | null;
+  /** WO-C1. The three-valued basis. See @/lib/leaf/attestationBasis. */
+  attestation_status?: AttestationBasis | null;
+  /**
+   * WO-C1. The profile the basis is conditional on, and it is IN THE
+   * PREIMAGE for the same reason WO-C2 moves the resolution handles in: a
+   * basis whose precondition travels unsigned is a basis an attacker
+   * rewrites. `verified` is refused on 'desktop'; leave the profile out of
+   * the MAC and that refusal is one byte away from being bypassed by
+   * anything sitting between the component and this route.
+   */
+  profile?: CaptureProfile | null;
 }
 
 export interface ComponentEnvelope {
@@ -108,5 +132,6 @@ export function componentPreimage(s: ComponentSubmission): PreimageFields {
     workflow_hash: c.workflow_hash ?? null,
     observed_at: c.observed_at ?? null,
     attestation_status: c.attestation_status ?? null,
+    profile: c.profile ?? null,
   };
 }

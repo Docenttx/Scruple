@@ -20,6 +20,19 @@ export type V2ErrorCode =
   // authenticated fine — it is the component's claim about itself that
   // failed, and a 401 would send a vendor to look at their API key.
   | 'component_unverified'
+  // WO-C1. Three refusals the Blender×ComfyUI council required be enforced in
+  // the validator rather than in prose, because a prose rule failed exactly
+  // that way inside the council itself: a retracted `IN_CLOSE_WRITE`
+  // dependency was reinstated one round later by the seat that retracted it,
+  // and three watchers missed it. 422 for all three — the caller
+  // authenticated fine and the JSON parsed fine; the CLAIM is refused.
+  //
+  //   close_detection_rejected   a filesystem observation used as provenance
+  //   attestation_basis_required a capture-bearing leaf that declared no basis
+  //   attestation_basis_refused  a basis this leaf is not entitled to claim
+  | 'close_detection_rejected'
+  | 'attestation_basis_required'
+  | 'attestation_basis_refused'
   | 'signer_unavailable'
   | 'conflict'
   | 'internal';
@@ -33,6 +46,9 @@ const STATUS: Record<V2ErrorCode, number> = {
   baseline_stale: 409,
   modality_unavailable: 422,
   component_unverified: 422,
+  close_detection_rejected: 422,
+  attestation_basis_required: 422,
+  attestation_basis_refused: 422,
   signer_unavailable: 503,
   conflict: 409,
   internal: 500,

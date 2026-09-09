@@ -27,7 +27,8 @@
           "close_detection": null,
           "workflow_hash": null,
           "observed_at": "2026-08-30T00:00:00.000Z",
-          "attestation_status": "passthrough"
+          "attestation_status": "stale",
+          "profile": "server-managed"
         },
         "component": {
           "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
@@ -62,14 +63,15 @@
         "close_detection": null,
         "workflow_hash": null,
         "observed_at": "2026-08-30T00:00:00.000Z",
-        "attestation_status": "passthrough"
+        "attestation_status": "stale",
+        "profile": "server-managed"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"passthrough\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"workflow_hash\":null}",
-      "mac_hex": "02adf24e97a5f6d7e7ba79357fc6fa8e0aa99b7bd7a507b6d962901d47411fc1"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"workflow_hash\":null}",
+      "mac_hex": "7550a8c425ae51270e062ddeed92a76d436f230ea72bbf7e23e686d80ccfc638"
     },
     {
       "name": "no mime — H-4 §7 probe 4, an unattributed write",
-      "note": "The absence is IN the preimage as a null, so a proxy cannot add a type in flight without breaking the MAC. That is the property that makes accepting an undeclared MIME safe rather than merely permissive.",
+      "note": "The absence is IN the preimage as a null, so a proxy cannot add a type in flight without breaking the MAC. That is the property that makes accepting an undeclared MIME safe rather than merely permissive. WO-C1: `close_detection` was 'IN_CLOSE_WRITE' in this vector until 2026-09-09 and is now null, which is the ONLY value it may ever hold — the council retracted the filesystem trigger from the freeze gate and lib/leaf/captureClaims.ts returns 422 for anything else. A vector carrying the retracted value is the dead schema reference the retraction was meant to prevent; the next contributor copies vectors.",
       "submission": {
         "baseline_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "kind": "artifact",
@@ -83,10 +85,11 @@
           "correlation_id": null,
           "correlation_method": null,
           "egress": null,
-          "close_detection": "IN_CLOSE_WRITE",
+          "close_detection": null,
           "workflow_hash": null,
           "observed_at": "2026-08-30T00:00:01.000Z",
-          "attestation_status": "passthrough"
+          "attestation_status": "stale",
+          "profile": "isolated-sidecar"
         },
         "component": {
           "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
@@ -118,13 +121,14 @@
         "correlation_id": null,
         "correlation_method": null,
         "egress": null,
-        "close_detection": "IN_CLOSE_WRITE",
+        "close_detection": null,
         "workflow_hash": null,
         "observed_at": "2026-08-30T00:00:01.000Z",
-        "attestation_status": "passthrough"
+        "attestation_status": "stale",
+        "profile": "isolated-sidecar"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"passthrough\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":\"IN_CLOSE_WRITE\",\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"workflow_hash\":null}",
-      "mac_hex": "b8a06a89cf161006a412b5ec718643811910c8b1bc3bb3c309002d2e683bfb41"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"workflow_hash\":null}",
+      "mac_hex": "cc095ab5085702b26f620dc8744dcaad69837b8e79229e3383ef3932c5f744eb"
     },
     {
       "name": "no capture block — nulls in a stable shape, not a different shape",
@@ -162,10 +166,11 @@
         "close_detection": null,
         "workflow_hash": null,
         "observed_at": null,
-        "attestation_status": null
+        "attestation_status": null,
+        "profile": null
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"size_bytes\":null,\"surface\":null,\"workflow_hash\":null}",
-      "mac_hex": "25584d18286ae6997699bc307c692c8f6fe35023b2e6802b88c26fee34ad4739"
+      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"egress\":null,\"fidelity\":null,\"hook\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"size_bytes\":null,\"surface\":null,\"workflow_hash\":null}",
+      "mac_hex": "be23832f395be4b216465b742384bacbfdde987737a65c08856258b68afd672f"
     }
   ]
 }
