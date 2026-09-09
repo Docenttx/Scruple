@@ -16,15 +16,37 @@
 
 'use strict';
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 
 const { registerIpc } = require('./ipc-ping');
 const { registerCaptureIpc } = require('./ipc-capture');
 const { registerVaultIpc } = require('./ipc-vault');
 const { registerComfyIpc, shutdownComfy } = require('./ipc-comfy');
+const { registerProfileIpc } = require('./ipc-profile');
 
 const APP_URL = process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902';
+
+// WO-D5. The dashboard is one route on the served app; which SHAPE it draws is
+// the server's answer to "which deployment is asking".
+const APP_ROUTE = process.env.SCRUPLE_APP_ROUTE || '/studio';
+
+/**
+ * How this deployment announces itself.
+ *
+ * A served app IS the web deployment — that is not an assumption, it is what
+ * the server is. Desktop Studio is the exception, so Desktop Studio is what has
+ * to speak up, and it does it with a request header rather than a query
+ * parameter: the header rides on the document request, on every client-side
+ * navigation and on every API call the page makes, and there is no URL for a
+ * user to edit into a shape their build does not have.
+ *
+ * `SCRUPLE_PROFILE` exists so scripts/desktop-run.mjs can make this app lie
+ * about itself (`profile-lie`) or say nothing at all (`no-profile-header`).
+ * Both are mutations; both must redden the dashboard assertions, and if they do
+ * not then the shape was never coming from the header in the first place.
+ */
+const PROFILE = process.env.SCRUPLE_PROFILE === undefined ? 'desktop' : process.env.SCRUPLE_PROFILE;
 
 // Exit codes are the process's only unambiguous channel to a headless driver.
 const EXIT_LOAD_FAILED = 3;
@@ -81,14 +103,28 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('closed', () => { mainWindow = null; });
 
-  console.log(`[main] loading ${APP_URL}`);
-  mainWindow.loadURL(APP_URL);
+  const target = new URL(APP_ROUTE, APP_URL).toString();
+  console.log(`[main] loading ${target}`);
+  mainWindow.loadURL(target);
 
   return { window: mainWindow, navigation: () => lastNavigation };
 }
 
 app.whenReady().then(async () => {
+  // Set BEFORE the window is created, on the default session, so the very first
+  // document request already carries it. Announcing after the load would race
+  // the thing being announced to.
+  if (PROFILE !== '') {
+    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      callback({ requestHeaders: { ...details.requestHeaders, 'x-scruple-profile': PROFILE } });
+    });
+    console.log(`[main] announcing x-scruple-profile: ${PROFILE}`);
+  } else {
+    console.log('[main] announcing nothing — no profile header on this run');
+  }
+
   registerIpc();
+  registerProfileIpc();
   registerCaptureIpc();
   registerVaultIpc();
   registerComfyIpc();

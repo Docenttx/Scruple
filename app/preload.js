@@ -23,6 +23,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('scruple', {
   host: 'electron',
   ping: (nonce) => ipcRenderer.invoke('scruple:ping', nonce),
+  // WO-D5. The served dashboard calls this from components/studio/HostFacts.tsx
+  // to fill in what only this machine knows. No bridge, no host facts — and the
+  // component says so instead of drawing a default.
+  profile: () => ipcRenderer.invoke('scruple:profile'),
   captureFile: (req) => ipcRenderer.invoke('scruple:capture-file', req),
   vaultCapture: (req) => ipcRenderer.invoke('scruple:vault-capture', req),
   comfyLaunch: () => ipcRenderer.invoke('scruple:comfy-launch'),

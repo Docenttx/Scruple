@@ -8,3 +8,6 @@
 05:18:37Z  START  WO-D3
 05:44:30Z  DONE   WO-D3  (25m)  head=2efb467
 05:44:30Z  START  WO-D4
+06:20:56Z  DONE   WO-D4  (36m)  head=fce1d16
+06:20:56Z  START  WO-D5
+07:01:01Z  WO-D5 gate passed — 38 checks, 0 failures; sweep clean (see .run/d5/gate.log)

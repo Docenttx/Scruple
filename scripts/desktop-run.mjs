@@ -222,6 +222,32 @@ const MUTATIONS = {
       return 'ComfyUI --listen 0.0.0.0';
     },
   },
+  // ── WO-D5's mutations. The dashboard's shape comes from what the deployment
+  // announced; these are the two ways that can go wrong, and both must be
+  // visible in the DOM rather than only in a log.
+  'profile-lie': {
+    when: 'env',
+    describe: 'the desktop app announces itself as the web deployment',
+    // The control for "the shape follows the announcement". If the desktop
+    // regions survived this, they were coming from somewhere else — a
+    // hard-coded branch, a user agent sniff, a component that always draws.
+    apply(ctx) {
+      ctx.env.SCRUPLE_PROFILE = 'web';
+      return 'x-scruple-profile: web, from a desktop app';
+    },
+  },
+  'no-profile-header': {
+    when: 'env',
+    describe: 'the desktop app announces nothing at all',
+    // A served app with no announcement IS the web deployment, so this must
+    // produce the web shape rather than a blank page or a desktop one. The
+    // difference from `profile-lie` is that nothing lied; the header is simply
+    // not there, which is what every ordinary browser looks like.
+    apply(ctx) {
+      ctx.env.SCRUPLE_PROFILE = '';
+      return 'no x-scruple-profile header on any request';
+    },
+  },
   'assert-expectation': {
     when: 'spec',
     describe: "rewrite one assertion's expected value to a wrong constant",
@@ -248,6 +274,17 @@ const reply = (nonce) => ({
 contextBridge.exposeInMainWorld('scruple', {
   host: 'electron',
   ping: async (nonce) => reply(nonce),
+  // The most flattering lie about a host: every app installed, a gate running,
+  // a model store full. It cannot know the main pid and it cannot know the
+  // per-run model root the driver made, which is what the dashboard assertions
+  // look at.
+  profile: async () => ({
+    ...reply(null), host: 'electron', profile: 'desktop',
+    apps: [{ id: 'comfyui', name: 'ComfyUI', available: true, detail: '99.9.9 · /nonexistent/main.py' }],
+    gate: { url: 'http://127.0.0.1:2', upstream: 'http://127.0.0.1:1', adapter: 'model-store', running: true },
+    vault: { dir: '/nonexistent/vault', state: null, ceilingBytes: 1, configured: true },
+    modelStore: { root: '/nonexistent/models', files: 99 },
+  }),
   captureFile: async (req) => ({ ...reply(null), sourcePath: req.path, storePath: req.path, sha256: 'f'.repeat(64), bytes: 0 }),
   // The most flattering lie a renderer-side stub can tell about a vault: it
   // says everything was captured and nothing was refused. Nothing here can
@@ -474,6 +511,86 @@ const KINDS = {
       detail: { stored: row.model_fingerprints_hash, recomputed },
     };
   },
+  // ── WO-D5. The dashboard's shape, asked two ways.
+  //
+  // `dom-*` reads what the REAL Electron window laid out — the app under test,
+  // showing the served route, with its own profile header on the request.
+  // `route-*` makes THIS PROCESS fetch the same route with a profile it chooses,
+  // which is how one run can check both shapes come off one route without
+  // launching two apps. Neither looks at a pixel (docs/DESIGN.md: the frame is
+  // blank here and nothing may gate on it).
+  'dom-present': (a, ctx) => {
+    const sel = ctx.result.steps[a.step];
+    if (!sel || !sel.value || !sel.value.selectors) return { pass: false, detail: `step "${a.step}" read no DOM` };
+    const hit = sel.value.selectors[a.selector];
+    if (!hit) return { pass: false, detail: { selector: a.selector, why: 'the scenario never read this selector' } };
+    const min = a.min === undefined ? 1 : a.min;
+    return { pass: hit.count >= min, detail: { selector: a.selector, count: hit.count, min } };
+  },
+  // ⚑ THE CONTROL THE WO NAMES. `count: 0` is what "absent" means, and it is
+  // asserted alongside `mentions: 0` below — a region rendered empty, hidden or
+  // commented out has a count of 0 too, and only the substring check tells them
+  // apart.
+  'dom-absent': (a, ctx) => {
+    const sel = ctx.result.steps[a.step];
+    if (!sel || !sel.value || !sel.value.selectors) return { pass: false, detail: `step "${a.step}" read no DOM` };
+    const hit = sel.value.selectors[a.selector];
+    if (!hit) return { pass: false, detail: { selector: a.selector, why: 'the scenario never read this selector' } };
+    return { pass: hit.count === 0, detail: { selector: a.selector, count: hit.count } };
+  },
+  // Not merely empty: the string does not occur ANYWHERE in the serialised
+  // document. A dashboard that drew every region and hid the inapplicable ones
+  // would pass `dom-absent` and fail this.
+  'dom-unmentioned': (a, ctx) => {
+    const sel = ctx.result.steps[a.step];
+    if (!sel || !sel.value || !sel.value.mentions) return { pass: false, detail: `step "${a.step}" read no mentions` };
+    const n = sel.value.mentions[a.needle];
+    if (n === undefined) return { pass: false, detail: { needle: a.needle, why: 'the scenario never looked for this string' } };
+    return { pass: n === 0, detail: { needle: a.needle, occurrences: n } };
+  },
+  // The region contains a value only THIS MACHINE could have supplied — the
+  // model root this run created, minutes ago, under a per-run directory. A
+  // server rendering the web shape cannot produce it and neither can a static
+  // mock.
+  'dom-contains': (a, ctx) => {
+    const sel = ctx.result.steps[a.step];
+    if (!sel || !sel.value || !sel.value.selectors) return { pass: false, detail: `step "${a.step}" read no DOM` };
+    const hit = sel.value.selectors[a.selector];
+    if (!hit) return { pass: false, detail: { selector: a.selector, why: 'the scenario never read this selector' } };
+    const want = String(ctx.resolve(a.text));
+    return {
+      pass: hit.text.includes(want),
+      detail: { selector: a.selector, want, got: hit.text.slice(0, 300) },
+    };
+  },
+  // What the LAYOUT ENGINE computed for a canon class, in the real window.
+  // The canon design is 21 tokens and two layouts; this asks the browser what
+  // one of them resolved to rather than asking a stylesheet what it says.
+  'dom-computed': (a, ctx) => {
+    const sel = ctx.result.steps[a.step];
+    if (!sel || !sel.value || !sel.value.computed) return { pass: false, detail: `step "${a.step}" computed nothing` };
+    const got = sel.value.computed[`${a.selector}|${a.prop}`];
+    if (got === undefined) return { pass: false, detail: { selector: a.selector, prop: a.prop, why: 'the scenario never asked for this property' } };
+    const want = ctx.resolve(a.expected);
+    return { pass: got === want, detail: { selector: a.selector, prop: a.prop, got, expected: want } };
+  },
+  // THE SAME ROUTE, THE OTHER SHAPE. Fetched here, by this process, with the
+  // profile named by the assertion — so "one route renders both" is established
+  // without trusting anything the app said.
+  'route-shape': (a, ctx) => {
+    const html = fetchRoute(ctx.appURL, a.route || '/studio', a.profile);
+    const present = (a.present || []).map((sel) => [sel, countMarkers(html, sel)]);
+    const absent = (a.absent || []).map((sel) => [sel, countMarkers(html, sel)]);
+    const pass =
+      present.every(([, n]) => n > 0) && absent.every(([, n]) => n === 0);
+    return {
+      pass,
+      detail: {
+        profile: a.profile, bytes: html.length,
+        present: Object.fromEntries(present), absent: Object.fromEntries(absent),
+      },
+    };
+  },
   'file-bytes': (a, ctx) => {
     const p = ctx.resolve(a.path);
     const want = ctx.resolve(a.bytes);
@@ -484,6 +601,30 @@ const KINDS = {
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch the served route with a declared deployment profile.
+ *
+ * Synchronous on purpose: the assertion table is synchronous, and curl through
+ * execFileSync keeps this repo at one dependency. A failure THROWS — a route
+ * that could not be fetched is not a route that rendered nothing.
+ */
+function fetchRoute(appURL, route, profile) {
+  const args = ['-sS', '--fail-with-body', '-m', '60'];
+  if (profile) args.push('-H', `x-scruple-profile: ${profile}`);
+  args.push(new URL(route, appURL).toString());
+  try {
+    return execFileSync('curl', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  } catch (err) {
+    throw new Error(`GET ${route} (profile=${profile}) failed: ${String(err.message || err)}`);
+  }
+}
+
+/** How many nodes carry this marker, counted in the SERVED HTML. */
+function countMarkers(html, marker) {
+  return html.split(marker).length - 1;
+}
+
 
 /** Fixture bytes that are the same on every run, so a digest can be compared across runs. */
 function deterministicBytes(seed, n) {
@@ -830,7 +971,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   const result = existsSync(resultPath) ? JSON.parse(readFileSync(resultPath, 'utf8')) : null;
 
   const ctx = {
-    exitCode, timedOut, result, fixtures, appDir, runDir, storeDir,
+    exitCode, timedOut, result, fixtures, appDir, runDir, storeDir, appURL,
     // Deliberately allowed to THROW. The assertion loop turns that into a
     // failed check. An earlier version caught it and returned a placeholder
     // string, and the audit sweep found the hole: under `no-bridge` there is no

@@ -1,0 +1,363 @@
+{
+  "scenario": "dashboard-shape",
+  "description": "WO-D5: the canon design, on the shared Next theme, rendered from GET /api/v2/capabilities. The real Electron window loads the SAME /studio route Web Studio serves, announces itself as the desktop deployment, and gets a desktop-shaped dashboard — local apps, the gate, the vault, the model store — drawn in the canon's own classes with the canon's own tokens, while the cloud regions are ABSENT from the document rather than drawn empty. The driver then fetches that identical route as the web deployment and gets the other shape.",
+  "needs": "comfy",
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "d5-store",
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "as": "profile",
+      "call": "profile",
+      "args": [],
+      "required": false
+    },
+    {
+      "as": "dom",
+      "read": "dom",
+      "settleMs": 2500,
+      "selectors": [
+        ".scruple-canon.workspace",
+        ".app-container",
+        ".sidebar",
+        "[data-region=\"local-apps\"]",
+        "[data-region=\"capture-gate\"]",
+        "[data-region=\"vault\"]",
+        "[data-region=\"model-store\"]",
+        "[data-region=\"projects\"]",
+        "[data-region=\"attestation\"]",
+        "[data-region=\"cloud-compute\"]",
+        "[data-region=\"machine-tiers\"]",
+        "[data-region=\"billing\"]",
+        "[data-region=\"refusal\"]",
+        "[data-profile=\"desktop\"]",
+        "[data-host-fact=\"modelStore\"][data-state=\"measured\"]",
+        "[data-host-fact=\"modelStore\"]",
+        "[data-fact=\"capture-profile\"]",
+        "[data-fact=\"verified-representable\"]"
+      ],
+      "computed": [
+        {
+          "selector": ".sidebar",
+          "prop": "background-color"
+        },
+        {
+          "selector": ".sidebar",
+          "prop": "width"
+        },
+        {
+          "selector": ".section-header h3",
+          "prop": "letter-spacing"
+        },
+        {
+          "selector": ".scruple-canon.workspace",
+          "prop": "background-color"
+        }
+      ],
+      "mentions": [
+        "cloud-compute",
+        "machine-tiers",
+        "data-region=\"billing\"",
+        "data-backend=\"runpod\""
+      ]
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "profile-step-succeeded",
+      "kind": "step-succeeded",
+      "step": "profile"
+    },
+    {
+      "id": "profile-reached-main",
+      "kind": "reached-main",
+      "step": "profile",
+      "note": "the host facts came from the main process — a renderer-local stub cannot know this pid or this nonce"
+    },
+    {
+      "id": "host-reports-this-run's-model-root",
+      "kind": "equals",
+      "actual": "${steps.profile.value.modelStore.root}",
+      "expected": "${fixtures.models.modelRoot}",
+      "note": "the model root the DRIVER made for this run, minutes ago, under a per-run directory"
+    },
+    {
+      "id": "canon-shell-rendered",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".scruple-canon.workspace",
+      "note": "the canon scope is in the served document, so the ported stylesheet has something to apply to"
+    },
+    {
+      "id": "canon-app-container",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".app-container"
+    },
+    {
+      "id": "canon-sidebar",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".sidebar"
+    },
+    {
+      "id": "sidebar-is-canon-bg-secondary",
+      "kind": "dom-computed",
+      "step": "dom",
+      "selector": ".sidebar",
+      "prop": "background-color",
+      "expected": "rgb(17, 24, 39)",
+      "note": "⚑ THE THEME PORT, MEASURED BY THE LAYOUT ENGINE. #111827 is main.css's --bg-secondary. Getting here means the value travelled canon-source/main.css → app/theme/canon.css → :root → var() → the cascade, in a real Chromium. No pixels were read."
+    },
+    {
+      "id": "sidebar-is-canon-width",
+      "kind": "dom-computed",
+      "step": "dom",
+      "selector": ".sidebar",
+      "prop": "width",
+      "expected": "220px",
+      "note": "--sidebar-width. A layout token, not a colour — the port carried both."
+    },
+    {
+      "id": "section-headers-are-canon-tracked",
+      "kind": "dom-computed",
+      "step": "dom",
+      "selector": ".section-header h3",
+      "prop": "letter-spacing",
+      "expected": "1px",
+      "note": "main.css's ALL-CAPS section header. Typography came across too, not only colour."
+    },
+    {
+      "id": "workspace-is-canon-bg-primary",
+      "kind": "dom-computed",
+      "step": "dom",
+      "selector": ".scruple-canon.workspace",
+      "prop": "background-color",
+      "expected": "rgb(10, 15, 28)",
+      "note": "#0a0f1c"
+    },
+    {
+      "id": "desktop-shape-local-apps",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-region=\"local-apps\"]"
+    },
+    {
+      "id": "desktop-shape-capture-gate",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-region=\"capture-gate\"]"
+    },
+    {
+      "id": "desktop-shape-vault",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-region=\"vault\"]"
+    },
+    {
+      "id": "desktop-shape-model-store",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-region=\"model-store\"]"
+    },
+    {
+      "id": "shared-regions-drawn-on-both",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-region=\"projects\"]",
+      "note": "projects is not a desktop region; it is a region both shapes have, which is what makes this one component tree rather than two"
+    },
+    {
+      "id": "the-page-did-not-refuse",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region=\"refusal\"]",
+      "note": "the route renders a refusal when it cannot reach the capabilities endpoint; a green run must not be a refusal that happened to contain no cloud regions"
+    },
+    {
+      "id": "window-announced-desktop",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-profile=\"desktop\"]",
+      "note": "the SERVER's echo of what the window announced, in the served markup"
+    },
+    {
+      "id": "cloud-compute-is-absent",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region=\"cloud-compute\"]",
+      "note": "⚑ THE WO'S CONTROL. Not hidden, not disabled, not empty — no node."
+    },
+    {
+      "id": "machine-tiers-is-absent",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region=\"machine-tiers\"]"
+    },
+    {
+      "id": "billing-is-absent",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region=\"billing\"]"
+    },
+    {
+      "id": "cloud-compute-is-not-even-mentioned",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "cloud-compute",
+      "note": "ABSENT, NOT EMPTY, asked of the whole serialised document. A dashboard that drew every region and hid the inapplicable ones passes the assertion above and fails this one."
+    },
+    {
+      "id": "machine-tiers-is-not-even-mentioned",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "machine-tiers"
+    },
+    {
+      "id": "billing-is-not-even-mentioned",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "data-region=\"billing\""
+    },
+    {
+      "id": "no-cloud-backend-named-anywhere",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "data-backend=\"runpod\"",
+      "note": "the web shape lists Modal and RunPod session backends, each tagged with the backend it spawns on. A desktop app must not name a backend it cannot reach — and the needle is the attribute rather than the word, because the word appears in prose and the attribute only appears when the region was drawn."
+    },
+    {
+      "id": "host-facts-were-measured-not-defaulted",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": "[data-host-fact=\"modelStore\"][data-state=\"measured\"]",
+      "note": "the region's state attribute is `measured` only when the bridge answered; with no bridge it is `unavailable` and the panel says so"
+    },
+    {
+      "id": "the-region-shows-THIS-machine's-model-root",
+      "kind": "dom-contains",
+      "step": "dom",
+      "selector": "[data-host-fact=\"modelStore\"]",
+      "text": "${fixtures.models.modelRoot}",
+      "note": "⚑ THE SPLIT THAT MAKES THIS HONEST. The SERVER said a model-store region applies; the value inside it is a path this run created and no server could know. Capability from the deployment, measurement from the host."
+    },
+    {
+      "id": "attestation-says-desktop-profile",
+      "kind": "dom-contains",
+      "step": "dom",
+      "selector": "[data-fact=\"capture-profile\"]",
+      "text": "desktop"
+    },
+    {
+      "id": "verified-is-unrepresentable-here",
+      "kind": "dom-contains",
+      "step": "dom",
+      "selector": "[data-fact=\"verified-representable\"]",
+      "text": "unrepresentable",
+      "note": "🔴 the standing rail, rendered: on a desktop profile `verified` is unreachable by construction and migration 053 refuses it at the database"
+    },
+    {
+      "id": "the-same-route-renders-the-web-shape",
+      "kind": "route-shape",
+      "route": "/studio",
+      "profile": "web",
+      "present": [
+        "data-region=\"cloud-compute\"",
+        "data-region=\"machine-tiers\"",
+        "data-region=\"billing\"",
+        "data-region=\"projects\""
+      ],
+      "absent": [
+        "data-region=\"local-apps\"",
+        "data-region=\"capture-gate\"",
+        "data-region=\"vault\"",
+        "data-region=\"model-store\""
+      ],
+      "note": "⚑ THE GATE'S OTHER HALF, fetched by the DRIVER from the same URL the window is showing. One route, two shapes, and each one's absences are absences."
+    },
+    {
+      "id": "the-same-route-renders-the-desktop-shape-to-anyone-who-asks",
+      "kind": "route-shape",
+      "route": "/studio",
+      "profile": "desktop",
+      "present": [
+        "data-region=\"local-apps\"",
+        "data-region=\"vault\"",
+        "data-region=\"model-store\"",
+        "data-region=\"projects\""
+      ],
+      "absent": [
+        "data-region=\"cloud-compute\"",
+        "data-region=\"machine-tiers\"",
+        "data-region=\"billing\""
+      ]
+    }
+  ],
+  "auditNote": "What each break must do. The two WO-D5 mutations attack the same claim from opposite sides, and the difference between their declared sets is the finding worth reading.\n\n`profile-lie` — the desktop app announces `web`. Every desktop region disappears and every cloud region appears IN THE WINDOW, so the desktop-shape assertions and the absence assertions ALL redden together. That is the control the WO asks for: if the desktop regions had survived an announcement of `web`, they were never coming from capabilities at all. The DRIVER's own two `route-shape` assertions stay GREEN, because the driver sets its own header and the server is not lying to it — which is exactly the separation those assertions exist to provide.\n\n`no-profile-header` reddens the SAME set by a different route: nothing lied, the header is simply absent, and a served app with no announcement IS the web deployment. That both mutations land on one set is not redundancy — one says the shape follows the announcement, the other says the DEFAULT is web and not desktop, and a build that hard-coded the desktop shape would pass the first and fail the second.\n\n`fake-bridge` is the measure of what the DOM is worth alone, and the answer is sobering. Every region assertion stays GREEN, because the regions come from the SERVER and a lying preload cannot change what the server rendered — the shape is not the bridge's to fake. What the stub cannot do is know the main pid or the per-run model root, so `profile-reached-main`, `host-reports-this-run's-model-root` and `the-region-shows-THIS-machine's-model-root` go red. Same shape as WO-D2's finding about `store-exists` and WO-D4's about the port ledger: a claim is worth what the thing that could not have been faked is worth.\n\n`no-bridge` removes the preload entirely. The dashboard still renders — that is the point of rendering from the server — but HostFacts finds no bridge and renders `data-state=\"unavailable\"` with a sentence saying so, which is why `host-facts-were-measured-not-defaulted` reddens rather than the region vanishing. A UI that filled in a plausible version number here would pass every one of these.\n\nAND ONE THAT STAYS GREEN UNDER BOTH SHAPE MUTATIONS, which is worth more than the fifteen that move: `verified-is-unrepresentable-here`. On the desktop profile `verified` is unreachable by construction. On THIS web deployment it is unreachable too, because no placement enforcement is configured — `verifiedIsRepresentable()` requires a non-desktop profile AND an enforcement that is not 'none', and this box has the second half missing. The two shapes agree by arithmetic rather than by coincidence, and an assertion that went red here would mean the web shape had started claiming something the box cannot back.",
+  "audit": {
+    "profile-lie": [
+      "desktop-shape-local-apps",
+      "desktop-shape-capture-gate",
+      "desktop-shape-vault",
+      "desktop-shape-model-store",
+      "window-announced-desktop",
+      "cloud-compute-is-absent",
+      "machine-tiers-is-absent",
+      "billing-is-absent",
+      "cloud-compute-is-not-even-mentioned",
+      "machine-tiers-is-not-even-mentioned",
+      "billing-is-not-even-mentioned",
+      "no-cloud-backend-named-anywhere",
+      "host-facts-were-measured-not-defaulted",
+      "the-region-shows-THIS-machine's-model-root",
+      "attestation-says-desktop-profile"
+    ],
+    "no-profile-header": [
+      "desktop-shape-local-apps",
+      "desktop-shape-capture-gate",
+      "desktop-shape-vault",
+      "desktop-shape-model-store",
+      "window-announced-desktop",
+      "cloud-compute-is-absent",
+      "machine-tiers-is-absent",
+      "billing-is-absent",
+      "cloud-compute-is-not-even-mentioned",
+      "machine-tiers-is-not-even-mentioned",
+      "billing-is-not-even-mentioned",
+      "no-cloud-backend-named-anywhere",
+      "host-facts-were-measured-not-defaulted",
+      "the-region-shows-THIS-machine's-model-root",
+      "attestation-says-desktop-profile"
+    ],
+    "fake-bridge": [
+      "profile-reached-main",
+      "host-reports-this-run's-model-root",
+      "the-region-shows-THIS-machine's-model-root"
+    ],
+    "no-bridge": [
+      "profile-step-succeeded",
+      "profile-reached-main",
+      "host-reports-this-run's-model-root",
+      "host-facts-were-measured-not-defaulted",
+      "the-region-shows-THIS-machine's-model-root"
+    ],
+    "assert-expectation": [
+      "sidebar-is-canon-width"
+    ]
+  }
+}

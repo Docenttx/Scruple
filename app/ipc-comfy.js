@@ -233,6 +233,11 @@ function registerComfyIpc() {
       gateUrl: ready.gateUrl, upstreamUrl, modelRoot, baseDir: cfg.baseDir,
       gateResultPath, logDir, upstreamPort, gatePort: ready.listenPort, gateSidecarPid: ready.pid,
       storeDir: cfg.storeDir,
+      // Kept on the session so `scruple:profile` can report what is running
+      // WITHOUT asking ComfyUI again. Re-measuring on every dashboard render
+      // would put a page in a position to make this process talk to a tenant.
+      adapter: ready.adapter,
+      version: stats.system ? stats.system.comfyui_version : null,
     });
 
     return {
@@ -417,4 +422,23 @@ function shutdownComfy() {
   killSession();
 }
 
-module.exports = { registerComfyIpc, portLedger, shutdownComfy };
+/**
+ * A READ-ONLY VIEW of the live session, for `scruple:profile`.
+ *
+ * Returns null when nothing is running, which is a fact the dashboard renders
+ * as "not started" rather than as an empty panel. Deliberately a copy: a caller
+ * that could reach into `session` could kill a child process from a render.
+ */
+function comfySession() {
+  if (!session) return null;
+  return {
+    gateUrl: session.gateUrl || null,
+    upstreamUrl: session.upstreamUrl || null,
+    modelRoot: session.modelRoot || null,
+    adapter: session.adapter || null,
+    version: session.version || null,
+    running: !!(session.comfy && session.comfy.exitCode === null),
+  };
+}
+
+module.exports = { registerComfyIpc, portLedger, shutdownComfy, comfySession };

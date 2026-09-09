@@ -52,6 +52,67 @@ async function callBridge(wc, call, args) {
   return Promise.race([wc.executeJavaScript(js, true), timeout]);
 }
 
+
+/**
+ * Read the DOM of the page the window is showing.
+ *
+ * WO-D5's observable is a rendered dashboard, and the honest way to look at one
+ * with no display is to ask the document what is in it. ⚑ NOT A SCREENSHOT:
+ * docs/DESIGN.md says llvmpipe returns a blank frame here, verified three ways,
+ * and nothing may gate on pixels. A `querySelectorAll` is not a picture of the
+ * UI — it is the UI, read by the browser that laid it out.
+ *
+ * Two things are recorded per selector and they are not the same claim:
+ *   `count`  how many nodes match — 0 is what "absent" means.
+ *   `text`   their text, so an assertion can check a region contains a value
+ *            only this machine could have supplied.
+ *
+ * A settle delay is honoured because the host facts arrive from an async bridge
+ * call inside a client component; the DEFAULT is 0 and the scenario must ask.
+ */
+async function readDom(wc, step) {
+  const selectors = step.selectors || [];
+  const settleMs = Number(step.settleMs || 0);
+  if (settleMs > 0) await new Promise((r) => setTimeout(r, settleMs));
+  const js = `(() => {
+    const out = { url: location.href, selectors: {}, title: document.title,
+                  bodyChars: document.body ? document.body.innerHTML.length : 0 };
+    const html = document.documentElement.outerHTML;
+    for (const sel of ${JSON.stringify(selectors)}) {
+      const nodes = Array.from(document.querySelectorAll(sel));
+      out.selectors[sel] = {
+        count: nodes.length,
+        text: nodes.map((n) => (n.textContent || '').trim()).join(' \u00b7 ').slice(0, 4000),
+      };
+    }
+    // ⚑ WHAT THE BROWSER ACTUALLY COMPUTED. This is the only honest way to ask
+    // whether the ported canon design reached the screen when the screen is a
+    // blank llvmpipe frame: getComputedStyle is the layout engine's own answer,
+    // taken after the cascade and after every var() has resolved. A colour that
+    // comes back rgb(17, 24, 39) got there through --bg-secondary-rgb, through
+    // app/theme/canon.css, from main.css's :root — the whole chain, or nothing.
+    out.computed = {};
+    for (const c of ${JSON.stringify(step.computed || [])}) {
+      const el = document.querySelector(c.selector);
+      out.computed[c.selector + '|' + c.prop] = el
+        ? getComputedStyle(el).getPropertyValue(c.prop).trim()
+        : null;
+    }
+    // Substring presence over the WHOLE serialised document, which is a
+    // stronger question than "is there a node": it catches a region that was
+    // rendered hidden, or commented out, or left in a data attribute.
+    out.mentions = {};
+    for (const needle of ${JSON.stringify(step.mentions || [])}) {
+      out.mentions[needle] = html.split(needle).length - 1;
+    }
+    return out;
+  })()`;
+  const timeout = new Promise((_r, rej) =>
+    setTimeout(() => rej(new Error(`dom read did not answer within ${STEP_TIMEOUT_MS}ms`)), STEP_TIMEOUT_MS)
+  );
+  return Promise.race([wc.executeJavaScript(js, true), timeout]);
+}
+
 async function runScenario(specPath, window, navigation) {
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
   const appURL = process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902';
@@ -123,7 +184,7 @@ async function runScenario(specPath, window, navigation) {
 
   for (const step of spec.steps || []) {
     const id = step.as || step.call;
-    const record = { call: step.call, as: id, startedAt: new Date().toISOString() };
+    const record = { call: step.call || step.read || null, as: id, startedAt: new Date().toISOString() };
     result.stepOrder.push(id);
     result.steps[id] = record;
     try {
@@ -131,6 +192,20 @@ async function runScenario(specPath, window, navigation) {
       record.args = interpolate(step.args || [], {
         driver: result.driver, fixtures: result.fixtures, steps: result.steps, env: process.env,
       });
+      // A `read` step looks at the page instead of calling the bridge. It is
+      // marked so no assertion can mistake it for evidence that main was
+      // reached — a DOM read proves the SERVER rendered something, which is a
+      // different claim from the IPC seam working, and the scenario asserts
+      // both separately.
+      if (step.read === 'dom') {
+        record.reachedBridge = false;
+        record.kind = 'dom';
+        record.value = await readDom(wc, step);
+        record.error = null;
+        record.finishedAt = new Date().toISOString();
+        console.log(`[scenario] step ${id} (dom) read ${Object.keys(record.value.selectors).length} selectors`);
+        continue;
+      }
       const reply = await callBridge(wc, step.call, record.args);
       record.reachedBridge = reply.__bridge === true;
       record.error = reply.error || null;
