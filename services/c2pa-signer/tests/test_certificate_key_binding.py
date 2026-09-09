@@ -235,6 +235,7 @@ def test_the_leaf_is_the_certificate_that_is_checked(vs, tmp_path, monkeypatch):
 
 class _KMS(BaseHTTPRequestHandler):
     key = None
+    seen = []
 
     def log_message(self, *a):
         pass
@@ -242,6 +243,7 @@ class _KMS(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         msg = base64.b64decode(body["message"])
+        _KMS.seen.append((msg, body["messageType"]))
         if body["messageType"] == "RAW":
             der = _KMS.key.sign(msg, ec.ECDSA(hashes.SHA256()))
         else:
@@ -258,6 +260,7 @@ class _KMS(BaseHTTPRequestHandler):
 @pytest.fixture
 def kms():
     _KMS.key = ec.generate_private_key(ec.SECP256R1())
+    _KMS.seen = []
     srv = HTTPServer(("127.0.0.1", 0), _KMS)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_address[1]}", _KMS.key
@@ -345,7 +348,8 @@ def _run_sign(job: dict, env: dict) -> dict:
 
 
 def _png(path: Path) -> Path:
-    import struct, zlib
+    import struct
+    import zlib
     raw = b"".join(b"\x00" + bytes((5, 9, 13)) * 8 for _ in range(8))
 
     def chunk(t, d):
@@ -443,3 +447,42 @@ def test_CONTROL_sign_py_signs_against_a_kms_whose_certificate_matches(tmp_path,
     assert res["key_binding"]["matches"] is True
     assert res["signing_mode"] == "kms-http"
     assert out.exists()
+
+
+@needs_keys
+def test_the_probe_signs_first_and_the_claim_signs_last(tmp_path, kms):
+    """Order matters, and it is asserted off the KMS's own record.
+
+    vault_sign keeps `_kms_last_message_type` from the LAST signature it
+    made, and signer_identity() reports it. That value is not a log line:
+    sign.py returns it, and app/api/scruple/c2pa/sign/route.ts folds it into
+    the canonical payload whose sha256 becomes a witness leaf. A probe that
+    ran after the claim -- or a probe counted as the claim -- would commit a
+    false statement about how the signature was produced into an append-only
+    record, which is the failure signer_identity()'s docstring is about.
+
+    So: exactly two signatures, the probe first and identifiable by its
+    domain-separation prefix, the claim last and not.
+    """
+    pytest.importorskip("c2pa", reason="c2pa-python not installed")
+    url, key = kms
+    src = _png(tmp_path / "in.png")
+    out = tmp_path / "out.png"
+    cert = tmp_path / "kms.pem"
+    cert.write_bytes(_issue(key.public_key()))
+    res = _run_sign(_job(src, out, cert, None), {
+        "SCRUPLE_C2PA_DEV": "1",
+        "SCRUPLE_C2PA_VAULT_KEY_OCID": SURROGATE_OCID,
+        "SCRUPLE_C2PA_KMS_ENDPOINT": url,
+    })
+    assert res["ok"] is True, res
+
+    import vault_sign
+    prefix = vault_sign._KEY_BINDING_PROBE_PREFIX
+    msgs = [m for m, _ in _KMS.seen]
+    assert len(msgs) == 2, f"expected probe + claim, got {len(msgs)} signatures"
+    assert msgs[0].startswith(prefix), "the probe did not go first"
+    assert not msgs[-1].startswith(prefix), "the probe had the last word"
+    assert msgs[-1].startswith(b"\x84\x6aSignature1"), (
+        "the last signature was not a COSE Sig_structure, so it was not the claim"
+    )
