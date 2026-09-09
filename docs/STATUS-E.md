@@ -147,7 +147,7 @@
 19:56:00Z  DONE   WO-E5  (54m)  desktop=88d2628 web=01a8a55
 20:06:47Z  DONE   WO-E5  (63m)  desktop=a9782dd web=01a8a55
 20:06:47Z  START  WO-E6
-20:32:50Z  WO-E6 clean run PASSED twice: 36/36 assertions. A real third-party
+20:32:50Z  WO-E6 clean run PASSED (3x): 35/35 checks, 33 scenario assertions. A real third-party
            bridge (alexisrolland/ComfyUI-Blender v3.3.4, release zip, digest
            pinned, unmodified) inside Blender 4.2.23, pointed at the gate by
            one string in its own AddonPreferences — the port the kernel gave
@@ -169,3 +169,8 @@
            unfinished product design in the series, named not hidden.
            ⚑ E6-2: the bridge declares bl_info blender=(4,5,0) and ran on
            4.2.23 anyway — E3-1 on a third party's addon.
+20:39:12Z  WO-E6 sweep CLEAN on the corrected sets: bridge-around-the-gate 14 red
+           exactly, blender-does-not-announce 8, announce-the-phantom-under-
+           the-real-id 3, model-swap 1, assert-expectation 1. RED-BEFORE shown
+           at a9782dd: that tree's window reports a bridge with no
+           blenderGenerate on it. addon suite 330 passed (untouched by E6).

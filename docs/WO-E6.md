@@ -86,7 +86,7 @@ read off eleven READMEs.
 | `scripts/e6-blender-generate.py` | runs inside Blender: set the address, import the workflow through the bridge's **own** operator, press Generate, announce, wait for the download, report JSON |
 | `scripts/e6-install-bridge.sh` | fetches the bridge, digest-pinned. Not a fork, not vendored, not patched. |
 | `scripts/e6-workflow-hash.ts` | `hashWorkflow` from the SDK, so the driver never grows a second canonicalizer |
-| `scenarios/blender-generate.json` | 36 assertions, four mutations |
+| `scenarios/blender-generate.json` | 33 assertions, four mutations |
 | `scripts/e6-gate.sh` | the gate, including the shell stage |
 | `scripts/desktop-run.mjs` | the `blender-bridge` fixture, `customNodes` on the model store, three assertion kinds, three mutations, and the pre-run `iterations` watermark |
 
@@ -119,6 +119,28 @@ that **no row in the whole `iterations` table** mentions it. The mutation
 
 ---
 
+## How this was verified, run by run
+
+Every number below is from a log in `.run/e6/` or a run directory under
+`.run/d2/`. Nothing here is a summary of something that was not run.
+
+| what | result |
+|---|---|
+| `scenarios/blender-generate.json`, clean, **three times** | **35/35 checks PASS** each time — 33 scenario assertions plus the two the driver always makes, on three different gate ports and three different ComfyUI-minted prompt ids |
+| ⚑ **the control, RED before the change** | at `a9782dd` — the parent of the commit that adds `app/ipc-blender-generate.js`, resolved from the change and not from `HEAD` — a real Electron window in a worktree reports its bridge as `[blender, captureFile, comfyGenerate, comfyLaunch, comfyStop, credential, host, ping, profile, receipts, vaultCapture]`. **No `blenderGenerate`.** The same read in this tree has it. |
+| the artifact, re-hashed from disk with `sha256sum`, outside node | `611e1493…` — and the same digest for the copy in the **bridge's own outputs folder**, which Blender hashed in a different process |
+| the leaf, read with `sqlite3` out of the app database | ids 679 and 680, printed in full above |
+| the leaf, in the **witness's own file** | `witnesses` rows 1020 and 1021 for that content hash |
+| the bypassed run, read the same way | id 681: `workflow_hash (null)`, `model_fingerprints_hash (null)`, `host blender`, `host_semantics declined`, **1 witness row** |
+| the addon suite (`/data/scruple-blender`) | **330 passed** — E6 changed nothing in the addon repo, and this says so rather than assuming it |
+
+⚑ **One leaf for the bypassed artifact, two for the gated one.** The gated
+generation is seen twice — as the `/view` response the bridge downloaded and as
+the file the watcher found — and the bypassed one only by the watcher. The count
+is itself the measurement of which surfaces were in the path.
+
+---
+
 ## The sweep
 
 Every mutation must redden **exactly** the set the scenario declares. The first
@@ -133,6 +155,17 @@ run of the sweep did not, and that is how E6-5 was found rather than argued:
   announce-the-phantom-…     caught   3 red exactly
   model-swap                 caught   1 red exactly
   assert-expectation         caught   1 red exactly
+```
+
+```
+  AFTER THE CORRECTION — .run/e6/sweep2.log
+  bridge-around-the-gate                 caught  14 red exactly
+  blender-does-not-announce              caught   8 red exactly
+  announce-the-phantom-under-the-real-id caught   3 red exactly
+  model-swap                             caught   1 red exactly
+  assert-expectation                     caught   1 red exactly
+
+  ════ scenario PASSES and every mutation was caught by exactly what it targets ════
 ```
 
 The two survivors were not a hole in the assertions — they were the scenario

@@ -246,7 +246,7 @@ meaning is host-supplied" means when it is code rather than a sentence.
   A third-party bridge inside Blender, pointed at the gate by one string in its
   own preferences, POSTs the graph and downloads the artifact; the leaf carries
   the graph (recomputed from the body the bridge sent, with `hashWorkflow`), the
-  model fingerprints and the scene. 36 assertions, four mutations, and the gate
+  model fingerprints and the scene. 33 assertions, four mutations, and the gate
   reads the leaf back with `sqlite3` from the shell. It needed **no change to
   this contract, to `hostRegistry.ts`, or to `app/comfy/`** — the whole desktop
   change is one new IPC channel that *launches Blender* and never generates.

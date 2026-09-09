@@ -168,7 +168,7 @@ sweep(){ # sweep <mutation>
   timeout 1800 node scripts/desktop-run.mjs blender-generate --break "$1" --expect-fail --timeout 900000 \
     > "$RUN/break-$1.log" 2>&1
   local rc=$?
-  local rep; rep="$(ls -td "$REPO"/.run/d2/"$1"-* | head -1)/report.json"
+  local rep; rep="$(ls -td "$REPO"/.run/d2/break-"$1"-* | head -1)/report.json"
   echo "   ── $1 (exit $rc)"
   python3 - "$rep" <<'PY' | sed 's/^/      /'
 import json,sys
@@ -186,7 +186,7 @@ note "STAGE 7 — ⚑ what the bypassed run left behind"
 # WO-E6's control (b) in full: bypassing the gate must produce a BLIND record,
 # not an absent one. Read from the shell, out of the app database, for the run
 # whose bridge was pointed at ComfyUI.
-BRUN="$(ls -td "$REPO"/.run/d2/bridge-around-the-gate-* | head -1)"
+BRUN="$(ls -td "$REPO"/.run/d2/break-bridge-around-the-gate-* | head -1)"
 BHASH="$(python3 -c "
 import json;print(json.load(open('$BRUN/result.json'))['steps']['gen']['value']['images'][0]['sha256'])" 2>/dev/null)"
 if [ -n "$BHASH" ]; then
