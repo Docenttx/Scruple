@@ -15,6 +15,10 @@
 # embedded the wrong certificate passes an env check and fails this.
 #
 # Stages:
+# Stage 1 builds its own worktree at E1_PARENT_REV (default HEAD~2, the
+# commit before the fix and its gate) and removes it again; E1_KEEP_WORKTREE=1
+# keeps it. The signing material is copied in because keys/ is gitignored.
+#
 #   1  RED, at the parent commit, in a worktree: mismatched pair -> ok:true
 #      and claimSignature.mismatch in the manifest.       MUST fire.
 #   2  GREEN, at HEAD: the same mismatched pair -> refusal with
@@ -177,7 +181,24 @@ trap 'echo "[e1] restoring the app on :3902 from '"$WEB"'"; stop_app; start_app 
 if [[ "$STAGES" == *1* ]]; then
   echo
   echo "== stage 1  RED at the parent commit ($PARENT_TREE) =========================="
-  [ -d "$PARENT_TREE" ] || { echo "!! no worktree at $PARENT_TREE"; exit 2; }
+  # The worktree is scratch and is not left lying around between runs, so
+  # build it here. node_modules is symlinked rather than installed, and the
+  # signing material is copied in because keys/ is gitignored -- a fresh
+  # checkout has no signer.pem and would fail at signAsset's cert/key guard
+  # long before it could reproduce anything.
+  if [ ! -d "$PARENT_TREE" ]; then
+    PARENT_REV="$(git -C "$WEB" rev-parse "${E1_PARENT_REV:-HEAD~2}")"
+    echo "   building a worktree at $PARENT_REV"
+    git -C "$WEB" worktree add --detach "$PARENT_TREE" "$PARENT_REV" >/dev/null 2>&1 \
+      || { echo "!! could not create the worktree"; exit 2; }
+    ln -sfn "$WEB/node_modules" "$PARENT_TREE/node_modules"
+    [ -f "$WEB/.env.local" ] && cp -a "$WEB/.env.local" "$PARENT_TREE/.env.local"
+    cp -a "$WEB"/services/c2pa-signer/keys/signer.key \
+          "$WEB"/services/c2pa-signer/keys/signer.pem \
+          "$WEB"/services/c2pa-signer/keys/signer-root.pem \
+          "$PARENT_TREE/services/c2pa-signer/keys/" 2>/dev/null
+    E1_MADE_WORKTREE=1
+  fi
   echo "   HEAD $(git -C "$PARENT_TREE" log --oneline -1)"
   stop_app && start_app "$PARENT_TREE" default || exit 2
   OUT="$(sign red)"
@@ -204,6 +225,14 @@ PY
   echo "   calibration: signed assets the stage-2 probe would have seen here: $WROTE"
   [ "$WROTE" -ge 1 ] || { echo "   !! the stage-2 filesystem probe is blind; its 0 would prove nothing"; R=1; }
   verdict $R "RED: the route called it ok and the manifest reads claimSignature.mismatch"
+  if [ "${E1_MADE_WORKTREE:-0}" = "1" ] && [ "${E1_KEEP_WORKTREE:-0}" != "1" ]; then
+    stop_app
+    rm -f "$PARENT_TREE/services/c2pa-signer/keys/signer.key" \
+          "$PARENT_TREE/services/c2pa-signer/keys/signer.pem" \
+          "$PARENT_TREE/services/c2pa-signer/keys/signer-root.pem"
+    git -C "$WEB" worktree remove --force "$PARENT_TREE" >/dev/null 2>&1
+    echo "   worktree removed (E1_KEEP_WORKTREE=1 to keep it)"
+  fi
 fi
 
 # -------------------------------------------------------------- stage 2 GREEN
