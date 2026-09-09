@@ -1,0 +1,351 @@
+{
+  "scenario": "blender-generate",
+  "description": "WO-E6. ONE GENERATION, STARTED INSIDE BLENDER, THROUGH THE GATE. A third-party bridge — alexisrolland/ComfyUI-Blender v3.3.4, the project's own release zip, unmodified — is installed in a Blender profile beside the Scruple addon and pointed at the gate's address, which the kernel allocated seconds earlier and which nothing in this repository could have guessed. The bridge POSTs the workflow, opens its own WebSocket and downloads the result: every request in the run is made by its code, not ours. The leaf that comes back carries the GRAPH (recomputed here from the body the bridge sent, with the SDK's own canonicalizer), the MODEL FINGERPRINTS (computed by the desktop from the files ComfyUI loaded) and the SCENE (announced by the Scruple addon out of bpy datablocks). Neither half of that could have come from the other end.",
+  "needs": "comfy",
+  "fixtures": {
+    "models": {
+      "kind": "model-store",
+      "name": "comfy-base",
+      "customNodes": [
+        "/mnt/corpus/scruple-desktop/.run/e6/bridges/ComfyUI-Blender"
+      ],
+      "files": {
+        "upscaler": {
+          "name": "scruple-tiny-x2.safetensors",
+          "subdir": "upscale_models",
+          "seed": 1,
+          "swapSeed": 2
+        }
+      }
+    },
+    "blender": {
+      "kind": "blender-bridge",
+      "name": "blender-bridge",
+      "scene": "atrium-${nonce}",
+      "camera": "CAM_hero"
+    }
+  },
+  "steps": [
+    {
+      "as": "launch",
+      "call": "comfyLaunch",
+      "args": []
+    },
+    {
+      "as": "gen",
+      "call": "blenderGenerate",
+      "args": [
+        {
+          "workflow": {
+            "1": {
+              "class_type": "EmptyImage",
+              "inputs": {
+                "width": 32,
+                "height": 32,
+                "batch_size": 1,
+                "color": "${driver.nonceInt}"
+              }
+            },
+            "2": {
+              "class_type": "UpscaleModelLoader",
+              "inputs": {
+                "model_name": "scruple-tiny-x2.safetensors"
+              }
+            },
+            "3": {
+              "class_type": "ImageUpscaleWithModel",
+              "inputs": {
+                "upscale_model": [
+                  "2",
+                  0
+                ],
+                "image": [
+                  "1",
+                  0
+                ]
+              }
+            },
+            "4": {
+              "class_type": "BlenderOutputSaveImage",
+              "inputs": {
+                "images": [
+                  "3",
+                  0
+                ],
+                "filename_prefix": "scruple-e6"
+              }
+            }
+          },
+          "scene": "${fixtures.blender.scene}",
+          "frame": "${fixtures.blender.frame}",
+          "camera": "${fixtures.blender.camera}",
+          "phantomScene": "phantom-${driver.nonce}",
+          "phantomPromptId": "never-submitted-${driver.nonce}"
+        }
+      ]
+    },
+    {
+      "as": "stop",
+      "call": "comfyStop",
+      "args": []
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "launch-succeeded",
+      "kind": "step-succeeded",
+      "step": "launch"
+    },
+    {
+      "id": "generate-succeeded",
+      "kind": "step-succeeded",
+      "step": "gen"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "gen"
+    },
+    {
+      "id": "the-bridge-is-the-third-party-one",
+      "kind": "equals",
+      "actual": "${steps.gen.value.blenderReport.bridge_module}",
+      "expected": "comfyui_blender",
+      "note": "the module name Blender itself reports for the addon it enabled — alexisrolland/ComfyUI-Blender, installed from its own release zip. Nothing in this repo registers that name."
+    },
+    {
+      "id": "scruple-loaded-through-the-manifest-path",
+      "kind": "equals",
+      "actual": "${steps.gen.value.blenderReport.scruple_module}",
+      "expected": "bl_ext.user_default.scruple_blender",
+      "note": "WO-E3's discriminator: the two addons are in ONE Blender, and ours arrived the way a 4.2+ user gets it"
+    },
+    {
+      "id": "⚑-the-bridge-was-pointed-at-the-gate",
+      "kind": "equals",
+      "actual": "${steps.gen.value.blenderReport.bridge_prefs.server_address}",
+      "expected": "${steps.launch.value.gate.url}",
+      "note": "⚑ THE WHOLE OF LEVEL 1, AS ONE STRING. Read back out of the bridge's own AddonPreferences after its update callback ran, compared against the address in the gate's ready file — a port the kernel allocated when the gate bound 0. Neither side of this comparison was invented here."
+    },
+    {
+      "id": "the-app-says-it-went-through-the-gate",
+      "kind": "equals",
+      "actual": "${steps.gen.value.viaGate}",
+      "expected": true
+    },
+    {
+      "id": "the-bridge-connected-its-websocket",
+      "kind": "equals",
+      "actual": "${steps.gen.value.blenderReport.connection_status}",
+      "expected": true,
+      "note": "the /ws the bridge opens goes to the same address as /prompt, so the gate is in the path for the notification as well as for the bytes"
+    },
+    {
+      "id": "comfyui-minted-the-prompt-id",
+      "kind": "non-empty",
+      "actual": "${steps.gen.value.promptId}",
+      "note": "⚑ finding E6-1: this bridge does NOT send prompt_id, so the host could not choose it. The announcement had to be written afterwards."
+    },
+    {
+      "id": "the-addon-announced-this-generation",
+      "kind": "equals",
+      "actual": "${steps.gen.value.blenderReport.announce_status.0}",
+      "expected": "FINISHED"
+    },
+    {
+      "id": "artifact-on-disk",
+      "kind": "file-exists",
+      "path": "${steps.gen.value.images.0.storePath}"
+    },
+    {
+      "id": "artifact-rehashes",
+      "kind": "file-rehashes",
+      "path": "${steps.gen.value.images.0.storePath}",
+      "sha256": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "the-bytes-blender-holds-are-the-bytes-we-hashed",
+      "kind": "equals",
+      "actual": "${steps.gen.value.images.0.agreesWithBlender}",
+      "expected": true,
+      "note": "Blender hashed the file in the bridge's own outputs folder; the app hashed the copy in the run store. Two processes, one digest."
+    },
+    {
+      "id": "artifact-has-a-leaf",
+      "kind": "witness-row",
+      "contentHash": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "⚑-leaf-carries-the-graph",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "workflow_hash",
+      "nonNull": true,
+      "note": "HALF ONE. A wire carries a graph and the gate teed it out of POST /prompt."
+    },
+    {
+      "id": "⚑-the-graph-on-the-leaf-IS-the-graph-the-bridge-SENT",
+      "kind": "graph-is-the-graph-the-bridge-sent",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "workflowPath": "${steps.gen.value.workflowPath}",
+      "clientId": "${steps.gen.value.blenderReport.bridge_prefs.client_id}",
+      "note": "the body is reconstructed from the bridge's OWN client_id — a uuid this repo did not choose — and hashed with the SDK's hashWorkflow, never a second canonicalizer"
+    },
+    {
+      "id": "the-graph-is-new-in-this-run",
+      "kind": "graph-is-new-in-this-run",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "since": "${driver.iterationsWatermark}",
+      "note": "the workflow carries this run's nonce, so a leaf older than the watermark carrying the same hash would mean the nonce never reached the graph"
+    },
+    {
+      "id": "⚑-leaf-carries-the-model-fingerprint-of-the-BYTES",
+      "kind": "model-fingerprint",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "key": "upscale_models/scruple-tiny-x2.safetensors",
+      "sha256": "${fixtures.models.files.upscaler.sha256}",
+      "note": "HALF TWO. The desktop hashed the file in its own model root; the addon never saw those bytes and the bridge never named that path."
+    },
+    {
+      "id": "fingerprints-hash-agrees",
+      "kind": "model-fingerprints-hash-agrees",
+      "contentHash": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_semantics",
+      "expected": "supplied",
+      "note": "HALF THREE, and the gate of WO-E4 arriving on a generation that started in Blender"
+    },
+    {
+      "id": "leaf-names-the-host",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host",
+      "expected": "blender"
+    },
+    {
+      "id": "leaf-names-the-adapter-and-its-version",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "host_adapter",
+      "expected": "${fixtures.blender.declaration.adapter}@${fixtures.blender.declaration.adapterVersion}"
+    },
+    {
+      "id": "⚑-leaf-carries-the-scene",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "scene",
+      "expected": "${fixtures.blender.scene}",
+      "note": "a nonce-derived string set on a bpy scene datablock. The bridge does not know it, the gate cannot see it, and it is on the same leaf as the graph the bridge sent."
+    },
+    {
+      "id": "leaf-carries-the-frame",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "frame",
+      "expected": "${fixtures.blender.frame}"
+    },
+    {
+      "id": "leaf-carries-the-camera",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "camera",
+      "expected": "${fixtures.blender.camera}"
+    },
+    {
+      "id": "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "kind": "host-evidence",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "engine",
+      "expected": "${steps.gen.value.blenderReport.scene_as_blender_holds_it.engine}"
+    },
+    {
+      "id": "the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "kind": "host-evidence-equals-file",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "path": "${steps.gen.value.announcePath}"
+    },
+    {
+      "id": "host-evidence-hash-agrees",
+      "kind": "host-evidence-hash-agrees",
+      "contentHash": "${steps.gen.value.images.0.sha256}"
+    },
+    {
+      "id": "⚑-no-leaf-claims-the-scene-nobody-generated-from",
+      "kind": "no-leaf-mentions",
+      "needle": "phantom-${driver.nonce}",
+      "column": "host_evidence",
+      "note": "⚑ WO-E6's control (c), asked of the WHOLE iterations table. A real, schema-valid announcement of a real scene was written under an id nothing was submitted with. Nothing matches loosely — not the most recent announcement, not the only other one."
+    },
+    {
+      "id": "the-phantom-was-announced-under-an-id-nobody-submitted",
+      "kind": "equals",
+      "actual": "${steps.gen.value.blenderReport.phantom_announced_under}",
+      "expected": "never-submitted-${driver.nonce}",
+      "note": "so the control above is about the ID and not about a document that was never written"
+    },
+    {
+      "id": "no-leaf-claims-verified",
+      "kind": "iteration-field",
+      "contentHash": "${steps.gen.value.images.0.sha256}",
+      "field": "attestation_basis",
+      "expected": "stale",
+      "note": "🔴 the surrogate is SOFTWARE-backed and the profile is desktop; `verified` is unrepresentable by construction (migration 053)"
+    },
+    {
+      "id": "queue-drained",
+      "kind": "equals",
+      "actual": "${steps.stop.value.gateResult.queueDepth}",
+      "expected": 0
+    }
+  ],
+  "auditNote": "Four mutations, and the point of the design is that no two of them read the same.\n\n`model-swap` is WO-D4's, unchanged, and must redden EXACTLY ONE assertion — the fingerprint of the bytes. New weights under the same filename, the same length and the same safetensors header: the graph is unmoved, the scene is unmoved, the leaf is still there. Three adapters deep in one sink chain, that difference still arrives alone.\n\n`bridge-around-the-gate` is control (b) and it is NOT `bypass-the-gate`: it changes the one string in a third-party add-on's preferences that IS the Level-1 integration. The generation still happens and the artifact is still witnessed — by the output-volume watcher — with no graph, no fingerprints and `blind` semantics. Bypassing produces a thinner record, never an absent one (finding D4-2).\n\n`blender-does-not-announce` leaves the addon installed, enabled and declared, and says nothing about THIS generation. `declined`, not `blind`: the leaf still names the host, because that is a fact about the deployment which stays true when an announcement is missing.\n\n`announce-the-phantom-under-the-real-id` changes ONE thing about the phantom announcement the clean run already writes: the id. The same document then DOES reach the leaf, which is how we know the prompt id is what kept it off.",
+  "audit": {
+    "bridge-around-the-gate": [
+      "⚑-the-bridge-was-pointed-at-the-gate",
+      "the-app-says-it-went-through-the-gate",
+      "⚑-leaf-carries-the-graph",
+      "⚑-the-graph-on-the-leaf-IS-the-graph-the-bridge-SENT",
+      "the-graph-is-new-in-this-run",
+      "⚑-leaf-carries-the-model-fingerprint-of-the-BYTES",
+      "fingerprints-hash-agrees",
+      "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "leaf-names-the-host",
+      "leaf-names-the-adapter-and-its-version",
+      "⚑-leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "host-evidence-hash-agrees"
+    ],
+    "blender-does-not-announce": [
+      "the-addon-announced-this-generation",
+      "⚑-the-leaf-says-the-meaning-was-SUPPLIED",
+      "⚑-leaf-carries-the-scene",
+      "leaf-carries-the-frame",
+      "leaf-carries-the-camera",
+      "⚑-leaf-carries-a-render-engine-nobody-here-chose",
+      "the-document-on-the-leaf-IS-the-document-blender-wrote",
+      "host-evidence-hash-agrees"
+    ],
+    "announce-the-phantom-under-the-real-id": [
+      "⚑-leaf-carries-the-scene",
+      "⚑-no-leaf-claims-the-scene-nobody-generated-from",
+      "the-phantom-was-announced-under-an-id-nobody-submitted"
+    ],
+    "model-swap": [
+      "⚑-leaf-carries-the-model-fingerprint-of-the-BYTES"
+    ],
+    "assert-expectation": [
+      "⚑-leaf-carries-the-scene"
+    ]
+  }
+}

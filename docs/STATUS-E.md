@@ -145,3 +145,5 @@
            scenario assertions PASS, 10 mutations each caught by exactly what
            they target  desktop=88d2628 web=01a8a55
 19:56:00Z  DONE   WO-E5  (54m)  desktop=88d2628 web=01a8a55
+20:06:47Z  DONE   WO-E5  (63m)  desktop=a9782dd web=01a8a55
+20:06:47Z  START  WO-E6

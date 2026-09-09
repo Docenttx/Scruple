@@ -205,6 +205,17 @@ meaning actually is.
    Level-2 leaf therefore says "the host asserted X about the generation it
    submitted as N", which is exactly as strong as the host and no stronger.
 
+   ⚑ **And WO-E6 measured that the host may not get to choose it.** The first
+   real bridge run against this hook — `alexisrolland/ComfyUI-Blender` v3.3.4 —
+   sends `{client_id, extra_data, prompt}` and **no `prompt_id`**, so ComfyUI
+   mints one and the bridge learns it from the response. The announcement can
+   therefore only be written *after* `/prompt` has been answered, in a race with
+   the artifact: announce late and the leaf reads `declined`. Nothing here is
+   unsound — a late announcement makes a leaf say **less** — but "the host mints
+   an id and announces before submitting" is not a sequence every bridge can
+   perform, and this document assumed it was. Finding **E6-1** in
+   `docs/WO-E6.md`, with the measured margin.
+
 The things that are **not** conditional on any of this are the bytes, the graph,
 the model fingerprints and the leaf itself. Those come from the gate and from
 the machine, and a Level-1 deployment has all of them.
@@ -231,6 +242,14 @@ meaning is host-supplied" means when it is code rather than a sentence.
   the leaf beside `model_fingerprints`. 37 assertions, six mutations, and it
   needed **no change to this contract, to `hostRegistry.ts`, or to `app/`** —
   which is the sentence "there is no step 4" being true rather than intended.
+- `scenarios/blender-generate.json` — **WO-E6, and the generation is not ours**.
+  A third-party bridge inside Blender, pointed at the gate by one string in its
+  own preferences, POSTs the graph and downloads the artifact; the leaf carries
+  the graph (recomputed from the body the bridge sent, with `hashWorkflow`), the
+  model fingerprints and the scene. 36 assertions, four mutations, and the gate
+  reads the leaf back with `sqlite3` from the shell. It needed **no change to
+  this contract, to `hostRegistry.ts`, or to `app/comfy/`** — the whole desktop
+  change is one new IPC channel that *launches Blender* and never generates.
 - `scenarios/host-blind.json` — the same gate with nobody registered, asserting
   `blind` **positively**, with an inverse control that adds a host and turns it
   red.

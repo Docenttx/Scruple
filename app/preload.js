@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld('scruple', {
   blender: () => ipcRenderer.invoke('scruple:blender'),
   captureFile: (req) => ipcRenderer.invoke('scruple:capture-file', req),
   vaultCapture: (req) => ipcRenderer.invoke('scruple:vault-capture', req),
+  // WO-E6. ONE GENERATION, STARTED INSIDE BLENDER. A separate channel from
+  // `comfyGenerate` because it is a different claim: that one submits a
+  // workflow to the gate from this process, this one launches a Blender in
+  // which a THIRD-PARTY bridge submits it. Collapsing them would let the
+  // stronger claim be satisfied by the weaker path.
+  blenderGenerate: (req) => ipcRenderer.invoke('scruple:blender-generate', req),
   comfyLaunch: () => ipcRenderer.invoke('scruple:comfy-launch'),
   comfyGenerate: (req) => ipcRenderer.invoke('scruple:comfy-generate', req),
   comfyStop: () => ipcRenderer.invoke('scruple:comfy-stop'),

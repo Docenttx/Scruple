@@ -44,7 +44,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomBytes, createHmac } from 'node:crypto';
 import {
   cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync,
-  statSync, truncateSync, writeFileSync,
+  statSync, symlinkSync, truncateSync, writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -506,6 +506,53 @@ const MUTATIONS = {
       return `flipped the last byte of ${p}`;
     },
   },
+  // ── WO-E6. THE THREE CONTROLS OF "one generation, from inside Blender" ───
+  //
+  // Each names a different thing that must be true for the leaf to mean what
+  // it says, and no two of them redden the same set.
+  'bridge-around-the-gate': {
+    when: 'env',
+    describe: 'point the BRIDGE at ComfyUI directly instead of at the gate',
+    // ⚑ WO-E6's control (b), and it is NOT `bypass-the-gate`. That one changes
+    // where THIS APP sends a generation; this one changes the single string in
+    // a third-party add-on's preferences that is the whole of the Level-1
+    // integration. What comes back is finding D4-2 happening to a real bridge:
+    // the output-volume watcher still catches the file, so there IS a leaf —
+    // with no graph, no fingerprints and `blind` semantics. Bypassing produces
+    // a thinner record, never an absent one.
+    apply(ctx) {
+      ctx.env.SCRUPLE_BLENDER_BRIDGE_TARGET = 'upstream';
+      return "the bridge's server_address is set to the upstream ComfyUI, not the gate";
+    },
+  },
+  'announce-the-phantom-under-the-real-id': {
+    when: 'env',
+    describe: "put the phantom scene's announcement on the prompt id the bridge really submitted",
+    // ⚑ WO-E6's control (c), MADE DEMONSTRABLE. Every clean run of this
+    // scenario already writes a second, schema-valid announcement of a scene
+    // no generation was started from, under an id nothing was submitted with —
+    // and asserts that no leaf in the database mentions it. An absence
+    // assertion that cannot be made to fail is a constant with a comment on
+    // it, so this changes ONE thing: the id. The same document, on the real
+    // prompt id, reaches the leaf, and both the absence assertion and the
+    // scene assertion go red. The prompt id is what kept it off.
+    apply(ctx) {
+      ctx.env.SCRUPLE_E6_PHANTOM_UNDER_REAL_ID = '1';
+      return 'the phantom announcement is written under the real prompt id';
+    },
+  },
+  'blender-does-not-announce': {
+    when: 'env',
+    describe: 'the Scruple addon is installed and enabled, and says nothing about this generation',
+    // The `declined` control of WO-E4, re-asked where the generation actually
+    // came from a bridge. The declaration stays on disk, so the leaf names the
+    // host and carries no document: an integration that is not working, which
+    // is a different fact with a different owner from one never done.
+    apply(ctx) {
+      ctx.env.SCRUPLE_BLENDER_ANNOUNCE = 'off';
+      return 'bpy.ops.scruple.host_announce is not called for this generation';
+    },
+  },
   'assert-expectation': {
     when: 'spec',
     describe: "rewrite one assertion's expected value to a wrong constant",
@@ -927,6 +974,93 @@ const KINDS = {
       detail: { stored: row.host_evidence_hash, recomputed },
     };
   },
+  // ── WO-E6. THE GRAPH, AND THE TWO THINGS THAT MAKE IT MEAN SOMETHING ────
+
+  /**
+   * ⚑ THE GRAPH ON THE LEAF IS THE GRAPH THE BRIDGE SENT.
+   *
+   * `workflow_hash` being non-null says a graph was captured; it does not say
+   * WHICH. This reconstructs the exact body the bridge POSTed — its own
+   * `client_id`, its own `extra_data`, and the workflow file it was handed —
+   * and hashes it with the SDK's own `hashWorkflow` through
+   * `scripts/e6-workflow-hash.ts`, never a second canonicalizer here.
+   *
+   * The bridge's `run_workflow.py` composes exactly three keys and the gate
+   * hashes the whole body, so a match is the leaf's graph being byte-identical
+   * (under RFC 8785) to what left Blender — including a `client_id` this
+   * process did not choose and could not have guessed.
+   */
+  'graph-is-the-graph-the-bridge-sent': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const row = iterationRow(hash, ['workflow_hash']);
+    if (!row) return { pass: false, detail: { contentHash: hash, why: 'no iteration row for these bytes' } };
+    if (!row.workflow_hash) {
+      return { pass: false, detail: { why: 'the leaf carries no workflow_hash — no graph reached it' } };
+    }
+    const workflowPath = ctx.resolve(a.workflowPath);
+    const clientId = ctx.resolve(a.clientId);
+    const apiKey = a.apiKey === undefined ? '' : ctx.resolve(a.apiKey);
+    if (!existsSync(workflowPath)) {
+      return { pass: false, detail: { workflowPath, why: 'the workflow the bridge was handed is gone' } };
+    }
+    const workflow = JSON.parse(readFileSync(workflowPath, 'utf8'));
+    delete workflow.comfyui_blender;              // run_workflow.py pops this
+    const body = { client_id: clientId, extra_data: { api_key_comfy_org: apiKey }, prompt: workflow };
+    const bodyPath = join(ctx.runDir, 'e6-reconstructed-prompt-body.json');
+    writeFileSync(bodyPath, JSON.stringify(body));
+    let recomputed;
+    try {
+      recomputed = execFileSync('bash', [join(REPO, 'scripts', 'tsx.sh'),
+        join(REPO, 'scripts', 'e6-workflow-hash.ts'), bodyPath], { encoding: 'utf8' }).trim();
+    } catch (err) {
+      return { pass: false, detail: `could not recompute the hash: ${String(err.message || err)}` };
+    }
+    return {
+      pass: recomputed === row.workflow_hash,
+      detail: { onLeaf: row.workflow_hash, recomputed, bodyPath, clientId },
+    };
+  },
+
+  /**
+   * ⚑ AND IT IS THIS RUN'S GRAPH, NOT AN EARLIER ONE'S.
+   *
+   * The scratch database is persistent and every run's workflow carries the
+   * run nonce, so a `workflow_hash` that also appears on a row written before
+   * this run started would mean the nonce did not reach the graph. Every row
+   * carrying it must be newer than the watermark the driver took before the
+   * app was launched.
+   */
+  'graph-is-new-in-this-run': (a, ctx) => {
+    const hash = ctx.resolve(a.contentHash);
+    const row = iterationRow(hash, ['workflow_hash']);
+    if (!row || !row.workflow_hash) {
+      return { pass: false, detail: { contentHash: hash, why: 'no workflow_hash to check' } };
+    }
+    const floor = ctx.resolve(a.since);
+    const older = iterationIdsWithWorkflowHash(row.workflow_hash).filter((n) => n <= Number(floor));
+    return {
+      pass: older.length === 0,
+      detail: { workflowHash: row.workflow_hash, watermark: Number(floor), olderRows: older },
+    };
+  },
+
+  /**
+   * ⚑ NOTHING IN THE DATABASE CLAIMS THIS.
+   *
+   * Asked of the WHOLE `iterations` table rather than of this run's leaf,
+   * because the failure it rules out is a leaf that picked up an announcement
+   * loosely — the most recent one, the only one, the nearest in time. A scene
+   * that was announced but never generated from must appear on nothing.
+   */
+  'no-leaf-mentions': (a, ctx) => {
+    const needle = ctx.resolve(a.needle);
+    if (typeof needle !== 'string' || needle.length < 8) {
+      return { pass: false, detail: { needle, why: 'too short to be evidence of anything' } };
+    }
+    const n = countIterationsLike(a.column || 'host_evidence', needle);
+    return { pass: n === 0, detail: { column: a.column || 'host_evidence', needle, rows: n } };
+  },
+
   'file-bytes': (a, ctx) => {
     const p = ctx.resolve(a.path);
     const want = ctx.resolve(a.bytes);
@@ -1283,6 +1417,55 @@ function iterationRowsAll(contentHash, fields) {
 }
 
 /**
+ * WO-E6. The ids of every `iterations` row carrying one `workflow_hash`.
+ *
+ * Used to prove a graph is NEW: the scratch database is persistent, so "this
+ * hash exists" and "this hash was written by this run" are different claims.
+ */
+function iterationIdsWithWorkflowHash(workflowHash) {
+  if (typeof workflowHash !== 'string' || !/^[0-9a-f]{64}$/.test(workflowHash)) return [];
+  const db = process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db';
+  const sql = `SELECT id FROM iterations WHERE workflow_hash = '${workflowHash}' ORDER BY id ASC;`;
+  let out;
+  try {
+    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', sql], { encoding: 'utf8' });
+  } catch (err) {
+    throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
+  }
+  return out.split('\n').map((l) => l.trim()).filter(Boolean).map(Number);
+}
+
+/** WO-E6. How many rows in the whole table carry a needle in one column. A
+ *  THROW rather than a 0 when the query cannot run: a broken sqlite3 must not
+ *  turn into a green absence control. */
+function countIterationsLike(column, needle) {
+  if (!/^[a-z_]+$/.test(column)) throw new Error(`not a column name: ${column}`);
+  if (/['%]/.test(needle)) throw new Error(`needle contains a quote or a wildcard: ${needle}`);
+  const db = process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db';
+  const sql = `SELECT COUNT(*) FROM iterations WHERE "${column}" LIKE '%${needle}%';`;
+  let out;
+  try {
+    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', sql], { encoding: 'utf8' });
+  } catch (err) {
+    throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
+  }
+  return Number(out.trim());
+}
+
+/** WO-E6. The highest `iterations` id before this run started — the watermark
+ *  `graph-is-new-in-this-run` measures against. */
+function iterationsWatermark() {
+  const db = process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db';
+  try {
+    const out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch',
+      'SELECT COALESCE(MAX(id), 0) FROM iterations;'], { encoding: 'utf8' });
+    return Number(out.trim());
+  } catch (err) {
+    throw new Error(`iterations watermark query failed against ${db}: ${String(err.message || err)}`);
+  }
+}
+
+/**
  * GET a JSON route from THIS process.
  *
  * curl through execFileSync for `fetchRoute`'s reasons — one dependency, and a
@@ -1368,6 +1551,24 @@ function materialiseModelStore(sourceDir, id, spec) {
   for (const d of ['models/upscale_models', 'models/loras', 'models/checkpoints', 'input', 'output', 'temp', 'user', 'custom_nodes']) {
     mkdirSync(join(baseDir, d), { recursive: true });
   }
+  // ⚑ WO-E6. CUSTOM NODES, INSTALLED THE WAY THE BRIDGE'S README SAYS TO.
+  // `alexisrolland/ComfyUI-Blender` ships two halves — an add-on for Blender
+  // and custom nodes for ComfyUI — and its setup instructions are to clone the
+  // repository into `ComfyUI/custom_nodes`. `--base-directory` moves
+  // custom_nodes with everything else, so this is where that clone has to
+  // land for the ComfyUI this run launches. It is a symlink to an unmodified
+  // checkout: nothing is copied, patched or re-exported.
+  const customNodes = [];
+  for (const src of spec.customNodes || []) {
+    if (!existsSync(src)) {
+      throw new Error(`no custom node package at ${src} — run scripts/e6-install-bridge.sh`);
+    }
+    const dest = join(baseDir, 'custom_nodes', src.split('/').filter(Boolean).pop());
+    rmSync(dest, { force: true, recursive: true });
+    symlinkSync(src, dest);
+    customNodes.push({ source: src, installedAt: dest });
+  }
+
   const modelRoot = join(baseDir, 'models');
   const files = {};
   for (const [fid, f] of Object.entries(spec.files || {})) {
@@ -1379,7 +1580,7 @@ function materialiseModelStore(sourceDir, id, spec) {
       header_hash: built.header_hash, header_size: built.header_size,
     };
   }
-  return { ...spec, path: baseDir, baseDir, modelRoot, files };
+  return { ...spec, path: baseDir, baseDir, modelRoot, files, customNodes };
 }
 
 /**
@@ -1531,6 +1732,120 @@ function materialiseBlenderHost(sourceDir, id, spec, nonce, runDir) {
     declarationPath, announcePath, promptId, evidence, declaration,
     scene, camera, frame, blenderProfile: profile, blenderReport: report,
     blenderVersion: report.blender_version, module: report.module,
+  };
+}
+
+/**
+ * ⚑ WO-E6. A BLENDER WITH A THIRD-PARTY BRIDGE IN IT, AND A DECLARATION ON DISK.
+ *
+ * The work order's claim is "a bridge inside Blender is pointed at the gate
+ * instead of at ComfyUI; the user generates". Three things have to be true
+ * before the app is started for that sentence to be testable, and this fixture
+ * arranges exactly those three and nothing else:
+ *
+ *   1. A PROFILE WITH BOTH ADD-ONS. Scruple's, through the manifest path that
+ *      a 4.2+ user gets (WO-E3), and `comfyui_blender` v3.3.4 — the project's
+ *      own release zip, installed through `bpy.ops.preferences.addon_install`,
+ *      which is what its README tells a user to do. NOT a fork, NOT a vendored
+ *      copy, NOT patched: `scripts/e6-install-bridge.sh` pins the digest and
+ *      `.run/e6/bridges/INSTALLED.json` records it.
+ *
+ *   2. THE DECLARATION, WRITTEN BY ENABLING THE ADD-ON. The gate reads
+ *      `scruple-host.json` when it starts (app/comfy/hostAdapter.ts reads it
+ *      before CaptureComponent.start, so that a refusal is visible in the ready
+ *      file), and the app starts before any generation. So the declaring
+ *      Blender runs HERE, in `--declare-only` mode: it enables the addon and
+ *      exits. Nothing in this repository writes that file.
+ *
+ *   3. NOTHING ELSE. In particular NO ANNOUNCEMENT — the announcement for the
+ *      generation under test is written inside the Blender the APP launches,
+ *      after the bridge has POSTed and learned its prompt id. That is finding
+ *      E6-1 and it is a property of the bridge, not of this fixture.
+ *
+ * ⚑ The profile is cached across runs by SHAPE, for the reason WO-E5's is: an
+ * install is ~40s of qemu (finding E3-2) and the audit sweep runs this several
+ * times. It is still a profile this repo built from this repo's zip and the
+ * bridge's own release asset, and the running Blender is asked what is in it.
+ */
+function materialiseBlenderBridge(sourceDir, id, spec, nonce, runDir) {
+  const blender = spec.blender || process.env.E4_BLENDER || join(REPO, 'vendor', 'blender', 'bin', 'blender');
+  const addonZip = spec.zip || process.env.E4_ZIP || '/data/scruple-blender/dist/scruple-blender-0.1.0.zip';
+  const bridgeDir = join(REPO, '.run', 'e6', 'bridges');
+  const installedPath = join(bridgeDir, 'INSTALLED.json');
+  if (!existsSync(blender)) throw new Error(`no Blender at ${blender} — run scripts/e3-install-blender.sh`);
+  if (!existsSync(addonZip)) throw new Error(`no addon zip at ${addonZip} — run build/build_addon.sh in the addon repo`);
+  if (!existsSync(installedPath)) {
+    throw new Error(`no third-party bridge in ${bridgeDir} — run scripts/e6-install-bridge.sh`);
+  }
+  const bridge = JSON.parse(readFileSync(installedPath, 'utf8'));
+  if (!existsSync(bridge.addon_zip)) throw new Error(`the bridge zip named in INSTALLED.json is gone: ${bridge.addon_zip}`);
+
+  const profile = process.env.E6_BLENDER_PROFILE || join(REPO, '.run', 'e6', 'profile-bridge');
+  if (!existsSync(join(profile, 'extensions', 'user_default', 'scruple_blender'))) {
+    installExtension(blender, profile, addonZip, 'scruple_blender');
+  }
+  // The bridge is a LEGACY bl_info add-on (it ships no blender_manifest.toml),
+  // so it arrives through `addon_install` + `addon_utils.enable`, which is the
+  // "Install from Disk" its README names. ⚑ Its bl_info declares a floor this
+  // Blender does not meet and Blender does not enforce it on this path — WO-E3
+  // measured that for our own addon and finding E6-2 records it for this one.
+  const bridgeModule = 'comfyui_blender';
+  if (!existsSync(join(profile, 'scripts', 'addons', bridgeModule))) {
+    mkdirSync(profile, { recursive: true });
+    // ⚑ NOT `--factory-startup`. Saving preferences from a factory start would
+    // write a preferences file in which the Scruple extension — installed a
+    // moment earlier — is not enabled, and the declaration would never be
+    // written. Measured, not reasoned about: that is exactly how this failed
+    // the first time.
+    execFileSync(blender, ['--background', '--python-expr',
+      `import bpy, addon_utils\n` +
+      `bpy.ops.preferences.addon_install(filepath=${JSON.stringify(bridge.addon_zip)}, overwrite=True)\n` +
+      `addon_utils.enable(${JSON.stringify(bridgeModule)}, default_set=True, persistent=True)\n` +
+      `bpy.ops.wm.save_userpref()\n` +
+      `assert ${JSON.stringify(bridgeModule)} in bpy.context.preferences.addons, 'the bridge did not enable'\n`],
+      { env: { ...process.env, BLENDER_USER_RESOURCES: profile }, encoding: 'utf8', timeout: 900000 });
+    if (!existsSync(join(profile, 'scripts', 'addons', bridgeModule))) {
+      throw new Error(`${bridgeModule} is not in ${profile}/scripts/addons after addon_install`);
+    }
+  }
+
+  // ── the declaration, written by ENABLING the addon, before the app runs ──
+  const hostDir = join(sourceDir, spec.name || id);
+  mkdirSync(hostDir, { recursive: true });
+  rmSync(join(hostDir, 'announce'), { recursive: true, force: true });
+  const out = execFileSync(
+    blender,
+    ['--background', '--python', join(REPO, 'scripts', 'e4-blender-host.py'), '--',
+      '--host-dir', hostDir, '--prompt-id', 'declare-only', '--declare-only'],
+    {
+      env: { ...process.env, BLENDER_USER_RESOURCES: profile, SCRUPLE_COMFY_HOST_DIR: hostDir },
+      encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 900000,
+    },
+  );
+  const m = out.match(/<<<E4_BLENDER\n([\s\S]*?)\nE4_BLENDER>>>/);
+  if (!m) throw new Error(`Blender produced no report:\n${out.slice(-2000)}`);
+  const report = JSON.parse(m[1]);
+  const declarationPath = join(hostDir, 'scruple-host.json');
+  if (!existsSync(declarationPath)) {
+    throw new Error(`enabling the addon did not write ${declarationPath}`);
+  }
+  const declaration = JSON.parse(readFileSync(declarationPath, 'utf8'));
+
+  const scene = String(spec.scene || 'atrium-${nonce}').replace('${nonce}', nonce);
+  const camera = String(spec.camera || 'CAM_hero');
+  const frame = Number(spec.frame ?? parseInt(nonce.slice(0, 4), 16) % 200 + 1);
+
+  return {
+    ...spec, kind: 'blender-bridge', path: hostDir, hostDir,
+    announceDir: join(hostDir, 'announce'), declarationPath, declaration,
+    blender, profile, blenderProfile: profile,
+    blenderVersion: report.blender_version, module: report.module,
+    blenderReport: report,
+    bridge,
+    bridgeModule,
+    scene, camera, frame,
+    env: { SCRUPLE_BLENDER_BIN: blender, SCRUPLE_BLENDER_PROFILE: profile },
+    envDelete: [],
   };
 }
 
@@ -1786,6 +2101,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     if (f.kind === 'model-store') { fixtures[id] = materialiseModelStore(sourceDir, id, f); continue; }
     if (f.kind === 'host') { fixtures[id] = materialiseHost(sourceDir, id, f, nonce); continue; }
     if (f.kind === 'blender-host') { fixtures[id] = materialiseBlenderHost(sourceDir, id, f, nonce, runDir); continue; }
+    if (f.kind === 'blender-bridge') { fixtures[id] = materialiseBlenderBridge(sourceDir, id, f, nonce, runDir); continue; }
     if (f.kind === 'blender-install') { fixtures[id] = materialiseBlenderInstall(id, f, runDir); continue; }
     const bytes = deterministicBytes(f.seed || id, f.bytes);
     const path_ = join(sourceDir, f.name || id);
@@ -1864,7 +2180,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     // "point ComfyUI at the gate" with nothing else, exactly as a Level-1 host
     // experiences it.
     const host = Object.values(fixtures).find(
-      (f) => f && (f.kind === 'host' || f.kind === 'blender-host'),
+      (f) => f && (f.kind === 'host' || f.kind === 'blender-host' || f.kind === 'blender-bridge'),
     );
     if (host) env.SCRUPLE_COMFY_HOST_DIR = host.hostDir;
     mkdirSync(env.SCRUPLE_COMFY_STATE, { recursive: true, mode: 0o700 });
@@ -1880,7 +2196,9 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   // from here, for the reason the model root and the vault's ceiling do: a
   // renderer that could name the binary could point the dashboard at anything.
   // Applied BEFORE the mutations, so an `env` mutation can still overrule it.
-  const blenderInstall = Object.values(fixtures).find((f) => f && f.kind === 'blender-install');
+  const blenderInstall = Object.values(fixtures).find(
+    (f) => f && (f.kind === 'blender-install' || f.kind === 'blender-bridge'),
+  );
   if (blenderInstall) {
     for (const [k, v] of Object.entries(blenderInstall.env || {})) env[k] = v;
     for (const k of blenderInstall.envDelete || []) delete env[k];
@@ -1905,6 +2223,10 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
       // without this, a `witness-row` assertion could be satisfied by a leaf
       // an earlier run wrote. 24 bits, because it is used as an RGB colour.
       nonceInt: parseInt(nonce.slice(0, 6), 16),
+      // WO-E6. The highest leaf id in the scratch database BEFORE this app was
+      // launched. A `workflow_hash` that appears on a row at or below it was
+      // not written by this run.
+      iterationsWatermark: iterationsWatermark(),
     },
   };
   const materialisedPath = join(runDir, 'spec.json');

@@ -53,6 +53,13 @@ record** rather than in a sales conversation.
 | addon only | **none** — the bridge talks to ComfyUI directly | no | no | yes |
 | Desktop Studio only | complete | yes | yes | **no** (`blind`) |
 | both | complete | yes | yes | yes (`supplied`) — WO-E4, measured |
+| both, **and the generation starts in Blender** | complete | yes | yes | yes — WO-E6, measured, with a third-party bridge |
+
+⚑ Row 4 is not row 3 with a nicer story. In row 3 the generation was submitted
+by this app and the announcement was driven by its driver; in row 4 a bridge
+nobody here wrote submitted it, from inside Blender, at an address the kernel
+allocated to the gate a minute earlier. What has to be true for row 4 and not
+for row 3 is that the integration surface really is one string.
 
 ⚑ **Row 1 is the one to get right.** The addon alone can sign and witness the
 Blender output, and it must **not** imply anything about the AI step it did not
@@ -143,7 +150,7 @@ of a host-announced region. `docs/WO-E5.md` finding E5-1.
 
 ## Where the bridge fits
 
-The research (`/data/scruple-blender/docs/canon/09-BLENDER-COMFYUI-RUNTIME.md`)
+The research (`/data/scruple-blender/docs/canon/blender-l2/09-BLENDER-COMFYUI-RUNTIME.md`)
 found eleven Blender↔ComfyUI bridges, and every one of them ultimately posts to
 a ComfyUI address the user configures. That address is the whole integration
 surface: point it at the gate and the bridge is captured with no code from us,
@@ -151,3 +158,34 @@ which is Level 1. The addon announcing the scene on top of it is Level 2.
 
 We do not fork a bridge, vendor one, or ask users to switch. If a bridge cannot
 be pointed at an arbitrary address, that is a finding about that bridge.
+
+_WO-E6, 2026-09-09: **one of the eleven has now been run**, not reasoned about._
+**`alexisrolland/ComfyUI-Blender` v3.3.4** — second by adoption, and the one
+whose architecture is "a client pointed at a ComfyUI address" — was installed
+from its own release zip, unmodified, digest-pinned in
+`scripts/e6-install-bridge.sh`. Setting **one string** in its preferences to the
+gate's address was the entire integration: it POSTed `/prompt` there, opened its
+`/ws` there and downloaded the result from `/view` there, and the leaf carries
+the graph. Nothing was forked, vendored or patched, and `app/comfy/` did not
+change. `docs/WO-E6.md` records which other bridges were considered and why this
+one, and the two things it does that `HOST-HOOK.md` did not expect (E6-1, E6-2).
+
+## One leaf, both halves, from a generation nobody here started
+
+_WO-E6, 2026-09-09._ The claim at the top of this document, as a row in a
+database, from a run in which **this repository submitted nothing**:
+
+```
+   id            leaf_kind = workflow
+   workflow_hash 4d68…      the body the BRIDGE POSTed — recomputed here from
+                            its own client_id with the SDK's own hashWorkflow
+   model_…hash   c6c3…      over upscale_models/scruple-tiny-x2.safetensors,
+                            hashed by the DESKTOP from the file ComfyUI loaded
+   host          blender    host_semantics = supplied
+   host_evidence {"camera":"CAM_hero","engine":"BLENDER_EEVEE_NEXT",…,
+                  "scene":"atrium-<nonce>"}  — out of bpy datablocks
+```
+
+`scenarios/blender-generate.json`, and `scripts/e6-gate.sh` reads it back with
+`sha256sum` and `sqlite3` from the shell, outside node, because a driver that
+grades its own run is a log line with extra steps.

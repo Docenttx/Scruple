@@ -25,6 +25,7 @@ const { registerVaultIpc } = require('./ipc-vault');
 const { registerComfyIpc, shutdownComfy } = require('./ipc-comfy');
 const { registerProfileIpc } = require('./ipc-profile');
 const { registerBlenderIpc, installedAppIds, shutdownBlender } = require('./ipc-blender');
+const { registerBlenderGenerateIpc, shutdownBlenderGenerate } = require('./ipc-blender-generate');
 const { registerReceiptIpc } = require('./ipc-receipt');
 const { registerCredentialIpc } = require('./ipc-credential');
 
@@ -168,6 +169,10 @@ app.whenReady().then(async () => {
   registerIpc();
   registerProfileIpc();
   registerBlenderIpc();
+  // WO-E6. The channel that LAUNCHES a Blender in which a third-party bridge
+  // generates through the gate. Registered beside the one that MEASURES a
+  // Blender and deliberately not inside it: measuring must never arrange.
+  registerBlenderGenerateIpc();
   registerCaptureIpc();
   registerVaultIpc();
   registerComfyIpc();
@@ -191,12 +196,12 @@ app.whenReady().then(async () => {
       // shutdownComfy() in ipc-comfy.js. A scenario that failed at its second
       // step never reached `comfyStop`.
       shutdownComfy();
-      shutdownBlender();
+      shutdownBlender(); shutdownBlenderGenerate();
       app.exit(completed ? 0 : EXIT_SCENARIO_INCOMPLETE);
     } catch (err) {
       console.error(`[main] scenario threw: ${err && err.stack ? err.stack : err}`);
       shutdownComfy();
-      shutdownBlender();
+      shutdownBlender(); shutdownBlenderGenerate();
       app.exit(EXIT_SCENARIO_INCOMPLETE);
     }
     return;
@@ -207,11 +212,11 @@ app.whenReady().then(async () => {
   const { runProbe } = require('./probe');
   try {
     const ok = await runProbe(probeArg.slice('--probe='.length), window, navigation);
-    shutdownBlender();
+    shutdownBlender(); shutdownBlenderGenerate();
     app.exit(ok ? 0 : EXIT_PROBE_FAILED);
   } catch (err) {
     console.error(`[main] probe threw: ${err && err.stack ? err.stack : err}`);
-    shutdownBlender();
+    shutdownBlender(); shutdownBlenderGenerate();
     app.exit(EXIT_PROBE_FAILED);
   }
 });
@@ -220,5 +225,5 @@ app.whenReady().then(async () => {
 // to reap what you orphan, and a headless Blender the dashboard began measuring
 // is exactly that. `app.exit()` does not fire `will-quit`, so the scenario and
 // probe paths above call it explicitly as well.
-app.on('will-quit', () => { shutdownComfy(); shutdownBlender(); });
+app.on('will-quit', () => { shutdownComfy(); shutdownBlender(); shutdownBlenderGenerate(); });
 app.on('window-all-closed', () => app.quit());
