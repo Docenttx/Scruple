@@ -119,6 +119,40 @@ that **no row in the whole `iterations` table** mentions it. The mutation
 
 ---
 
+## The sweep
+
+Every mutation must redden **exactly** the set the scenario declares. The first
+run of the sweep did not, and that is how E6-5 was found rather than argued:
+
+```
+  FIRST RUN
+  bridge-around-the-gate     MISSED   declared red, stayed green:
+                                      leaf-names-the-host,
+                                      leaf-names-the-adapter-and-its-version
+  blender-does-not-announce  caught   8 red exactly
+  announce-the-phantom-…     caught   3 red exactly
+  model-swap                 caught   1 red exactly
+  assert-expectation         caught   1 red exactly
+```
+
+The two survivors were not a hole in the assertions — they were the scenario
+predicting `blind` where the system correctly says `declined`. The declared set
+was corrected **to the measurement**, with the reason written into the scenario's
+own `auditNote`, and the sweep re-run. A list edited to match a green run is
+worthless unless the reason is recorded; the reason is E6-5 below.
+
+⚑ `blender-does-not-announce` and `announce-the-phantom-under-the-real-id`
+redden overlapping but different sets, and that overlap is the design working:
+both make the scene assertions red, and only the second makes
+`⚑-no-leaf-claims-the-scene-nobody-generated-from` red. "Nothing was said" and
+"the wrong thing was said" are different failures with different owners.
+
+`model-swap` reddening **exactly one** assertion is WO-D4's claim surviving a
+fourth thing in the chain — the host adapter, the model store adapter, the
+Submitter and now a third-party bridge upstream of all of them.
+
+---
+
 ## Findings
 
 ### ⚑ E6-1 — this bridge does not send a `prompt_id`, so the announcement is a race
