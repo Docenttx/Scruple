@@ -119,11 +119,126 @@ function renderBlenderPanel(m) {
     </div>`;
 }
 
+/**
+ * ── WO-G6 · the Assets sub-tab ───────────────────────────────────────────────
+ *
+ * ⚑ WHY THERE IS A SUB-TAB HERE AND NOWHERE ELSE IN THE APP.
+ *
+ * BAT — the Blender Asset Tracer, Blender's own tool — parses and REWRITES
+ * `.blend` files with Blender closed. `bat pack shot.blend /farm/` is what a
+ * studio tells an artist to run before sending a shot to a render farm. It is
+ * not a Blender add-on (no `bl_info`, never imports `bpy`), so it is invisible
+ * to the add-on set the plugin baselines, and Blender is not running, so no
+ * handler fires. It is the one ordinary way a `.blend` changes behind our back.
+ *
+ * 🔴 SO THE APP HOSTS IT RATHER THAN TRYING TO DETECT IT. A tool the app runs is
+ * a tool the app can witness. Detection would be a losing game against a
+ * first-party utility that is MEANT to be used.
+ *
+ * The sub-tab is a sub-tab and not a fifth top-level tab because it is not a
+ * separate application — it is the same Blender project, seen as its assets.
+ * Same button class as the tab bar above it, so there is no new shape to learn.
+ */
+function renderBlenderSubnav(sub) {
+  const b = (id, label) =>
+    `<button class="view-toggle-btn ${sub === id ? 'active' : ''}" data-blender-sub="${id}">${label}</button>`;
+  return `<div class="blender-subnav">${b('status', 'Status')}${b('assets', 'Assets')}</div>`;
+}
+
+function renderBatVerdict(v) {
+  if (!v) return '';
+  const scope = v.scope === 'since_witnessed'
+    ? 'since this project was witnessed'
+    : 'in this operation only';
+  const tone = v.verdict === 'content_changed' ? 'disconnected' : '';
+  return `
+    <div class="blender-fields">
+      ${fieldRow('Verdict', v.verdict, scope)}
+      ${fieldRow('Moved', (v.moved || []).join(', ') || 'nothing',
+        'the same bytes, in a new place — this is what a pack does')}
+      ${fieldRow('Content changed', (v.content_changed || []).join(', ') || 'nothing',
+        v.every_surviving_asset_identical
+          ? 'every surviving asset is byte-identical'
+          : '🔴 an asset is not what it was')}
+      ${(v.added || []).length ? fieldRow('Added', v.added.join(', ')) : ''}
+      ${(v.removed || []).length ? fieldRow('Removed', v.removed.join(', ')) : ''}
+    </div>
+    ${v.scope === 'this_operation' ? `
+      <p class="blender-note">
+        ⚑ This says what the PACK did. It does not say whether anything changed
+        earlier — both readings were taken just now, so an asset swapped an hour
+        ago is in both and shows as unchanged. Use <em>Check Against Witness</em>
+        for that question.
+      </p>` : ''}
+    ${tone ? `<p class="blender-note">🔴 An asset's bytes differ from the witnessed record.
+        A repath moves a file; this replaced one.</p>` : ''}`;
+}
+
+/**
+ * The Assets panel. Three readings and one action, and the panel says which is
+ * which — because "the file changed" is not one fact, it is two, and they mean
+ * opposite things.
+ */
+function renderBlenderAssets() {
+  const probe = State.get('batProbe');
+  const result = State.get('batResult');
+
+  if (probe && probe.ok === false) {
+    return `
+      <div class="webview-overlay">
+        <div class="overlay-content">
+          <div class="status-icon disconnected">X</div>
+          <h2>Asset Tracer Unavailable</h2>
+          <p>${escapeHtml(probe.error || 'no interpreter could run it')}</p>
+          <button id="bat-probe" class="retry-btn">Look Again</button>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="blender-panel">
+      <div class="blender-panel-header">
+        <h2>Assets</h2>
+        <button id="bat-probe" class="retry-btn">${probe ? 'Re-check' : 'Check Asset Tracer'}</button>
+      </div>
+      ${probe && probe.ok ? `
+        <div class="blender-fields">
+          ${fieldRow('Asset Tracer', 'blender-asset-tracer ' + (probe.batVersion || ''),
+            'Blender\u2019s own tool \u2014 it reads and rewrites .blend files with Blender closed')}
+          ${fieldRow('Python', probe.version, probe.python)}
+        </div>
+        <div class="blender-actions">
+          <button id="bat-list" class="retry-btn">Trace Dependencies</button>
+          <button id="bat-pack" class="retry-btn">Pack Project\u2026</button>
+          <button id="bat-compare" class="retry-btn">Check Against Witness</button>
+        </div>
+      ` : `
+        <p class="blender-note">
+          Nothing has asked whether the Asset Tracer can run on this machine.
+        </p>`}
+      ${result && result.assets ? `
+        <h3 class="blender-subhead">Dependencies</h3>
+        <div class="blender-fields">
+          ${result.assets.map((a) => fieldRow(a.name, (a.digest || '\u2014').slice(0, 24),
+            a.unreadable ? 'could not be read: ' + a.unreadable : a.path)).join('')}
+        </div>` : ''}
+      ${result && result.verdict ? `
+        <h3 class="blender-subhead">What changed</h3>
+        ${renderBatVerdict(result)}` : ''}
+      ${result && result.ok === false ? `
+        <p class="blender-note">🔴 ${escapeHtml(result.code || '')}: ${escapeHtml(result.error || '')}</p>` : ''}
+    </div>`;
+}
+
 /** The container, gated exactly as ComfyUI's is: absent, never empty. */
 function renderBlenderContainer(currentView) {
   if (!blenderIsPresent()) return '';
+  const sub = State.get('blenderSub') || 'status';
   return `<div class="blender-container ${currentView === 'blender' ? 'visible' : 'hidden'}">
-    ${renderBlenderPanel(State.get('blenderMeasurement'))}
+    ${renderBlenderSubnav(sub)}
+    <div class="blender-sub-body">
+      ${sub === 'assets' ? renderBlenderAssets() : renderBlenderPanel(State.get('blenderMeasurement'))}
+    </div>
   </div>`;
 }
 

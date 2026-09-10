@@ -11,6 +11,103 @@
  */
 
 function setupMainAppHandlers() {
+  // WO-G6. The Assets sub-tab: the Blender Asset Tracer, hosted.
+  //
+  // ⚑ EVERY ONE OF THESE IS A READING EXCEPT `pack`, WHICH WRITES. The panel
+  // keeps them apart and so does this: `pack` asks for a destination first, and
+  // the others never touch the project.
+  document.querySelectorAll('.blender-subnav [data-blender-sub]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      State.set('blenderSub', btn.dataset.blenderSub);
+      State.set('blenderPanelDirty', true);
+      renderApp();
+    });
+  });
+
+  const batRun = async (label, req, el) => {
+    const was = el.textContent;
+    el.disabled = true;
+    el.textContent = label;
+    try {
+      State.set('batResult', await window.scruple.bat(req));
+    } catch (e) {
+      // A refusal is shown. A bridge that threw must never leave the panel
+      // looking as though nothing was asked.
+      State.set('batResult', { ok: false, code: 'bridge_error', error: String(e && e.message ? e.message : e) });
+    }
+    el.disabled = false;
+    el.textContent = was;
+    State.set('blenderPanelDirty', true);
+    renderApp();
+  };
+
+  const batProbe = document.getElementById('bat-probe');
+  if (batProbe) {
+    batProbe.addEventListener('click', async () => {
+      batProbe.disabled = true;
+      const was = batProbe.textContent;
+      batProbe.textContent = 'Checking\u2026';
+      try {
+        State.set('batProbe', await window.scruple.bat({ action: 'probe' }));
+      } catch (e) {
+        State.set('batProbe', { ok: false, error: String(e && e.message ? e.message : e) });
+      }
+      batProbe.disabled = false;
+      batProbe.textContent = was;
+      State.set('blenderPanelDirty', true);
+      renderApp();
+    });
+  }
+
+  // The .blend these act on is the tracked project's, never a path typed into
+  // the page: the renderer chooses WHAT to ask about, the main process decides
+  // whether it may be read. Same rule ipc-capture.js applies to a picked file.
+  const blendOf = () => {
+    const p = State.get('selectedProject') || State.get('activeProject');
+    return p && (p.blend_path || p.blendPath) ? (p.blend_path || p.blendPath) : null;
+  };
+
+  const batList = document.getElementById('bat-list');
+  if (batList) {
+    batList.addEventListener('click', async () => {
+      const blend = blendOf();
+      if (!blend) {
+        State.set('batResult', { ok: false, code: 'no_blend',
+          error: 'This project has no .blend on record yet. Save one from the Blender tab first.' });
+        State.set('blenderPanelDirty', true);
+        return renderApp();
+      }
+      await batRun('Tracing\u2026', { action: 'list', blendPath: blend }, batList);
+    });
+  }
+
+  const batCompare = document.getElementById('bat-compare');
+  if (batCompare) {
+    batCompare.addEventListener('click', async () => {
+      const blend = blendOf();
+      const witnessed = State.get('batWitnessedAssets');
+      if (!blend || !witnessed) {
+        State.set('batResult', { ok: false, code: 'no_witnessed_record',
+          error: 'Nothing to compare against yet \u2014 trace this project once while it is known good, ' +
+                 'and that reading becomes the record.' });
+        State.set('blenderPanelDirty', true);
+        return renderApp();
+      }
+      await batRun('Comparing\u2026', { action: 'compare', blendPath: blend, witnessedAssets: witnessed }, batCompare);
+    });
+  }
+
+  const batPack = document.getElementById('bat-pack');
+  if (batPack) {
+    batPack.addEventListener('click', async () => {
+      const blend = blendOf();
+      if (!blend) return;
+      const target = await window.scruple.browseFolder();
+      if (!target) return;   // cancelled is not an error
+      await batRun('Packing\u2026', { action: 'pack', blendPath: blend, targetDir: target }, batPack);
+    });
+  }
+
   // WO-G4. The one action the Blender tab has. It is a button rather than
   // something that happens on open because measuring STARTS A BLENDER, and a
   // tab that did that on every visit would make switching tabs expensive in a

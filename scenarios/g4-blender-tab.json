@@ -2,12 +2,17 @@
   "scenario": "g4-blender-tab",
   "description": "WO-G4: Blender takes its place beside ComfyUI and Kohya_ss — a view-toggle button, a container, and the same enabled-gating. No new interaction concept, because a new concept is new friction and the user already knows this shape.",
   "steps": [
-    { "as": "profile", "call": "profile", "args": [] },
+    {
+      "as": "profile",
+      "call": "profile",
+      "args": []
+    },
     {
       "as": "dom",
       "read": "dom",
       "settleMs": 4000,
       "selectors": [
+        ".view-toggle-header > .view-toggle-btn",
         ".view-toggle-btn",
         ".view-toggle-btn[data-view=\"blender\"]",
         ".view-toggle-btn[data-view=\"comfyui\"]",
@@ -18,35 +23,107 @@
         ".blender-container webview",
         ".comfy-webview-container",
         ".project-list",
-        "[data-region]"
+        "[data-region]",
+        ".blender-subnav",
+        ".blender-subnav [data-blender-sub=\"status\"]",
+        ".blender-subnav [data-blender-sub=\"assets\"]"
       ],
       "computed": [
-        { "selector": ".blender-container", "prop": "background-color" }
+        {
+          "selector": ".blender-container",
+          "prop": "background-color"
+        }
       ],
-      "mentions": ["data-view=\"blender\"", "blender-container"]
+      "mentions": [
+        "data-view=\"blender\"",
+        "blender-container"
+      ]
     }
   ],
   "assert": [
-    { "id": "app-completed", "kind": "app-completed" },
-    { "id": "profile-reached-main", "kind": "reached-main", "step": "profile",
-      "note": "the tab's existence comes from a MEASUREMENT of this machine, not from a default — a renderer-local stub could not know this pid" },
-
-    { "id": "the-blender-tab-is-present", "kind": "dom-present", "step": "dom", "selector": ".view-toggle-btn[data-view=\"blender\"]" },
-    { "id": "the-blender-container-is-present", "kind": "dom-present", "step": "dom", "selector": ".blender-container" },
-    { "id": "the-container-offers-the-one-action", "kind": "dom-present", "step": "dom", "selector": ".blender-container #measure-blender",
-      "note": "measuring starts a headless Blender, so it is a button rather than something that happens on open — see finding E3-2, half a minute on aarch64 under qemu" },
-    { "id": "nothing-is-claimed-before-it-is-measured", "kind": "dom-contains", "step": "dom", "selector": ".blender-container",
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "profile-reached-main",
+      "kind": "reached-main",
+      "step": "profile",
+      "note": "the tab's existence comes from a MEASUREMENT of this machine, not from a default — a renderer-local stub could not know this pid"
+    },
+    {
+      "id": "the-blender-tab-is-present",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".view-toggle-btn[data-view=\"blender\"]"
+    },
+    {
+      "id": "the-blender-container-is-present",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".blender-container"
+    },
+    {
+      "id": "the-container-offers-the-one-action",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".blender-container #measure-blender",
+      "note": "measuring starts a headless Blender, so it is a button rather than something that happens on open — see finding E3-2, half a minute on aarch64 under qemu"
+    },
+    {
+      "id": "nothing-is-claimed-before-it-is-measured",
+      "kind": "dom-contains",
+      "step": "dom",
+      "selector": ".blender-container",
       "text": "Not Measured",
-      "note": "🔴 a panel that filled in a plausible version number would pass every assertion anyone would think to write, and be a lie" },
-
-    { "id": "blender-borrows-the-existing-overlay-shape", "kind": "dom-present", "step": "dom", "selector": ".blender-container .webview-overlay",
-      "note": "the same classes ComfyUI and Kohya use when their app is not answering — no new interaction concept" },
-    { "id": "there-is-no-webview-in-the-blender-tab", "kind": "dom-absent", "step": "dom", "selector": ".blender-container webview",
-      "note": "⚑ THE ONE DIFFERENCE FROM THE PATTERN, ASSERTED RATHER THAN GLOSSED. Blender is a native application: there is no URL to embed. A <webview> here would mean someone had pointed the tab at something that is not Blender." },
-
-    { "id": "the-neighbours-are-untouched", "kind": "dom-present", "step": "dom", "selector": ".comfy-webview-container" },
-    { "id": "the-sidebar-is-still-a-project-directory", "kind": "dom-present", "step": "dom", "selector": ".project-list" },
-    { "id": "no-d5-diagnostics-regions", "kind": "dom-absent", "step": "dom", "selector": "[data-region]" }
+      "note": "🔴 a panel that filled in a plausible version number would pass every assertion anyone would think to write, and be a lie"
+    },
+    {
+      "id": "blender-borrows-the-existing-overlay-shape",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".blender-container .webview-overlay",
+      "note": "the same classes ComfyUI and Kohya use when their app is not answering — no new interaction concept"
+    },
+    {
+      "id": "there-is-no-webview-in-the-blender-tab",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": ".blender-container webview",
+      "note": "⚑ THE ONE DIFFERENCE FROM THE PATTERN, ASSERTED RATHER THAN GLOSSED. Blender is a native application: there is no URL to embed. A <webview> here would mean someone had pointed the tab at something that is not Blender."
+    },
+    {
+      "id": "the-neighbours-are-untouched",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".comfy-webview-container"
+    },
+    {
+      "id": "the-sidebar-is-still-a-project-directory",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".project-list"
+    },
+    {
+      "id": "no-d5-diagnostics-regions",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region]"
+    },
+    {
+      "id": "the-assets-subtab-is-present",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".blender-subnav [data-blender-sub=\"assets\"]",
+      "note": "WO-G6. BAT rewrites .blend files with Blender closed and is not an add-on, so nothing we baseline can see it. The app hosts it instead of trying to detect it."
+    },
+    {
+      "id": "the-subnav-reuses-the-tab-button-class",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".blender-subnav .view-toggle-btn",
+      "note": "the same shape as the tab bar above it, one level down — not a new concept"
+    }
   ],
   "auditNote": "The gate script owns the two assertions a single boot cannot make.\n\n(1) ABSENT, NOT GREYED. With no Blender on the machine the tab must have NO NODE and the string `data-view=\"blender\"` must not appear in the serialised document at all. That needs a second boot with SCRUPLE_BLENDER_BIN cleared and the vendor path pointed at an empty directory — the same mutation WO-E5's `blender-absent` scenario uses.\n\n(2) THE OTHER TABS ARE UNCHANGED, ASSERTED BY DIFF, NOT BY EYE. The gate compares the tab set with Blender present against the tab set with Blender absent: the difference must be EXACTLY the Blender button and nothing else. An eye comparing two screenshots is how a missing tab survives seven work orders."
 }

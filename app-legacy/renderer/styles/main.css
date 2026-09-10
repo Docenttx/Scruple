@@ -2255,3 +2255,33 @@ body {
   color: var(--text-secondary);
   font-size: 13px;
 }
+
+/* ── WO-G6 · the Assets sub-tab ───────────────────────────────────────────────
+   A sub-navigation inside the Blender tab, using the SAME button class as the
+   tab bar above it. Not a new shape to learn — the same shape, one level down. */
+
+.blender-subnav {
+  display: flex;
+  gap: 8px;
+  padding: 12px 28px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.blender-sub-body {
+  position: relative;
+}
+
+.blender-subhead {
+  margin: 26px 0 10px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.blender-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}

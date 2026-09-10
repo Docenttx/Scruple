@@ -37,6 +37,9 @@ const { registerReceiptIpc } = require(path.join(HOST_DIR, 'ipc-receipt'));
 const { registerCredentialIpc } = require(path.join(HOST_DIR, 'ipc-credential'));
 // WO-G2. §9.1 + §9.2 on one artifact, at the app's own lock actions.
 const { registerModalitiesIpc } = require(path.join(HOST_DIR, 'ipc-modalities'));
+// WO-G6. The Blender Asset Tracer, hosted — so the one .blend edit that happens
+// with Blender CLOSED becomes an event this app can witness.
+const { registerBatIpc } = require(path.join(HOST_DIR, 'ipc-bat'));
 
 // Exit codes, unchanged from app/main-modular.js so the D-series gates read the
 // same numbers they always did.
@@ -90,7 +93,8 @@ function registerHostIpc() {
   registerReceiptIpc();
   registerCredentialIpc();
   registerModalitiesIpc();
-  console.log('[host] 10 host IPC modules registered');
+  registerBatIpc();
+  console.log('[host] 11 host IPC modules registered');
 }
 
 /** Reap what this seam started. Called on will-quit AND before every app.exit(). */

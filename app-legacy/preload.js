@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld('scruple', {
   // ⚑ Watermarking is EU AI Act Art.50 Code of Practice — the PEER of C2PA,
   // not a part of it, and it must never borrow C2PA's conformance language.
   modalities: (req) => ipcRenderer.invoke('scruple:modalities', req),
+  // WO-G6. The Blender Asset Tracer. `probe` asks whether it can run here,
+  // `list` traces what a .blend depends on, `pack` relocates it AND records what
+  // moved, `compare` asks whether anything has changed since it was witnessed.
+  bat: (req) => ipcRenderer.invoke('scruple:bat', req),
 
   
   // ===========================================================================

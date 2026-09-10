@@ -36,9 +36,15 @@ boot(){ # boot <label> <extra env assignments...>
     "$ELECTRON" app-legacy --scenario=scenarios/g4-blender-tab.json > "$RUN/$label.log" 2>&1
   echo $?
 }
+# ⚑ SCOPED TO THE TAB BAR. WO-G6 gave the Blender tab a sub-navigation that
+# deliberately reuses `.view-toggle-btn` — same shape, one level down — and this
+# helper promptly reported "Status" and "Assets" as top-level tabs. The gate was
+# right to fire; the selector was the thing that was wrong. `.view-toggle-header`
+# is the tab bar and nothing else is.
 tabset(){ node -e '
   const r=require(process.argv[1]);
-  const t=r.steps?.dom?.value?.selectors?.[".view-toggle-btn"]?.text||"";
+  const t=(r.steps?.dom?.value?.selectors?.[".view-toggle-header > .view-toggle-btn"]
+     ?? r.steps?.dom?.value?.selectors?.[".view-toggle-btn"])?.text||"";
   console.log(t.split(" · ").map(s=>s.replace(/[^A-Za-z_]/g,"").trim()).filter(Boolean).sort().join(","));
 ' "$1"; }
 sel(){ node -e '

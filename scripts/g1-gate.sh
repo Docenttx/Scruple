@@ -58,10 +58,12 @@ boot() {
 }
 
 # tabset <result.json>  ->  the tab labels, sorted, comma-joined
+# ⚑ SCOPED TO THE TAB BAR — see the note in scripts/g4-gate.sh.
 tabset() {
   node -e '
     const r = require(process.argv[1]);
-    const t = r.steps?.dom?.value?.selectors?.[".view-toggle-btn"]?.text || "";
+    const t = (r.steps?.dom?.value?.selectors?.[".view-toggle-header > .view-toggle-btn"]
+     ?? r.steps?.dom?.value?.selectors?.[".view-toggle-btn"])?.text || "";
     const set = t.split(" · ").map(s => s.replace(/[^A-Za-z_]/g, "").trim()).filter(Boolean).sort();
     console.log(set.join(","));
   ' "$1"
