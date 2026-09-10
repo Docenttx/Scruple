@@ -270,3 +270,35 @@ reachable without passing the gate" — and on Windows the port ledger is
 `unavailable` (its W1-6), so **the one measurement that would have flagged this
 is the one that platform cannot take.** That is the argument for the
 `GetExtendedTcpTable` work, and it should be recorded as such.
+
+## WO-F9 — `portLedger` returns a well-formed EMPTY measurement when called wrongly
+
+Found 2026-09-10 by making the mistake. `portLedger` destructures an object —
+`{gatePort, gatePid, upstreamPort, upstreamPid}` — and was handed an **array**.
+Every field came out `undefined`, `listenersOn([undefined])` matched nothing, and
+it returned a **complete, well-formed ledger reading `state: measured` with zero
+listeners**. That was reported to the travel laptop as a weakness in the Linux
+port ledger and had to be retracted; called correctly against the same sockets it
+finds both listeners and their pids.
+
+🔴 **Empty-because-nothing-is-listening and empty-because-you-asked-wrong are the
+same object today**, and the second one reads as a successful measurement. This
+is precisely the defect the laptop's W1-17 fixed one level up — it separated
+`measured/count=0` ("looked, found none") from `unavailable/count=null` ("could
+not look") — arriving one level down, in the argument handling.
+
+**Build:** `portLedger` refuses a malformed argument instead of measuring
+nothing. A missing or non-numeric `gatePort`/`upstreamPort`, or an argument that
+is not an object, yields a **refusal with a reason code**, never a ledger.
+
+**Gate:** the wrong call that started this returns a refusal, and the right call
+still returns two measured listeners with their pids. **Controls:** (a) a correct
+call against ports where genuinely nothing listens must still return
+`measured` with zero listeners — the fix must not turn "nothing there" into
+"you asked wrong"; (b) the two outcomes must be shown to be distinguishable by a
+caller without reading prose.
+
+⚑ No sweep is required for existing gates: `portLedger` is called from exactly
+two places, both in `app/ipc-comfy.js`, both inside the main process, both with
+the correct object form. This is a latent trap for the next caller, not an
+active defect.
