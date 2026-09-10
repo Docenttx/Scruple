@@ -28,6 +28,15 @@ ROOT="$PWD"
 APP_URL="${SCRUPLE_APP_URL:-http://127.0.0.1:3902}"
 export SCRUPLE_APP_URL="$APP_URL"
 export SCRUPLE_DB_PATH="${SCRUPLE_DB_PATH:-/mnt/corpus/scruple-council-impl/scruple-scratch.db}"
+# ── schema preflight ────────────────────────────────────────────────────────
+# WO-E4 finding E4-0: when the database is behind the tree, a gate fails as
+# ASSERTION ERRORS and says nothing about the cause — WO-D6 was silently red for
+# over an hour that way, reporting `no iteration row` eleven times. Exit 3 below
+# means MIGRATIONS PENDING and is not a test failure. On a fresh clone every
+# migration is pending, so this is the difference between a first run that
+# explains itself and one that looks like a platform bug.
+node vendor/scruple-web/scripts/preflight-schema.mjs --apply || {
+  echo "GATE ABORTED: schema preflight failed — this is NOT a test failure."; exit 3; }
 export SCRUPLE_WITNESS_DB="${SCRUPLE_WITNESS_DB:-/mnt/corpus/scruple-council-impl/witness-scratch.db}"
 export SCRUPLE_BDK_ALLOW_DEV="${SCRUPLE_BDK_ALLOW_DEV:-1}"
 ADDON="${SCRUPLE_BLENDER_ROOT:-/data/scruple-blender}"
