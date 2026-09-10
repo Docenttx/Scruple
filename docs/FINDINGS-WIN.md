@@ -1214,6 +1214,38 @@ Demonstrated end to end on the real `blender-host` run, not by a probe:
 it costs 30 seconds per stop to do it. Every other assertion stayed green, so
 this presents as a narrow flake rather than as a lost record.
 
+### Fixed — the request is a file, because the protocol was already files
+
+The gate's protocol is already `request.json` in, `ready.json` out,
+`result.json` out. The drain request is now `stop` in the same directory:
+`gate.ts` takes an optional `stopPath`, polls for it every 100 ms, and runs the
+**same** `finish()` the signal handler runs. `ipc-comfy.js` writes that file and
+**also** still sends `SIGTERM`, and `finish()` guards against re-entry — so on
+POSIX the signal wins the race and that platform's behaviour is unchanged, while
+on Windows the file is the only one that arrives.
+
+⚑ Deliberately one code path rather than a Windows branch: the shutdown the
+Linux gates exercise is now the shutdown Windows takes, instead of a second
+implementation that only one platform ever runs.
+
+Polled rather than `fs.watch`ed — the file appears once, a 100 ms latency is
+nothing against a drain, and `fs.watch` semantics differ per platform, which is
+the class of thing this change exists to stop depending on.
+
+**Measured after:** `[comfy-gate] stop file stop; draining before exit`, and
+`blender-host` is **38/38**, with the whole run taking 23 s where the stop alone
+used to take 30.
+
+**And the restored assertions are not vacuous** — the full `--audit` sweep
+passes, all 7 mutations caught, each reddening exactly what it declared.
+`the-adapter-recorded-what-it-did` goes RED under five of the seven, so it is
+still testing what it claims to test.
+
+🔴 **Not verified on Linux — this rig cannot.** The change is additive and
+guarded, and the reasoning above is why POSIX should be unaffected, but that is
+an argument and not a measurement. The build box should run one D-series
+scenario against it before it is relied on.
+
 ## W1-E4 — 🔴 `app-legacy/` cannot start, on any Electron version
 
 `docs/G-SERIES-REPORT.md` §2 says `app-legacy/` "contains the product", and WO-G1

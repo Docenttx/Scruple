@@ -66,6 +66,27 @@ export interface GateRequest {
   readyPath: string;
   /** Written on shutdown, with everything the driver reads. */
   resultPath: string;
+  /**
+   * 🔴 ASK FOR A DRAIN WITHOUT A SIGNAL, because on Windows there are none.
+   *
+   * The launcher used to request a graceful shutdown with `SIGTERM`, and the
+   * handler below drains the queue and writes `resultPath`. Node on Windows
+   * maps `.kill('SIGTERM')` to `TerminateProcess`: the handler never runs, the
+   * result file is never written, and the enrichment records the SIGTERM exists
+   * to preserve are destroyed by the call that exists to preserve them.
+   * Measured — see W1-E3 in docs/FINDINGS-WIN.md, where a real `blender-host`
+   * run enriched ten fields, then lost the record and spent the launcher's full
+   * 30s timeout waiting for a file that could never appear.
+   *
+   * So the request is a FILE, like every other observable in this protocol:
+   * `request.json` in, `ready.json` out, `result.json` out, and now this one to
+   * ask for the end. It works identically on both platforms, which means the
+   * shutdown path the Linux gates exercise is the same one Windows takes rather
+   * than a second implementation nobody runs.
+   *
+   * Optional: a launcher that does not set it keeps signal-only behaviour.
+   */
+  stopPath?: string;
   modelCeilingBytes?: number;
   /** Off means: no adapter in the path. The control. */
   fingerprints: boolean;
@@ -219,7 +240,17 @@ async function main(): Promise<void> {
   fs.writeFileSync(req.readyPath, JSON.stringify(ready, null, 2));
   log(`listening on ${ready.gateUrl} → ${cfg.upstreamUrl} · adapter ${ready.adapter ?? 'none'}`);
 
+  // ⚑ A GUARD, because there are now two ways in. The launcher may write the
+  // stop file AND send SIGTERM — on POSIX both are available and it does both,
+  // so that the platform which has signals keeps using them. Without this, two
+  // drains would run concurrently and both would write `resultPath`.
+  let finishing = false;
+  let stopWatch: NodeJS.Timeout | null = null;
+
   const finish = async (sig: string): Promise<void> => {
+    if (finishing) return;
+    finishing = true;
+    if (stopWatch) clearInterval(stopWatch);
     log(`${sig}; draining before exit`);
     const drained = await component.submitter.drain().catch(() => ({ sent: 0, kept: -1 }));
     await component.stop().catch(() => undefined);
@@ -255,6 +286,20 @@ async function main(): Promise<void> {
 
   process.on('SIGTERM', () => void finish('SIGTERM'));
   process.on('SIGINT', () => void finish('SIGINT'));
+
+  // Polled rather than `fs.watch`ed: the file appears once, latency of up to
+  // one interval is irrelevant against a drain, and `fs.watch` semantics differ
+  // per platform — which is the class of thing this change exists to stop
+  // relying on. The interval is NOT unref'd; the listening server holds the
+  // process open anyway, and an unref here would be a second thing to reason
+  // about.
+  if (req.stopPath) {
+    const stopPath = req.stopPath;
+    fs.rmSync(stopPath, { force: true });
+    stopWatch = setInterval(() => {
+      if (fs.existsSync(stopPath)) void finish(`stop file ${path.basename(stopPath)}`);
+    }, 100);
+  }
 }
 
 main().catch((e) => {

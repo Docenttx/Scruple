@@ -188,7 +188,10 @@ function registerComfyIpc() {
     fs.mkdirSync(gateState, { recursive: true, mode: 0o700 });
     const readyPath = path.join(gateState, 'ready.json');
     const gateResultPath = path.join(gateState, 'result.json');
-    for (const p of [readyPath, gateResultPath]) fs.rmSync(p, { force: true });
+    // Asking the gate to drain is a file, not a signal — Windows has none.
+    // See the comment on `stopPath` in app/comfy/gate.ts.
+    const gateStopPath = path.join(gateState, 'stop');
+    for (const p of [readyPath, gateResultPath, gateStopPath]) fs.rmSync(p, { force: true });
     const gateRequestPath = path.join(gateState, 'request.json');
     fs.writeFileSync(
       gateRequestPath,
@@ -207,6 +210,7 @@ function registerComfyIpc() {
         provisioningToken: cfg.token,
         readyPath,
         resultPath: gateResultPath,
+        stopPath: gateStopPath,
         ...(cfg.modelCeiling ? { modelCeilingBytes: cfg.modelCeiling } : {}),
         fingerprints: cfg.fingerprints,
         hostDir: cfg.hostDir,
@@ -241,7 +245,7 @@ function registerComfyIpc() {
 
     Object.assign(session, {
       gateUrl: ready.gateUrl, upstreamUrl, modelRoot, baseDir: cfg.baseDir,
-      gateResultPath, logDir, upstreamPort, gatePort: ready.listenPort, gateSidecarPid: ready.pid,
+      gateResultPath, gateStopPath, logDir, upstreamPort, gatePort: ready.listenPort, gateSidecarPid: ready.pid,
       storeDir: cfg.storeDir,
       // Kept on the session so `scruple:profile` can report what is running
       // WITHOUT asking ComfyUI again. Re-measuring on every dashboard render
@@ -423,11 +427,32 @@ function registerComfyIpc() {
     const base = { ok: false, at, mainPid: process.pid, senderWindowId: sender ? sender.id : null };
     if (!session) return { ...base, outcome: 'refused', reason: 'no session' };
 
-    const { gate, comfy, gateResultPath } = session;
-    // SIGTERM, not SIGKILL: the gate's handler drains the queue and writes the
-    // result file. Killing it would lose every enrichment record and any
-    // event store-and-forward was still holding.
-    if (gate && gate.exitCode === null) gate.kill('SIGTERM');
+    const { gate, comfy, gateResultPath, gateStopPath } = session;
+    // ASK THE GATE TO DRAIN, then let it write the result file. Its handler
+    // drains the queue and records every enrichment; killing it outright would
+    // lose all of them and anything store-and-forward was still holding.
+    //
+    // 🔴 THE REQUEST IS A FILE BECAUSE WINDOWS HAS NO SIGNALS. `.kill('SIGTERM')`
+    // there is `TerminateProcess` — no handler runs, no result is written, and
+    // the records this shutdown exists to preserve are destroyed by it. That
+    // was measured on a real run (W1-E3 in docs/FINDINGS-WIN.md), which also
+    // spent this function's whole 30s timeout waiting for a file that could
+    // never appear.
+    //
+    // Both are sent where both exist. The gate guards against re-entry, so on
+    // POSIX the signal wins the race and that platform's behaviour is
+    // unchanged; on Windows the file is the only one that arrives.
+    if (gate && gate.exitCode === null) {
+      if (gateStopPath) {
+        try {
+          fs.writeFileSync(gateStopPath, `${new Date().toISOString()}\n`);
+        } catch (e) {
+          // Fall through to the signal — on POSIX it is sufficient on its own.
+          console.error(`[comfy] could not write the gate stop file: ${e.message}`);
+        }
+      }
+      gate.kill('SIGTERM');
+    }
     const gateResult = await waitFor(
       async () => (fs.existsSync(gateResultPath) ? JSON.parse(fs.readFileSync(gateResultPath, 'utf8')) : null),
       30000, 200,
