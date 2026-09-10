@@ -34,7 +34,9 @@
     "gate": "bash scripts/d1-gate.sh && bash scripts/d2-gate.sh && bash scripts/d3-gate.sh && bash scripts/d4-gate.sh && bash scripts/d5-gate.sh && bash scripts/d6-gate.sh && bash scripts/d7-gate.sh",
     "d7": "node scripts/desktop-run.mjs full-flow --timeout 600000",
     "g1": "bash scripts/g1-gate.sh",
-    "g1:scenario": "node scripts/desktop-run.mjs g1-shell"
+    "g1:scenario": "node scripts/desktop-run.mjs g1-shell",
+    "g2": "bash scripts/g2-gate.sh",
+    "g4": "bash scripts/g4-gate.sh"
   },
   "devDependencies": {
     "electron": "^38.0.0"
