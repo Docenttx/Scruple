@@ -142,65 +142,69 @@ and a route that does not touch the database must be unaffected.
 
 ---
 
-## WO-F6 — a case-insensitive filesystem makes the manifest attribute bytes to a name that never held them
+## WO-F6 — `declared_but_absent` is correct, and nothing reads it
 
-Found by the travel-laptop session (its W1-B1), on NTFS. **Not reproducible on
-this box** — Linux is case-sensitive, so the two files stay two files — which is
-exactly why the rig exists.
+🔴 **THIS WORK ORDER WAS WRONG WHEN FIRST WRITTEN AND IS REPLACED.** It claimed
+the vault "attributes bytes to a name that never held them" on a case-insensitive
+filesystem, sourced from the travel laptop's first report, and I called it the
+most serious thing found that night. **The laptop then ran the vault and
+retracted it**; its original section had said in its own words that it measured
+the platform and made *no claim about the vault*, and the claim was made anyway.
+The original text is left in git history rather than being quietly overwritten.
 
-### What it observed
+### What is actually true
 
-A vault declaring **`Model.safetensors` and `model.safetensors`** yields **one
-captured entry, pairing the FIRST name with the SECOND bytes.** NTFS merges the
-two writes; `readdirSync` returns whichever name was created first; the bytes
-under it are the later write's. Its words: *"the hash under `Model.safetensors`
-is not the hash of anything ever written to that name."* `existsSync` resolving
-**4 of 4** case variants is the mechanism by which the lookup never notices.
+**The vault keys on ENUMERATION, not on the declaration** — verified here at
+`app/vault/vaultSurface.ts:257`:
 
-⚑ **Do not fix this as a miscount.** `manifest.ts` already carries
-`declared_but_absent`, so the manifest DOES say the second name was not found.
-The defect that survives that is worse and subtler: **the captured entry asserts
-a content hash for a filename that never held those bytes.** A record that is
-merely incomplete is recoverable; a record that is confidently WRONG about which
-name held which bytes is a false provenance claim produced by correct-looking
-code. It is the exact failure `refused_mime_undeclared` exists to prevent,
-arriving through the filesystem instead of through the declaration.
+```ts
+declaredButAbsent: declaration.declaredPaths().filter((p) => !present.has(p)),
+```
 
-⚑ **And "declared A and B, found only A" is AMBIGUOUS on such a filesystem.** It
-means either "B was never created" or "B was created and silently became A".
-Those are different facts. Today they read the same.
+Entries come from what was walked; the declaration is used only to compute what
+is missing. So on NTFS, a vault declaring `Model.safetensors` and
+`model.safetensors` produces:
+
+```
+2 files, 2 captured, 0 refused, 1 declared-but-absent
+entries[0] path=Model.safetensors  content_hash=ec0499dc…  captured
+declared_but_absent: ["model.safetensors"]
+```
+
+and `ec0499dc…` is exactly what `Get-FileHash` reads off that file. **It hashes
+what is there, attributes it to the name it actually has, and separately records
+the declared name it could not find.** That is right on a hostile filesystem, and
+the design does not have the hole the earlier version of this WO described.
+
+### What survives, and it is narrower and still real
+
+⚑ **A declared file can vanish and every gate stays green.** `declared_but_absent`
+is written and never read. Five references exist in the entire desktop tree —
+`manifest.ts:69` and `:133`, `vaultSurface.ts:104`, `:257` and a log line at
+`:264` — and **no scenario, gate script or assertion kind consumes it**. All four
+refusal counters read 0, so anyone watching refusals sees a clean run. The
+laptop's scenario passes, controls included, with a declared file silently
+missing from the capture.
+
+**It is not a forged record. It is an ungated one: the vault says the true thing
+and nothing is listening.**
 
 ### What to build
 
-Detect the condition and **refuse to attribute**, rather than guess:
+An assertion kind — `declared-absent-is` or similar — so a scenario can require
+`declared_but_absent` to be empty, or to be exactly the set it expects. The field
+is already correct; **it needs a reader.**
 
-1. **Measure the filesystem, do not assume it.** Whether the vault root is
-   case-insensitive is a property of the volume, not of `process.platform` — an
-   ext4 volume mounted on Windows, or a case-sensitive directory on NTFS
-   (`fsutil file setCaseSensitiveInfo`), both exist. Probe it: create a file,
-   stat it under a different case, delete it. Record the answer on the manifest.
-2. **When two declared names differ only by case and the volume is
-   case-insensitive**, the entry's `contentHash` becomes a **refusal**, with a
-   new outcome — the bytes are real but the name→bytes binding is not
-   establishable. Follow WO-D3's rule: the byte COUNT survives the refusal.
-3. **`declared_but_absent` alone is not sufficient** and the report must say so.
+**Gate:** a scenario declaring a file that is not present FAILS, naming the
+missing file. **Controls:** (a) the same scenario with every declared file present
+PASSES — the assertion must not fire where nothing is wrong; (b) a scenario that
+*expects* a declared absence (a deliberately missing file) passes when it occurs
+and fails when it does not, so the kind can express both; (c) the existing
+`vault-capture.json` is unchanged in outcome, or the change is explained.
 
-### Gate and controls
-
-**Gate:** on a case-insensitive volume, a vault declaring two names differing
-only by case produces **no captured entry claiming either name**, and the
-manifest states why. **Controls:** (a) on a case-SENSITIVE volume the same
-declaration produces **two normal captured entries** — the fix must not fire
-where there is nothing wrong; (b) a vault with no case collision is byte-identical
-in its manifest before and after this change; (c) the probe itself must be shown
-to return BOTH answers — run it against a case-sensitive path and a
-case-insensitive one and assert they disagree. A probe that always says
-"case-sensitive" on Linux would make this whole work order inert and green.
-
-🔴 (c) is the important control. This work order cannot be fully proved on this
-box, and **that must be stated in the report rather than papered over.** Build
-the probe and the refusal here, prove the case-sensitive half here, and hand the
-case-insensitive half to the laptop as a W-series item with a named gate.
+⚑ **Cross-platform note worth keeping**: the same declaration yields 3 files /
+3 captured / 0 absent on Linux and 2 / 2 / 1 on NTFS. Honest on both, and
+invisible to every gate on both.
 
 ## WO-F7 — two portability landmines, both mine
 
