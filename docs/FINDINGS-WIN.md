@@ -916,6 +916,109 @@ habit, my "nothing writes the `witnesses` table", and this. In each, **the local
 view was complete, internally consistent, and not the one that mattered.** The
 operational rule that falls out: read `git ls-remote`, not `git log`.
 
+---
+
+# W1-D — a real generation, on real hardware
+
+_The thing this rig exists for and the build box structurally cannot do: a real
+ComfyUI, real torch, a real model actually loaded and actually run, on a machine
+with a framebuffer and no GPU._
+
+**`scenarios/comfy-generate.json` on Windows: 19 of 27 assertions pass, and the
+whole provenance claim is among them.**
+
+| passing | what it establishes |
+|---|---|
+| `generation-went-through-the-gate` | the gate was in the path, not bypassed |
+| `artifact-on-disk`, `artifact-rehashes`, `artifact-is-a-png` | the bytes exist and re-hash from disk |
+| `artifact-has-a-leaf` | the output is witnessed |
+| `leaf-carries-a-fingerprints-hash` | the leaf carries model fingerprints |
+| `fingerprints-hash-matches-its-manifest` | the digest is recomputable |
+| `fingerprint-is-of-the-bytes` | ⚑ the fingerprint is of the **model file's bytes**, not its name |
+| `fingerprint-key-is-the-workflow's-name`, `fingerprint-header-is-the-architecture` | the manifest keys and the safetensors header agree |
+
+Environment: ComfyUI at `main.py`, Python 3.11.9, **torch 2.14.0+cpu**,
+`cuda=False`, 4 threads, Electron 38.8.6. The model is the D4 fixture — a genuine
+1,700-parameter RealESRGAN Compact that ComfyUI loads and runs, so the output PNG
+really is the product of those weights.
+
+**Six of the eight failures are W1-6 behaving exactly as designed** — the port
+ledger assertions (`one-listener-on-the-gate-port`,
+`upstream-is-loopback-only`, …) all read `actual: null`. Before this branch they
+would have read `0` and `false` and failed *as though measured*. They now fail as
+**not measured**, which is the distinction the change exists to draw. Closing them
+needs `GetExtendedTcpTable`, which WO-W1 puts out of scope.
+
+The other two are new, and they are the real find.
+
+## W1-D1 — 🔴 the capture gate's graceful shutdown never happens on Windows, and the code says exactly what that costs
+
+`app/ipc-comfy.js` stops the gate like this:
+
+```js
+// SIGTERM, not SIGKILL: the gate's handler drains the queue and writes the
+// result file. Killing it would lose every enrichment record and any
+// event store-and-forward was still holding.
+if (gate && gate.exitCode === null) gate.kill('SIGTERM');
+```
+
+**Windows has no POSIX signals.** Node maps `child.kill('SIGTERM')` to
+`TerminateProcess`, which is unconditional — the handler never runs. So on this
+platform the code takes precisely the outcome its own comment was written to
+avoid.
+
+Observed in the run: `outcome: "gate-wrote-no-result"`, `gateResult: null`, and
+the two assertions that read it fail with *`no "modelStoreReport"`* and
+*`no "queueDepth"`*.
+
+**Measured, with a control** — `scripts/win/sigterm-probe.mjs`:
+
+| child | signal | exit | result file |
+|---|---|---|---|
+| control, no signal | — | 0 | **WRITTEN** ("normal exit") |
+| the real case | `SIGTERM` | `signal:SIGTERM` | **NOT WRITTEN** |
+| for contrast | `SIGKILL` | `signal:SIGKILL` | **NOT WRITTEN** |
+
+The control writing proves the child and its write path work, so the missing
+file is attributable to the handler not running and to nothing else. `SIGTERM`
+and `SIGKILL` are indistinguishable here.
+
+⚑ **Why this is worse than two failed assertions.** What is lost is not just the
+report the gate would have printed. By the comment's own account it is *"every
+enrichment record and any event store-and-forward was still holding"* — records
+that belong on leaves. A Windows desktop that generates, then stops the session,
+silently drops whatever the gate had not yet flushed, and the run still reports a
+witnessed artifact for the parts that made it. **Nothing announces the loss.**
+
+This is the same family as WO-F2 (`WitnessWorker.stop()` dropping queued
+captures) and strictly worse: F2 was a drain that dropped work, this is a drain
+that is never invoked.
+
+**Not fixed here** — the fix is a shutdown protocol that does not rely on POSIX
+signals (an IPC "drain and exit" message, a sentinel file the gate polls, or
+`GenerateConsoleCtrlEvent` on Windows), and choosing between those is a design
+decision for the gate's owner, not a Windows patch.
+
+## W1-D2 — the driver hard-coded `python3`, which is a Store stub on Windows
+
+`scripts/desktop-run.mjs` called `execFileSync('python3', …)` in three places.
+Windows ships `python.exe` and `py.exe`; the name `python3` resolves **only** to
+the Microsoft Store's App Execution Alias, whose entire behaviour is to print
+*"Python was not found; run without arguments to install from the Microsoft
+Store"* and exit **9009**.
+
+So it does not fail with `ENOENT`. It fails with a message about the Store, which
+sends the reader looking for a missing installation rather than for a wrong
+interpreter name — on a machine where Python 3.11.9 was already installed and
+working.
+
+Fixed with `pythonBin()`, which tries `SCRUPLE_PYTHON`, then
+`SCRUPLE_COMFY_PYTHON`, then the platform's names, and accepts a candidate only
+if it actually prints a version (the Store stub never does). ⚑ The ComfyUI
+interpreter is preferred deliberately: a run that launches ComfyUI with one
+interpreter and builds its model fixture with another is measuring two
+environments and reporting one.
+
 **Related, and the mechanism behind it —** `existsSync()` resolves **4 of 4**
 case variants of a file written once: `Weights.bin`, `weights.bin`,
 `WEIGHTS.BIN`, `WeIgHtS.bIn` all resolve. A declaration naming `weights.bin` is

@@ -99,6 +99,44 @@ function sqliteUri(db, params = 'mode=ro') {
   return `file://${pathPart.startsWith('/') ? '' : '/'}${pathPart}?${params}`;
 }
 
+/**
+ * A Python interpreter that exists on this platform.
+ *
+ * ⚑ `python3` is not a thing on Windows. The official installer ships
+ * `python.exe` and `py.exe`; the name `python3` resolves only to the Microsoft
+ * Store's App Execution Alias, a stub whose entire behaviour is to print
+ * "Python was not found; run without arguments to install from the Microsoft
+ * Store" and exit 9009. So a hard-coded `python3` does not fail with ENOENT —
+ * it fails with a message about the Store, which sends the reader looking for a
+ * missing install rather than for a wrong interpreter name.
+ *
+ * Order: what the caller configured, then the POSIX name, then the Windows
+ * names. `SCRUPLE_COMFY_PYTHON` is first because a run that launches ComfyUI
+ * with one interpreter and builds its model fixture with another is measuring
+ * two environments and reporting one.
+ */
+let _python = null;
+function pythonBin() {
+  if (_python) return _python;
+  const candidates = [
+    process.env.SCRUPLE_PYTHON,
+    process.env.SCRUPLE_COMFY_PYTHON,
+    ...(process.platform === 'win32' ? ['python.exe', 'py.exe'] : ['python3', 'python']),
+  ].filter(Boolean);
+
+  for (const bin of candidates) {
+    try {
+      const out = execFileSync(bin, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      // The Store stub exits non-zero, but belt and braces: it never prints a version.
+      if (/^Python \d+\.\d+/.test(out.trim())) { _python = bin; return _python; }
+    } catch { /* try the next one */ }
+  }
+  throw new Error(
+    `no working Python found. Tried: ${candidates.join(', ')}. ` +
+    'Set SCRUPLE_PYTHON to an interpreter that answers --version.'
+  );
+}
+
 /** The electron binary, from the package itself — never node_modules/.bin. */
 function electronBinary() {
   // The `electron` package's main export IS the absolute path to the
@@ -1608,7 +1646,7 @@ print(json.dumps({
 }))
 `;
   try {
-    const out = execFileSync('python3', ['-c', py, path_, mime || 'image/png'], { encoding: 'utf8' });
+    const out = execFileSync(pythonBin(), ['-c', py, path_, mime || 'image/png'], { encoding: 'utf8' });
     return JSON.parse(out.trim().split('\n').pop());
   } catch (err) {
     return { error: String((err.stderr || err.message || err)).slice(0, 400) };
@@ -1627,7 +1665,7 @@ print(json.dumps({
  * dict, and the generation that produces the leaf is a real one.
  */
 function makeModelFile(destPath, seed) {
-  const out = execFileSync('python3', [join(REPO, 'scripts', 'd4-make-model.py'), destPath, String(seed)], {
+  const out = execFileSync(pythonBin(), [join(REPO, 'scripts', 'd4-make-model.py'), destPath, String(seed)], {
     encoding: 'utf8',
   });
   return JSON.parse(out.trim().split('\n').pop());
@@ -2268,7 +2306,7 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
     env.SCRUPLE_COMFY_BASE = store.baseDir;
     env.SCRUPLE_COMFY_MAIN = process.env.SCRUPLE_COMFY_MAIN
       || '/data/reference/ui-inspire/ComfyUI/main.py';
-    env.SCRUPLE_COMFY_PYTHON = process.env.SCRUPLE_COMFY_PYTHON || 'python3';
+    env.SCRUPLE_COMFY_PYTHON = process.env.SCRUPLE_COMFY_PYTHON || pythonBin();
     // WO-D6. WHERE A HOST DECLARES ITSELF, from here for the reason the model
     // root is from here: a renderer that could name this directory could drop
     // its own declaration in it and have the leaf carry any meaning it liked.
