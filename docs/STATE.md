@@ -218,6 +218,35 @@ separately recorded and both appear in the basis string.
 **Needs: the founder.** Whether to converge the three Merkle constructions is an
 estate-level decision, not a desktop one.
 
+> **PARTLY PREPARED by WO-F4** (2026-09-10, `/data/scruple-web`). Not closed —
+> the three constructions have not converged, no call site moved, and
+> `CHECKPOINT_VECTORS_SETTLED` was not flipped, so every leaf still reads
+> `stale`. What WO-F4 did is steps 1–3 of
+> `docs/canon/MERKLE_CUTOVER_RUNBOOK.md`, **on the snapshot copy only**:
+> `locked_projects.merkle_algorithm` records what produced each stored root,
+> and a verifier dispatches on it and **defaults to REFUSE**.
+>
+> Why it matters to the founder's decision: **of 31 stored roots, 15 reproduce
+> and none of them reproduces under RFC 6962** — and two of the 15 are anchored
+> on Arweave and Ravencoin, where a commitment cannot be withdrawn. Without the
+> column, converging the constructions leaves those two public anchors
+> committing to a value no code in the estate can produce. With it, all 15 keep
+> verifying and the other 16 say why they cannot, instead of being
+> indistinguishable from the ones that do. The column is the step that makes
+> the founder's decision lossless, and it is cheap only before the code moves.
+>
+> 🔴 It is on the COPY, not on production, and it is **not** in `server.js`:
+> the repo copy of that file is byte-identical to the deployed one and
+> `merkle-conformance` executes it as the deployed algorithm on that strength,
+> so the one-line call has to ride with step 4's deploy. Until then a new lock
+> is written with `merkle_algorithm = NULL` and is refused. `docs/WO-F4.md` —
+> 93 checks, including findings **F4-1** (the runbook's own label vocabulary
+> never names the leaf column, and 9 of its labels over-claim a construction a
+> one-leaf tree cannot distinguish), **F4-2** (§1 lists 13 project ids for a
+> count of 12, and the extra one reproduces) and **F4-3** (a `cp` of a WAL
+> snapshot loses the backfill and reads as "the migration ran and the backfill
+> did not").
+
 ### 4.3 ⚑ FOUND HERE: the C2PA signer will embed a certificate for a key that did not sign
 
 With `SCRUPLE_C2PA_VAULT_KEY_OCID` + `SCRUPLE_C2PA_KMS_ENDPOINT` set, the signer
