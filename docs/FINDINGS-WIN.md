@@ -455,6 +455,74 @@ Not changed here: the bind address is the server's decision and altering it is
 outside WO-W1. Recorded so that whoever runs this rig outside a trusted network
 knows to bind loopback or firewall the port first.
 
+**Confirmed on Linux by the build box**, and it is sharper there because both
+services are visible at once:
+
+```
+0.0.0.0:5899   LISTEN   <- the witness, sealing with the FORGEABLE dev secret
+127.0.0.1:8799 LISTEN   <- the CVM surrogate, correctly loopback
+```
+
+The surrogate gets this right and the witness does not, on the same box in the
+same sandbox — so it is an inconsistency inside one design, not a house style.
+
+**Measured mitigation on this rig**, because "exposed" and "reachable" are
+different facts and the difference should not be assumed either way:
+
+| | measured |
+|---|---|
+| socket bind | `0.0.0.0:5899`, confirmed via `Get-NetTCPConnection` |
+| firewall profiles | Domain / Private / Public all **enabled** |
+| default inbound action | `NotConfigured` → Windows default is **block** |
+| explicit rules for `node.exe` | two **Block** inbound rules, enabled, Public profile |
+
+So the port is bound on all interfaces and inbound is blocked at the host. That
+is defence in depth, not a fix: it is one "allow" dialog, one profile change, or
+one differently-configured machine away from being untrue, and the process would
+not notice. The bind is still the thing to correct.
+
+⚑ The build box's proposed fix is better than a `BIND` variable defaulting to
+loopback, and worth recording here because the reasoning generalises: a variable
+can be set wrongly. Instead, **when `SCRUPLE_WITNESS_ALLOW_DEV_SECRET` is set the
+server should refuse to bind anything but loopback**, whatever else it is told —
+so the forgeable mode cannot be exposed rather than merely defaulting to
+unexposed, and an operator who wants a dev witness on a LAN has to stop asking
+for the forgeable secret first. That is the right order for those two decisions.
+
+## W1-17 — the host-fact diff, both halves, and one thing neither platform can see alone
+
+The build box ran `win/w1` @89c1021 on Linux. `ping.json` passes **12/12 there
+too**, so the WO-W1 gate now has both halves for that scenario, and
+`check-vendor-link.mjs` runs clean on their clone (61 files, 27 references, 0
+unresolved — 61 rather than my 56, which is their tree having files mine does not).
+
+| reading | Linux | Windows |
+|---|---|---|
+| `ports.js` `state` | `measured` | `unavailable` |
+| `/proc/net/tcp`, `/proc/net/tcp6` | both `measured` | both `unavailable`, code `procfs_absent` |
+| `namespace.ts` `state` | `measured` | `unavailable` |
+| launcher | `xvfb-run` wrapper | direct, `launch.json` records why |
+
+**Same key structure on both sides.** The build box confirms nothing was dropped
+and no measured value moved — the additive `state`/`reasonCode`/`reason` fields
+appear on the measured path too. That is what makes this a diff rather than a
+reformat: the difference is in the *values*, at keys that exist identically on
+both platforms.
+
+⚑ **And the Linux run surfaced something my change makes visible for the first
+time.** `portLedger()` called outside the gate's own process returns
+`listeners: []` on Linux — an empty ledger — on a box where those ports are
+demonstrably listening (read out of `ss` in the same minute). Almost certainly
+the inode→pid mapping needing to own the sockets, not a defect in this change.
+
+The reason it matters here: **before this change, an empty Linux ledger and an
+unavailable Windows ledger were the same object** — `count: 0`,
+`allLoopback: false`, both. They are now `state: 'measured', count: 0` versus
+`state: 'unavailable', count: null`, and a reader can tell "looked, found none"
+from "could not look." That distinction is this project's oldest rule and it
+arrived, unprompted, inside WO-W1's own scope table. Neither of us could have
+seen it from one platform.
+
 ## W1-16 — the full W1-A gate result
 
 Both scenarios named by WO-W1, **unmodified**, on Windows:
