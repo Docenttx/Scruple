@@ -358,7 +358,56 @@ needs it too. I diagnosed this wrongly twice first — blaming background-proces
 stdin EOF — before reading the server's own stderr, which says exactly what is
 wrong and offers the escape hatch.
 
-## W1-13 — `vault-capture` cannot fully pass on any machine that only has these three repos
+## W1-13 — ~~`vault-capture` cannot fully pass~~ **WITHDRAWN — I was wrong, and the way I was wrong is the finding**
+
+🔴 **This entry originally concluded that `vault-capture` was not self-hosting and
+could not pass on this rig. That was false.** The witness server IS in the repo,
+IS self-hostable, and `vault-capture` now passes **25 of 25 on Windows,
+unmodified**, with its full audit sweep green (7 mutations, each reddening
+exactly what it targets).
+
+**The recipe**, which nothing in the reading order mentions:
+
+```
+cd services/witness-server && npm install
+PORT=5899 DB_PATH=<scratch>.db SCRUPLE_WITNESS_ALLOW_DEV_SECRET=1 node server.js
+# then point the Next server at it:  WITNESS_SERVER_URL=http://127.0.0.1:5899
+```
+
+It creates its own schema (`CREATE TABLE IF NOT EXISTS witnesses`, server.js:111),
+needs no Stripe key and no Arweave key at startup, and warns loudly that it is
+sealing with a forgeable dev secret — which is correct for a rig.
+
+**Why I got it wrong, since that is the reusable part:**
+
+1. **I searched for the wrong variable.** `SCRUPLE_WITNESS_DB` is read by the
+   desktop driver and the gates; the witness server writes the file it is given
+   in **`DB_PATH`**. Grepping the former across all three trees returns only
+   readers, which looks exactly like "nothing writes this."
+2. **I read a deployment note as a prohibition.** `server.js`'s header says it is
+   "Deployed at /opt/scruple-witness/server.js on Oracle VM… port 5799", and
+   `WORK-ORDERS.md` forbids touching that path. I concluded the file *was*
+   production rather than the *source of* production. The build box confirms the
+   repo copy is byte-identical to the deployed one — which makes it runnable
+   here, not untouchable.
+3. **`npm install` inside that directory is a step nobody names.** `arweave` is
+   not in `scruple-web`'s root `node_modules`, so the module resolution failure
+   I would have hit reads as "this is not meant to run from here."
+
+⚑ **The general lesson, and it is the same shape as W1-B4 and W1-9:** "I could
+not find the thing that writes X" is a statement about my search, not about the
+repository, and it is worth one more attempt at falsification before it becomes a
+finding. Filing a *cannot* is a strong claim and needs the same evidentiary
+standard as filing a defect. The correct move — asking the build box how they
+stand up their scratch witness — took one message and resolved it immediately.
+
+**A genuine finding does survive from this**, see W1-15 below.
+
+---
+
+### Original entry, retained because the reasoning is what went wrong
+
+## ~~W1-13 (superseded)~~ — `vault-capture` cannot fully pass on any machine that only has these three repos
 
 **20 of 25 assertions pass on Windows**, including `outcome-vaulted`,
 `manifest-exists`, `manifest-rehashes`, all three refusals (`undeclared-refused`,
@@ -381,6 +430,51 @@ forbids touching. It also wants Stripe, Arweave and IPFS. Standing up a copy was
 Windows defect would be false; narrowing the scenario to the 20 assertions that
 do pass would be exactly the "narrow the WO to whatever succeeded" the rails
 forbid. What is needed is the scratch witness's provenance, from the build box.
+
+_(End of superseded entry. The last sentence was right and is how it was
+resolved — asking cost one message. The conclusion above it was wrong.)_
+
+## W1-15 — the witness server binds `0.0.0.0`, on a laptop that travels
+
+`services/witness-server/server.js:1564` — `server.listen(PORT, '0.0.0.0')`.
+
+Not loopback. Every network the laptop joins can reach the sandbox witness, and
+that witness is running with `SCRUPLE_WITNESS_ALLOW_DEV_SECRET=1`, meaning **every
+leaf it seals is forgeable by anyone who can reach it.** On the build box —
+a fixed Linux host behind whatever its firewall is — this is a much smaller fact
+than it is on a travel laptop on hotel and café networks.
+
+⚑ There is an irony worth stating plainly: `app/comfy/ports.js` exists to detect
+exactly this shape. Its own header says an upstream on `0.0.0.0` "is a ComfyUI
+anything on the network can reach directly, and every byte taken that way leaves
+through no gate and gets no leaf." The port ledger would flag this — and on
+Windows the port ledger is `unavailable` (W1-6), so **the one measurement that
+would have caught it is the one this platform cannot take.**
+
+Not changed here: the bind address is the server's decision and altering it is
+outside WO-W1. Recorded so that whoever runs this rig outside a trusted network
+knows to bind loopback or firewall the port first.
+
+## W1-16 — the full W1-A gate result
+
+Both scenarios named by WO-W1, **unmodified**, on Windows:
+
+| scenario | assertions | audit sweep |
+|---|---|---|
+| `scenarios/ping.json` | **12/12 PASS** | **3 mutations, each reddening exactly what it targets** |
+| `scenarios/vault-capture.json` | **25/25 PASS** | **7 mutations, each reddening exactly what it targets** |
+
+`fake-bridge` reddens 2 on ping and 14 on vault-capture; `no-bridge` 7 and 18;
+`vault-file-swap` exactly 1 (`accepted-png-in-witness`); `manifest-tamper`
+exactly 2. No mutation over- or under-reddened, which is the property `--audit`
+exists to check and the one that would have caught a Windows-specific weakening
+of an assertion.
+
+⚑ **What this does NOT establish.** The WO's gate is that the same scenario passes
+on Windows *and* on Linux with the host facts differing exactly where the table
+predicts. **The Linux half has not been run against this branch**, and cannot be
+from here — the host-fact diff needs a Linux run of `win/w1`'s code. Until the
+build box does that, this is "passes on Windows" and not "the gate passed."
 
 ## W1-14 — `app-legacy` hard-defaults the witness URL to a remote host
 
