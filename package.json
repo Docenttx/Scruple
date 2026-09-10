@@ -36,7 +36,8 @@
     "g1": "bash scripts/g1-gate.sh",
     "g1:scenario": "node scripts/desktop-run.mjs g1-shell",
     "g2": "bash scripts/g2-gate.sh",
-    "g4": "bash scripts/g4-gate.sh"
+    "g4": "bash scripts/g4-gate.sh",
+    "g5": "bash scripts/g5-gate.sh"
   },
   "devDependencies": {
     "electron": "^38.0.0"
