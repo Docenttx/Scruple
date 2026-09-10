@@ -228,3 +228,45 @@ copy and document the recipe — the current form teaches that the witness lives
 a path you must not touch, rather than in the repo you already have. ⚑ `arweave`
 is the dep missing from scruple-web's root `node_modules`, which is why a search
 for a self-hostable witness comes up empty.
+
+## WO-F8 — the forgeable witness must not be reachable off-host
+
+The laptop's W1-15. `services/witness-server/server.js:1564` is
+`server.listen(PORT, '0.0.0.0')` — **hardcoded, not configurable**. Confirmed on
+this box: the sandbox witness on 5899 is bound to `0.0.0.0` and reachable on the
+LAN, while the CVM surrogate on 8799 correctly binds `127.0.0.1`.
+
+🔴 **That witness is sealing with the DEV SECRET, which its own banner says makes
+every leaf it seals forgeable.** On a fixed build box behind a firewall that is a
+small fact. On a travel laptop joining café wifi it is not: anyone on the network
+can reach a service that mints forgeable provenance.
+
+### The fix, and why this shape
+
+Do **not** just add a `BIND` variable and default it to loopback — a variable can
+be set wrongly. Bind the two facts together:
+
+> **When `SCRUPLE_WITNESS_ALLOW_DEV_SECRET` is set, the server MUST refuse to
+> bind anything but a loopback address**, whatever `BIND`/`HOST` says, and say so
+> on startup. Production, which does not set that flag, keeps its current
+> behaviour unchanged.
+
+The forgeable mode then *cannot* be exposed, rather than merely defaulting to
+not being. An operator who wants a dev witness on a LAN has to stop asking for
+the forgeable secret first, which is the correct order of those two decisions.
+
+**Gate:** with the dev secret set, the process binds loopback only — asserted by
+reading `ss -lptn`, not by trusting a log line — and an explicit request for
+`0.0.0.0` is **refused with a message naming the reason**. **Controls:** (a)
+without the dev secret, the bind is unchanged and production behaviour does not
+move; (b) a connection from a non-loopback address to a dev-secret witness is
+**refused at the socket**, demonstrated, not merely assumed from the bind string;
+(c) the existing sandbox gates still pass with the witness on loopback — if any
+gate depended on off-host reachability, that is a finding.
+
+⚑ **And note the irony the laptop pointed out**, which belongs in the report:
+`app/comfy/ports.js` exists precisely to detect "an upstream on 0.0.0.0 is
+reachable without passing the gate" — and on Windows the port ledger is
+`unavailable` (its W1-6), so **the one measurement that would have flagged this
+is the one that platform cannot take.** That is the argument for the
+`GetExtendedTcpTable` work, and it should be recorded as such.
