@@ -29,10 +29,29 @@ const say = (s) => process.stdout.write(`[vendor-link] ${s}\n`);
 let lst = null;
 try { lst = fs.lstatSync(LINK); } catch { /* genuinely absent */ }
 if (lst && lst.isSymbolicLink() && !fs.existsSync(LINK)) {
+  // Node reports isSymbolicLink() === true for a Windows JUNCTION too, so this
+  // branch is reached on both platforms — verified on Windows against an intact
+  // junction and a dangling one.
+  const target = fs.readlinkSync(LINK);
   say(`FAIL vendor/scruple-web is a link that points at nothing.`);
-  say(`       target: ${fs.readlinkSync(LINK)}`);
-  say(`       Relative targets climb TWO levels (out of vendor/, then out of the`);
-  say(`       repo) and assume the server clone is a SIBLING directory.`);
+  say(`       target: ${target}`);
+  if (process.platform === 'win32' || path.isAbsolute(target)) {
+    // ⚑ A JUNCTION STORES AN ABSOLUTE TARGET. `mklink /J x ..\..\y` takes a
+    // relative argument and writes the resolved absolute path to disk, so the
+    // tree is NOT relocatable: rename the parent directory and every junction
+    // in it dangles silently. This branch is the only thing that makes that a
+    // diagnosable failure rather than a mystery.
+    say(`       This target is ABSOLUTE. On Windows a junction always stores one,`);
+    say(`       whatever you passed to mklink — so moving or renaming the tree`);
+    say(`       breaks it. Recreate the junction after any move:`);
+    say(`         cmd /c rmdir vendor\\scruple-web      (unlinks; does NOT touch the target)`);
+    say(`         cd vendor && mklink /J scruple-web ..\\..\\scruple-web`);
+    say(`       🔴 NEVER Remove-Item -Recurse on it — that deletes THROUGH the`);
+    say(`       link and destroys the server clone's contents.`);
+  } else {
+    say(`       Relative targets climb TWO levels (out of vendor/, then out of the`);
+    say(`       repo) and assume the server clone is a SIBLING directory.`);
+  }
   process.exit(2);
 }
 if (!fs.existsSync(LINK)) {

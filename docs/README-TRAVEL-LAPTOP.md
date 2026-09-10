@@ -83,6 +83,31 @@ run the checker, which counts for itself and fails four different ways:
 
     node scripts/check-vendor-link.mjs
 
+### 🔴 Windows: the junction, and the one command that must never touch it
+
+Measured on the laptop, not assumed here:
+
+- **A junction stores an ABSOLUTE target.** `mklink /J scruple-web ..\..\scruple-web`
+  takes a relative argument and writes the resolved path — `C:\SCRUPLEWORK\scruple-web`
+  — to disk. So **the tree is not relocatable**: rename the parent and every
+  junction in it dangles silently. Recreate the junction after any move. The Linux
+  relative symlink survives a move; this does not.
+- **To remove it, use `cmd /c rmdir vendor\scruple-web`.** That unlinks the reparse
+  point and leaves the target alone (verified: 1654 files in `scruple-web` before
+  and after).
+- 🔴 **NEVER `Remove-Item -Recurse` on it.** That deletes **through** the link and
+  destroys the contents of the server clone.
+
+That comes up in ordinary work, not just teardown: a pull that deletes the
+tracked symlink refuses with *"Updating the following directories would lose
+untracked files in them: vendor/scruple-web"* while the junction sits there.
+`rmdir` it, fast-forward, recreate it. Reaching for `Remove-Item -Recurse` at
+that moment is the destructive path, and it is the obvious reflex.
+
+`node scripts/check-vendor-link.mjs` reports the absolute-target case with these
+instructions, so a dangling junction diagnoses itself rather than presenting as
+a pile of missing imports.
+
 It is not one file that goes through the link: `app/vault/sdk.ts` **and**
 `app/comfy/sdk.ts` both do (siblings since WO-D4), plus nine gate scripts,
 `scripts/tsx.sh` and `scripts/e6-workflow-hash.ts`.
