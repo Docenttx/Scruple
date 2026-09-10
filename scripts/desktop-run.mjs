@@ -71,6 +71,34 @@ const { interpolate } = require_(join(REPO, 'app', 'interpolate.js'));
  * same unmodified spec runs on both platforms.
  * ------------------------------------------------------------------------ */
 
+/**
+ * A SQLite URI that is actually a URI on both platforms.
+ *
+ * 🔴 The previous form — "file:" + the raw path + "?mode=ro" — is not merely
+ * wrong on Windows, it is SILENTLY wrong, and it fails in the direction that
+ * manufactures provenance defects. Measured here on Windows 11, sqlite 3.53.4:
+ *
+ *   - SQLite does not treat `C:\...` as an absolute path after `file:`, so the
+ *     real database is never opened;
+ *   - `?mode=ro` is never parsed as a query parameter — a file literally named
+ *     `=ro` is CREATED in the current working directory;
+ *   - because mode=ro was never applied, the open SUCCEEDS against that empty
+ *     new database;
+ *   - so every query returns nothing, or `no such table`.
+ *
+ * A witness lookup for a leaf that WAS written therefore comes back "not
+ * found" — which reads as a provenance failure rather than as a path bug. Nine
+ * gate scripts build the same string in bash and have the same exposure.
+ *
+ * The correct form opens the real database AND enforces read-only (verified: a
+ * CREATE TABLE against it fails with "attempt to write a readonly database").
+ * On POSIX it yields file:///abs/path?mode=ro, unchanged in behaviour.
+ */
+function sqliteUri(db, params = 'mode=ro') {
+  const pathPart = resolve(db).replace(/\\/g, '/');
+  return `file://${pathPart.startsWith('/') ? '' : '/'}${pathPart}?${params}`;
+}
+
 /** The electron binary, from the package itself — never node_modules/.bin. */
 function electronBinary() {
   // The `electron` package's main export IS the absolute path to the
@@ -1400,7 +1428,7 @@ function witnessRows(contentHash) {
     || '/mnt/corpus/scruple-council-impl/witness-scratch.db';
   const sql = `SELECT id || '|' || leaf_hash FROM witnesses WHERE content_hash = '${contentHash}';`;
   try {
-    const out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', sql], { encoding: 'utf8' });
+    const out = execFileSync('sqlite3', [sqliteUri(db), '-batch', sql], { encoding: 'utf8' });
     return out.split('\n').map((l) => l.trim()).filter(Boolean);
   } catch (err) {
     // A query that could not run is NOT an absent row. Returning [] here would
@@ -1431,7 +1459,7 @@ function iterationRow(contentHash, fields) {
     `WHERE output_hash = '${contentHash}' ORDER BY rowid DESC LIMIT 1;`;
   let out;
   try {
-    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', '-json', sql], { encoding: 'utf8' });
+    out = execFileSync('sqlite3', [sqliteUri(db), '-batch', '-json', sql], { encoding: 'utf8' });
   } catch (err) {
     throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
   }
@@ -1477,7 +1505,7 @@ function iterationRowsAll(contentHash, fields) {
     `WHERE output_hash = '${contentHash}' ORDER BY id ASC;`;
   let out;
   try {
-    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', '-json', sql], { encoding: 'utf8' });
+    out = execFileSync('sqlite3', [sqliteUri(db), '-batch', '-json', sql], { encoding: 'utf8' });
   } catch (err) {
     throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
   }
@@ -1496,7 +1524,7 @@ function iterationIdsWithWorkflowHash(workflowHash) {
   const sql = `SELECT id FROM iterations WHERE workflow_hash = '${workflowHash}' ORDER BY id ASC;`;
   let out;
   try {
-    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', sql], { encoding: 'utf8' });
+    out = execFileSync('sqlite3', [sqliteUri(db), '-batch', sql], { encoding: 'utf8' });
   } catch (err) {
     throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
   }
@@ -1513,7 +1541,7 @@ function countIterationsLike(column, needle) {
   const sql = `SELECT COUNT(*) FROM iterations WHERE "${column}" LIKE '%${needle}%';`;
   let out;
   try {
-    out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch', sql], { encoding: 'utf8' });
+    out = execFileSync('sqlite3', [sqliteUri(db), '-batch', sql], { encoding: 'utf8' });
   } catch (err) {
     throw new Error(`iterations query failed against ${db}: ${String(err.message || err)}`);
   }
@@ -1525,7 +1553,7 @@ function countIterationsLike(column, needle) {
 function iterationsWatermark() {
   const db = process.env.SCRUPLE_DB_PATH || '/mnt/corpus/scruple-council-impl/scruple-scratch.db';
   try {
-    const out = execFileSync('sqlite3', [`file:${db}?mode=ro`, '-batch',
+    const out = execFileSync('sqlite3', [sqliteUri(db), '-batch',
       'SELECT COALESCE(MAX(id), 0) FROM iterations;'], { encoding: 'utf8' });
     return Number(out.trim());
   } catch (err) {

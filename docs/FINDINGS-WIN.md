@@ -268,3 +268,138 @@ So: `better-sqlite3` version-attributable ✓, platform-attributable only in the
 weaker sense that a missing prebuild costs a C++ toolchain on Windows where Linux
 usually already has `gcc`. A Windows user on Node 20 hits nothing here.
 
+⚑ The same ABI wall appears a second way: a prebuild fetched for Node 20 is
+`NODE_MODULE_VERSION 115` and **cannot be loaded by Node 24** (`137`). Since the
+vault sidecar reaches the SDK through `vendor/scruple-web/node_modules`, the
+whole SDK path is unusable under Node 24 unless `better-sqlite3` is rebuilt for
+it. The driver was run under Node 20 for that reason, and this is recorded rather
+than papered over because it means **this rig cannot currently exercise the SDK
+path on the Node version a Windows user would actually install today.**
+
+## W1-10 — 🔴 `file:$DB?mode=ro` silently opens the WRONG database on Windows, and reads as a provenance failure
+
+The most dangerous finding of the night, because it fails green-adjacent: not
+with an error, but with an empty answer that looks like missing provenance.
+
+`scripts/desktop-run.mjs` and nine gate scripts build a SQLite URI by
+concatenation — `file:` + the path + `?mode=ro`. Measured on Windows 11 with
+sqlite 3.53.4, against a database that exists and has rows:
+
+```
+$ sqlite3 "file:C:\SCRUPLEWORK\.scratch\scruple-scratch.db?mode=ro" \
+    -batch "SELECT COUNT(*) FROM iterations;"
+Parse error: no such table: iterations
+$ ls
+=ro          <-- a file named `=ro`, 0 bytes, created in the CWD
+```
+
+Three things went wrong and each makes the next worse:
+
+1. SQLite does not treat `C:\...` as absolute after `file:`, so the real database
+   is **never opened**;
+2. `?mode=ro` is **never parsed as a query parameter** — a file literally named
+   `=ro` is created in the working directory;
+3. because `mode=ro` was never applied, the open **succeeds** against that new
+   empty database, so there is no error to notice.
+
+Every query then returns nothing or `no such table`. **A witness lookup for a
+leaf that was genuinely written comes back "not found."** In a codebase whose
+entire claim is that leaves can be found and re-hashed, a path bug is
+indistinguishable from the provenance failure it imitates.
+
+Forward slashes alone do **not** fix it; the URI needs the `file:///` form.
+Verified correct: `file:///C:/SCRUPLEWORK/.scratch/scruple-scratch.db?mode=ro`
+opens the real database **and** enforces read-only — a `CREATE TABLE` against it
+fails with `attempt to write a readonly database`, which the broken form never
+did.
+
+**Fixed** in `scripts/desktop-run.mjs` via `sqliteUri()`, applied at all six call
+sites. ⚑ **The nine `.sh` gates still build the broken string in bash** and are
+untouched — they are Linux-only today, where the form happens to work, but the
+exposure is identical the moment one runs here.
+
+## W1-11 — `scripts/tsx.sh` cannot run on Windows at all, for two separate path reasons
+
+`bash scripts/tsx.sh` is how every TypeScript entry point in this repo runs,
+including the vault sidecar. Under Git Bash it failed twice, and both are MSYS
+path-translation facts worth knowing:
+
+1. **Arguments to a native binary get rewritten.** `node.exe` is a native Windows
+   program, so MSYS converts POSIX-looking argv on the way in: `/c/SCRUPLEWORK/...`
+   arrives as `C:/SCRUPLEWORK/...`. Node's ESM loader then rejects it —
+   `ERR_UNSUPPORTED_ESM_URL_SCHEME: ... Received protocol 'c:'`. `--import` needs
+   a real `file:///` URL, which is also immune to the rewriting because it does
+   not begin with `/`.
+2. **Environment variables are NOT rewritten.** `NODE_PATH` and
+   `TSX_TSCONFIG_PATH` must be converted explicitly with `cygpath -m`, or
+   `node.exe` receives POSIX paths it cannot resolve.
+
+Fixed in `tsx.sh`, guarded on `command -v cygpath` so POSIX behaviour is
+byte-identical.
+
+Related, smaller: **`bash` is required but not on PATH.** Git for Windows ships
+it at `C:\Program Files\Git\bin\bash.exe` and does not add that directory to
+PATH (only `Git\cmd`). Nine gate scripts and `tsx.sh` need it.
+
+## W1-12 — the sandbox recipe has an undocumented step that kills the server mid-run
+
+Not Windows-specific, but it cost an hour and the symptom actively misleads.
+
+The Next server **exits deliberately** the first time `/api/v2/components/provision`
+is hit without `SCRUPLE_BDK_HEX` or `SCRUPLE_BDK_ALLOW_DEV` set *on the server
+process*. The ratchet's refusal is correct and well argued — "a BDK invented at
+boot silently invalidates every already-provisioned component" — but the failure
+surfaces on the **client** as `provisioning failed: TypeError: fetch failed`,
+which reads as a network problem, and the server is simply gone afterwards.
+
+`d3-gate.sh` exports `SCRUPLE_BDK_ALLOW_DEV=1` for the *gate*, but the server is
+started separately and out of band; nothing in the reading order says the server
+needs it too. I diagnosed this wrongly twice first — blaming background-process
+stdin EOF — before reading the server's own stderr, which says exactly what is
+wrong and offers the escape hatch.
+
+## W1-13 — `vault-capture` cannot fully pass on any machine that only has these three repos
+
+**20 of 25 assertions pass on Windows**, including `outcome-vaulted`,
+`manifest-exists`, `manifest-rehashes`, all three refusals (`undeclared-refused`,
+`declared-absent-refused`, `oversize-refused`), `two-captured`, `five-files-seen`
+and `queue-drained`. The vault surface itself works on Windows.
+
+The 5 that fail are all the same assertion shape — `*-in-witness` — and all fail
+for one reason: **`SCRUPLE_WITNESS_DB` is only ever READ.** Nothing in
+`scruple-desktop`, `scruple-web` or the addon tree writes a `witnesses` table.
+The build box has a scratch witness service at `/mnt/corpus/...`; it is not in
+any of the three repos, so the scenario is **not self-hosting**.
+
+The only `witnesses`-schema server in the tree is
+`services/witness-server/server.js`, whose own header says it is deployed at
+`/opt/scruple-witness` on the Oracle VM, port 5799 — the host `WORK-ORDERS.md`
+forbids touching. It also wants Stripe, Arweave and IPFS. Standing up a copy was
+**not** attempted.
+
+🔴 **This is a gate that cannot pass, not a gate that failed.** Reporting it as a
+Windows defect would be false; narrowing the scenario to the 20 assertions that
+do pass would be exactly the "narrow the WO to whatever succeeded" the rails
+forbid. What is needed is the scratch witness's provenance, from the build box.
+
+## W1-14 — `app-legacy` hard-defaults the witness URL to a remote host
+
+`app-legacy/server/witness-client.js`, `app-legacy/server/tsd-client.js` and
+`app-legacy/lock/lock-executor-fiat.js` each carry:
+
+```js
+const WITNESS_SERVER_URL = process.env.SCRUPLE_WITNESS_URL || 'http://129.80.23.93:5799';
+```
+
+A bare IP as the fallback, so any code path reaching these without
+`SCRUPLE_WITNESS_URL` set makes an outbound connection to a remote host. The
+current `app/` tree is clean — it has no hard-coded remote endpoint and resolves
+everything from `SCRUPLE_APP_URL` — and `app-legacy` is the replaced
+implementation, which is why this is a note rather than an alarm. It is recorded
+because `scripts/d3-legacy-contrast.mjs` deliberately *runs* legacy code as
+stage 2's RED control, and because the README's rule is "if you cannot tell
+whether an endpoint is production, treat it as production."
+
+Nothing here contacted it.
+
+
