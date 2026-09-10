@@ -41,6 +41,116 @@ const fs = require('fs');
 
 const LISTEN = '0A';
 
+/* ------------------------------------------------------------------------ *
+ * WO-W1: the reading has to survive a platform with no /proc, and it has to
+ * survive it HONESTLY.
+ *
+ * ⚑ Before this, every read here was wrapped in `catch { return [] }`. On
+ * Windows that produced a ledger reading `count: 0`, `allOwnedByExpected:
+ * false`, `allLoopback: false` — which is not a degraded measurement, it is a
+ * FALSE ONE. `count: 0` asserts that nobody is listening on the gate port. The
+ * truth is that nobody looked. `allLoopback: false` is worse still: it is the
+ * exact shape of the finding the ledger exists to raise ("an upstream on
+ * 0.0.0.0 is reachable without passing the gate"), manufactured out of a
+ * missing file.
+ *
+ * So the three WO-D5 states apply here, and they are DISTINGUISHED by why the
+ * read did not happen, not merely by that it did not:
+ *
+ *   measured     the kernel tables are there and readable; the numbers are real
+ *   refused      they exist and this process may not read them (EACCES/EPERM) —
+ *                a permissions fact about this run, fixable by changing who runs
+ *   unavailable  they are not there at all (ENOENT) — a fact about the platform,
+ *                not fixable by permissions, and no port ledger is possible
+ *
+ * Every count and every boolean that cannot be measured is **null**, never
+ * false and never absent. A reader can tell "nobody is listening" from "nobody
+ * looked" without inferring it from a zero.
+ * ------------------------------------------------------------------------ */
+
+const PROC_SOURCES = ['/proc/net/tcp', '/proc/net/tcp6'];
+
+/**
+ * Can the kernel's socket tables be read at all, and if not, precisely why.
+ *
+ * `sources` is a parameter ONLY so the control in
+ * scripts/win/host-facts-control.mjs can demonstrate all three states in one
+ * run — WO-W1 requires that `measured`, `unavailable` and `refused` be shown to
+ * be reachable and to read differently, and on a box with no /proc at all only
+ * one of the three would ever occur naturally. Production callers pass nothing.
+ */
+function sourceState(sources = PROC_SOURCES) {
+  const files = {};
+  let readable = 0;
+  let refused = 0;
+
+  for (const file of sources) {
+    try {
+      // ⚑ An actual open(), not access(R_OK). On Windows, access() reports on
+      // file ATTRIBUTES and largely ignores ACLs, so a file this process is
+      // forbidden to read still answers "readable" — which would turn a
+      // `refused` into a false `measured`. Opening it is the only answer that
+      // cannot be wrong, and it is what the caller is about to do anyway.
+      fs.closeSync(fs.openSync(file, 'r'));
+      files[file] = { state: 'measured', code: null, reason: null };
+      readable++;
+    } catch (err) {
+      const code = (err && err.code) || 'UNKNOWN';
+      if (code === 'EACCES' || code === 'EPERM') {
+        files[file] = {
+          state: 'refused',
+          code,
+          reason: `${file} exists but this process may not read it (${code})`,
+        };
+        refused++;
+      } else {
+        files[file] = {
+          state: 'unavailable',
+          code,
+          reason: `${file} is not present (${code}); platform ${process.platform} has no procfs`,
+        };
+      }
+    }
+  }
+
+  if (readable === sources.length) {
+    return { state: 'measured', code: null, reason: null, platform: process.platform, files };
+  }
+  // A partial read is not a measurement: tcp6 missing while tcp is readable
+  // would hide every IPv6 listener and the ledger would look complete.
+  if (refused > 0) {
+    return {
+      state: 'refused',
+      code: 'procfs_unreadable',
+      reason: `the kernel socket tables exist but are not readable by this process; ${refused} of ${sources.length} refused`,
+      platform: process.platform,
+      files,
+    };
+  }
+  return {
+    state: 'unavailable',
+    code: 'procfs_absent',
+    reason: `no procfs on platform ${process.platform}: the port ledger reads /proc/net/tcp, /proc/net/tcp6 and /proc/<pid>/fd, none of which exist here. A Windows equivalent would be GetExtendedTcpTable or netstat -ano; WO-W1 puts that out of scope, so this reading degrades rather than guessing.`,
+    platform: process.platform,
+    files,
+  };
+}
+
+/** The side of the ledger we could not measure. Nulls, not falses. */
+function unmeasuredSide(port, expectedPid, src) {
+  return {
+    port,
+    expectedPid,
+    state: src.state,
+    reasonCode: src.code,
+    reason: src.reason,
+    listeners: null,
+    count: null,
+    allOwnedByExpected: null,
+    allLoopback: null,
+  };
+}
+
 /** '0100007F:1F90' → { addr: '127.0.0.1', port: 8080 }. IPv4 is little-endian
  *  per 32-bit word; IPv6 is four such words. */
 function decodeAddr(hex, family) {
@@ -122,13 +232,33 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '0:0:0:0:0:0:0:1']);
  * it because these are numbers and pids rather than a verdict.
  */
 function portLedger({ gatePort, gatePid, upstreamPort, upstreamPid }) {
+  const source = sourceState();
+
+  // No tables, no ledger. Returning the same shape with nulls keeps every
+  // consumer's field lookups valid while making it impossible to read a
+  // measurement out of this object that nobody took.
+  if (source.state !== 'measured') {
+    return {
+      observedAt: new Date().toISOString(),
+      state: source.state,
+      source,
+      gate: unmeasuredSide(gatePort, gatePid, source),
+      upstream: unmeasuredSide(upstreamPort, upstreamPid, source),
+    };
+  }
+
   const gate = listenersOn([gatePort]);
   const upstream = listenersOn([upstreamPort]);
   return {
     observedAt: new Date().toISOString(),
+    state: 'measured',
+    source,
     gate: {
       port: gatePort,
       expectedPid: gatePid,
+      state: 'measured',
+      reasonCode: null,
+      reason: null,
       listeners: gate,
       count: gate.length,
       // The pid we started, holding the socket we published. A gate the app
@@ -140,6 +270,9 @@ function portLedger({ gatePort, gatePid, upstreamPort, upstreamPid }) {
     upstream: {
       port: upstreamPort,
       expectedPid: upstreamPid,
+      state: 'measured',
+      reasonCode: null,
+      reason: null,
       listeners: upstream,
       count: upstream.length,
       allOwnedByExpected: upstream.length > 0 && upstream.every((l) => l.pid === upstreamPid),
@@ -150,4 +283,4 @@ function portLedger({ gatePort, gatePid, upstreamPort, upstreamPid }) {
   };
 }
 
-module.exports = { portLedger, listenersOn, decodeAddr };
+module.exports = { portLedger, listenersOn, decodeAddr, sourceState };

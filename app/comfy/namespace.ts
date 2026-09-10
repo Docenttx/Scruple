@@ -31,21 +31,61 @@
 import fs from 'node:fs';
 
 export interface NamespaceReading {
+  /**
+   * WO-W1/WO-D5: measured · unavailable · refused. Present ALWAYS, including
+   * when measured, so a reader never infers the state from a null.
+   *
+   * ⚑ `enforcementPresent: false` is a claim: "there is no boundary between the
+   * measurer and the measured" — finding D4-1's whole substance. On a platform
+   * with no /proc that claim would be produced by the catch blocks below rather
+   * than by any reading, and D4-1 would appear to reproduce on a box where
+   * nothing was ever measured. So when the state is not `measured`,
+   * `enforcementPresent` is **null**.
+   */
+  state: 'measured' | 'unavailable' | 'refused';
+  /** Machine-readable. null when measured. */
+  reasonCode: string | null;
+  /** Human-readable. null when measured. */
+  reason: string | null;
   /** ns → inode, for this process. `null` where the kernel would not say. */
   self: Record<string, string | null>;
   parent: Record<string, string | null>;
   parentPid: number;
-  selfUid: number;
+  selfUid: number | null;
   parentUid: number | null;
-  /** The namespaces that DIFFER. Empty means no boundary at all. */
-  differing: string[];
+  /** The namespaces that DIFFER. Empty means no boundary at all; `null` when
+   *  nothing was read. */
+  differing: string[] | null;
   /**
    * FALSE when the gate shares every namespace and the uid of the process
    * that launched it. The component declares `isolated-namespace`; this says
-   * whether anything is enforcing it.
+   * whether anything is enforcing it. NULL when it could not be read at all.
    */
-  enforcementPresent: boolean;
+  enforcementPresent: boolean | null;
   note: string;
+}
+
+/** Is /proc/<pid>/ns readable here, and if not, exactly why. */
+function nsAvailability(pid: number | 'self'): { state: 'measured' | 'unavailable' | 'refused'; code: string | null; reason: string | null } {
+  const probe = `/proc/${pid}/ns/net`;
+  try {
+    fs.readlinkSync(probe);
+    return { state: 'measured', code: null, reason: null };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
+    if (code === 'EACCES' || code === 'EPERM') {
+      return {
+        state: 'refused',
+        code,
+        reason: `${probe} exists but this process may not read it (${code}); the isolation measurement needs to compare the gate's namespaces against its launcher's`,
+      };
+    }
+    return {
+      state: 'unavailable',
+      code: code === 'ENOENT' ? 'procfs_absent' : code,
+      reason: `${probe} is not present (${code}); platform ${process.platform} has no procfs, so namespace isolation cannot be measured here at all — not by this reading and not by any other`,
+    };
+  }
 }
 
 const NAMESPACES = ['net', 'pid', 'mnt', 'user', 'ipc', 'uts'] as const;
@@ -75,14 +115,42 @@ function uidOf(pid: number | 'self'): number | null {
 
 export function readNamespaceIsolation(): NamespaceReading {
   const parentPid = process.ppid;
+
+  const avail = nsAvailability('self');
+  if (avail.state !== 'measured') {
+    const empty: Record<string, string | null> = {};
+    for (const ns of NAMESPACES) empty[ns] = null;
+    return {
+      state: avail.state,
+      reasonCode: avail.code,
+      reason: avail.reason,
+      self: empty,
+      parent: empty,
+      parentPid,
+      // process.getuid does not exist on Windows. -1 would be a uid; null is
+      // the absence of one.
+      selfUid: typeof process.getuid === 'function' ? process.getuid() : null,
+      parentUid: null,
+      differing: null,
+      enforcementPresent: null,
+      note:
+        `namespace isolation was NOT measured: ${avail.reason}. ` +
+        'This is not the same as finding no isolation — D4-1 records a measured absence of a boundary, ' +
+        'and nothing here may be read as reproducing it.',
+    };
+  }
+
   const self = nsInodes('self');
   const parent = nsInodes(parentPid);
   const differing = NAMESPACES.filter((ns) => self[ns] !== null && parent[ns] !== null && self[ns] !== parent[ns]);
-  const selfUid = process.getuid ? process.getuid() : -1;
+  const selfUid = typeof process.getuid === 'function' ? process.getuid() : null;
   const parentUid = uidOf(parentPid);
-  const sameUid = parentUid !== null && parentUid === selfUid;
+  const sameUid = parentUid !== null && selfUid !== null && parentUid === selfUid;
   const enforcementPresent = differing.length > 0 || !sameUid;
   return {
+    state: 'measured',
+    reasonCode: null,
+    reason: null,
     self, parent, parentPid, selfUid, parentUid, differing, enforcementPresent,
     note: enforcementPresent
       ? `the gate differs from its launcher in [${differing.join(', ') || 'uid'}]`

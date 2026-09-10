@@ -55,6 +55,74 @@ const require_ = createRequire(import.meta.url);
 // One implementation of ${...}, shared with the main-process runner.
 const { interpolate } = require_(join(REPO, 'app', 'interpolate.js'));
 
+/* ------------------------------------------------------------------------ *
+ * WO-W1 item 2: the driver hard-coded `xvfb-run`. On a machine with a real
+ * display that wrapper is wrong in two ways — it is not installed, and if it
+ * were it would throw away the framebuffer that is the entire reason for
+ * running here (see docs/FINDINGS-WIN.md W1-1, where a screenshot is measured
+ * NON-BLANK with a control that must come back blank).
+ *
+ * ⚑ The decision is written to `launch.json` in the run directory rather than
+ * only logged. "Which launcher ran" is a host fact, and WO-W1's gate diffs host
+ * facts between platforms; a difference that exists only in a log line cannot
+ * be diffed and cannot be attributed.
+ *
+ * The scenario JSON is untouched by any of this, which is the requirement: the
+ * same unmodified spec runs on both platforms.
+ * ------------------------------------------------------------------------ */
+
+/** The electron binary, from the package itself — never node_modules/.bin. */
+function electronBinary() {
+  // The `electron` package's main export IS the absolute path to the
+  // executable. The .bin shim is a shell script on POSIX and a .cmd on
+  // Windows, and Node refuses to spawn a .cmd without a shell.
+  const p = require_('electron');
+  return typeof p === 'string' ? p : join(REPO, 'node_modules', '.bin', 'electron');
+}
+
+/** Is there a display to draw on, and how do we know? */
+function displayState() {
+  if (process.platform === 'win32') {
+    return { present: true, how: 'win32 sessions have a window station; there is no DISPLAY variable and no xvfb' };
+  }
+  if (process.platform === 'darwin') {
+    return { present: true, how: 'darwin has a window server; there is no DISPLAY variable and no xvfb' };
+  }
+  if (process.env.WAYLAND_DISPLAY) {
+    return { present: true, how: `WAYLAND_DISPLAY=${process.env.WAYLAND_DISPLAY}` };
+  }
+  if (process.env.DISPLAY) {
+    return { present: true, how: `DISPLAY=${process.env.DISPLAY}` };
+  }
+  return { present: false, how: 'no DISPLAY and no WAYLAND_DISPLAY on this platform' };
+}
+
+function resolveLaunch(appDir, materialisedPath) {
+  const electron = electronBinary();
+  const appArgs = [appDir, `--scenario=${materialisedPath}`];
+  const display = displayState();
+
+  if (display.present) {
+    return {
+      platform: process.platform,
+      display,
+      wrapper: null,
+      command: electron,
+      args: appArgs,
+      reason: `real display (${display.how}) — electron launched directly, no xvfb wrapper`,
+    };
+  }
+
+  return {
+    platform: process.platform,
+    display,
+    wrapper: 'xvfb-run',
+    command: 'xvfb-run',
+    args: ['-a', '-s', '-screen 0 1280x900x24', electron, ...appArgs],
+    reason: `no display (${display.how}) — wrapping in xvfb-run, as on the build box`,
+  };
+}
+
 // ── mutations ──────────────────────────────────────────────────────────────
 // A mutation only knows how to break something. WHAT THAT MUST DO is declared
 // by the scenario, in its `audit` block, because the answer depends on which
@@ -2232,16 +2300,15 @@ async function runOnce({ specPath, label, appURL, breaks, timeoutMs, quiet }) {
   const materialisedPath = join(runDir, 'spec.json');
   writeFileSync(materialisedPath, JSON.stringify(materialised, null, 2));
 
-  const electron = join(REPO, 'node_modules', '.bin', 'electron');
-  const child = spawn(
-    'xvfb-run',
-    ['-a', '-s', '-screen 0 1280x900x24', electron, appDir, `--scenario=${materialisedPath}`],
-    {
-      cwd: appDir,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }
-  );
+  const launch = resolveLaunch(appDir, materialisedPath);
+  if (!quiet) console.log(`   launch: ${launch.reason}`);
+  writeFileSync(join(runDir, 'launch.json'), JSON.stringify(launch, null, 2));
+
+  const child = spawn(launch.command, launch.args, {
+    cwd: appDir,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 
   let appLog = '';
   child.stdout.on('data', (d) => { appLog += d; if (!quiet) process.stdout.write(`   | ${d}`); });

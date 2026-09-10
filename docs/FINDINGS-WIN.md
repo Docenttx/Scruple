@@ -130,10 +130,17 @@ a file that looks perfectly valid in every editor.
 `[System.IO.File]::WriteAllText` is the BOM-less writer.
 `scripts/win/capture-desktop.ps1` carries the note inline.
 
-## W1-5 — unresolved: two post-`destroy()` window failures that will not reproduce
+## W1-5 — Electron: a window created after `destroy()` can fail to load. Two platforms, three sightings
 
-Recorded because it cost real time and may cost it again, **not** as a platform
-finding.
+⚑ **Promoted from UNRESOLVED.** Filed first as a not-a-finding on one sighting;
+the build box then reproduced it **on Linux** on the first run of its own probe —
+window 1 loaded and captured, `destroy()`, window 2 → `ERR_FAILED (-2)` on load.
+Same symptom, different OS, different Electron invocation, and creating all
+windows up front fixed it there exactly as here. Two independent reproductions on
+two platforms make it an Electron behaviour rather than a quirk of this machine.
+
+**Still not understood, and the workaround is not a fix.** Original text below,
+kept because the eliminated hypotheses are the useful part.
 
 While building the framebuffer probe, creating a `BrowserWindow` immediately
 after `destroy()`ing the previous one failed twice, with two different symptoms:
@@ -154,3 +161,110 @@ is committed so the next person starts from four eliminated hypotheses rather
 than from zero. `scripts/win/fb-probe-main.cjs` creates all windows up front —
 chosen because it is the arrangement observed to work, not because the failure is
 understood, and its comments say so.
+
+## W1-6 — the port ledger asserted `count: 0` and `allLoopback: false` on a box where nothing was measured
+
+The WO-W1 headline, and worse in practice than the work order's wording suggests.
+
+Every read in `app/comfy/ports.js` was wrapped in `catch { return [] }`. On
+Windows that is not a degraded measurement, it is a **false** one:
+
+| field | old value on Windows | what it asserts | what was true |
+|---|---|---|---|
+| `gate.count` | `0` | nobody is listening on the gate port | nobody looked |
+| `gate.allLoopback` | `false` | the gate is not loopback-bound | — |
+| `upstream.allLoopback` | `false` | **ComfyUI is reachable without passing the gate** | — |
+
+That last row is the ledger's whole reason for existing. `ports.js` says an
+upstream on `0.0.0.0` means "every byte taken that way leaves through no gate and
+gets no leaf" — and a missing file manufactured exactly that reading. The same
+holds for `app/comfy/namespace.ts`, where the catch blocks produced
+`enforcementPresent: false`, which is finding **D4-1's entire substance**. D4-1
+would have appeared to reproduce on a machine that measured nothing.
+
+**Now:** `state` (`measured` · `unavailable` · `refused`) on the ledger and on
+each side, `reasonCode` + `reason` on every degraded reading, and **`null` — never
+`false`, never absent — for every count and boolean that was not measured.** No
+field was dropped: an omitted field is indistinguishable from a build that never
+had the feature.
+
+`unavailable` and `refused` are kept apart deliberately. Absent procfs (`ENOENT`)
+is a fact about the platform that no permission change can fix; unreadable procfs
+(`EACCES`/`EPERM`) is a fact about this run that changing who runs it would fix.
+Collapsing them would lose the only actionable half.
+
+**Controls, all demonstrated** — `node scripts/win/host-facts-control.mjs`, exit 0:
+
+- all three states reachable and reading differently **in one run** (a readable
+  temp file, an absent path, and a file under a deny ACL);
+- **RED before, GREEN after, against the real previous implementation** rather
+  than against a mutation of the new one — the old code is reproduced verbatim in
+  the control and shown producing `count: 0` / `allLoopback: false` on this
+  machine, beside the new code producing `null` and a reason;
+- all 18 fields a consumer reads still present on both sides of the ledger.
+
+⚑ **What this breaks, honestly.** `scenarios/comfy-generate.json` asserts
+`ledger.gate.count == 1`, `allOwnedByExpected == true`, `allLoopback == true`.
+Those assertions **cannot pass on Windows** and must not be made to. A Windows
+port ledger (`GetExtendedTcpTable`, or parsing `netstat -ano`) is the fix and
+WO-W1 explicitly puts it out of scope; until then that scenario is Linux-only,
+and saying so is the honest outcome rather than relaxing the assertion.
+
+## W1-7 — `access(R_OK)` cannot see a Windows ACL, so `refused` would have read as `measured`
+
+Found while building the control above, and it would have silently defeated the
+distinction W1-6 exists to draw.
+
+The first implementation probed readability with `fs.accessSync(file, R_OK)`. On
+Windows `access()` reports on file **attributes** and largely ignores ACLs, so a
+file this process is forbidden to read still answers "readable" — turning a
+`refused` into a false `measured`, which is precisely the class of error being
+fixed. `ports.js` now proves readability by **opening the file**, which is what
+the caller is about to do anyway and is the only answer that cannot be wrong.
+
+The control demonstrates this with a real deny ACL applied via `icacls`, and
+scores itself INCONCLUSIVE (not a pass) if the ACL cannot be applied.
+
+## W1-8 — the driver's database default is a build-box absolute path, and every scenario pays it
+
+`scripts/desktop-run.mjs` defaults `SCRUPLE_DB_PATH` to
+`/mnt/corpus/scruple-council-impl/scruple-scratch.db` in two places
+(`iterationsWatermark`, `countIterationsLike`). Nine gate scripts carry the same
+default for that path and for `witness-scratch.db`.
+
+**Same defect class as the `/data/scruple-web` symlink**: a path that exists on
+exactly one machine, baked in as the fallback, working there and nowhere else.
+The env var makes it overridable, which is why it has never been felt.
+
+⚑ **`iterationsWatermark()` runs unconditionally in `runOnce`**, so it throws
+before the app is launched — for *every* scenario. `scenarios/ping.json`, whose
+entire job is to prove the IPC seam answers, cannot run without `sqlite3` on PATH
+and a scratch database with an `iterations` table. The simplest scenario in the
+suite is coupled to the witness database. Observed verbatim:
+
+```
+Error: iterations watermark query failed against
+  /mnt/corpus/scruple-council-impl/scruple-scratch.db: spawnSync sqlite3 ENOENT
+```
+
+The driver also shells out to `curl`. Windows ships `curl.exe`, so that one is
+fine; `sqlite3` is not present and had to be installed.
+
+## W1-9 — `better-sqlite3` cannot install under Node 24 on Windows, and it is the declared Node delta, not the platform
+
+`npm install` in `scruple-web` fails: `better-sqlite3@11.10.0` has no prebuilt
+binary for Node 24 on win32, falls back to `node-gyp`, and dies with
+`Could not find any Visual Studio installation to use` — the fix for which is a
+multi-GB C++ toolchain.
+
+**Attributed, not folded in.** The build box asked that any difference plausibly
+caused by the Node version be named as such rather than absorbed into "expected
+platform difference". This is one, and it was tested rather than assumed: the
+identical install under a portable **Node 20.20.2** — the build box's version, no
+system change, nothing added to PATH — **succeeds in 22 s and fetches a prebuilt
+`better_sqlite3.node` with no compiler involved.**
+
+So: `better-sqlite3` version-attributable ✓, platform-attributable only in the
+weaker sense that a missing prebuild costs a C++ toolchain on Windows where Linux
+usually already has `gcc`. A Windows user on Node 20 hits nothing here.
+

@@ -113,6 +113,96 @@ async function readDom(wc, step) {
   return Promise.race([wc.executeJavaScript(js, true), timeout]);
 }
 
+/**
+ * WO-W1 item 3 — a `click` step: drive the UI the way a user does.
+ *
+ * Every existing step reaches the app through the bridge (`window.scruple.*`)
+ * or reads the DOM. Neither presses anything. A button wired to nothing at all
+ * would satisfy both.
+ *
+ * ⚑ IT OBSERVES RATHER THAN ASSUMES. `el.click()` returns undefined and tells
+ * you nothing: not whether a handler existed, not whether the event reached one,
+ * not whether the default was prevented. So a capture listener is attached to
+ * the target first, the full pointer sequence is dispatched, and what the
+ * listener actually saw is recorded. "A listener received a click on this
+ * element" is a side effect; "we called click()" is a log line.
+ *
+ * ⚑ AND IT DOES NOT OVERSTATE ITSELF. A synthesised event has
+ * `isTrusted === false`, always — only the browser can mint a trusted one. Any
+ * handler gated on `isTrusted`, and any browser behaviour reserved for user
+ * activation (autoplay, clipboard, popups, fullscreen), will NOT fire here. The
+ * flag is recorded on every dispatch so a scenario can never quietly read this
+ * as a real user's click. This drives the UI like a user up to trust, and the
+ * record says exactly where that stops.
+ *
+ * A selector matching nothing is an ERROR, never a silent no-op — that is the
+ * control WO-W1 demands, and the evidence is kept rather than thrown away.
+ */
+async function clickStep(wc, step) {
+  const selector = step.click;
+  const TYPES = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+  const js = `(() => {
+    const sel = ${JSON.stringify(selector)};
+    const nodes = Array.from(document.querySelectorAll(sel));
+    const out = { selector: sel, matchCount: nodes.length, found: nodes.length > 0,
+                  target: null, dispatched: [], reachedListener: false,
+                  defaultPrevented: null, isTrusted: null, url: location.href };
+    if (!out.found) return out;
+
+    const el = nodes[0];
+    const rect = el.getBoundingClientRect();
+    out.target = {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || null,
+      className: typeof el.className === 'string' ? el.className : null,
+      text: (el.textContent || '').trim().slice(0, 200),
+      disabled: el.disabled === true,
+      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      // A zero-area element can still be clicked programmatically. A REAL user
+      // could not. Recorded so the difference is visible.
+      hasArea: rect.width > 0 && rect.height > 0,
+    };
+
+    const seen = [];
+    const spy = (e) => seen.push({ type: e.type, isTrusted: e.isTrusted, onTarget: e.target === el });
+    const TYPES = ${JSON.stringify(TYPES)};
+    for (const t of TYPES) el.addEventListener(t, spy, true);
+
+    const cx = rect.x + rect.width / 2;
+    const cy = rect.y + rect.height / 2;
+    const base = { bubbles: true, cancelable: true, composed: true,
+                   clientX: cx, clientY: cy, button: 0, view: window };
+    try {
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...base, buttons: 1, pointerId: 1, isPrimary: true }));
+      el.dispatchEvent(new MouseEvent('mousedown', { ...base, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...base, buttons: 0, pointerId: 1, isPrimary: true }));
+      el.dispatchEvent(new MouseEvent('mouseup', { ...base, buttons: 0 }));
+      out.defaultPrevented = !el.dispatchEvent(new MouseEvent('click', { ...base, buttons: 0 }));
+    } finally {
+      for (const t of TYPES) el.removeEventListener(t, spy, true);
+    }
+
+    out.dispatched = seen;
+    out.reachedListener = seen.length > 0;
+    out.isTrusted = seen.length ? seen.every((s) => s.isTrusted) : null;
+    return out;
+  })()`;
+
+  const timeout = new Promise((_r, rej) =>
+    setTimeout(() => rej(new Error(`click did not answer within ${STEP_TIMEOUT_MS}ms`)), STEP_TIMEOUT_MS)
+  );
+  const value = await Promise.race([wc.executeJavaScript(js, true), timeout]);
+
+  // Settle AFTER the click, then read the page again, so the scenario can
+  // assert on what the click changed rather than on the click itself.
+  const settleMs = Number(step.settleMs || 0);
+  if (settleMs > 0) await new Promise((r) => setTimeout(r, settleMs));
+  if (step.after) {
+    value.after = await readDom(wc, step.after);
+  }
+  return value;
+}
+
 async function runScenario(specPath, window, navigation) {
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
   const appURL = process.env.SCRUPLE_APP_URL || 'http://127.0.0.1:3902';
@@ -206,6 +296,25 @@ async function runScenario(specPath, window, navigation) {
         console.log(`[scenario] step ${id} (dom) read ${Object.keys(record.value.selectors).length} selectors`);
         continue;
       }
+      // A click reaches the app through the RENDERER, not the bridge. Marked
+      // so no assertion can read it as evidence the IPC seam worked — the same
+      // separation `read: dom` keeps, for the same reason.
+      if (step.click) {
+        record.reachedBridge = false;
+        record.kind = 'click';
+        record.value = await clickStep(wc, step);
+        record.error = record.value.found
+          ? null
+          : `click selector matched nothing: ${step.click} (0 elements)`;
+        record.finishedAt = new Date().toISOString();
+        console.log(`[scenario] step ${id} (click ${step.click}) ${record.error ? `ERROR ${record.error}` : `dispatched ${record.value.dispatched.length} events, reachedListener=${record.value.reachedListener}`}`);
+        if (record.error && step.required !== false) {
+          result.error = `step "${id}" failed: ${record.error}`;
+          break;
+        }
+        continue;
+      }
+
       const reply = await callBridge(wc, step.call, record.args);
       record.reachedBridge = reply.__bridge === true;
       record.error = reply.error || null;
