@@ -134,8 +134,14 @@ class WitnessWorker:
     `urlopen` and there is no cancel, so a socket already blocked in `read()`
     keeps the budget it was given -- the session's 30s -- whatever this class
     does afterwards. Every request that STARTS after stop() is capped
-    (SHUTDOWN_TIMEOUT_SECONDS, then HURRY_TIMEOUT_SECONDS), so the worst case is
-    one in-flight request plus the two budgets, not one per queued capture.
+    (SHUTDOWN_TIMEOUT_SECONDS, then HURRY_TIMEOUT_SECONDS); that one is not.
+
+    stop() still returns inside its own budgets -- it does not wait 30s -- but
+    the drain behind that request may not get to run at all, and what it could
+    not reach comes back in `abandoned`. That is the residual, and it is why
+    this class reports rather than just returning: the guarantee is "delivered,
+    spooled, or NAMED", and only the first two of those are silent-safe.
+    Measured, not argued: `scripts/f2-gate.sh` stage 4B in the desktop repo.
     Finding F2-1 in docs/WO-F2.md.
     """
 
