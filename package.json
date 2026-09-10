@@ -29,6 +29,7 @@
     "f2": "bash scripts/f2-gate.sh",
     "f3": "bash scripts/f3-gate.sh",
     "f4": "bash scripts/f4-gate.sh",
+    "f5": "bash scripts/f5-gate.sh",
     "f3:probe": "bash -c 'HOME=.run/f3/probe-home vendor/blender/bin/blender --background --python scripts/f3-datablock-probe.py -- --work \"$PWD/.run/f3/probe\" --image \"$PWD/.run/e7/a1/imported.png\"'",
     "gate": "bash scripts/d1-gate.sh && bash scripts/d2-gate.sh && bash scripts/d3-gate.sh && bash scripts/d4-gate.sh && bash scripts/d5-gate.sh && bash scripts/d6-gate.sh && bash scripts/d7-gate.sh",
     "d7": "node scripts/desktop-run.mjs full-flow --timeout 600000"

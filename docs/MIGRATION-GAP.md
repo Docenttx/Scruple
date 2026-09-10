@@ -73,12 +73,24 @@ Checked against the live sandbox database while the E series was running:
 
 ## What is NOT done
 
-- 🔴 **The seven gates are not wired to it yet.** The script is proven; the
-  one-line addition to each gate is not made, because the E-series runner owns
-  both trees right now and editing under it would collide.
+- ~~🔴 **The seven gates are not wired to it yet.**~~ **Done** — commit
+  `0bd9253`, one line after each gate's `SCRUPLE_DB_PATH` export.
 - **No control yet shows a gate failing with the schema message instead of
-  assertion errors.** That is the assertion that would actually close E4-0, and
-  it needs the sandbox the runner is using.
-- The app still does not refuse to serve on a stale schema. Failing closed at
-  the source would be stronger than eleven callers each remembering to ask, and
-  it is a bigger change than this.
+  assertion errors.** Still open as written, and narrower than it was: WO-F5's
+  stage 3 shows the *server* failing that way — 500 with an empty body at the
+  parent commit, 503 naming the file after — but no gate script has been run
+  against a stale database to show its own transcript change shape.
+- ~~The app still does not refuse to serve on a stale schema.~~ **Closed by
+  WO-F5** (2026-09-10, web `3651f11`). `lib/db/schemaGuard.ts` and one check
+  inside `lib/v2/auth.ts:requireScope` — the function all eleven `/v2` routes
+  already start with, so no route was edited. `witness:write` and `mark:write`
+  are refused with `schema_stale` (503) **naming the pending files**; reads,
+  `baseline:write` and `component:provision` are deliberately not. See
+  `docs/WO-F5.md` — 71 checks.
+
+  ⚑ **And the finding that came out of it (F5-1): the deployment serving on
+  `:3001` is EIGHT migrations behind**, `053_attestation_basis` through
+  `060_imported_datablocks`, so **40 of the 77 columns its own v2 witness route
+  INSERTs do not exist in its database**. E4-0 is not a sandbox condition; it is
+  the live state, and its last `iterations` row is dated 2026-09-03. Read from
+  `/proc` and from the database read-only, never by contacting the port.

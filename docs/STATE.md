@@ -741,10 +741,14 @@ npm run e6:install                # alexisrolland/ComfyUI-Blender v3.3.4
 npm run e3 && npm run e4 && npm run e5 && npm run e6 && npm run e7
 ```
 
-🔴 **Apply the server's migrations to the scratch app database first.** Finding
-E4-0: nothing in any gate does it, and a database one migration behind makes
-every leaf submission answer 500 while the gate that found it was the one that
-happened to look.
+~~🔴 **Apply the server's migrations to the scratch app database first.**
+Finding E4-0: nothing in any gate does it~~ — **both halves of that are now
+handled and neither replaces the other.** The seven gates that read the database
+run `node vendor/scruple-web/scripts/preflight-schema.mjs --apply` (`0bd9253`),
+and since **WO-F5** the app itself refuses a leaf write on a schema behind its
+tree with `schema_stale` 503 **naming the pending files** — so a database one
+migration behind now says so instead of answering 500 and letting the gate
+report it as assertion failures.
 
 `scripts/d7-gate.sh` restarts the sandbox app on `:3902` if it is not already
 signing through the surrogate, and it proves that by SIGNING rather than by
@@ -780,7 +784,9 @@ second list), `property` (a fact about the world, not a defect).
 | E3-3 | The extension CLI exits **0 on a refused install**. The exit code is not the observable; the directory on disk and the module name the running Blender reports are. | `WO-E3.md` | `property` |
 | E3-4 | The shipped zip carried a stale vendored SDK. **Closed** by re-vendoring at web `634c66e` during WO-E4; the add-on suite went 308 → 330. | `WO-E3.md`, `WO-E4.md` | `closed` |
 | E3-x | ⚑ The work order's control *"the same zip against 3.0.1 must fail to enable"* **DOES NOT HOLD**, and E3 scores it as a failure rather than narrowing the work order to what succeeded. | `WO-E3.md` | `founder` |
-| **E4-0** | ⚑ The scratch app database was **one migration behind** the server tree; every leaf submission answered 500 and WO-D6's gate had been silently red for over an hour. **Nothing in any gate applies migrations**, and nothing since has changed that. | `WO-E4.md`, §6 | `human` |
+| **E4-0** | ⚑ The scratch app database was **one migration behind** the server tree; every leaf submission answered 500 and WO-D6's gate had been silently red for over an hour. **CLOSED, both halves**: the gate half by `scripts/preflight-schema.mjs` wired into the seven gates that read the database (`0bd9253`), the source half by **WO-F5** — a leaf-writing route on a stale schema now answers `schema_stale` 503 **naming the pending migrations**, from one check in `requireScope` with no route edited. `docs/WO-F5.md`, 71 checks. | `WO-E4.md` §6, `WO-F5.md` | `closed` |
+| **F5-1** | ⚑ **FOUND BY WO-F5, and it is the live one.** The deployment serving on `:3001` runs `next dev` from `/data/scruple-web` with no `SCRUPLE_DB_PATH`, so it uses `data/scruple.db` — **52 of 60 migrations applied**. 40 of the 77 columns its own `/api/v2/witness` INSERTs do not exist there, so that door has answered 500-with-an-empty-body since migration 053, and its last `iterations` row is 2026-09-03. Measured from `/proc` and read-only sqlite; the port was never contacted. | `WO-F5.md` | `human` |
+| **F5-4** | The legacy plugin doors (`/api/scruple/witness/{adobe,photoshop}`) INSERT only pre-053 columns, so they **still write leaves onto a stale schema** — and on the deployment above they are the only leaf doors that work. Every leaf they write reads NULL in all 40 columns 053–060 added, which is `host_semantics` NULL again: "never asked" and "could not ask" recorded identically. Not guarded by WO-F5, on purpose. | `WO-F5.md` | `founder` |
 | **E4-2** | `hostAdapterSink`'s schema check is **presence-only in both languages** (`k not in evidence`), so a required field present and NULL is accepted, hashed and put in the MAC — a leaf reading `supplied` with a null camera. NOT patched: the add-on refuses to emit such a document instead. The next host to register hits this with nothing in between. | `WO-E4.md` | `server` |
 | E4-3 | The Python mirror needs enum members where the TypeScript takes strings. | `WO-E4.md` | `closed` |
 | E4-4 | `adapter/scene.py` reported **Cycles' sample count for EEVEE renders** — `scene.cycles` exists on every scene whatever the engine is, so a default 4.2 scene announced `samples: 4096`. Fixed at the source. | `WO-E4.md` | `closed` |
