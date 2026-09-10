@@ -10,6 +10,7 @@ that proves it is `test_a_dispatch_that_cannot_reach_the_server_leaves_the_captu
 
 from __future__ import annotations
 
+import threading
 import time
 
 from adapter import handlers as _handlers
@@ -150,3 +151,169 @@ def test_drain_queue_replays_what_the_outage_spooled(attached_client, http_opene
 
 def test_drain_queue_is_safe_with_no_session(fresh_state):
     assert _handlers.drain_queue() == {"attempted": 0, "succeeded": 0, "failed": 0, "remaining": 0}
+
+
+# ── WO-F2 / finding E7-3 — stop() must not drop queued captures ────────────
+#
+# The class-level half of the gate. The gate itself (desktop repo,
+# scripts/f2-gate.sh) counts captures from DISK against a real server; these
+# pin the behaviour that makes that possible, in the suite that runs on every
+# change.
+
+
+def test_stop_drains_what_is_still_queued():
+    """⚑ E7-3, inverted. The old `_run()` re-checked the stop flag after
+    pulling a job, so `second` was pulled and discarded."""
+    worker = _handlers.WitnessWorker()
+    worker.start()
+    ran = []
+    started = threading.Event()
+
+    def slow():
+        started.set()
+        time.sleep(0.4)
+        ran.append("first")
+
+    worker.submit(slow, label="first")
+    worker.submit(lambda: ran.append("second"), label="second")
+    assert started.wait(5)          # the first is in flight...
+    report = worker.stop(timeout=10)  # ...and the second is still queued
+
+    assert ran == ["first", "second"]
+    assert report["abandoned"] == []
+    assert report["queued_at_stop"] == 2
+    assert report["ran"] == 2
+
+
+def test_stop_drains_in_order():
+    worker = _handlers.WitnessWorker()
+    worker.start()
+    ran = []
+    gate = threading.Event()
+    worker.submit(lambda: gate.wait(5), label="gate")
+    for i in range(8):
+        worker.submit(lambda i=i: ran.append(i), label=f"job-{i}")
+    gate.set()
+    worker.stop(timeout=10)
+    assert ran == list(range(8))
+
+
+def test_stop_with_nothing_queued_reports_nothing():
+    """Control (b) at the unit level: an empty queue must not manufacture
+    work, or a report of work."""
+    worker = _handlers.WitnessWorker()
+    worker.start()
+    report = worker.stop(timeout=5)
+    assert report == {
+        "queued_at_stop": 0, "ran": 0, "hurried": False,
+        "abandoned": [], "seconds": report["seconds"],
+    }
+
+
+def test_a_job_that_outlasts_both_budgets_is_named_not_dropped_silently():
+    """The bound is real, and so is the report. A job that will not finish
+    inside either budget leaves `abandoned` non-empty -- which is what
+    `unregister()` puts on the error surface."""
+    worker = _handlers.WitnessWorker()
+    worker.start()
+    release = threading.Event()
+    worker.submit(lambda: release.wait(30), label="wedged")
+    worker.submit(lambda: None, label="behind-the-wedge")
+    time.sleep(0.2)
+    report = worker.stop(timeout=0.2, hurry_timeout=0.2)
+    release.set()
+
+    assert report["hurried"] is True
+    assert "behind-the-wedge" in report["abandoned"]
+    assert report["queued_at_stop"] == 2
+
+
+def test_stop_cuts_the_network_budget_rather_than_the_queue(sdk_client):
+    """Cutting the budget is what makes a short bound safe: the remaining
+    captures still RUN, they just stop waiting on a server that is not
+    answering, and the SDK spools them from its own failure path.
+
+    ⚑ The cut happens when the drain STARTS. It has to: `http.submit()` hands
+    `session.timeout` to `urlopen`, so a request already blocked in read()
+    keeps whatever budget it was given, and a cut applied afterwards arrives
+    too late to help the one request that is costing the most."""
+    worker = _handlers.WitnessWorker(set_network_budget=_handlers._set_session_network_budget)
+    normal = sdk_client.timeout
+    worker.start()
+    seen = []
+    release = threading.Event()
+    worker.submit(lambda: (seen.append(sdk_client.timeout), release.wait(30)), label="wedged")
+    time.sleep(0.2)
+    assert seen == [normal]              # ...not yet, this one is not a shutdown
+
+    worker.stop(timeout=0.2, hurry_timeout=0.2)
+    release.set()
+    assert sdk_client.timeout == _handlers.HURRY_TIMEOUT_SECONDS
+
+    worker.start()                       # start() puts it back
+    try:
+        assert sdk_client.timeout == normal
+    finally:
+        worker.stop(timeout=2)
+        _handlers._set_session_network_budget(None)
+
+
+def test_the_shutdown_budget_is_in_front_of_the_first_shutdown_request(sdk_client):
+    """The budget a capture drained at shutdown actually runs under."""
+    worker = _handlers.WitnessWorker(set_network_budget=_handlers._set_session_network_budget)
+    normal = sdk_client.timeout
+    worker.start()
+    seen = []
+    gate = threading.Event()
+    worker.submit(lambda: gate.wait(5), label="hold")
+    worker.submit(lambda: seen.append(sdk_client.timeout), label="drained-at-shutdown")
+    gate.set()
+    worker.stop(timeout=10)
+
+    assert seen == [_handlers.SHUTDOWN_TIMEOUT_SECONDS]
+    assert _handlers.SHUTDOWN_TIMEOUT_SECONDS < normal
+    _handlers._set_session_network_budget(None)
+
+
+def test_submit_after_stop_is_refused_rather_than_queued_into_the_void():
+    """The other half of the same drop. Putting a job on a queue whose reader
+    has exited is a drop the call site cannot see."""
+    worker = _handlers.WitnessWorker()
+    worker.start()
+    worker.stop(timeout=5)
+    assert worker.submit(lambda: None, label="too late") is False
+    assert worker.queued == 0
+
+
+def test_dispatch_says_so_when_the_worker_is_not_running(attached_client, fresh_state, tmp_path):
+    _handlers.WORKER.stop(timeout=5)
+    scene = bpy_mock.Scene()
+    scene.render.filepath = str(tmp_path / "img.png")
+    (tmp_path / "img.png").write_bytes(b"pixels")
+    _handlers._on_render_complete(scene)
+    assert "not captured" in (_state.get().last_error or "")
+
+
+def test_a_capture_queued_at_stop_reaches_the_on_disk_spool(
+    attached_client, http_opener, tmp_path,
+):
+    """⚑ THE GATE, in miniature and against a mock: N captures queued, stop()
+    called, and the count read from the SDK's on-disk queue file rather than
+    from the worker. Before WO-F2 this file stayed empty -- the captures never
+    reached the SDK at all."""
+    http_opener.register("POST", "/api/v2/witness", {"error": "down"}, status=503)
+    _handlers.WORKER.start()
+    gate = threading.Event()
+    _handlers.WORKER.submit(lambda: gate.wait(5), label="gate")
+    for i in range(3):
+        p = tmp_path / f"img{i}.png"
+        p.write_bytes(b"pixels" + str(i).encode())
+        scene = bpy_mock.Scene()
+        scene.render.filepath = str(p)
+        _handlers._on_render_complete(scene)
+    gate.set()
+    report = _handlers.WORKER.stop(timeout=20)
+
+    assert report["abandoned"] == []
+    on_disk = [e for e in attached_client.queue.load_all() if e["path"] == "/api/v2/witness"]
+    assert len(on_disk) == 3

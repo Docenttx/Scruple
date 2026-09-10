@@ -24,7 +24,8 @@ from __future__ import annotations
 import os
 import queue
 import threading
-from typing import Any, Callable, Optional
+import time
+from typing import Any, Callable, Dict, Optional
 
 from . import flow as _wf
 from . import log as _log
@@ -41,6 +42,62 @@ except ImportError:
 HANDLER_TAG = "_scruple_blender_owned"
 
 
+#: How long `stop()` may hold Blender's shutdown while the in-memory queue
+#: drains at SHUTDOWN_TIMEOUT_SECONDS per capture.
+#:
+#: ⚑ THE PRODUCT QUESTION WO-F2 NAMES, ANSWERED HERE. "How long may Blender's
+#: shutdown block on a network call" is not a detail the fix can duck: draining
+#: means running captures that make network calls, and `unregister()` runs while
+#: the user is quitting. The answer taken is a BOUNDED WAIT IN TWO PHASES, and
+#: the second phase is what makes the bound safe to keep short --
+#: SHUTDOWN_HURRY_SECONDS below.
+SHUTDOWN_DRAIN_SECONDS = 6.0
+
+#: ...and how long after that, with the network budget cut again to
+#: HURRY_TIMEOUT_SECONDS.
+#:
+#: Nothing is SKIPPED when the first budget runs out. What shrinks is the
+#: NETWORK budget, not the set of jobs: each remaining capture still runs, still
+#: hashes its file, still reaches `http.submit()`, and fails there on the
+#: transport -- which is the one code path the SDK guarantees enqueues (§5
+#: property 3). So a capture the drain has no time left to DELIVER lands on the
+#: on-disk spool instead of on the floor, and the next Blender session sends it.
+SHUTDOWN_HURRY_SECONDS = 4.0
+
+#: What a server gets to take ONE capture once the session is shutting down.
+#:
+#: ⚑ CUT WHEN THE DRAIN STARTS, NOT WHEN IT OVERRUNS. Measured while WO-F2 was
+#: being written, against a socket that accepts and never answers: leaving the
+#: session's normal 30s budget in place for the first phase spends the WHOLE
+#: shutdown on one wedged request, and cutting the budget afterwards does not
+#: help -- `http.submit()` hands `session.timeout` to `urlopen` and a socket
+#: already blocked in read() cannot be called back. The bound has to be in front
+#: of the first shutdown request, not behind it.
+#:
+#: 2s is chosen against what the call actually is: a small JSON POST that a
+#: healthy server answers in tens of milliseconds. It costs a slow-but-alive
+#: server nothing and it costs a dead one 2s per capture instead of 30.
+SHUTDOWN_TIMEOUT_SECONDS = 2.0
+
+#: And during the hurry phase. Small enough that a queue that is still deep when
+#: the drain budget expires empties onto the spool in a fraction of a second per
+#: capture; not zero, because a server that is merely slow should still be
+#: allowed to take the capture rather than be assumed down.
+HURRY_TIMEOUT_SECONDS = 0.1
+
+
+class _StopSentinel:
+    """What `stop()` puts on the queue to mark the end of the work.
+
+    A distinct type rather than the `lambda: None` this used to be: the worker
+    has to be able to tell "the queue is finished" from "a job that happens to
+    do nothing", and a callable cannot say which it is.
+    """
+
+
+_STOP = _StopSentinel()
+
+
 class WitnessWorker:
     """Single background thread that drains a work queue.
 
@@ -48,44 +105,252 @@ class WitnessWorker:
     UI from freezing on the network round-trip. This is the in-memory,
     this-session queue; the on-disk retry queue that survives a crash is
     the SDK's, and it is filled by http.submit(), not by this class.
+
+    ⚑ WO-F2 / FINDING E7-3. `_run()` used to re-check the stop flag AFTER
+    pulling a job and BEFORE running it:
+
+        while not self._stop_flag.is_set():
+            job = self._q.get()
+            if self._stop_flag.is_set():
+                break            # <- whatever it just pulled is dropped
+            job()
+
+    so every capture still queued when `stop()` was called was discarded -- and
+    because it never reached the SDK it was not on the on-disk spool either.
+    `unregister()` calls `stop()`, so the losing case was a capture taken
+    shortly before Blender quits or the add-on is disabled: exactly the case
+    store-and-forward exists for. Measured, on this class, outside Blender:
+    `{"submitted": ["first","second"], "ran": ["first"], "dropped": ["second"]}`.
+
+    THE RULE NOW: the stop flag is honoured when the SENTINEL comes up, and the
+    sentinel is behind every job that was queued before `stop()` was called. So
+    a queued capture RUNS, and having run it is either delivered or spooled by
+    the SDK. What is bounded is how long that is allowed to take -- see
+    SHUTDOWN_DRAIN_SECONDS -- and when the bound is reached the network budget
+    is cut rather than the queue.
+
+    ⚑ WHAT THE BOUND CANNOT COVER, said plainly: THE ONE REQUEST ALREADY ON THE
+    WIRE WHEN stop() IS CALLED. `http.submit()` passes `session.timeout` to
+    `urlopen` and there is no cancel, so a socket already blocked in `read()`
+    keeps the budget it was given -- the session's 30s -- whatever this class
+    does afterwards. Every request that STARTS after stop() is capped
+    (SHUTDOWN_TIMEOUT_SECONDS, then HURRY_TIMEOUT_SECONDS), so the worst case is
+    one in-flight request plus the two budgets, not one per queued capture.
+    Finding F2-1 in docs/WO-F2.md.
     """
 
-    def __init__(self) -> None:
-        self._q: "queue.Queue[Callable[[], None]]" = queue.Queue()
+    def __init__(self, *, set_network_budget: Optional[Callable[[Optional[float]], None]] = None) -> None:
+        self._q: "queue.Queue[Any]" = queue.Queue()
         self._thread: Optional[threading.Thread] = None
-        self._stop_flag = threading.Event()
+        self._lock = threading.Lock()
+        #: False from the moment stop() is called. A job submitted after that
+        #: must NOT go on a queue nobody will read -- see submit().
+        self._accepting = False
+        self._seq = 0
+        #: seq -> label, for everything submitted and not yet run. This is how
+        #: stop() can NAME what it could not drain instead of reporting a
+        #: number, and it is the only accounting this class keeps.
+        self._outstanding: Dict[int, str] = {}
+        self._ran = 0
+        #: What the last stop() reported. `unregister()` runs deep inside
+        #: Blender's disable path and its return value goes nowhere, so the
+        #: report is left here as well -- it is how the panel, and WO-F2's
+        #: Blender stage, can ask what the shutdown actually managed.
+        self.last_stop_report: Optional[Dict[str, Any]] = None
+        #: Called with a number of seconds to cut this session's network budget
+        #: to, and with None to put it back. The worker does not know what a
+        #: session is; `_set_session_network_budget()` below does.
+        self._set_network_budget = set_network_budget
+
+    # ---- lifecycle -----------------------------------------------------
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        self._stop_flag.clear()
+        self._budget(None)
+        # ⚑ Purge any sentinel a previous stop() left behind. Caught by
+        # `test_a_capture_queued_at_stop_reaches_the_on_disk_spool` while WO-F2
+        # was being written: a stop() whose thread had already exited leaves an
+        # unread _STOP on the queue, the NEXT thread pulls it as its first item
+        # and returns, and every capture in that session is then refused with
+        # "the worker is not running". A typed sentinel makes that visible
+        # where the old `lambda: None` would have been eaten as a no-op job --
+        # which is the same shape of defect as E7-3, one lifecycle up.
+        self._drop_stale_sentinels()
+        with self._lock:
+            self._accepting = True
         self._thread = threading.Thread(
             target=self._run, name="ScrupleWitnessWorker", daemon=True,
         )
         self._thread.start()
 
-    def stop(self, timeout: float = 2.0) -> None:
-        self._stop_flag.set()
-        self._q.put(lambda: None)
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
+    def stop(self, timeout: Optional[float] = None, *,
+             hurry_timeout: Optional[float] = None) -> Dict[str, Any]:
+        """Drain what is queued, then stop. Returns what actually happened.
+
+        The return value is a report, not a status: `queued_at_stop`, `ran`,
+        `hurried` and `abandoned` (the LABELS of anything the two budgets did
+        not reach). Callers surface it; `unregister()` puts a non-empty
+        `abandoned` on the error surface, because a capture that was not taken
+        has to be visible as one.
+        """
+        drain_budget = SHUTDOWN_DRAIN_SECONDS if timeout is None else timeout
+        hurry_budget = SHUTDOWN_HURRY_SECONDS if hurry_timeout is None else hurry_timeout
+
+        started = time.monotonic()
+        with self._lock:
+            self._accepting = False
+            queued_at_stop = len(self._outstanding)
+            ran_before = self._ran
+        # ⚑ IN FRONT OF THE FIRST SHUTDOWN REQUEST. See SHUTDOWN_TIMEOUT_SECONDS.
+        self._budget(SHUTDOWN_TIMEOUT_SECONDS)
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            self._q.put(_STOP)
+
+        hurried = False
+        if thread is not None:
+            thread.join(timeout=drain_budget)
+            if thread.is_alive():
+                # The first budget expired with work still queued. Cut the
+                # NETWORK budget again, not the queue: every remaining job still
+                # runs, fails fast on the transport, and is spooled by the SDK.
+                hurried = True
+                self._budget(HURRY_TIMEOUT_SECONDS)
+                thread.join(timeout=hurry_budget)
         self._thread = None
 
-    def submit(self, job: Callable[[], None]) -> None:
-        self._q.put(job)
+        with self._lock:
+            abandoned = [self._outstanding[k] for k in sorted(self._outstanding)]
+            self._outstanding.clear()
+            ran = self._ran - ran_before
+
+        report = {
+            "queued_at_stop": queued_at_stop,
+            "ran": ran,
+            "hurried": hurried,
+            "abandoned": abandoned,
+            "seconds": round(time.monotonic() - started, 3),
+        }
+        self.last_stop_report = report
+        if abandoned:
+            _log.error(
+                f"witness worker: {len(abandoned)} capture(s) NOT taken at shutdown "
+                f"after {report['seconds']}s: {', '.join(abandoned)}"
+            )
+        elif queued_at_stop:
+            _log.info(
+                f"witness worker: drained {ran} queued capture(s) in {report['seconds']}s"
+                + (" (on a cut network budget)" if hurried else "")
+            )
+        return report
+
+    # ---- work ----------------------------------------------------------
+
+    def submit(self, job: Callable[[], None], *, label: str = "capture") -> bool:
+        """Queue a job. False means it was NOT queued, and the caller has been
+        told rather than left to assume.
+
+        Refusing after `stop()` is half of the same finding: putting a job on a
+        queue whose reader has exited is a drop with extra steps, and it is
+        indistinguishable from a success at the call site.
+        """
+        with self._lock:
+            running = self._accepting and self._thread is not None and self._thread.is_alive()
+            if not running:
+                _log.error(f"{label}: the witness worker is not running; NOT captured")
+                return False
+            self._seq += 1
+            seq = self._seq
+            self._outstanding[seq] = label
+        self._q.put((seq, job))
+        return True
+
+    def _budget(self, seconds: Optional[float]) -> None:
+        if self._set_network_budget is None:
+            return
+        try:
+            self._set_network_budget(seconds)
+        except Exception as e:  # pragma: no cover - defensive
+            _log.warn(f"witness worker: network budget -> {seconds}: {e}")
+
+    def _drop_stale_sentinels(self) -> None:
+        keep = []
+        while True:
+            try:
+                item = self._q.get_nowait()
+            except queue.Empty:
+                break
+            if item is not _STOP:
+                keep.append(item)
+        for item in keep:
+            self._q.put(item)
 
     def _run(self) -> None:
-        while not self._stop_flag.is_set():
-            job = self._q.get()
-            if self._stop_flag.is_set():
-                break
+        while True:
+            item = self._q.get()
+            if item is _STOP:
+                return
+            seq, job = item
             try:
                 job()
             except Exception as e:
                 _log.error(f"witness worker job raised: {e}")
+            finally:
+                with self._lock:
+                    self._outstanding.pop(seq, None)
+                    self._ran += 1
+
+    # ---- what the panel and the probes read ----------------------------
+
+    @property
+    def queued(self) -> int:
+        """How many submitted jobs have not run yet. In-memory accounting, and
+        named as such: the gate for WO-F2 counts captures from DISK, never from
+        here."""
+        with self._lock:
+            return len(self._outstanding)
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
 
 
-WORKER = WitnessWorker()
+#: The session's normal network budget, remembered while it is cut.
+_NORMAL_TIMEOUT: Optional[float] = None
+
+
+def _set_session_network_budget(seconds: Optional[float]) -> None:
+    """Cut this session's network budget to `seconds`, or put it back with None.
+
+    The point is NOT to give up on delivery -- `stop()` cuts the budget to
+    SHUTDOWN_TIMEOUT_SECONDS, which a healthy server answers inside many times
+    over. The point is that a capture the shutdown has no time left to DELIVER
+    still reaches `http.submit()` and is SPOOLED by it.
+
+    An adapter may not write its own retry (CANON_SKELETON §5), and this does
+    not: it changes one number on the session and lets the SDK's own failure
+    path do the enqueuing. `start()` calls it with None, so a session that
+    stops and starts the worker again -- reloading the addon, the test suite --
+    does not inherit a shutdown's budget as its normal one.
+    """
+    global _NORMAL_TIMEOUT
+    client = _sdk.peek_client()
+    if seconds is None:
+        if _NORMAL_TIMEOUT is None:
+            return
+        if client is not None:
+            client.timeout = _NORMAL_TIMEOUT
+        _NORMAL_TIMEOUT = None
+        return
+    if client is None:
+        return
+    if _NORMAL_TIMEOUT is None:
+        _NORMAL_TIMEOUT = getattr(client, "timeout", None)
+    client.timeout = seconds
+
+
+WORKER = WitnessWorker(set_network_budget=_set_session_network_budget)
 
 
 def _get_client():
@@ -109,7 +374,11 @@ def _dispatch(fn: Callable[[Any], Any], *, label: str) -> None:
             _log.warn(f"{label} failed: {e}")
             _state.set_error(f"{label}: {e}")
 
-    WORKER.submit(_job)
+    if not WORKER.submit(_job, label=label):
+        # WO-F2. `submit()` returning False means the worker is stopped, so
+        # this capture was NOT taken. Before the fix it went on a queue nobody
+        # was reading and the call site could not tell.
+        _state.set_error(f"{label}: not captured -- the witness worker is stopped")
 
 
 def _on_render_complete(scene) -> None:
@@ -257,7 +526,7 @@ def _drain_tick() -> float:
     try:
         client = _sdk.peek_client()
         if client is not None and client.queue_depth:
-            WORKER.submit(lambda: drain_queue())
+            WORKER.submit(lambda: drain_queue(), label="queue drain")
     except Exception as e:  # never let a timer die
         _log.warn(f"drain tick: {e}")
     return DRAIN_INTERVAL_SECONDS
@@ -309,12 +578,12 @@ def register() -> None:
     # A spool left by a previous session goes out now, not on the next
     # render. Off the main thread: register() runs while Blender is
     # starting up and a network round-trip here would be a hang at launch.
-    WORKER.submit(lambda: drain_queue())
+    WORKER.submit(lambda: drain_queue(), label="startup drain")
     # WO-B5. The dashboard's caches, filled once at startup so the panel
     # has a project list and a payment state before the user presses
     # anything. Off the main thread for the same reason the drain is:
     # register() runs while Blender is starting up.
-    WORKER.submit(_refresh_dashboard)
+    WORKER.submit(_refresh_dashboard, label="dashboard refresh")
     _log.info("handlers registered")
 
 
@@ -324,10 +593,28 @@ def unregister() -> None:
     try:
         _remove_timer()
         _uninstall(bpy.app.handlers)
+        # The spool FIRST, still: this sends what a previous session (or an
+        # outage earlier in this one) left on disk. WO-F2 deliberately did not
+        # move it after the worker drain -- a capture the drain spools is
+        # already durable, and retrying it here would put a second round of
+        # network calls in front of a user who is quitting.
         drain_queue()
     finally:
-        WORKER.stop()
-    _log.info("handlers unregistered")
+        # WO-F2 / finding E7-3. This drains the in-memory queue instead of
+        # discarding it. Everything it runs is delivered or spooled by the SDK;
+        # anything the shutdown bound could not reach is NAMED here rather than
+        # dropped in silence.
+        report = WORKER.stop()
+    if report["abandoned"]:
+        _state.set_error(
+            f"{len(report['abandoned'])} capture(s) were not taken at shutdown: "
+            + ", ".join(report["abandoned"])
+        )
+    _log.info(
+        "handlers unregistered "
+        f"(queued at stop {report['queued_at_stop']}, drained {report['ran']}, "
+        f"abandoned {len(report['abandoned'])}, {report['seconds']}s)"
+    )
 
 
 def install_for_test(mock_handlers: Any) -> None:
