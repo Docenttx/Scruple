@@ -509,19 +509,62 @@ appear on the measured path too. That is what makes this a diff rather than a
 reformat: the difference is in the *values*, at keys that exist identically on
 both platforms.
 
-⚑ **And the Linux run surfaced something my change makes visible for the first
-time.** `portLedger()` called outside the gate's own process returns
-`listeners: []` on Linux — an empty ledger — on a box where those ports are
-demonstrably listening (read out of `ss` in the same minute). Almost certainly
-the inode→pid mapping needing to own the sockets, not a defect in this change.
+### ~~The Linux port ledger returns empty from outside the gate's process~~ — RETRACTED
 
-The reason it matters here: **before this change, an empty Linux ledger and an
-unavailable Windows ledger were the same object** — `count: 0`,
-`allLoopback: false`, both. They are now `state: 'measured', count: 0` versus
-`state: 'unavailable', count: null`, and a reader can tell "looked, found none"
-from "could not look." That distinction is this project's oldest rule and it
-arrived, unprompted, inside WO-W1's own scope table. Neither of us could have
-seen it from one platform.
+An earlier revision of this entry said the Linux run showed `portLedger()`
+returning an empty ledger from outside the gate's process, and concluded that
+"the Linux side of *the port ledger is a real measurement* is weaker than
+assumed." **That is retracted. It was a harness bug in the probe, not a property
+of the ledger.**
+
+`portLedger` destructures an **object** — `{ gatePort, gatePid, upstreamPort,
+upstreamPid }` — and was called with an **array** of ports. Every field came out
+`undefined`; `listenersOn([undefined])` computes `wanted = Set([NaN])`, which
+`wanted.has(r.port)` can never match; the result was an empty ledger. Confirmed
+by reading `app/comfy/ports.js:107-113`, not by taking the correction on trust.
+Called correctly against the same live sockets on this branch on Linux:
+
+```
+gate(5899)      state=measured  listeners=1  ["0.0.0.0 pid=3885472"]
+upstream(3902)  state=measured  listeners=1  ["0:0:0:0:0:0:0:0 pid=3757722"]
+```
+
+The Linux port ledger is a real measurement from outside the gate's process. The
+sweep this entry recommended is void: `portLedger` is called from exactly two
+places, both in `app/ipc-comfy.js`, both in the main process, and no gate or
+scenario asserts on an out-of-process ledger.
+
+### ⚑ What survives is a better finding than the retracted one
+
+The `state: 'measured', count: 0` versus `state: 'unavailable', count: null`
+distinction stands on its own merits — it just is not load-bearing for the reason
+first given.
+
+And the mistake that produced the false alarm is itself the finding: **a wrong
+call to `portLedger` returns a well-formed ledger that reads as a successful
+measurement.** Empty-because-nothing-is-listening and
+empty-because-the-caller-passed-the-wrong-shape are, today, the *same object* —
+`state: 'measured'`, `count: 0`, `listeners: []`, no error anywhere.
+
+That is precisely the defect class W1-6 fixed one level up, sitting one level
+down. W1-6 stopped a *missing file* from manufacturing a measurement; nothing yet
+stops a *malformed argument* from doing the same. The fix is that `portLedger`
+should refuse an argument it cannot use rather than return an empty measurement
+over it.
+
+**Not taken here** — it is outside WO-W1 and past the stop condition, and the
+build box is writing it up on their side. Recorded because it was found the
+expensive way: it cost a false finding in this document, and it will cost the
+next person the same unless the function refuses.
+
+⚑ **The meta-point, since it is now the third time tonight.** W1-B4 (my
+`sha256sum` escape parse), W1-13 (my "cannot pass" conclusion) and this
+retraction are all the same shape: **an instrument that is confidently wrong
+produces results that are internally consistent and completely artificial.** Two
+of the three were mine, one was the build box's, and all three were caught by
+someone checking the instrument rather than the result. On a rig whose job is
+producing platform truth, that is the failure mode to design against — a wrong
+measurement here does not look wrong, it looks like a finding.
 
 ## W1-16 — the full W1-A gate result
 
