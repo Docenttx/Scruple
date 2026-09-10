@@ -402,6 +402,24 @@ product surface, it moves the add-on's tamper surface hash and therefore every
 baseline in the E-series fixtures, and it deserves its own gate rather than
 being smuggled in under a close-out. `docs/WO-E7.md` finding **E7-2**.
 
+> **CLOSED by WO-F1** (2026-09-10, `/data/scruple-blender` `29962b8`).
+> `adapter/preferences.addon_module_name()` resolves the module Blender enabled
+> the add-on under and `register()` binds `bl_idname` to it, so the manifest
+> path exposes the API key, base URL and verbose-logging fields. ⚑ Not
+> `__package__`, as this section guessed: every module in the add-on is
+> imported top-level off the `sys.path` entry `__init__.py` adds, so
+> `__package__` inside `adapter/preferences.py` is the literal `"adapter"` on
+> **both** install paths and answers neither question. It is resolved from the
+> add-on's own `__init__.py` in `sys.modules` instead.
+>
+> The second half went with it: `get_base_url()` no longer falls back to
+> `https://scruple.ai`, the `base_url` property no longer defaults to it, and
+> the four callers that would have built a URL out of nothing refuse. `npm run
+> f1` — 36 checks, both install paths, the old zip rebuilt from `47bc3d6` and
+> probed red. `docs/WO-F1.md`, including the baselines that moved and finding
+> **F1-1**, which is that the add-on's baseline also moves when the install
+> DIRECTORY moves.
+
 ### 4.9 The add-on's in-memory worker drops queued captures when it stops
 
 `adapter/handlers.WitnessWorker._run()` re-checks the stop flag **after** pulling

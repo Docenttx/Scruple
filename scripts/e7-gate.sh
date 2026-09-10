@@ -62,10 +62,18 @@ WATERMARK="$(q 'SELECT COALESCE(MAX(id),0) FROM iterations;')"
 echo "   iterations watermark before this gate: $WATERMARK"
 
 # The add-on's own profile and its own key. Two products, two tenants.
-if [ ! -d "$PROFILE/extensions/user_default/scruple_blender" ]; then
-  mkdir -p "$PROFILE"
+#
+# ⚑ WO-F1: the profile is rebuilt when the SHIPPED ZIP CHANGES, not only when it
+# is missing. This gate used to reuse whatever was installed, so a run after an
+# add-on change silently measured the previous build — which is how a gate ends
+# up green about code nobody is shipping. The stamp is the zip's digest.
+ZIP_SHA="$(sha256sum "$ZIP" | cut -d" " -f1)"
+if [ ! -d "$PROFILE/extensions/user_default/scruple_blender" ] \
+   || [ "$(cat "$PROFILE/.installed-zip-sha256" 2>/dev/null)" != "$ZIP_SHA" ]; then
+  rm -rf "$PROFILE"; mkdir -p "$PROFILE"
   BLENDER_USER_RESOURCES="$PROFILE" timeout 600 "$BLENDER" --command extension install-file \
     -r user_default -e "$ZIP" > "$RUN/install.log" 2>&1
+  echo "$ZIP_SHA" > "$PROFILE/.installed-zip-sha256"
 fi
 [ -d "$PROFILE/extensions/user_default/scruple_blender" ] && INST=yes || INST=no
 check "the add-on is installed in its own profile, through the manifest path" "yes" "$INST"
@@ -102,9 +110,11 @@ note "STAGE 1B — ⚑ E7-2: does the add-on's own Settings UI bind on the path 
 # preferences bound on both paths there would be no finding, and if they bound
 # on neither the cause would be something else.
 LEGACY_PROFILE="$RUN/legacy-profile"
-if [ ! -d "$LEGACY_PROFILE/scripts/addons/scruple_blender" ]; then
+if [ ! -d "$LEGACY_PROFILE/scripts/addons/scruple_blender" ] \
+   || [ "$(cat "$LEGACY_PROFILE/.installed-zip-sha256" 2>/dev/null)" != "$ZIP_SHA" ]; then
   rm -rf "$LEGACY_PROFILE"; mkdir -p "$LEGACY_PROFILE/scripts/addons"
   unzip -q "$ZIP" -d "$LEGACY_PROFILE/scripts/addons"
+  echo "$ZIP_SHA" > "$LEGACY_PROFILE/.installed-zip-sha256"
 fi
 prefs_probe(){ # prefs_probe <profile> [enable-module]
   BLENDER_USER_RESOURCES="$1" timeout 900 "$BLENDER" --background \
@@ -118,12 +128,20 @@ modof(){ python3 -c "import json;d=json.load(open('$1'));print(d['enabled'][0]['
 echo "   manifest path  module $(modof "$RUN/prefs-manifest.json")"
 echo "   legacy path    module $(modof "$RUN/prefs-legacy.json")"
 echo "   bl_idname      $(python3 -c "import json;print(json.load(open('$RUN/prefs-legacy.json'))['bl_idname'])")"
+# ⚑ CLOSED BY WO-F1 (add-on `29962b8`), and these four checks were flipped to
+# assert the closure rather than the defect. Leaving them asserting the defect
+# would have made this gate go red for the reason it was written to prevent —
+# and, worse, would have made "the base URL falls back to production" a thing
+# the estate's own suite required to stay true. The red-before evidence is not
+# lost: `scripts/f1-gate.sh` rebuilds the zip from the parent commit and shows
+# every one of these red, then green, in one run. `docs/WO-F1.md`.
 check "the LEGACY path binds the Settings UI (so the class is fine)" "True" "$(bound "$RUN/prefs-legacy.json")"
-check "⚑ the MANIFEST path — the one a 4.2+ user gets — does NOT" "False" "$(bound "$RUN/prefs-manifest.json")"
-check "…so there is nowhere to paste an API key on the shipping path" "False" \
+check "⚑ the MANIFEST path — the one a 4.2+ user gets — binds it too now" "True" "$(bound "$RUN/prefs-manifest.json")"
+check "…so there IS somewhere to paste an API key on the shipping path" "True" \
   "$(python3 -c "import json;print(json.load(open('$RUN/prefs-manifest.json'))['enabled'][0]['api_key_settable'])")"
-check "…and with no prefs and no cache the base URL falls back to production" "https://scruple.ai" \
-  "$(python3 -c "import json;print(json.load(open('$RUN/prefs-manifest.json'))['base_url_with_no_prefs_and_no_cache'])")"
+UNCONF_E7="$(python3 -c "import json;print(json.load(open('$RUN/prefs-manifest.json'))['base_url_with_no_prefs_and_no_cache'])")"
+check "…and with nothing configured the base URL is NOT production" "<empty>" \
+  "$([ -z "$UNCONF_E7" ] && echo "<empty>" || echo "$UNCONF_E7")"
 
 note "STAGE 1C — ⚑ E7-3: the add-on's in-memory worker drops queued captures on stop()"
 python3 scripts/e7-worker-stop-probe.py > "$RUN/worker-stop.json" 2>&1
