@@ -67,17 +67,32 @@ not exist and every SDK import fails as `MISSING`:
     cd scruple-desktop\vendor
     mklink /J scruple-web ..\..\scruple-web
 
-Verify before doing anything else — **14 SDK imports must resolve**, and
-`app/vault/sdk.ts` is the only file that names a path through the link:
+🔴 **The repo does NOT ship this link, deliberately.** It was committed as a
+symlink whose content was the absolute path `/data/scruple-web` — which resolved
+on the build box and nowhere else — until the laptop found it. It is now
+gitignored, so every machine makes its own.
 
-    node -e "console.log(require('fs').existsSync('vendor/scruple-web/services/scruple-capture/src/submitter.ts'))"
+⚑ **Clone with `core.autocrlf=false`.** Git for Windows defaults it to `true`,
+and a checkout-time LF→CRLF rewrite moves every byte in a codebase whose whole
+claim is re-hashing bytes on disk. It would produce a pile of convincing,
+entirely artificial findings. Also expect `core.symlinks=false`, which
+materializes any committed link as a small text file holding its target.
+
+Verify before doing anything else — **do not trust a hand-maintained count**,
+run the checker, which counts for itself and fails four different ways:
+
+    node scripts/check-vendor-link.mjs
+
+It is not one file that goes through the link: `app/vault/sdk.ts` **and**
+`app/comfy/sdk.ts` both do (siblings since WO-D4), plus nine gate scripts,
+`scripts/tsx.sh` and `scripts/e6-workflow-hash.ts`.
 
 ## Read in this order
 
 1. `docs/DESIGN.md` — the settled decisions. They are not open.
 2. `docs/STATE.md` — the D-series close-out. **§4 is what is honestly missing.**
 3. `docs/FINDINGS.md` — what is true and not visible from a green gate.
-4. `docs/WORK-ORDER-W1.md` — your first work order.
+4. `docs/WO-W1.md` — your first work order.
 5. `docs/BLENDER.md` and `docs/HOST-HOOK.md` if you reach the Blender work.
 
 ## What you have that the build box does not

@@ -1,3 +1,10 @@
 .run/
 node_modules/
 vendor/blender/
+
+# The server tree, linked in per machine. NOT shipped: it was committed as mode
+# 120000 with the absolute content `/data/scruple-web` from WO-D3 until the
+# travel laptop found it — that resolved on the build box and on nothing else,
+# and Git for Windows (core.symlinks=false) checks it out as a 17-byte TEXT FILE.
+# `node scripts/check-vendor-link.mjs` verifies whatever you put here.
+vendor/scruple-web
