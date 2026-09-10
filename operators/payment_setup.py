@@ -21,6 +21,9 @@ if bpy is not None:
 
         def execute(self, context):
             base = _prefs.get_base_url()
+            if not base:
+                self.report({"ERROR"}, _prefs.NO_BASE_URL_MESSAGE)
+                return {"CANCELLED"}
             url = base.rstrip("/") + "/settings/payment"
             webbrowser.open(url)
             self.report({"INFO"}, f"Opened {url}")

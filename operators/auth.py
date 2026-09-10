@@ -40,6 +40,11 @@ if bpy is not None:
 
         def execute(self, context):
             base_url = _prefs.get_base_url()
+            if not base_url:
+                # WO-F1. The handshake opens a browser at base_url; with no
+                # base URL it would have opened production. Say so instead.
+                self.report({"ERROR"}, _prefs.NO_BASE_URL_MESSAGE)
+                return {"CANCELLED"}
             self.report({"INFO"}, "Opening browser to sign in to Scruple...")
 
             def _on_done(key: Optional[str]) -> None:

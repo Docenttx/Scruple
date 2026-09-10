@@ -125,6 +125,13 @@ def get_client() -> Optional[Client]:
     if not api_key:
         return None
     base_url = _prefs.get_base_url()
+    if not base_url:
+        # WO-F1. Nobody named a server. The SDK's Client would fill the
+        # blank with https://scruple.ai, so refusing here is the only place
+        # this can be refused -- and it is refused the same way as a
+        # missing key, because it is the same kind of missing.
+        _log.info("sdk: no base URL configured -- refusing to build a session client")
+        return None
 
     key = (base_url, api_key)
     if _CLIENT is None or _CLIENT_KEY != key:

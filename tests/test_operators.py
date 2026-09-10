@@ -357,3 +357,74 @@ def test_the_panel_shows_the_tier_and_it_is_undisclosed_today(bpy_installed):
     line = _panel.assurance_line(rec)
     assert "undisclosed" in line
     assert "verified" not in line
+
+
+# ---- WO-F1: no base URL means no request, not a request to production ---
+#
+# ⚑ Finding E7-2, second half. `get_base_url()` used to fall through to the
+# SDK's default, `https://scruple.ai`. Three operators build a URL out of it
+# and one of them opens a browser at it, so an addon nobody had configured
+# would have sent a user to the live service without ever naming it. Each
+# refuses now, and the refusal says where to set it.
+
+def _no_base_url(monkeypatch):
+    from adapter import preferences as _prefs
+    monkeypatch.setattr(_prefs, "get_base_url", lambda: "")
+
+
+def test_sign_in_refuses_without_a_base_url_and_opens_no_browser(
+    with_bpy, monkeypatch,
+):
+    import operators.auth as op_mod
+
+    opened = []
+    monkeypatch.setattr(op_mod, "_run_signin", lambda base, cb: opened.append(base))
+    _no_base_url(monkeypatch)
+
+    op = op_mod.SCRUPLE_OT_sign_in()
+    assert op.execute(sys.modules["bpy"].context) == {"CANCELLED"}
+    assert opened == [], "the handshake would have opened a browser at production"
+    assert any("base URL" in m for m in _messages(op))
+
+
+def test_setup_payment_refuses_without_a_base_url(with_bpy, monkeypatch):
+    import operators.payment_setup as op_mod
+
+    opened = []
+    monkeypatch.setattr(op_mod.webbrowser, "open", lambda url: opened.append(url))
+    _no_base_url(monkeypatch)
+
+    op = op_mod.SCRUPLE_OT_setup_payment()
+    assert op.execute(sys.modules["bpy"].context) == {"CANCELLED"}
+    assert opened == []
+    assert any("base URL" in m for m in _messages(op))
+
+
+def test_open_receipt_refuses_without_a_base_url(with_bpy, monkeypatch, fresh_state):
+    import operators.open_receipt as op_mod
+
+    opened = []
+    monkeypatch.setattr(op_mod.webbrowser, "open", lambda url: opened.append(url))
+    _no_base_url(monkeypatch)
+
+    op = op_mod.SCRUPLE_OT_open_receipt()
+    op.project_id = 7
+    assert op.execute(sys.modules["bpy"].context) == {"CANCELLED"}
+    assert opened == []
+    assert any("base URL" in m for m in _messages(op))
+
+
+def test_a_configured_base_url_still_opens_the_browser(with_bpy, monkeypatch):
+    """CONTROL. The refusal must be about the missing value, not about the
+    operator having been broken -- with a base URL set, the same call goes
+    through and the URL it opens is the configured one."""
+    import operators.payment_setup as op_mod
+    from adapter import preferences as _prefs
+
+    opened = []
+    monkeypatch.setattr(op_mod.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(_prefs, "get_base_url", lambda: "http://127.0.0.1:3902")
+
+    op = op_mod.SCRUPLE_OT_setup_payment()
+    assert op.execute(sys.modules["bpy"].context) == {"FINISHED"}
+    assert opened == ["http://127.0.0.1:3902/settings/payment"]

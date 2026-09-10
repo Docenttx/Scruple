@@ -23,11 +23,24 @@
 Either way, the addon shows up in Edit -> Preferences -> Add-ons under
 "Scruple" and adds a "Scruple" tab to the 3D Viewport N-panel.
 
-## 2. Sign in
+## 2. Point the addon at a server
+
+The addon does not assume one. Open the addon preferences (Edit ->
+Preferences -> Add-ons -> expand Scruple), open **Advanced**, and put the
+server you mean into **Scruple API base URL**:
+
+    https://scruple.ai
+
+That is the live service. Anything else (a staging host, a local
+deployment) goes in the same field. While the field is empty the panel
+says so and every button that would make a network call refuses --
+Scruple contacts nothing you did not name.
+
+## 3. Sign in
 
 1. Open the addon preferences (Edit -> Preferences -> Add-ons -> expand
    Scruple).
-2. Click **Sign in**. Your default browser opens on scruple.ai.
+2. Click **Sign in**. Your default browser opens on the base URL you set.
 3. Complete sign-in. A localhost callback returns you to Blender.
 4. The Account row updates to "Signed in".
 
@@ -36,7 +49,7 @@ generate a key at
 [scruple.ai/settings/keys/desktop](https://scruple.ai/settings/keys/desktop)
 and paste it into the **API key** field.
 
-## 3. Set up payment (once)
+## 4. Set up payment (once)
 
 Blender never sees your card. Payment lives on scruple.ai.
 
@@ -45,7 +58,7 @@ Blender never sees your card. Payment lives on scruple.ai.
 3. Return to Blender. The Scruple N-panel now shows the card on file
    and enables the paid buttons.
 
-## 4. First render
+## 5. First render
 
 1. Open (or create) a `.blend`.
 2. Render (F12) or save (Ctrl+S). The addon witnesses the output
@@ -54,7 +67,7 @@ Blender never sees your card. Payment lives on scruple.ai.
    project shows up, with the just-witnessed leaf visible in the
    Recent receipts list.
 
-## 5. Paid actions
+## 6. Paid actions
 
 - **Witness Now** — free. Manually re-witness the current output.
 - **Checkpoint $5** — soft-lock. Preserves progress; leaves the

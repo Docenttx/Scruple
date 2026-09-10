@@ -30,6 +30,9 @@ if bpy is not None:
                 self.report({"ERROR"}, "No active project.")
                 return {"CANCELLED"}
             base = _prefs.get_base_url()
+            if not base:
+                self.report({"ERROR"}, _prefs.NO_BASE_URL_MESSAGE)
+                return {"CANCELLED"}
             url = f"{base.rstrip('/')}/projects/{pid}"
             webbrowser.open(url)
             self.report({"INFO"}, f"Opened {url}")
