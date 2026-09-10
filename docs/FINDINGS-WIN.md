@@ -1185,6 +1185,31 @@ to re-run.
 Note it is reachable in exactly one direction now: current ComfyUI forces the
 *submitted* id lowercase, while nothing checks the *announced* one.
 
+### Fixed — compare against the name the directory actually holds
+
+`semanticsFor` no longer asks `existsSync` whether a name exists. It reads the
+announce directory and requires the requested name to be **in** it.
+`readdirSync` returns the on-disk spelling, so the comparison is exact on every
+platform — the behaviour stops depending on which filesystem the user happens to
+have, rather than being special-cased for Windows.
+
+**Measured after**, same probe, same four cases:
+
+| id | before | after |
+|---|---|---|
+| exact | resolved | resolved (CONTROL holds) |
+| case-variant | **resolved** | **null** |
+| different id | null | null (CONTROL holds) |
+| traversal | null | null (CONTROL holds) |
+
+⚑ The probe still reports `existsSync=true` for the case-variant row. NTFS folds
+case exactly as before; what changed is that this code no longer does. Keeping
+that column in the output is deliberate — it shows the platform behaviour is
+still there to be tripped over by the next `existsSync` someone writes.
+
+`blender-host` remains **38/38 with a clean sweep**, and
+`announce-under-a-different-id` — the correlation control — still reddens its 12.
+
 ## W1-E3 — 🔴 the app cannot preserve the record the shutdown exists to preserve
 
 `app/ipc-comfy.js:427-434` is explicit about why it uses a signal:

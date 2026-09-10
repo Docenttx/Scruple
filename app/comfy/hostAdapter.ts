@@ -35,18 +35,33 @@
 // THE CORRELATION IS THE PROMPT ID, AND THE HOST CHOOSES IT
 // ---------------------------------------------------------------------------
 //
-// ComfyUI's `server.py` does `prompt_id = str(json_data.get("prompt_id",
-// uuid.uuid4()))` — a client MAY supply its own. So a Level-2 host mints an
-// id, writes `announce/<id>.json`, and POSTs `/prompt` with that id. The gate
-// correlates outputs to prompts by exactly that id already
-// (`Correlator.openPrompt`), so the announcement and the observation meet with
-// no new plumbing anywhere in the SDK.
+// A client MAY supply its own prompt id. So a Level-2 host mints one, writes
+// `announce/<id>.json`, and POSTs `/prompt` with that id. The gate correlates
+// outputs to prompts by exactly that id already (`Correlator.openPrompt`), so
+// the announcement and the observation meet with no new plumbing anywhere in
+// the SDK.
+//
+// 🔴 THE ID MUST BE A CANONICAL LOWERCASE UUID. This comment used to quote
+// ComfyUI's `prompt_id = str(json_data.get("prompt_id", uuid.uuid4()))` and
+// conclude that a host may mint ANY id. That line is gone. ComfyUI v0.35.0
+// routes a client-supplied id through `validate_job_id`, which requires
+// `str(uuid.UUID(value)) == value`, and answers anything else with
+// `400 invalid_prompt_id`. A host that mints `blender-<nonce>` now cannot
+// generate at all. See W1-E1 in docs/FINDINGS-WIN.md.
 //
 // ⚑ AND CHOOSING THE ID GRANTS NOTHING. The announcement directory is named by
 // the app's environment and is not reachable from a workflow; an id nobody
 // announced reads back as `declined`, and an announcement that does not match
 // the host's OWN declared schema reads back as `declined` too. The worst a
 // wrong id can do is make a leaf say less than it could have.
+//
+// 🔴 THAT LAST SENTENCE IS ONLY TRUE IF THE LOOKUP IS EXACT. It resolves an
+// announcement by BUILDING A FILENAME, and NTFS folds case: `A.json` and
+// `a.json` are one file. A host announcing under one case and submitting under
+// another therefore got `supplied`, carrying a scene document belonging to a
+// different generation — a leaf saying something FALSE, which is the one
+// outcome this design exists to exclude. Measured, with controls, in W1-E2.
+// `semanticsFor` now compares against the name the directory actually holds.
 //
 // ---------------------------------------------------------------------------
 // A BAD DECLARATION IS A REFUSAL THAT IS RECORDED, NOT A CRASH
@@ -169,6 +184,24 @@ export function openHostDeclaration(hostDir: string | null): {
       // not be able to name.
       const safe = path.basename(String(o.correlationId));
       const p = path.join(announceDir, `${safe}.json`);
+      // 🔴 NOT `existsSync`. On a case-insensitive filesystem — NTFS, and APFS
+      // as usually configured — `existsSync` answers yes for a name that
+      // differs only in case, and the gate would attach THIS scene document to
+      // a DIFFERENT generation's artifact. The correlation control
+      // (`announce-under-a-different-id`) cannot fail in that case, and the
+      // leaf reads `supplied` when the honest answer is `declined`.
+      //
+      // So the requested name is compared against what the directory actually
+      // holds. `readdirSync` returns the on-disk spelling, so the comparison is
+      // exact on every platform and the behaviour stops depending on which
+      // filesystem the user happens to have.
+      let onDisk: string[];
+      try {
+        onDisk = fs.readdirSync(announceDir);
+      } catch {
+        return null; // no announce directory at all — nobody announced anything
+      }
+      if (!onDisk.includes(`${safe}.json`)) return null;
       if (!fs.existsSync(p)) return null;
       const doc = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;
       // Returned verbatim. Filling a missing field with a plausible default
