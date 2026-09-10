@@ -481,6 +481,18 @@ app.whenReady().then(async () => {
 
   setupAllIpcHandlers({ initialize, sendToRenderer, notifyWebviewProjectChange });
 
+  // WO-G1. Say which witness this run is aimed at, before anything writes to it.
+  // The app defaults to the LIVE server and that is the intended behaviour; the
+  // line exists so "which one was it" is never a question anybody has to answer
+  // by reading config/witness-endpoint.js.
+  try {
+    const { describe } = require('./config/witness-endpoint');
+    const w = describe();
+    console.log(`[witness] ${w.url}${w.production ? '  ← the LIVE audit log' : '  (not production)'}`);
+  } catch (e) {
+    console.error('[witness] could not resolve an endpoint: ' + e.message);
+  }
+
   // WO-G1. The host seam, registered BESIDE the app's own handlers. The two sets
   // are disjoint — app channels are bare names (`get-projects`), host channels
   // are namespaced (`scruple:ping`) — so neither can shadow the other.

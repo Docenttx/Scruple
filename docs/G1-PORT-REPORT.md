@@ -94,28 +94,40 @@ which trades a real boundary for a tidier file.
 
 ---
 
-## 🔴 The one that must be settled before G3
+## The witness endpoint — one resolver, aimed at the live server
 
-**The app pointed at a live witness.** `http://129.80.23.93:5799` in five places
-— and `lock/executors/lock-executor-server.js:17` **hard-coded it with no env
-override**, so setting `SCRUPLE_WITNESS_URL` moved four call sites and silently
-left one aimed at the production audit log. Nobody reading the environment would
-have caught it.
+The app named `http://129.80.23.93:5799` in five places, and
+`lock/executors/lock-executor-server.js:17` **hard-coded it with no env
+override**. So `SCRUPLE_WITNESS_URL` moved four call sites and silently left one
+somewhere else: you could read the config, believe the app was aimed at a test
+server, and still be writing to production from the lock path.
 
-A test rig writing test locks into that log is not undoable. Not deleting
-anything is the entire value of an audit log.
+`config/witness-endpoint.js` is now the only resolver. Twelve call sites, one
+answer, and `SCRUPLE_WITNESS_URL` moves all of them — which is what it always
+claimed to do.
 
-`config/witness-endpoint.js` is now the only resolver. Default: the CVM surrogate
-at `127.0.0.1:8799` — software-backed, so a leaf it signs is `passthrough` or
-`stale` and never `verified`, which is the point. A production endpoint **refuses
-with a code** (`witness_endpoint_refused`) unless `SCRUPLE_ALLOW_PRODUCTION_WITNESS=1`.
-No config-file key and no UI toggle: a value you can set by clicking is a value
-you can set by accident. Control proven red, then green with the opt-in.
+⚑ **It defaults to the LIVE server, and that is deliberate.** An earlier version
+of this file defaulted to the CVM surrogate and refused production unless an
+environment variable said otherwise. **That was wrong.** The founder's call, and
+the right one: there are no real users yet, so there is nothing to break, and
+testing against the real server is worth more than protecting an audit log with
+nothing in it to protect. A packaged app that would not witness until somebody
+set an environment variable is not cautious — it is broken, and it fails in the
+direction that loses a user's evidence.
 
-**This is a change to shipped behaviour and the founder should confirm it.** It
-makes the safe thing the default and the real thing deliberate.
+⚑ **And the host is not only the witness.** The same server answers
+`/api/stripe-config`, `/api/create-payment-intent` and the TSD balance routes.
+Refusing it would not merely skip witnessing; it would take payments down too.
+A second reason the refusal was the wrong shape.
 
----
+What survives is the part that was an actual defect — no hard-coded address, one
+place that decides — plus a startup line naming what it resolved:
+
+```
+[witness] http://129.80.23.93:5799  ← the LIVE audit log
+```
+
+The cheap version of the protection, and it costs nobody anything.
 
 ## Every difference from the legacy tab set, and why
 
