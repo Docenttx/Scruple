@@ -219,6 +219,7 @@ function renderMainApp(root) {
             <div class="view-toggle-header">
               ${comfyUIEnabled ? `<button class="view-toggle-btn ${currentView === 'comfyui' ? 'active' : ''}" data-view="comfyui">ComfyUI</button>` : ''}
               ${kohyaEnabled ? `<button class="view-toggle-btn ${currentView === 'kohya' ? 'active' : ''}" data-view="kohya">Kohya_ss</button>` : ''}
+              ${renderBlenderTab(currentView)}
               <button class="view-toggle-btn ${currentView === 'workspace' ? 'active' : ''}" data-view="workspace">
                 Workspace
               </button>
@@ -300,6 +301,7 @@ function renderMainApp(root) {
                 </div>
               ` : ''}
             </div>` : ''}
+            ${renderBlenderContainer(currentView)}
             <div class="workspace-container ${currentView === 'workspace' ? 'visible' : 'hidden'}">
               ${renderWorkspace(selectedProject, activeProject, iterations, trainingRuns, isInterlocked)}
             </div>
@@ -338,6 +340,7 @@ function renderMainApp(root) {
         <div class="view-toggle-header">
           ${comfyUIEnabled ? `<button class="view-toggle-btn ${currentView === 'comfyui' ? 'active' : ''}" data-view="comfyui">ComfyUI</button>` : ''}
           ${kohyaEnabled ? `<button class="view-toggle-btn ${currentView === 'kohya' ? 'active' : ''}" data-view="kohya">Kohya_ss</button>` : ''}
+          ${renderBlenderTab(currentView)}
           <button class="view-toggle-btn ${currentView === 'workspace' ? 'active' : ''}" data-view="workspace">
             Workspace
           </button>
@@ -368,6 +371,18 @@ function renderMainApp(root) {
       const kohyaOverlay = kohyaContainer.querySelector('#kohya-overlay');
       if (kohyaOverlay && State.get('kohyaConnected')) {
         kohyaOverlay.remove();
+      }
+    }
+    // WO-G4. Same treatment as its neighbours: the class follows currentView.
+    // The PANEL is re-rendered only when a measurement arrived — re-rendering it
+    // on every tab switch would throw the reading away and offer the user a
+    // "Measure" button they already pressed.
+    const blenderContainer = appContainer.querySelector('.blender-container');
+    if (blenderContainer) {
+      blenderContainer.className = `blender-container ${currentView === 'blender' ? 'visible' : 'hidden'}`;
+      if (State.get('blenderPanelDirty')) {
+        blenderContainer.innerHTML = renderBlenderPanel(State.get('blenderMeasurement'));
+        State.set('blenderPanelDirty', false);
       }
     }
     if (workspaceContainer) {

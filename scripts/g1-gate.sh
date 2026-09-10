@@ -68,10 +68,18 @@ tabset() {
 }
 
 # ── the three boots ───────────────────────────────────────────────────────────
+# ⚑ WO-G4 ADDED `Blender`, AND THIS GATE CAUGHT IT — which is the whole reason
+# it compares a SET rather than checking that each expected tab is present. The
+# three sets below changed in one commit, with a reason, instead of a new tab
+# arriving unremarked. That is the difference between a change and a drift.
+#
+# Blender appears in all three because this box HAS one: the tab is gated on
+# fs.existsSync of the resolved binary, so on a machine without Blender all three
+# sets lose it together. scripts/g4-gate.sh is what proves that, by booting twice.
 declare -A EXPECT=(
-  [A]="ComfyUI,Fiat,Workspace"
-  [B]="Blockchain,ComfyUI,Workspace"
-  [C]="Fiat,Workspace"
+  [A]="Blender,ComfyUI,Fiat,Workspace"
+  [B]="Blender,Blockchain,ComfyUI,Workspace"
+  [C]="Blender,Fiat,Workspace"
 )
 declare -A CONF=( [A]="true fiat auto" [B]="true blockchain user" [C]="false fiat auto" )
 

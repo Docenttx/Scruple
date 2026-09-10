@@ -11,6 +11,33 @@
  */
 
 function setupMainAppHandlers() {
+  // WO-G4. The one action the Blender tab has. It is a button rather than
+  // something that happens on open because measuring STARTS A BLENDER, and a
+  // tab that did that on every visit would make switching tabs expensive in a
+  // way nothing else here is.
+  const measureBlender = document.getElementById('measure-blender');
+  if (measureBlender) {
+    measureBlender.addEventListener('click', async () => {
+      measureBlender.disabled = true;
+      measureBlender.textContent = 'Measuring…';
+      try {
+        const m = await window.scruple.blender();
+        State.set('blenderMeasurement', m);
+        // If the binary vanished since startup the tab goes away, which is the
+        // same answer `absent` gives everywhere else in this app.
+        if (m && m.state === 'absent') State.set('blenderEnabled', false);
+      } catch (e) {
+        // A refusal is shown, never swallowed into a panel that looks unmeasured.
+        State.set('blenderMeasurement', {
+          state: 'absent',
+          binary: { reason: 'the bridge refused: ' + (e && e.message ? e.message : String(e)) },
+        });
+      }
+      State.set('blenderPanelDirty', true);
+      renderApp();
+    });
+  }
+
   document.querySelectorAll('.view-toggle-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => {
       State.set('currentView', btn.dataset.view);

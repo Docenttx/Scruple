@@ -104,6 +104,27 @@ async function initializeApp() {
     // Set tab visibility from config
     State.set('comfyUIEnabled', state.config?.comfyUIEnabled !== false);
     State.set('kohyaEnabled', state.config?.kohyaEnabled === true);
+    // WO-G4. The Blender tab is gated on whether the machine HAS a Blender, and
+    // that is a different reading from what is in it. `profile()` answers with
+    // fs.existsSync — instant. `blender()` starts a headless Blender and can
+    // take half a minute (finding E3-2, aarch64 under qemu), so it happens on
+    // demand, behind the panel's own button, and never on the path of a render.
+    //
+    // ⚑ ABSENT, NOT EMPTY, and absent is also the default: if the bridge does
+    // not answer, there is no tab. A tab that appeared and then said "no
+    // Blender" would be the greyed-out control this series exists to avoid.
+    State.set('blenderEnabled', false);
+    if (window.scruple && typeof window.scruple.profile === 'function') {
+      window.scruple.profile()
+        .then((p) => {
+          const blender = (p && p.apps || []).find((a) => a.id === 'blender');
+          if (blender && blender.available) {
+            State.set('blenderEnabled', true);
+            renderApp();
+          }
+        })
+        .catch(() => { /* no bridge, no tab — the default already says so */ });
+    }
     // Legacy keys — kept for compatibility with bundle-final.js and other readers
     State.set('testnetEnabled', state.config?.testnetEnabled !== false);
     State.set('mainnetEnabled', state.config?.mainnetEnabled === true);

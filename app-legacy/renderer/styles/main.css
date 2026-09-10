@@ -1343,12 +1343,14 @@ body {
 
 .comfy-webview-container.hidden,
 .kohya-webview-container.hidden,
+.blender-container.hidden,
 .workspace-container.hidden {
   display: none;
 }
 
 .comfy-webview-container.visible,
 .kohya-webview-container.visible,
+.blender-container.visible,
 .workspace-container.visible {
   display: block;
 }
@@ -2174,3 +2176,82 @@ body {
 }
 
 /
+
+/* ── WO-G4 · the Blender tab ──────────────────────────────────────────────────
+   Blender is a native application: no URL, no webview, so this container is the
+   overlay WITHOUT the embedded page. It reuses .webview-overlay, .overlay-content,
+   .status-icon and .retry-btn unchanged — the user already knows that shape, and
+   a new one would be new friction for no new understanding. Only the state panel
+   below is new, and it borrows the canon's own tokens rather than naming colours. */
+
+.blender-container {
+  flex: 1;
+  position: relative;
+  background: var(--bg-primary);
+  overflow-y: auto;
+}
+
+.blender-panel {
+  padding: 24px 28px;
+  max-width: 760px;
+}
+
+.blender-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.blender-panel-header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--text-primary);
+}
+
+.blender-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.blender-field {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-color);
+  align-items: baseline;
+}
+
+.blender-field-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.blender-field-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  word-break: break-all;
+}
+
+/* The reason a value is missing sits UNDER the value, never in place of it: an
+   empty field and a field that could not be read are different facts. */
+.blender-field-hint {
+  grid-column: 2;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.blender-note {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
