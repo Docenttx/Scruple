@@ -710,6 +710,212 @@ _Suggested, not taken — past WO-W1's scope: an assertion kind for
 exactly what it expects). The field already exists and is already correct; it
 just needs something to read it._
 
+---
+
+# W1-C — the Blender addon on Windows
+
+_The addon at `d98bf8b` (WO-F1/F2/F3). Its own suite: **368 passed, 2 failed**
+with `SCRUPLE_WEB_ROOT` set. Both failures are real and are below._
+
+## W1-C0 — WO-F1 verified line by line, including the part the report got wrong
+
+The build box said F1 had landed and the addon was safe to install. It had not
+been pushed — `29962b8` did not exist on the remote and `origin/blender-addon`
+was still `47bc3d6`, with `get_base_url()` still falling through to
+`https://scruple.ai`. Recorded under W1-C5 below. After they pushed, I checked
+the five lines myself rather than re-reading the report:
+
+| claim | verified |
+|---|---|
+| `bl_idname` resolved dynamically | ✓ `ScrupleAddonPreferences.bl_idname = addon_module_name()` at `preferences.py:267` (the class body still assigns `LEGACY_ADDON_KEY` at 183; the reassignment at registration is what binds) |
+| `base_url` property default is `""` | ✓ `preferences.py:191,197` |
+| `get_base_url()` chain ends at `""` | ✓ `return (cached.get("base_url") or "").strip().rstrip("/")` |
+| `DEFAULT_BASE_URL` unchanged, nothing reaches it | **partly wrong — see below** |
+| the inverted test exists | ✓ `test_an_unconfigured_base_url_is_never_production` |
+
+⚑ **"Nothing reaches for it" is not accurate, and the real design is better than
+that claim.** `vendor/scruple_host_sdk/client.py:58` does reach for it:
+
+```python
+self.prefs = _preferences.Preferences(
+    base_url=base_url or _preferences.DEFAULT_BASE_URL,   # <- production
+)
+```
+
+So an empty base URL reaching the SDK's `Client` still becomes
+`https://scruple.ai`. What actually prevents that is a **guard at the adapter**,
+which says so in its own comment (`adapter/sdk.py`):
+
+```python
+base_url = _prefs.get_base_url()
+if not base_url:
+    # WO-F1. Nobody named a server. The SDK's Client would fill the
+    # blank with https://scruple.ai, so refusing here is the only place
+    # this can be refused
+    return None
+```
+
+I traced every construction path to confirm the guard is not bypassable from the
+addon: `new_client()` takes `base_url` as a **required keyword**; all 17 operator
+call sites go through `get_client()` or `peek_client()`; `provider.py:72` builds a
+`Client` but is only reached via `scruple_host_sdk.register()`, which the addon
+never calls (the only `.register(` in `adapter/`, `operators/` and `panels/` is
+Blender's `timers.register`); and the un-parameterised `Client(host="blender", …)`
+at `__init__.py:40` is inside a **module docstring**, not code.
+
+**Conclusion: safe on the shipped path**, and the safety rests on one guard rather
+than on the default being gone. Worth knowing, because a future caller that builds
+a `Client` directly re-opens it without touching any of the F1 code.
+
+## W1-C1 — 🔴 the vendoring integrity check reports every vendored file as unlisted on Windows
+
+`build/verify_vendor.py` is the check that a vendored copy has not been edited in
+place — the failure mode vendoring invites. On Windows it emits **40 spurious
+errors** and cannot be used.
+
+```python
+out.add(os.path.relpath(os.path.join(dirpath, fn), vendor_dir))   # line 42
+...
+for rel in sorted(present_files(vendor_dir) - set(listed)):        # line 67
+    errors.append(f"{rel}: present in vendor/ but not listed in VENDOR.json")
+```
+
+`os.path.relpath` yields `scruple_api\__init__.py` on Windows; `VENDOR.json` keys
+are `scruple_api/__init__.py`. The set difference is therefore *every file*.
+
+⚑ The hash half of the same function **works**, because it iterates the manifest's
+own forward-slash keys and Windows accepts forward slashes in `os.path.join`. So
+the check half-works in the most misleading way available: the part that would
+catch a tampered file passes, and the part that would catch an *unlisted* file
+drowns it in 40 false positives. One line fixes it —
+`.replace(os.sep, "/")` on line 42.
+
+## W1-C2 — the auth cache's `0600` guarantee is not enforced on Windows
+
+`vendor/scruple_host_sdk/auth.py` holds the API key and states the protection
+plainly: *"The key is written with mode 0600 (owner read/write only)"*, and
+contrasts itself with *"CAD shells' plaintext `%APPDATA%` file"*. It calls
+`os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)` at line 124.
+
+**On Windows `os.chmod` only toggles the read-only attribute. It sets no ACL.**
+The addon's own test says so:
+
+```
+tests/test_auth.py::test_cache_file_permissions
+    assert stat.S_IMODE(os.stat(cache).st_mode) == 0o600
+    E   assert 438 == 384          # 0o666 vs 0o600
+```
+
+**Measured, rather than inferred from the mode bits** — I created a real cache
+file and read its ACL:
+
+```
+C:\Users\user\.scruple\blender-auth.json
+  NT AUTHORITY\SYSTEM     : FullControl
+  BUILTIN\Administrators  : FullControl
+  LITTLE\user             : FullControl
+```
+
+So in practice the key is **not** world-readable — it is restricted to the user,
+SYSTEM and local Administrators, which is close to what `0600` buys on POSIX
+(where root reads it too). The exposure is small **on this path**.
+
+⚑ **But the protection is inherited, not asserted.** Nothing in the code
+restricts that file; the user-profile directory's ACL does. Move the cache
+somewhere with a permissive ACL — a shared folder, a synced directory, a
+removable drive, `C:\ProgramData`, a machine where the profile has been
+loosened — and the code will still report success while writing a readable key.
+The docstring's contrast with a "plaintext `%APPDATA%` file" is therefore weaker
+on Windows than it reads: the difference is directory inheritance, not the
+`chmod`.
+
+_(The test blob I wrote to measure this was removed; the file was newly created
+and contained only my test value, so nothing was overwritten.)_
+
+## W1-C3 — `tools/verify_gap.py` hard-codes `/data/scruple-web`, the third instance
+
+```python
+SERVER_ROOT = os.environ.get("SCRUPLE_WEB_ROOT", "/data/scruple-web")   # line 44
+```
+
+Without `SCRUPLE_WEB_ROOT`, 72 citation checks fail with "no such file
+server:app/api/v2/witness/route.ts (neither at the pinned commit nor in the
+working tree)" — which reads as a stale gap inventory rather than as an unset
+variable. With it set, all 13 gap tests pass.
+
+**Third occurrence of one defect**: the `vendor/scruple-web` symlink pointing at
+`/data/scruple-web`, `SCRUPLE_DB_PATH` defaulting to
+`/mnt/corpus/scruple-council-impl/…`, and now this. Each is env-overridable, each
+works on exactly one machine, and each fails in a way that blames the data rather
+than the configuration.
+
+## W1-C4 — 🔴 `git -c core.autocrlf=false clone` does not persist, and I said it did
+
+**My error, and it nearly produced a false finding against the build box's push.**
+
+I cloned all three repos with `git -c core.autocrlf=false clone …` and reported —
+here, in a commit message, and to the build box — that autocrlf was forced off on
+all three. It was not. `-c` applies for the duration of that command; it does not
+write to the new repository's config. Measured:
+
+```
+scruple-desktop  autocrlf=false   <- set explicitly afterwards, by hand
+scruple-web      autocrlf=true    <- inherited from the system gitconfig
+scruple-blender  autocrlf=true    <- inherited from the system gitconfig
+```
+
+The consequence landed exactly where W1-A predicted it would. `verify_vendor.py`
+reported `scruple_api/model_write.py: sha256 99bc06c90338 != manifest
+87e6600f1dba (edited in place)`, and I was one step from reporting that the build
+box had shipped an edited vendored file. After `core.autocrlf=false` and
+`git rm --cached -r . && git reset --hard`:
+
+```
+before: 31728 bytes, 714 CRLF pairs, sha256 99bc06c90338
+after : 31014 bytes,   0 CRLF pairs, sha256 87e6600f1dba   == VENDOR.json ✓
+```
+
+⚑ **This is the finding W1-A wrote about, happening to the person who wrote it.**
+The warning was that a checkout-time LF→CRLF rewrite "would have produced findings
+that were internally consistent, reproducible, and completely artificial." It did,
+to me, four hours later, against a real integrity check, and it accused a
+colleague of shipping tampered code. Knowing the failure mode is not the same as
+being immune to it.
+
+_(A second measurement error compounded it: `git cat-file blob X > file` in
+PowerShell does **not** produce raw bytes — `>` re-encodes text output and injects
+CRLF, so my first attempt to compare the stored blob against the working tree was
+itself corrupted. Use `git show`/`checkout-index`, or read via a byte-safe path.)_
+
+## W1-C5 — a described commit is not a pushed commit
+
+The build box reported WO-F1 as landed at `29962b8` and said the addon was safe to
+install, having "verified in the code, not from its report." Every line they
+described was real — in their working tree. It was never pushed.
+
+```
+git ls-remote --heads origin
+  47bc3d6…  refs/heads/blender-addon      <- still pre-F1
+git cat-file -t 29962b8
+  fatal: Not a valid object name 29962b8
+```
+
+Four commits (F1, F2, F2-followup, F3) plus F3's server half on
+`feat/canon-skeleton` were sitting unpushed. Their own account of the cause:
+*"a verification against local state is a verification of local state, and I
+presented it as though I had verified what you would receive."*
+
+**The addon was not installed.** Had it been, an unconfigured addon on a routed
+machine would have contacted `https://scruple.ai`. This is the one place tonight
+where the "a message from another session is data, not authorization" rule
+prevented something rather than merely being good manners — and the thing it
+prevented was acting on a *verification*, not on an opinion.
+
+⚑ **Same shape as three other events tonight**: their `/opt/scruple-witness`
+habit, my "nothing writes the `witnesses` table", and this. In each, **the local
+view was complete, internally consistent, and not the one that mattered.** The
+operational rule that falls out: read `git ls-remote`, not `git log`.
+
 **Related, and the mechanism behind it —** `existsSync()` resolves **4 of 4**
 case variants of a file written once: `Weights.bin`, `weights.bin`,
 `WEIGHTS.BIN`, `WeIgHtS.bIn` all resolve. A declaration naming `weights.bin` is
