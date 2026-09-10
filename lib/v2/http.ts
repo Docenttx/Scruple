@@ -111,6 +111,32 @@ export type V2ErrorCode =
   //                                 field sent outside the MAC
   | 'declared_uncaptured_required'
   | 'declared_uncaptured_refused'
+  // WO-F3. WHAT ENTERED THE DOCUMENT FROM OUTSIDE IT. 422 for both, for the
+  // reason the two above are: the caller authenticated and the JSON parsed;
+  // what is refused is a provenance claim.
+  //
+  //   imported_datablocks_required  a submission that declares SOMETHING about
+  //                                 imported datablocks and will not say how it
+  //                                 was obtained, or an enumerated set with a
+  //                                 null count — where 0 is a count and null is
+  //                                 "nothing enumerated", which is spelled
+  //                                 `source: "none"` and is free. Declaring
+  //                                 nothing at all is also free, and is what
+  //                                 every leaf written before WO-F3 says.
+  //   imported_datablocks_refused   `source: "none"` carrying a set anyway; a
+  //                                 document that disagrees with the signed
+  //                                 counts, the signed source, or its own
+  //                                 digest; a member with both a digest and a
+  //                                 reason it has none, or with neither; an
+  //                                 `imported_origin_observed: true` while no
+  //                                 door in this estate observes an import; a
+  //                                 scalar sent down into `capture`, where the
+  //                                 preimage does not read it; and a
+  //                                 precomputed `input_hash` beside a
+  //                                 declaration, which would leave the
+  //                                 declaration unbound to the leaf hash
+  | 'imported_datablocks_required'
+  | 'imported_datablocks_refused'
   // WO-C3. The other half of Architect's settle: a handle must say how long
   // the thing it points at will be there, and a deadline must be bound to a
   // clock somebody named. Two codes, because the two failures have different
@@ -148,6 +174,8 @@ const STATUS: Record<V2ErrorCode, number> = {
   host_semantics_refused: 422,
   declared_uncaptured_required: 422,
   declared_uncaptured_refused: 422,
+  imported_datablocks_required: 422,
+  imported_datablocks_refused: 422,
   retention_policy_unresolvable: 422,
   settlement_deadline_unbound: 422,
   signer_unavailable: 503,

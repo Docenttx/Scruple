@@ -98,6 +98,10 @@ import { basisForTrust } from '@/lib/leaf/attestationBasis';
 import { witness } from '@/lib/scruple/witness';
 import { hashHostEvidence } from '@/lib/capture/hostRegistry';
 import {
+  IMPORTED_DATABLOCKS_INPUT_KIND,
+  validateImportedDatablocks,
+} from '@/lib/capture/importedDatablocks';
+import {
   hashGraphOrTraining,
   hashModelFingerprints,
   hashRunInputs,
@@ -168,6 +172,30 @@ const Body = z.object({
   // because `capture` is a free record on this route and every rule that
   // matters about them is cross-field.
   declared_uncaptured: z.record(z.unknown()).optional(),
+  // WO-F3. WHAT ENTERED THIS DOCUMENT FROM OUTSIDE IT, and that nobody here
+  // watched it arrive. The DOCUMENT is top level for `host_evidence`'s and
+  // `declared_uncaptured`'s reason and, like them, only its digest is signed.
+  //
+  // ⚑ THE FIVE SCALARS ARE TOP LEVEL TOO, WHICH IS NOT WHERE 058's AND 059's
+  // SCALARS LIVE, and the difference is the point. Those belong to `capture`
+  // because a capture component is the thing that observed them. This field
+  // exists for a product with no capture block at all — the standalone Blender
+  // add-on, `docs/BLENDER.md` row 1 — and `validateCaptureClaims` rightly
+  // obliges any capture-bearing leaf to declare a basis, a profile, a
+  // confinement, an upstream epoch and a host level. Forcing a plugin to
+  // invent all five in order to say one true thing about an imported image
+  // would be the trade WO-F3 was written to refuse. `componentPreimage()`
+  // reads them from the root, so they are inside the MAC either way.
+  //
+  // Every cross-field rule about them is in lib/capture/importedDatablocks.ts,
+  // which reads the RAW json — a zod schema can say a key is a number and
+  // cannot say that a key sent one level down is outside the MAC.
+  imported_datablocks: z.record(z.unknown()).optional(),
+  imported_datablocks_source: z.enum(['host_datablocks', 'none']).optional(),
+  imported_origin_observed: z.boolean().optional(),
+  imported_datablocks_count: z.number().int().nonnegative().optional(),
+  imported_datablocks_unreadable_count: z.number().int().nonnegative().optional(),
+  imported_datablocks_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   attestation: z.object({ type: z.string().min(1), report: z.string().min(1) }).optional(),
   continuity: z
     .object({
@@ -281,6 +309,23 @@ export async function POST(req: NextRequest) {
   const claims = validateCaptureClaims(raw);
   if (!claims.ok) return v2Error(claims.code, claims.message, claims.detail);
 
+  // ---- WO-F3: what entered this document from OUTSIDE it ------------------
+  //
+  // Beside rule 1's call and above every write, for the same reason: this
+  // refuses the CONTENT of a claim, so a refused declaration must leave no row.
+  //
+  // Finding E7-1 — the finding the E series ends on — is that two leaves built
+  // around two DIFFERENT AI images were identical in every field capable of
+  // describing how the artifact came to exist. Not a false claim; an ABSENT
+  // one, and absence and "there was nothing" read the same. This is the field
+  // that lets the honest statement be made: THESE DATABLOCKS ENTERED THIS
+  // DOCUMENT FROM OUTSIDE IT, HERE ARE THE DIGESTS OF THEIR BYTES, AND THE
+  // PARTY THAT PRODUCED THIS LEAF DID NOT OBSERVE HOW THEY CAME TO EXIST.
+  //
+  // It says nothing about what made them, and it is not entitled to.
+  const imported = validateImportedDatablocks(raw);
+  if (!imported.ok) return v2Error(imported.code, imported.message, imported.detail);
+
 
   // ---- the component envelope (H-4 §4.3), verified — or its absence
   // ---- recorded (WO-6, §10 C-6) -------------------------------------
@@ -384,6 +429,15 @@ export async function POST(req: NextRequest) {
           input_hash: body.input_hash,
           model_fingerprints_hash: body.model_fingerprints_hash,
           machine_manifest_hash: body.machine_manifest_hash,
+          // WO-F3. In the MAC, from the submission root. The values are the
+          // ones the caller sent — the validator above refused every shape
+          // that is not exactly what it looks like — so the server MACs the
+          // same bytes the client MACed.
+          imported_datablocks_source: body.imported_datablocks_source,
+          imported_origin_observed: body.imported_origin_observed,
+          imported_datablocks_count: body.imported_datablocks_count,
+          imported_datablocks_unreadable_count: body.imported_datablocks_unreadable_count,
+          imported_datablocks_hash: body.imported_datablocks_hash,
           capture: body.capture as Record<string, never> | undefined,
           // WO-C2. The handles enter the MAC here, on the server's side of
           // the same one function the component called. A byte changed in
@@ -564,10 +618,69 @@ export async function POST(req: NextRequest) {
   // input_hash. This surface never sees input bytes (P6), so either the
   // caller declares the manifest and we hash it with ingest's formula,
   // or the caller sends the hash it computed itself.
+  //
+  // ---- WO-F3: ⚑ AND THE DECLARATION'S DIGEST IS FOLDED IN HERE ------------
+  //
+  // This is what makes a changed datablock MOVE THE LEAF HASH, and it is the
+  // half of the binding that does not depend on there being a component.
+  //
+  // The five scalars are in the ratchet MAC, which covers them for any
+  // submission that carries an envelope — and the product this field was built
+  // for carries none: the standalone add-on is a plugin, `component_verified`
+  // is 0 on its every leaf, and a MAC nobody computed binds nothing. What binds
+  // it there is the LEAF: the witness's canonical record hashes `input_hash`
+  // under both v2 and v2.2, and the leaf hash is what the witness signs and
+  // what a Merkle proof resolves to. So the declaration enters the run's input
+  // manifest as one ref, under a reserved kind, and a single flipped hex digit
+  // in a single datablock's digest changes `input_hash`, changes `leaf_hash`,
+  // and invalidates the signature over it.
+  //
+  // 🔴 THE ALTERNATIVE WAS A NEW FIELD IN THE WITNESS'S RECORD, and it is
+  // refused twice over: the witness process is out of bounds for this series,
+  // and a new record field would be a new leaf scheme that every leaf written
+  // before it could not express. `input_hash` already means "what went into
+  // this run", and an imported datablock is exactly that — E7-1 measured it
+  // NULL on both add-on leaves, which is the same silence one column over.
+  const declaredInputs = body.inputs ?? null;
+  const reserved = declaredInputs?.filter((i) => i.kind === IMPORTED_DATABLOCKS_INPUT_KIND) ?? [];
+  if (reserved.length > 0) {
+    return v2Error(
+      'imported_datablocks_refused',
+      `An input ref of kind "${IMPORTED_DATABLOCKS_INPUT_KIND}" was declared by the caller. ` +
+        'That kind is reserved: the route folds the declaration digest into the input ' +
+        'manifest itself, and a hand-supplied ref under the same kind would be ' +
+        'indistinguishable from it in the preimage — a caller could claim a datablock ' +
+        'declaration in the leaf hash without sending a declaration at all.',
+      { reserved: reserved.map((r) => r.hash) },
+    );
+  }
+  if (imported.declaration?.hash && body.input_hash) {
+    // Refused rather than silently not folded. A precomputed `input_hash` is
+    // opaque — there is no manifest to append to — so honouring it would store
+    // a declaration that the leaf hash does not cover, which is the class of
+    // defect this work order exists to close: a record that looks bound and is
+    // not. Send `inputs` instead and let the route hash them.
+    return v2Error(
+      'imported_datablocks_refused',
+      'A precomputed `input_hash` was sent beside an `imported_datablocks` declaration. The ' +
+        "declaration's digest is folded into the input manifest so that a changed datablock " +
+        'moves the leaf hash; a precomputed hash has no manifest to fold it into, so the ' +
+        'declaration would sit on the leaf with nothing binding it. Send `inputs` (which may ' +
+        'be empty) and let this route compute the hash.',
+      { imported_datablocks_hash: imported.declaration.hash },
+    );
+  }
+  const foldedInputs =
+    imported.declaration?.hash !== undefined && imported.declaration?.hash !== null
+      ? [
+          ...(declaredInputs ?? []),
+          { kind: IMPORTED_DATABLOCKS_INPUT_KIND, hash: imported.declaration.hash },
+        ]
+      : declaredInputs;
   const inputHash =
     body.input_hash ??
-    (body.inputs
-      ? hashRunInputs({ provider: null, prompt: null, spec: null, inputs: body.inputs })
+    (foldedInputs
+      ? hashRunInputs({ provider: null, prompt: null, spec: null, inputs: foldedInputs })
       : null);
 
   // model_fingerprints_hash. Same two ways in.
@@ -784,13 +897,16 @@ export async function POST(req: NextRequest) {
           host_evidence, host_evidence_hash,
           uncaptured_enumeration_method, uncaptured_scope, uncaptured_scope_source,
           declared_uncaptured_count, declared_uncaptured_hash, declared_uncaptured,
+          imported_datablocks_source, imported_origin_observed,
+          imported_datablocks_count, imported_datablocks_unreadable_count,
+          imported_datablocks_hash, imported_datablocks,
           resolution_witness_endpoint, resolution_witness_authority,
           resolution_checkpoint_id, resolution_prev_checkpoint_id,
           resolution_prev_checkpoint_quote_time,
           resolution_settlement_deadline, resolution_retention_policy_digest,
           settlement_clock, settlement_clock_authority, settlement_observed_at,
           evidence_retained_until)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -919,6 +1035,37 @@ export async function POST(req: NextRequest) {
       claims.uncaptured?.count ?? null,
       claims.uncaptured?.hash ?? uncapturedHashed?.hash ?? null,
       uncapturedHashed?.json ?? null,
+      // Migration 060, WO-F3. WHAT ENTERED THIS DOCUMENT FROM OUTSIDE IT, AND
+      // THAT NOBODY HERE WATCHED IT ARRIVE. NULL across all six for a
+      // submission that declared nothing — for 053's, 056's, 057's, 058's and
+      // 059's reason: NULL is "the question was never asked of this leaf",
+      // `source: 'none'` is "asked, and nothing enumerated anything".
+      //
+      // ⚑ `imported_datablocks_count` IS 0 AND NOT NULL when the host
+      // enumerated its datablocks and none had come from outside. That is the
+      // distinction the whole field turns on — the same one 059 holds for the
+      // absence set — and 060's CHECK 2 refuses the other writing of it.
+      //
+      // ⚑ `imported_origin_observed` IS 0 AND NOT NULL on every leaf that
+      // declares anything, because "nobody here watched these bytes arrive" is
+      // the assertion, not the absence of one. It is the field E7-1 found
+      // missing, and a NULL in it would be the silence again.
+      //
+      // The document is stored as the CANONICAL BYTES THAT WERE HASHED so a
+      // verifier holding this column can reproduce the digest — and can run
+      // the join this field exists for: given a witnessed artifact's content
+      // hash, which documents imported it.
+      imported.declaration?.source ?? null,
+      imported.declaration?.originObserved === null ||
+      imported.declaration?.originObserved === undefined
+        ? null
+        : imported.declaration.originObserved
+          ? 1
+          : 0,
+      imported.declaration?.count ?? null,
+      imported.declaration?.unreadableCount ?? null,
+      imported.declaration?.hash ?? null,
+      imported.declaration?.json ?? null,
       // Migration 054, WO-C2. WHAT THE COMPONENT SIGNED, not what this server
       // knows about itself. The endpoint is self-asserted by the emitter and
       // is deliberately NOT overwritten with our own address: a compromised
@@ -1046,6 +1193,27 @@ export async function POST(req: NextRequest) {
       // is entitled to see that it was folded in rather than dropped —
       // which is exactly what could not be seen before WO-1.
       input_hash: inputHash,
+      // WO-F3. Echoed on every response, INCLUDING WHEN IT IS NULL, because
+      // "this leaf declares nothing about what was imported into it" is a fact
+      // a consumer needs and an absent key is a fact nobody reads — the same
+      // rule `component` and `seal` follow above.
+      //
+      // `input_hash_folds_declaration` is spelled out rather than left for a
+      // client to derive: it is the answer to "is this declaration bound to
+      // this leaf", and a caller that sent a declaration is entitled to see
+      // that its digest went into the leaf hash rather than merely into a
+      // column. That is exactly what could not be seen before WO-F3.
+      imported_datablocks: imported.declaration
+        ? {
+            source: imported.declaration.source,
+            origin_observed: imported.declaration.originObserved,
+            count: imported.declaration.count,
+            unreadable_count: imported.declaration.unreadableCount,
+            hash: imported.declaration.hash,
+            input_hash_folds_declaration: Boolean(imported.declaration.hash),
+            signed: componentVerified,
+          }
+        : null,
       workflow_hash: workflowHash,
       model_fingerprints_hash: modelFingerprintsHash,
       machine_manifest_hash: body.machine_manifest_hash ?? null,

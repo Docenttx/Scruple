@@ -433,6 +433,16 @@ def test_the_mac_verifies_against_an_independently_derived_key(make_client, tmp_
             "uncaptured_scope_source", "declared_uncaptured_count",
             "declared_uncaptured_hash",
         )},
+        # WO-F3. The five `imported_*` scalars, spelled out by hand for the
+        # same reason. ⚑ THEY ARE READ FROM THE SUBMISSION ROOT, not from
+        # `capture`, so this dict takes them from `body` — a `server-library`
+        # placement has no datablock table to enumerate and declares nothing,
+        # which is `None` in a stable shape rather than a shorter preimage.
+        **{k: body.get(k) for k in (
+            "imported_datablocks_source", "imported_origin_observed",
+            "imported_datablocks_count", "imported_datablocks_unreadable_count",
+            "imported_datablocks_hash",
+        )},
         # WO-C2. The resolution handles, prefixed, INSIDE the MAC. Spelled out
         # here by hand for the same reason every other field above is: this
         # test exists to derive the MAC without calling the function under

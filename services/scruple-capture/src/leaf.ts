@@ -441,6 +441,19 @@ export interface Submission {
    *  pair that disagrees. Absent exactly when the leaf says `not_enumerated`. */
   declared_uncaptured?: DeclaredUncapturedDocument;
   machine_manifest_hash?: string;
+  /** WO-F3. What entered the document from outside it, and its five signed
+   *  scalars. TOP-LEVEL rather than capture fields, because the product the
+   *  field exists for is a plugin with no capture block at all — see
+   *  lib/capture/importedDatablocks.ts. A sidecar gate declares nothing here
+   *  today: it watches a volume and an HTTP stream, and neither is a datablock
+   *  table it could enumerate. Absent, therefore, and absent is null in the
+   *  preimage rather than a shape change. */
+  imported_datablocks?: Record<string, unknown>;
+  imported_datablocks_source?: 'host_datablocks' | 'none';
+  imported_origin_observed?: boolean;
+  imported_datablocks_count?: number | null;
+  imported_datablocks_unreadable_count?: number | null;
+  imported_datablocks_hash?: string | null;
   /** The route recomputes workflow_hash from this (lib/leaf/hashes.ts), so a
    *  verifier can check it against capture.workflow_hash. */
   graph?: Record<string, unknown>;
@@ -478,6 +491,17 @@ export function preimageOf(s: Submission): PreimageFields {
     input_hash: s.input_hash ?? null,
     model_fingerprints_hash: s.model_fingerprints_hash ?? null,
     machine_manifest_hash: s.machine_manifest_hash ?? null,
+    // WO-F3. Five keys, always present, null when this component declared
+    // nothing — which today is always, because a sidecar gate has no datablock
+    // table to enumerate. The KEYS are here anyway: dropping them would change
+    // the canonical JSON and therefore every MAC across three implementations,
+    // and keeping them makes the MAC cover the ASSERTION THAT THIS COMPONENT
+    // DECLARED NO IMPORTS. A proxy cannot add a declaration in flight.
+    imported_datablocks_source: s.imported_datablocks_source ?? null,
+    imported_origin_observed: s.imported_origin_observed ?? null,
+    imported_datablocks_count: s.imported_datablocks_count ?? null,
+    imported_datablocks_unreadable_count: s.imported_datablocks_unreadable_count ?? null,
+    imported_datablocks_hash: s.imported_datablocks_hash ?? null,
     surface: s.capture.surface,
     hook: s.capture.hook,
     fidelity: s.capture.fidelity,

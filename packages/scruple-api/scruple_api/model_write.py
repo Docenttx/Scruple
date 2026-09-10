@@ -69,10 +69,34 @@ import math
 import os
 from dataclasses import dataclass, field
 
-from .canonical import canonicalize
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from .manifest import canonicalize, sha256_file, sha256_hex
+# ⚑ ONE `canonicalize`, AND IT IS THE jcs-2 ONE. Until 2026-09-10 this module
+# imported the name TWICE — `from .canonical import canonicalize` on one line
+# and `from .manifest import canonicalize, ...` three lines later — and the
+# second silently shadowed the first. So all three leaf-hash formulas below
+# (`hash_training_recipe`, `hash_run_inputs`, `hash_model_fingerprints`) ran on
+# `manifest.canonicalize`, which is the jcs-1-era sorted-keys `json.dumps`:
+# `ensure_ascii=True`, Python `repr` for floats, and `NaN`/`Infinity` emitted
+# rather than refused. Measured against the server, which computes the same
+# three digests with RFC 8785:
+#
+#   {"filename": "café.png", "x": 1e-5}
+#     jcs-2 (server, and now here)  {"filename":"café.png","x":0.00001}
+#     manifest.canonicalize         {"filename":"caf\u00e9.png","x":1e-05}
+#
+# They agree on ASCII strings and small integers, which is every value the
+# tests happened to use, and diverge on a non-ASCII filename or a float — where
+# a verifier recomputing the digest in the other language gets a mismatch that
+# is indistinguishable from tampering. That is verbatim the defect WO-21 fixed
+# on the TypeScript side and the comment in `hash_model_fingerprints` below
+# already believed had been fixed here. Found by WO-F3, finding F3-2.
+#
+# `manifest.canonicalize` is NOT wrong and is not being removed: it is the
+# `jcs-1` formula, and `hash_*_legacy` below still replays rows written under
+# that profile through `_js_json`. What was wrong was reaching it by accident.
+from .canonical import canonicalize
+from .manifest import sha256_file, sha256_hex
 from .surface import CaptureHook, ObservationFidelity, SurfaceKind
 
 __all__ = [

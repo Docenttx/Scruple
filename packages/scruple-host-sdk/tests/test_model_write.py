@@ -40,6 +40,8 @@ import struct
 
 import pytest
 
+from scruple_api.canonical import CanonicalizationError
+
 from scruple_api.model_write import (
     DirectoryCheckpointError,
     TrainingRecipeError,
@@ -227,10 +229,22 @@ def test_the_dataset_lands_on_input_hash_with_the_shipped_formula():
     run = TrainingRun(recipe={}, dataset=None)
     assert run.input_hash() is None
     expected = hash_run_inputs([{"kind": "dataset", "hash": "a" * 64}])
-    # node -e "const c=require('crypto');console.log(c.createHash('sha256').update(
-    #   JSON.stringify({provider:null,prompt:null,spec:null,
-    #   inputs:[{kind:'dataset',hash:'a'.repeat(64)}]}),'utf8').digest('hex'))"
-    assert expected == "01b1a7a6f7344a8aac3ea6723e0aa8118c3d90da7422f07054284f65a2852b8c"
+    # ⚑ THE VALUE MOVED WITH THE PROFILE, and this test kept the old one and
+    # has been RED since. `hash_run_inputs` is `canonicalize`, not
+    # `JSON.stringify`, under profile `jcs-2` (WO-21, 2026-09-03,
+    # lib/leaf/hashes.ts's header): the wrapper's keys are sorted rather than
+    # fixed-order, so `inputs` sorts before `prompt`, `provider` and `spec`.
+    # The docstring above said "fixed-order JSON.stringify" and that is now the
+    # LEGACY formula, kept for replaying `jcs-1` rows only.
+    #
+    # Re-pinned against the TypeScript, which is the whole point of the test:
+    #   node --import tsx -e "import {hashRunInputs} from './lib/leaf/hashes.ts';
+    #     console.log(hashRunInputs({provider:null,prompt:null,spec:null,
+    #       inputs:[{kind:'dataset',hash:'a'.repeat(64)}]}))"
+    #   -> 9cac7c396344e5417aea5f2b204c1f4a1d903950e2cdae4c614038aed6fd44b9
+    # and the two implementations agree, which is what a stale constant was
+    # hiding. Found by WO-F3, which folds a digest through this exact formula.
+    assert expected == "9cac7c396344e5417aea5f2b204c1f4a1d903950e2cdae4c614038aed6fd44b9"
 
 
 def test_base_model_fingerprints_use_the_shipped_top_level_sort(tmp_path):
@@ -304,9 +318,45 @@ def test_the_recipe_hashes_to_what_the_typescript_would_compute():
     )
 
 
-def test_a_float_cannot_sneak_into_a_fixed_order_preimage():
-    with pytest.raises(TrainingRecipeError):
-        hash_model_fingerprints({"a": {"bytes": 1.5}})
+def test_a_float_IS_now_serialised_rather_than_refused_and_both_sides_agree():
+    """⚑ THIS TEST ASSERTED THE OPPOSITE AND HAS BEEN RED SINCE jcs-2.
+
+    Under the old fixed-order formula this side refused floats and the
+    TypeScript side hashed them — the twins had already diverged, one refusing
+    what the other committed, and `scruple_api/model_write.py`'s own header
+    records it. RFC 8785 §3.2.2.3 mandates ECMA-262's `Number::toString`, so
+    under profile `jcs-2` a finite float has ONE serialisation in both
+    languages and refusing it would refuse a document JavaScript handles
+    perfectly.
+
+    So the property worth asserting is not the refusal, it is the AGREEMENT.
+    Pinned against the TypeScript:
+      node --import tsx -e "import {hashModelFingerprints} from './lib/leaf/hashes.ts';
+        console.log(hashModelFingerprints({a:{bytes:1.5}}).hash)"
+      -> 890143a6ea0e393cb9955881395bbf011e019e4384b91aa622ebdedac3857ffc
+    Found by WO-F3. What still raises is a NON-FINITE float, below.
+    """
+    text, digest = hash_model_fingerprints({"a": {"bytes": 1.5}})
+    assert text == '{"a":{"bytes":1.5}}'
+    assert digest == "890143a6ea0e393cb9955881395bbf011e019e4384b91aa622ebdedac3857ffc"
+    # A NON-FINITE float is still refused, and now by the canonicalizer that
+    # the server also refuses it with — `CanonicalizationError`, not the
+    # fixed-order preimage's `TrainingRecipeError`. Which is the finding: this
+    # module imported `canonicalize` twice and the jcs-1 spelling shadowed the
+    # jcs-2 one, so until WO-F3 the refusal here came from the wrong formula
+    # and `NaN` was hashed rather than refused. F3-2.
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(CanonicalizationError):
+            hash_model_fingerprints({"a": {"bytes": bad}})
+    # ⚑ AND THE DIVERGENCE THAT WAS INVISIBLE: a non-ASCII filename. The old
+    # spelling escaped it (`ensure_ascii=True`) and the server does not, so a
+    # Python-side verifier recomputing this digest got a mismatch that reads
+    # exactly like tampering. Pinned against the TypeScript:
+    #   node --import tsx -e "import {hashModelFingerprints} from './lib/leaf/hashes.ts';
+    #     console.log(hashModelFingerprints({'café.safetensors':{bytes:1}}).json)"
+    #   -> {"café.safetensors":{"bytes":1}}
+    text2, _ = hash_model_fingerprints({"café.safetensors": {"bytes": 1}})
+    assert text2 == '{"café.safetensors":{"bytes":1}}'
 
 
 # ---------------------------------------------------------------------------

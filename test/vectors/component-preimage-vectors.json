@@ -75,6 +75,11 @@
         "input_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         "model_fingerprints_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         "machine_manifest_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "imported_datablocks_source": null,
+        "imported_origin_observed": null,
+        "imported_datablocks_count": null,
+        "imported_datablocks_unreadable_count": null,
+        "imported_datablocks_hash": null,
         "surface": "in-process-callback",
         "hook": "artifact.produced",
         "fidelity": "as-delivered",
@@ -115,8 +120,8 @@
         "resolution_settlement_deadline": "2026-08-31T00:00:00.000Z",
         "resolution_retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"unknown\",\"confinement_source\":\"unknown\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"declared_uncaptured_count\":null,\"declared_uncaptured_hash\":null,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"host\":null,\"host_adapter\":null,\"host_evidence_hash\":null,\"host_evidence_type\":null,\"host_semantics\":\"blind\",\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":\"ckpt-2026-08-29-0001\",\"resolution_prev_checkpoint_quote_time\":\"2026-08-29T23:59:00.000Z\",\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:00.000Z\",\"resolution_witness_authority\":\"sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"resolution_witness_endpoint\":\"https://witness.example.vendor/api\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"uncaptured_enumeration_method\":null,\"uncaptured_scope\":null,\"uncaptured_scope_source\":null,\"upstream_continuity\":\"unknown\",\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":\"unknown\",\"upstream_uncaptured_reason\":\"not_queried\",\"workflow_hash\":null}",
-      "mac_hex": "51128cff2d7630da861eadf24fb9bf6a0386d7c817545236c2072505d59f3b40"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"unknown\",\"confinement_source\":\"unknown\",\"content_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":0,\"declared_uncaptured_count\":null,\"declared_uncaptured_hash\":null,\"egress\":null,\"fidelity\":\"as-delivered\",\"hook\":\"artifact.produced\",\"host\":null,\"host_adapter\":null,\"host_evidence_hash\":null,\"host_evidence_type\":null,\"host_semantics\":\"blind\",\"imported_datablocks_count\":null,\"imported_datablocks_hash\":null,\"imported_datablocks_source\":null,\"imported_datablocks_unreadable_count\":null,\"imported_origin_observed\":null,\"input_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"artifact\",\"machine_manifest_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mime\":\"image/png\",\"mime_source\":\"caller-declared\",\"model_fingerprints_hash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"observed_at\":\"2026-08-30T00:00:00.000Z\",\"profile\":\"server-managed\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":\"ckpt-2026-08-29-0001\",\"resolution_prev_checkpoint_quote_time\":\"2026-08-29T23:59:00.000Z\",\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:00.000Z\",\"resolution_witness_authority\":\"sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"resolution_witness_endpoint\":\"https://witness.example.vendor/api\",\"size_bytes\":17,\"surface\":\"in-process-callback\",\"uncaptured_enumeration_method\":null,\"uncaptured_scope\":null,\"uncaptured_scope_source\":null,\"upstream_continuity\":\"unknown\",\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":\"unknown\",\"upstream_uncaptured_reason\":\"not_queried\",\"workflow_hash\":null}",
+      "mac_hex": "0069f5939b7c2c485b911b38565ce58a16e7f0190e845f46d65732a82d33f729"
     },
     {
       "name": "no mime — H-4 §7 probe 4, an unattributed write",
@@ -185,6 +190,11 @@
         "input_hash": null,
         "model_fingerprints_hash": null,
         "machine_manifest_hash": null,
+        "imported_datablocks_source": null,
+        "imported_origin_observed": null,
+        "imported_datablocks_count": null,
+        "imported_datablocks_unreadable_count": null,
+        "imported_datablocks_hash": null,
         "surface": "filesystem-watch",
         "hook": "artifact.produced",
         "fidelity": "as-written",
@@ -225,8 +235,8 @@
         "resolution_settlement_deadline": "2026-08-31T00:00:01.000Z",
         "resolution_retention_policy_digest": "sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95"
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"degraded_shared_storage\",\"confinement_source\":\"measured\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"declared_uncaptured_count\":null,\"declared_uncaptured_hash\":null,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"host\":\"phantom-cam\",\"host_adapter\":\"viewport@1.0.0\",\"host_evidence_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"host_evidence_type\":\"scruple.dev/evidence/phantom-cam-viewport/v1\",\"host_semantics\":\"supplied\",\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:01.000Z\",\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":\"http://127.0.0.1:8080\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"uncaptured_enumeration_method\":null,\"uncaptured_scope\":null,\"uncaptured_scope_source\":null,\"upstream_continuity\":\"restarted\",\"upstream_epoch\":\"epoch:9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a\",\"upstream_identity\":\"sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef\",\"upstream_low_watermark_close\":4103,\"upstream_low_watermark_open\":4096,\"upstream_source\":\"measured\",\"upstream_uncaptured_reason\":\"evicted_or_restarted\",\"workflow_hash\":null}",
-      "mac_hex": "67a8c1656d771225b3aad253a700713d881374ec0d8f5f61ed65a82231a48cfe"
+      "canonical_preimage_utf8": "{\"attestation_provider\":\"none\",\"attestation_status\":\"stale\",\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":\"sha256:abababababababababababababababababababababababababababababababab\",\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":\"degraded_shared_storage\",\"confinement_source\":\"measured\",\"content_hash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":1,\"declared_uncaptured_count\":null,\"declared_uncaptured_hash\":null,\"egress\":null,\"fidelity\":\"as-written\",\"hook\":\"artifact.produced\",\"host\":\"phantom-cam\",\"host_adapter\":\"viewport@1.0.0\",\"host_evidence_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"host_evidence_type\":\"scruple.dev/evidence/phantom-cam-viewport/v1\",\"host_semantics\":\"supplied\",\"imported_datablocks_count\":null,\"imported_datablocks_hash\":null,\"imported_datablocks_source\":null,\"imported_datablocks_unreadable_count\":null,\"imported_origin_observed\":null,\"input_hash\":null,\"kind\":\"artifact\",\"machine_manifest_hash\":null,\"mime\":null,\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":\"2026-08-30T00:00:01.000Z\",\"profile\":\"isolated-sidecar\",\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":\"sha256:d2186fcbb6231b46aa5f4ca3fe2522194c468b9ae1732899daff4fa630319c95\",\"resolution_settlement_deadline\":\"2026-08-31T00:00:01.000Z\",\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":\"http://127.0.0.1:8080\",\"size_bytes\":4096,\"surface\":\"filesystem-watch\",\"uncaptured_enumeration_method\":null,\"uncaptured_scope\":null,\"uncaptured_scope_source\":null,\"upstream_continuity\":\"restarted\",\"upstream_epoch\":\"epoch:9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a\",\"upstream_identity\":\"sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef\",\"upstream_low_watermark_close\":4103,\"upstream_low_watermark_open\":4096,\"upstream_source\":\"measured\",\"upstream_uncaptured_reason\":\"evicted_or_restarted\",\"workflow_hash\":null}",
+      "mac_hex": "6bea0c4b5212437b349497de67edb2483ac2c75b7368df7aea794f0cd4f8baf7"
     },
     {
       "name": "no capture block and no resolution block — nulls in a stable shape, not a different shape",
@@ -253,6 +263,11 @@
         "input_hash": null,
         "model_fingerprints_hash": null,
         "machine_manifest_hash": null,
+        "imported_datablocks_source": null,
+        "imported_origin_observed": null,
+        "imported_datablocks_count": null,
+        "imported_datablocks_unreadable_count": null,
+        "imported_datablocks_hash": null,
         "surface": null,
         "hook": null,
         "fidelity": null,
@@ -293,8 +308,118 @@
         "resolution_settlement_deadline": null,
         "resolution_retention_policy_digest": null
       },
-      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":null,\"confinement_source\":null,\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"declared_uncaptured_count\":null,\"declared_uncaptured_hash\":null,\"egress\":null,\"fidelity\":null,\"hook\":null,\"host\":null,\"host_adapter\":null,\"host_evidence_hash\":null,\"host_evidence_type\":null,\"host_semantics\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":null,\"resolution_settlement_deadline\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"uncaptured_enumeration_method\":null,\"uncaptured_scope\":null,\"uncaptured_scope_source\":null,\"upstream_continuity\":null,\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":null,\"upstream_uncaptured_reason\":null,\"workflow_hash\":null}",
-      "mac_hex": "d31cf8f748e3590faee1c5da37687b4a0a78674fe49463908e5281128bcadd7a"
+      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":null,\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":null,\"confinement_source\":null,\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":2,\"declared_uncaptured_count\":null,\"declared_uncaptured_hash\":null,\"egress\":null,\"fidelity\":null,\"hook\":null,\"host\":null,\"host_adapter\":null,\"host_evidence_hash\":null,\"host_evidence_type\":null,\"host_semantics\":null,\"imported_datablocks_count\":null,\"imported_datablocks_hash\":null,\"imported_datablocks_source\":null,\"imported_datablocks_unreadable_count\":null,\"imported_origin_observed\":null,\"input_hash\":null,\"kind\":\"graph_execute\",\"machine_manifest_hash\":null,\"mime\":\"text/plain\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":null,\"resolution_settlement_deadline\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"uncaptured_enumeration_method\":null,\"uncaptured_scope\":null,\"uncaptured_scope_source\":null,\"upstream_continuity\":null,\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":null,\"upstream_uncaptured_reason\":null,\"workflow_hash\":null}",
+      "mac_hex": "dbad6790cf6a8a39bc8147de054cf2e107a0972dcd20b45e40ec85baed23c01e"
+    },
+    {
+      "name": "WO-F3 — a declaration of what entered the document from outside it",
+      "note": "E7-1: two leaves built around two DIFFERENT AI images were identical in every field capable of saying how the artifact came to exist. Not a false claim, an ABSENT one. The five `imported_*` keys are SUBMISSION fields rather than capture fields, and this vector is what pins that: they are read from the root of the submission on all three sides. The product the field exists for is a plugin with no capture block at all, and obliging it to declare an attestation basis, a profile, a confinement, an upstream epoch and a host level in order to name an imported image would be the trade WO-F3 refused. Note `imported_origin_observed: false` — a VALUE, and the one the whole field exists to carry: a party in the middle who could promote it to true would turn \"nobody here watched these bytes arrive\" into \"somebody did\". And note that the DOCUMENT is absent from the preimage while its digest is present, the same split `graph`/`workflow_hash` uses, because a member list cannot ride in a MAC.",
+      "submission": {
+        "baseline_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "kind": "document_save",
+        "content_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+        "mime": "application/x-blender",
+        "machine_manifest_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+        "imported_datablocks": {
+          "source": "host_datablocks",
+          "origin_observed": false,
+          "datablock_types": [
+            "image"
+          ],
+          "datablocks": [
+            {
+              "datablock": "imported-from-somewhere-else",
+              "type": "image",
+              "origin": "FILE",
+              "packed": true,
+              "filename": "generated.png",
+              "bytes": 1267,
+              "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "digest_of": "packed_bytes",
+              "unreadable": null
+            },
+            {
+              "datablock": "gone",
+              "type": "image",
+              "origin": "FILE",
+              "packed": false,
+              "filename": "gone.png",
+              "bytes": null,
+              "digest": null,
+              "digest_of": null,
+              "unreadable": "source_file_missing"
+            }
+          ]
+        },
+        "imported_datablocks_source": "host_datablocks",
+        "imported_origin_observed": false,
+        "imported_datablocks_count": 2,
+        "imported_datablocks_unreadable_count": 1,
+        "imported_datablocks_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+        "component": {
+          "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+          "counter": 3
+        }
+      },
+      "preimage_fields": {
+        "component_id": "0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74",
+        "counter": 3,
+        "build_measurement": null,
+        "attestation_provider": null,
+        "baseline_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "kind": "document_save",
+        "content_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+        "mime": "application/x-blender",
+        "input_hash": null,
+        "model_fingerprints_hash": null,
+        "machine_manifest_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+        "imported_datablocks_source": "host_datablocks",
+        "imported_origin_observed": false,
+        "imported_datablocks_count": 2,
+        "imported_datablocks_unreadable_count": 1,
+        "imported_datablocks_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+        "surface": null,
+        "hook": null,
+        "fidelity": null,
+        "size_bytes": null,
+        "mime_source": null,
+        "correlation_id": null,
+        "correlation_method": null,
+        "egress": null,
+        "close_detection": null,
+        "workflow_hash": null,
+        "observed_at": null,
+        "attestation_status": null,
+        "profile": null,
+        "confinement": null,
+        "confinement_source": null,
+        "upstream_identity": null,
+        "upstream_epoch": null,
+        "upstream_continuity": null,
+        "upstream_low_watermark_open": null,
+        "upstream_low_watermark_close": null,
+        "upstream_uncaptured_reason": null,
+        "upstream_source": null,
+        "host": null,
+        "host_adapter": null,
+        "host_evidence_type": null,
+        "host_semantics": null,
+        "host_evidence_hash": null,
+        "uncaptured_enumeration_method": null,
+        "uncaptured_scope": null,
+        "uncaptured_scope_source": null,
+        "declared_uncaptured_count": null,
+        "declared_uncaptured_hash": null,
+        "resolution_witness_endpoint": null,
+        "resolution_witness_authority": null,
+        "resolution_checkpoint_id": null,
+        "resolution_prev_checkpoint_id": null,
+        "resolution_prev_checkpoint_quote_time": null,
+        "resolution_settlement_deadline": null,
+        "resolution_retention_policy_digest": null
+      },
+      "canonical_preimage_utf8": "{\"attestation_provider\":null,\"attestation_status\":null,\"baseline_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"build_measurement\":null,\"close_detection\":null,\"component_id\":\"0b0c9f4a-7e21-4b0d-9a3e-2c5d8f1a6b74\",\"confinement\":null,\"confinement_source\":null,\"content_hash\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"correlation_id\":null,\"correlation_method\":null,\"counter\":3,\"declared_uncaptured_count\":null,\"declared_uncaptured_hash\":null,\"egress\":null,\"fidelity\":null,\"hook\":null,\"host\":null,\"host_adapter\":null,\"host_evidence_hash\":null,\"host_evidence_type\":null,\"host_semantics\":null,\"imported_datablocks_count\":2,\"imported_datablocks_hash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"imported_datablocks_source\":\"host_datablocks\",\"imported_datablocks_unreadable_count\":1,\"imported_origin_observed\":false,\"input_hash\":null,\"kind\":\"document_save\",\"machine_manifest_hash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"mime\":\"application/x-blender\",\"mime_source\":null,\"model_fingerprints_hash\":null,\"observed_at\":null,\"profile\":null,\"resolution_checkpoint_id\":null,\"resolution_prev_checkpoint_id\":null,\"resolution_prev_checkpoint_quote_time\":null,\"resolution_retention_policy_digest\":null,\"resolution_settlement_deadline\":null,\"resolution_witness_authority\":null,\"resolution_witness_endpoint\":null,\"size_bytes\":null,\"surface\":null,\"uncaptured_enumeration_method\":null,\"uncaptured_scope\":null,\"uncaptured_scope_source\":null,\"upstream_continuity\":null,\"upstream_epoch\":null,\"upstream_identity\":null,\"upstream_low_watermark_close\":null,\"upstream_low_watermark_open\":null,\"upstream_source\":null,\"upstream_uncaptured_reason\":null,\"workflow_hash\":null}",
+      "mac_hex": "fe986f4b56cfd561fcda38b566f1fab862df687a47fe741d100de791b64bfc3a"
     }
   ]
 }

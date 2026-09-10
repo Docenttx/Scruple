@@ -64,6 +64,7 @@ import {
   type ResolutionHandles,
 } from '@/lib/leaf/resolutionHandles';
 import type { HostSemanticsState } from '@/lib/capture/hostRegistry';
+import type { ImportedDatablocksSource } from '@/lib/capture/importedDatablocks';
 
 /** What the component saw, as distinct from what the leaf commits to. */
 export interface ComponentCaptureBlock {
@@ -235,6 +236,32 @@ export interface ComponentSubmission {
    * that disagrees.
    */
   declared_uncaptured?: Record<string, unknown> | null;
+  /**
+   * WO-F3. WHAT ENTERED THIS DOCUMENT FROM OUTSIDE IT. Top-level for
+   * `host_evidence`'s and `declared_uncaptured`'s reason and, like them, NOT in
+   * the preimage: the digest is, and the route recomputes the digest from this
+   * document and refuses a pair that disagrees.
+   */
+  imported_datablocks?: Record<string, unknown> | null;
+  /**
+   * WO-F3. THE FIVE SIGNED SCALARS, AND THEY ARE SUBMISSION FIELDS RATHER THAN
+   * CAPTURE FIELDS ON PURPOSE.
+   *
+   * `capture` is what a capture COMPONENT observed, and `captureClaims.ts`
+   * requires any capture-bearing leaf to declare an attestation basis, a
+   * profile, a confinement, an upstream epoch and a host level. The product
+   * this field exists for — the standalone Blender add-on, `docs/BLENDER.md`
+   * row 1 — is a plugin with no component and no gate: it has none of those
+   * five to declare, and a `capture` block would force it to invent all five
+   * in order to say one true thing. So they sit beside `machine_manifest_hash`
+   * and are read from the submission root, which is inside the MAC just the
+   * same. `lib/capture/importedDatablocks.ts` refuses both misplacements.
+   */
+  imported_datablocks_source?: ImportedDatablocksSource | null;
+  imported_origin_observed?: boolean | null;
+  imported_datablocks_count?: number | null;
+  imported_datablocks_unreadable_count?: number | null;
+  imported_datablocks_hash?: string | null;
   capture?: ComponentCaptureBlock | null;
   /**
    * WO-C2. THE RESOLUTION HANDLES, AND THEY ARE IN THE MAC.
@@ -268,6 +295,31 @@ export function componentPreimage(s: ComponentSubmission): PreimageFields {
     input_hash: s.input_hash ?? null,
     model_fingerprints_hash: s.model_fingerprints_hash ?? null,
     machine_manifest_hash: s.machine_manifest_hash ?? null,
+    // WO-F3. Five keys, ALWAYS PRESENT, null when the submission declared
+    // nothing — the same absent-is-null discipline as every key above, so a
+    // leaf from a door that never enumerated a datablock produces the same
+    // preimage SHAPE as one that did.
+    //
+    // ⚑ ALL FIVE ARE SIGNED AND NONE OF THEM IS REDUNDANT. The hash binds
+    // WHICH datablocks are in the set; the count binds THAT THERE WERE NONE,
+    // in the case where the document would otherwise be an empty list nobody
+    // could tell from a missing one; the unreadable count binds how much of
+    // the set carries no digest at all, so a record that could read one of
+    // three files cannot be made to read as a clean one; the source binds
+    // whether anything enumerated anything; and `imported_origin_observed`
+    // binds the one claim the whole field exists to make. A party in the
+    // middle who could promote that last one from false to true would turn
+    // "nobody here watched these bytes arrive" into "somebody did", which is
+    // the measured-or-unknown invariant applied to provenance rather than to
+    // coverage — and it is exactly the silence WO-E7 measured, inverted.
+    //
+    // Booleans are encoded as-is; `canonicalPreimage` admits them, and
+    // `false` is a VALUE here, never an absence.
+    imported_datablocks_source: s.imported_datablocks_source ?? null,
+    imported_origin_observed: s.imported_origin_observed ?? null,
+    imported_datablocks_count: s.imported_datablocks_count ?? null,
+    imported_datablocks_unreadable_count: s.imported_datablocks_unreadable_count ?? null,
+    imported_datablocks_hash: s.imported_datablocks_hash ?? null,
     surface: c.surface ?? null,
     hook: c.hook ?? null,
     fidelity: c.fidelity ?? null,

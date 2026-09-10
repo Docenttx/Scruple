@@ -25,6 +25,7 @@ from . import capabilities as _capabilities
 from . import http as _http
 from .errors import NoBaselineError
 from .server_library import component_preimage
+from . import imported_datablocks as _imported
 
 __all__ = [
     "WitnessOutcome",
@@ -54,6 +55,18 @@ def witness(
     # this function sent before.
     input_hash: Optional[str] = None,
     model_fingerprints_hash: Optional[str] = None,
+    # ---- WO-F3: what entered the document from OUTSIDE it ---------------
+    # The DOCUMENT, and this function derives the five signed scalars from it
+    # (`imported_datablocks.wire_fields`). An adapter that could pass its own
+    # count could pass one that disagreed with its own list, and the route
+    # would refuse the submission — correctly, and at the cost of a capture.
+    #
+    # ⚑ None means "this door declared nothing", which is what every caller
+    # written before WO-F3 sends and is NULL on the leaf. A door that HAS a
+    # datablock table and found nothing foreign in it passes a document with an
+    # empty `datablocks` list: that reaches the leaf as a count of 0, and 0 is
+    # a count. The two are different facts and `wire_fields` keeps them apart.
+    imported_datablocks: Optional[Dict[str, Any]] = None,
     component: Optional[Dict[str, Any]] = None,
     capture: Optional[Dict[str, Any]] = None,
     # ---- WO-C2: the resolution handles --------------------------------
@@ -156,6 +169,14 @@ def witness(
         body["input_hash"] = input_hash
     if model_fingerprints_hash is not None:
         body["model_fingerprints_hash"] = model_fingerprints_hash
+
+    # WO-F3. BEFORE the component envelope is assembled, because all five
+    # scalars enter `component_preimage()` from the submission root — a
+    # declaration merged in afterwards would be a declaration on the wire that
+    # the MAC does not cover, which is the defect WO-C2 closed for the
+    # resolution handles and the one this field is about in the first place.
+    if imported_datablocks is not None:
+        body.update(_imported.wire_fields(imported_datablocks))
 
     # ---- the component envelope, refused client-side when malformed ----
     if component is None and (mac is not None or ratchet is not None):

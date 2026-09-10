@@ -252,6 +252,64 @@ const cases = [
       component: { component_id: COMPONENT_ID, counter: 2 },
     },
   },
+  {
+    name: 'WO-F3 — a declaration of what entered the document from outside it',
+    note:
+      'E7-1: two leaves built around two DIFFERENT AI images were identical in every field ' +
+      'capable of saying how the artifact came to exist. Not a false claim, an ABSENT one. ' +
+      'The five `imported_*` keys are SUBMISSION fields rather than capture fields, and ' +
+      'this vector is what pins that: they are read from the root of the submission on all ' +
+      'three sides. The product the field exists for is a plugin with no capture block at ' +
+      'all, and obliging it to declare an attestation basis, a profile, a confinement, an ' +
+      'upstream epoch and a host level in order to name an imported image would be the ' +
+      'trade WO-F3 refused. Note `imported_origin_observed: false` — a VALUE, and the one ' +
+      'the whole field exists to carry: a party in the middle who could promote it to true ' +
+      'would turn "nobody here watched these bytes arrive" into "somebody did". And note ' +
+      'that the DOCUMENT is absent from the preimage while its digest is present, the same ' +
+      'split `graph`/`workflow_hash` uses, because a member list cannot ride in a MAC.',
+    submission: {
+      baseline_ref: 'b'.repeat(64),
+      kind: 'document_save',
+      content_hash: '7'.repeat(64),
+      mime: 'application/x-blender',
+      machine_manifest_hash: '5'.repeat(64),
+      imported_datablocks: {
+        source: 'host_datablocks',
+        origin_observed: false,
+        datablock_types: ['image'],
+        datablocks: [
+          {
+            datablock: 'imported-from-somewhere-else',
+            type: 'image',
+            origin: 'FILE',
+            packed: true,
+            filename: 'generated.png',
+            bytes: 1267,
+            digest: 'a'.repeat(64),
+            digest_of: 'packed_bytes',
+            unreadable: null,
+          },
+          {
+            datablock: 'gone',
+            type: 'image',
+            origin: 'FILE',
+            packed: false,
+            filename: 'gone.png',
+            bytes: null,
+            digest: null,
+            digest_of: null,
+            unreadable: 'source_file_missing',
+          },
+        ],
+      },
+      imported_datablocks_source: 'host_datablocks',
+      imported_origin_observed: false,
+      imported_datablocks_count: 2,
+      imported_datablocks_unreadable_count: 1,
+      imported_datablocks_hash: '3'.repeat(64),
+      component: { component_id: COMPONENT_ID, counter: 3 },
+    },
+  },
 ];
 
 const doc = {
