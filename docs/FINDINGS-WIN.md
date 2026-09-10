@@ -1088,4 +1088,237 @@ level up: a measuring tool that is confidently wrong produces findings that are
 internally consistent and completely artificial. The probe now strips the escape
 and scores each tool separately, and the comment in it says why.
 
+## W1-E1 — 🔴 the premise the whole correlation design is quoted from has expired
+
+Three files reason from the same line of ComfyUI's `server.py`:
+
+```python
+prompt_id = str(json_data.get("prompt_id", uuid.uuid4()))
+```
+
+`app/comfy/hostAdapter.ts:38-39`, `adapter/host_hook.py:548-555` and
+`operators/host_hook.py:74-75` all quote it, and all conclude from it that **a
+Level-2 host may mint any prompt id it likes** and submit under it. That is the
+correlation mechanism the entire host hook rests on.
+
+**That line no longer exists.** Measured against the ComfyUI on this rig —
+**v0.35.0, commit `a7b1d39d342d102f305797fb5ba12dc304d9c1f5`, 2026-09-09** —
+`/prompt` routes a client-supplied id through
+`comfy_execution/jobs.py::validate_job_id`, which requires
+`str(uuid.UUID(value)) == value`: a UUID in canonical **lowercase hyphenated**
+form. Anything else is `400 invalid_prompt_id`. Upstream ships unit tests for it
+(`tests-unit/assets_test/test_prompt_id_enforcement.py`), one of which records
+that a non-string id "was previously `str()`-coerced" — that coercion is exactly
+what our three files quote.
+
+⚑ **The version boundary is NOT established and is not claimed.** The clone here
+is `--depth 1`; deepened to 400 commits, `validate_job_id` is already present at
+the oldest commit reachable (2026-07-01) and the old coercion appears nowhere in
+that window. `git log -S` attributes the change to the shallow boundary commit,
+which is an artifact of truncation, not a result — the same mis-attribution class
+as W1-C2's firewall rules. All that is established: **enforcement is in place at
+least as far back as 2026-06-30.**
+
+### What it broke here
+
+`scripts/desktop-run.mjs` minted ids at three sites, none of them UUIDs:
+
+| site | minted | |
+|---|---|---|
+| `materialiseHost` | `${promptPrefix}-${nonce}` | e.g. `host-3f2a…` |
+| `materialiseBlenderHost` | `${promptPrefix}-${nonce}` | e.g. `blender-3f2a…` |
+| the `late-declaration` mutation | `late-${Date.now().toString(36)}` | |
+
+So `blender-host` could not reach a generation at all on current ComfyUI —
+`400 invalid_prompt_id` before any provenance code ran.
+
+**Fixed** with `canonicalPromptId(seed)`, which derives a canonical UUID from the
+run nonce so an id still ties a leaf back to the run directory that produced it.
+⚑ It is stamped **RFC 9562 version 8** — the "custom" version — because the id
+*is* derived and labelling it version 4 would be a small lie told to a validator.
+`validate_job_id` checks canonical form, not version, and accepts it. Verified by
+running Python's `uuid.UUID()` over the generated ids exactly as ComfyUI does.
+
+**After the fix, `blender-host` is 36/38** on real ComfyUI, real Blender 4.2.16
+and a real generation, with `comfyui-honoured-the-prompt-id-the-addon-announced-against`
+green and every provenance assertion green — scene, frame, camera, an engine the
+driver never chose, the model fingerprint, and `attestation_basis: stale`.
+
+## W1-E2 — ⚑ NTFS case-folding defeats the correlation control
+
+`app/comfy/hostAdapter.ts:170-172` resolves an announcement by **building a
+filename** out of the correlation id:
+
+```ts
+const safe = path.basename(String(o.correlationId));
+const p = path.join(announceDir, `${safe}.json`);
+if (!fs.existsSync(p)) return null;
+```
+
+On Linux `A.json` and `a.json` are two files. On NTFS they are one. Measured with
+`scripts/win/announce-case-probe.ts`, on the real code path — the real
+`openHostDeclaration`, the real SDK `registerHost`, and a declaration written by
+the real add-on in an earlier run:
+
+| id | resolved | |
+|---|---|---|
+| `aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee` (as announced) | **yes** | CONTROL — the probe works |
+| `AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE` (same id, upper) | **yes** | ⚑ the finding |
+| `…eeeeeeeeeeef` (one hex digit moved, same case) | no | CONTROL — not everything matches |
+| `../../scruple-host` | no | CONTROL — the basename guard is intact |
+
+The announce directory held **exactly one** file, lower-cased.
+
+**Consequence.** `hostAdapter.ts:45-49` states the invariant as "choosing the id
+grants nothing — an id nobody announced reads back as `declined`… the worst a
+wrong id can do is make a leaf say LESS." On this filesystem a host that
+announces under one case and submits under another gets `supplied`, and the leaf
+carries a scene document belonging to a different generation. The leaf says
+something **false**, which is the one outcome the design exists to exclude.
+
+⚑ **Scope, stated precisely.** The existing `announce-under-a-different-id`
+audit mutation renames the file to `…-typo.json`, a *content* difference, so that
+mutation still reddens correctly on Windows. **The invariant is broken; the
+existing test is not.** That distinction is the whole reason to sweep rather than
+to re-run.
+
+Note it is reachable in exactly one direction now: current ComfyUI forces the
+*submitted* id lowercase, while nothing checks the *announced* one.
+
+## W1-E3 — 🔴 the app cannot preserve the record the shutdown exists to preserve
+
+`app/ipc-comfy.js:427-434` is explicit about why it uses a signal:
+
+```js
+// SIGTERM, not SIGKILL: the gate's handler drains the queue and writes the
+// result file. Killing it would lose every enrichment record and any
+// event store-and-forward was still holding.
+if (gate && gate.exitCode === null) gate.kill('SIGTERM');
+```
+
+`app/comfy/gate.ts:256` registers `process.on('SIGTERM', …)` to do exactly that.
+**Windows has no POSIX signals** — Node maps `.kill('SIGTERM')` to
+`TerminateProcess`, so the handler never runs.
+
+Demonstrated end to end on the real `blender-host` run, not by a probe:
+
+- the gate **did** enrich — it logged `blender/comfy-bridge supplied 10 field(s)
+  → host_evidence_hash=caddfc6bf085` and the model fingerprint
+- `comfyStop` then took **30.1 s** (08:48:01.765 → 08:48:31.862): the full
+  `waitFor(…, 30000, 200)` timeout, polling for a file that can never appear
+- it returned `outcome: "gate-wrote-no-result"`, `gateResult: null`
+- exactly two assertions went red — `the-adapter-recorded-what-it-did` and
+  `queue-drained`, the two that read the gate's own record of itself
+
+**The platform takes precisely the outcome the comment exists to prevent**, and
+it costs 30 seconds per stop to do it. Every other assertion stayed green, so
+this presents as a narrow flake rather than as a lost record.
+
+## W1-E4 — 🔴 `app-legacy/` cannot start, on any Electron version
+
+`docs/G-SERIES-REPORT.md` §2 says `app-legacy/` "contains the product", and WO-G1
+is written on the hypothesis that the port is "wire it back up and fix what the
+console says". **The app cannot be loaded at all**, for a reason that has nothing
+to do with Electron 38.
+
+`main-modular.js` has 13 module-level `require`s. Five resolve to nothing:
+
+| line | module |
+|---|---|
+| 23 | `./capture/comfyui/session` |
+| 24 | `./capture/comfyui/watcher` |
+| 25 | `./capture/comfyui/server` |
+| 45 | `./capture/training/training-hasher` |
+| 72 | `./capture/training/training-barrel` |
+
+`app-legacy/capture/` **has never existed in this repository** — verified five
+ways: absent on disk, untracked in `HEAD`, untracked on `origin/desktop-studio`,
+untracked at the fork baseline `0be2a2b`, not gitignored, and never added in any
+branch (`git log --all --diff-filter=A` is empty). `package.json`'s `files` list
+includes `capture/**/*`, so it is expected to be there. **Nothing was deleted.**
+
+Measured with `scripts/win/legacy-require-probe.cjs`. The control is the other
+**8 of 13** requires — `./database`, `./context`, `./config/config-testnet`,
+`./lock/merkle`, `./lock/lock-barrel`, `./ipc/ipc-barrel`, `./server/witness-index`
+and the native Ravencoin wallet integration — **all of which resolve**. So this
+is that one directory, not the checkout. Loading the entry point for real throws
+`MODULE_NOT_FOUND: Cannot find module './capture/comfyui/session'` at line 23,
+during module load, before `app.whenReady()`.
+
+⚑ **What is missing is the LEGACY CAPTURE LAYER** — a session file, a filesystem
+watcher and an internal HTTP server — which is exactly the role the capture gate
+now fills. So G1 is not "wire it back up": it is "the legacy main process needs
+its capture layer recovered, or replaced by the gate". That is a different and
+larger work order, and worth knowing before it is estimated.
+
+## W1-E5 — the canon UI renders on Electron 38, and the five-tab set is unreachable
+
+Since `main-modular.js` cannot load, `scripts/win/legacy-shell.cjs` supplies the
+one missing piece — a main process — and nothing else: the **real** `preload.js`,
+the **real** `index-final.html` and every `renderer/*.js` it loads, the real
+stylesheets, and `main-modular.js:91-105`'s `webPreferences` copied field for
+field. Every IPC handler is a stub, and the stubs return empty collections or an
+explicit `{ unavailable: true, reason }` — **never a plausible value**, because a
+harness that invented a wallet balance would render a screen that has never
+existed, which is D5's failure in miniature.
+
+🔴 **This is not "the legacy app runs on Electron 38"** and must not be quoted as
+such. It answers only WO-G1's actual gate question: *what interface does this
+renderer draw, given a config.*
+
+**It renders.** The tab bar, the project directory sidebar with
+`active-project-section` / `project-list` / `sidebar-footer`, the tracked-project
+panel, the session footer. Measured, five configurations:
+
+| config | tabs | containers |
+|---|---|---|
+| `{}` (default) | ComfyUI · Workspace · 💳 Fiat | comfy 1, kohya 0 |
+| `kohyaEnabled`, `rvnMode:auto` | ComfyUI · Kohya_ss · Workspace · 💳 Fiat | comfy 1, kohya 1 |
+| `kohyaEnabled`, `rvnMode:user` | ComfyUI · Kohya_ss · Workspace · ⛓ Blockchain | comfy 1, kohya 1 |
+| `kohyaEnabled`, `rvnMode:both` | ComfyUI · Kohya_ss · Workspace | **no wallet tab at all** |
+| `comfyUIEnabled:false` (CONTROL) | Kohya_ss · Workspace · ⛓ Blockchain | **comfy 0** |
+
+**The control holds**: with ComfyUI disabled the tab is **absent, not greyed**,
+and its container is gone from the DOM — exactly WO-G1's control (b).
+
+### 🔴 WO-G1's gate as written cannot be satisfied
+
+The gate requires "the tab set is **exactly** ComfyUI · Kohya_ss · Workspace ·
+Wallet(fiat) · Wallet(blockchain)" — five tabs. `renderer/api.js:111-113` derives
+the two wallet flags as **complements of one setting**:
+
+```js
+const rvnMode = state.config?.beta?.rvnMode || 'auto';
+State.set('fiatEnabled',       rvnMode === 'auto');
+State.set('blockchainEnabled', rvnMode === 'user');
+```
+
+and `main-modular.js:407-443` offers them as a **radio pair**, not checkboxes.
+Fiat and Blockchain are mutually exclusive by construction. **The maximum
+reachable tab count is four**, and no config produces five. Either the gate's
+tab list is wrong, or the wallet is meant to become one tab with a mode switch —
+that is a product decision, not something to resolve by editing a work order.
+
+### Two more, found by rendering it
+
+- **`rvnMode` has no validation and fails silently.** Any value that is neither
+  `auto` nor `user` — a typo in a config file — makes both flags false and the
+  wallet disappears **entirely**, with no error anywhere. A capability vanishes
+  because of a misspelling.
+- **`preload.js` does not expose what the renderer calls.**
+  `bundle-final.js:223` calls `window.scruple.rvnGetNetwork()` and `:114` calls
+  `rvnSetNetwork(network)`; **neither is in `preload.js`**. Measured in the page:
+  `Could not load network setting: window.scruple.rvnGetNetwork is not a function`.
+  The first is inside a `try/catch` and only warns. **The second is not** — the
+  network dropdown throws a `TypeError` on change.
+
+## W1-E6 — the travel-laptop README documents the driver's usage wrongly
+
+`docs/README-TRAVEL-LAPTOP.md` gives
+
+    node scripts/desktop-run.mjs --scenario=scenarios/ping.json
+
+The driver takes the scenario **positionally** and rejects that form with its
+usage line. Small, but it is the first command a new rig runs.
+
 

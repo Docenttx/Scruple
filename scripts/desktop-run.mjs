@@ -485,7 +485,7 @@ const MUTATIONS = {
     apply(ctx) {
       const dir = join(ctx.runDir, 'late-host');
       mkdirSync(join(dir, 'announce'), { recursive: true });
-      const promptId = `late-${Date.now().toString(36)}`;
+      const promptId = canonicalPromptId(`late-${Date.now().toString(36)}`);
       writeFileSync(
         join(dir, 'scruple-host.json'),
         JSON.stringify({
@@ -1741,6 +1741,38 @@ function materialiseModelStore(sourceDir, id, spec) {
  * first consumer of this hook, not a special case", and a gate that could only
  * be satisfied by the host we happen to have would be testing the special case.
  */
+/**
+ * A prompt id current ComfyUI will actually accept, derived from this run.
+ *
+ * ⚑ THE PREMISE THIS CODE WAS WRITTEN AGAINST HAS EXPIRED. `hostAdapter.ts`,
+ * `adapter/host_hook.py` and `operators/host_hook.py` all quote ComfyUI's
+ *
+ *     prompt_id = str(json_data.get("prompt_id", uuid.uuid4()))
+ *
+ * and reason from it that a host may mint any id it likes. That line is gone.
+ * ComfyUI v0.35.0 (`a7b1d39d`, 2026-09-09) routes a client-supplied id through
+ * `comfy_execution/jobs.py::validate_job_id`, which requires
+ * `str(uuid.UUID(value)) == value` — a UUID in canonical lowercase hyphenated
+ * form — and answers anything else with `400 invalid_prompt_id`. The old
+ * `str()` coercion appears nowhere in a 400-commit window (back to 2026-07-01),
+ * so the change is older than that; the introducing commit is NOT established
+ * here and is not claimed. See W1-E1 in docs/FINDINGS-WIN.md.
+ *
+ * ⚑ DERIVED, NOT RANDOM, AND SAYS SO IN THE VERSION NIBBLE. The id stays a
+ * function of the run nonce, because that is what lets a leaf found weeks later
+ * be tied back to the run directory that produced it — a random id would break
+ * that. RFC 9562 version 8 is the "custom" version and is the honest one for a
+ * derived id; `uuid.UUID()` parses it and `validate_job_id` only checks
+ * canonical FORM, not version. Labelling it version 4 would be a small lie told
+ * to a validator, which is the kind of thing this codebase exists to refuse.
+ */
+function canonicalPromptId(seed) {
+  const h = createHash('sha256').update(String(seed)).digest('hex');
+  const version8 = `8${h.slice(13, 16)}`;              // version nibble
+  const variant = `${'89ab'[parseInt(h[16], 16) & 3]}${h.slice(17, 20)}`;
+  return [h.slice(0, 8), h.slice(8, 12), version8, variant, h.slice(20, 32)].join('-');
+}
+
 function materialiseHost(sourceDir, id, spec, nonce) {
   const hostDir = join(sourceDir, spec.name || id);
   const announceDir = join(hostDir, 'announce');
@@ -1750,8 +1782,10 @@ function materialiseHost(sourceDir, id, spec, nonce) {
   writeFileSync(declarationPath, JSON.stringify(spec.declaration, null, 2));
 
   // Unique to this run in every field an assertion reads, so a leaf written by
-  // an earlier run cannot satisfy one of them.
-  const promptId = `${spec.promptPrefix || 'host'}-${nonce}`;
+  // an earlier run cannot satisfy one of them. `promptPrefix` no longer reaches
+  // the id itself — ComfyUI takes UUIDs only now — but it still separates one
+  // fixture's derivation from another's within a run.
+  const promptId = canonicalPromptId(`${spec.promptPrefix || 'host'}-${nonce}`);
   const evidence = {};
   for (const [k, v] of Object.entries(spec.evidence || {})) {
     evidence[k] = typeof v === 'string' ? v.replace('${nonce}', nonce) : v;
@@ -1829,7 +1863,7 @@ function materialiseBlenderHost(sourceDir, id, spec, nonce, runDir) {
     }
   }
 
-  const promptId = `${spec.promptPrefix || 'blender'}-${nonce}`;
+  const promptId = canonicalPromptId(`${spec.promptPrefix || 'blender'}-${nonce}`);
   const scene = String(spec.scene || 'scruple-${nonce}').replace('${nonce}', nonce);
   const camera = String(spec.camera || 'CAM_hero');
   const frame = Number(spec.frame ?? parseInt(nonce.slice(0, 4), 16) % 200 + 1);
