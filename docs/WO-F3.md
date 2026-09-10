@@ -426,6 +426,26 @@ and `docs/WO-W1.md` untouched, no shared history rewritten.
 
 The first two rows are the finding. The rest is what a leaf can say now.
 
+## ⚑ What was NOT re-run, and what stands behind the flip instead
+
+`scripts/e7-gate.sh` had `input_hash` inside its invariance loop — the loop that
+asserts *every field capable of describing how the artifact came to exist is
+identical for two different AI images*. That assertion is now **wrong on
+purpose**, and leaving it would have made the estate's own suite require the
+silence to stay: exactly the mistake WO-F1 and WO-F2 each flipped in their own
+stages. `input_hash` is moved out and asserted to **move**, beside
+`imported_datablocks_hash` and `imported_origin_observed`.
+
+**The E7 gate was not re-run end to end.** It needs two ComfyUI generations and
+two Cycles renders under `qemu`, which is a one-to-two hour job, and this work
+order's budget went on six Blender runs of its own. So the flipped assertions
+are proved by `npm run f3` on the same product and the same add-on build — on
+its **`save_post`** leaf rather than its **`render_write`** one. That is a real
+difference and it is stated rather than glossed: the declaration is enumerated
+from `bpy.data` at witness time and does not depend on which handler fired, but
+nobody has watched those three checks go green inside the E7 gate itself.
+**Whoever runs `npm run e7` next is the first to see it.**
+
 ## Also in this commit: WO-F2's desktop artifacts
 
 The previous session committed WO-F2 in `/data/scruple-blender` (`8c9062a`) and
