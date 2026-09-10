@@ -1,0 +1,55 @@
+{
+  "platform": "win32",
+  "node": "v24.19.0",
+  "at": "2026-09-10T06:12:29.877Z",
+  "results": [
+    {
+      "id": "B1",
+      "question": "two names differing only in case, written in sequence",
+      "expectation": "2 directory entries, 2 distinct contents",
+      "observed": "1 entry [\"Model.safetensors\"]; Model.safetensors exists=true lower exists=true; content via UPPER name = \"BBBB-lower-content\"",
+      "verdict": "COLLAPSED — the second write overwrote the first",
+      "note": "The surviving entry keeps the FIRST name and the SECOND content. A manifest keyed by name has one entry where a declaration named two, and the bytes under the surviving name are not the bytes that name was written with."
+    },
+    {
+      "id": "B2",
+      "question": "existsSync() for case variants of a file written once",
+      "expectation": "only the exact name resolves",
+      "observed": "4/4 resolve: [\"Weights.bin\",\"weights.bin\",\"WEIGHTS.BIN\",\"WeIgHtS.bIn\"]",
+      "verdict": "CASE-INSENSITIVE LOOKUP",
+      "note": "A declaration naming `weights.bin` is satisfied by a file called `Weights.bin`. The manifest records the declared spelling, the bytes come from a different one, and nothing in between notices."
+    },
+    {
+      "id": "B3",
+      "question": "filenames with trailing dots or spaces",
+      "expectation": "4 distinct entries, names preserved verbatim",
+      "observed": "4 on disk: [\"both.txt . \",\"plain.txt\",\"trailingdot.txt.\",\"trailingspace.txt \"]",
+      "verdict": "preserved",
+      "note": null
+    },
+    {
+      "id": "B4",
+      "question": "reserved device names as filenames",
+      "expectation": "all 8 are ordinary files, all 8 enumerate",
+      "observed": "CON: wrote ok, listed=true, size=32 | NUL: wrote ok, listed=true, size=32 | PRN: wrote ok, listed=true, size=32 | AUX: wrote ok, listed=true, size=32 | LPT1: wrote ok, listed=true, size=32 | COM1: wrote ok, listed=true, size=32 | CON.txt: wrote ok, listed=true, size=32 | nul.safetensors: wrote ok, listed=true, size=32  ||  directory lists: [\"AUX\",\"COM1\",\"CON\",\"CON.txt\",\"LPT1\",\"NUL\",\"nul.safetensors\",\"PRN\"]",
+      "verdict": "all present",
+      "note": "A name that writes without error but does not enumerate is the worst case for the vault: the write succeeded, so nothing refused, and the hash set silently omits it."
+    },
+    {
+      "id": "B5",
+      "question": "a path longer than 260 characters",
+      "expectation": "directories and file created; the file enumerates and hashes",
+      "observed": "nested 12 levels; deepest dir len=1039; file path len=1059; write=ok; hash=e68337e20c6565dc",
+      "verdict": "no limit hit",
+      "note": "Node on modern Windows often uses \\\\?\\ internally, so the classic 260 limit may not bite here even though it bites cmd.exe, Explorer and any tool shelling out. A vault that enumerates fine but cannot be inspected by the shell scripts that grade it is still a problem."
+    },
+    {
+      "id": "B6",
+      "question": "the same file addressed seven ways",
+      "expectation": "one canonical form; the others are different strings",
+      "observed": "native backslash=resolves | forward slash=resolves | mixed=resolves | lowercased drive=resolves | UNC local=resolves | dot segment=resolves | double separator=resolves",
+      "verdict": "MANY DISTINCT STRINGS, ONE FILE",
+      "note": "Every one of these is a different manifest key for identical bytes. A vault keyed by the path STRING can hold the same file more than once, or fail to notice it is already held, depending only on how the path was spelled."
+    }
+  ]
+}

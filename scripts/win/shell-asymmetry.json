@@ -1,0 +1,55 @@
+{
+  "platform": "win32",
+  "node": "v24.19.0",
+  "at": "2026-09-10T06:14:08.584Z",
+  "rows": [
+    {
+      "case": "ordinary",
+      "pathLen": 69,
+      "node": "ae7ee899f03dbc49",
+      "sha256sum": "ae7ee899f03dbc49",
+      "getFileHash": "ae7ee899f03dbc49",
+      "agree": true
+    },
+    {
+      "case": "trailing dot",
+      "pathLen": 73,
+      "node": "5827553cd9c3a74d",
+      "sha256sum": "5827553cd9c3a74d",
+      "getFileHash": "",
+      "agree": false
+    },
+    {
+      "case": "trailing space",
+      "pathLen": 75,
+      "node": "953b3f74176e5bcb",
+      "sha256sum": "953b3f74176e5bcb",
+      "getFileHash": "",
+      "agree": false
+    },
+    {
+      "case": "reserved CON",
+      "pathLen": 52,
+      "node": "e5c2c3595f7c05d2",
+      "sha256sum": "e5c2c3595f7c05d2",
+      "getFileHash": "",
+      "agree": false
+    },
+    {
+      "case": "reserved NUL.safetensors",
+      "pathLen": 64,
+      "node": "26fa49f60fa6bad0",
+      "sha256sum": "26fa49f60fa6bad0",
+      "getFileHash": "",
+      "agree": false
+    },
+    {
+      "case": "deep path (>260)",
+      "pathLen": 375,
+      "node": "76209f6af630a156",
+      "sha256sum": "76209f6af630a156",
+      "getFileHash": "",
+      "agree": false
+    }
+  ]
+}

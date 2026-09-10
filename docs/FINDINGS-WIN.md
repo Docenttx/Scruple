@@ -402,4 +402,107 @@ whether an endpoint is production, treat it as production."
 
 Nothing here contacted it.
 
+---
+
+# W1-B — Windows path semantics
+
+_Ground truth first: `scripts/win/ntfs-semantics.mjs` measures what the PLATFORM
+does, making no claim about the vault, so that when the vault is run over the
+same names its behaviour can be attributed rather than argued about._
+
+## W1-B1 — 🔴 two declared files, one entry on disk: first name, second content
+
+The headline, and it is worse than "the count is off by one."
+
+`Model.safetensors` and `model.safetensors`, written in that order into one
+directory:
+
+| | POSIX | measured here (NTFS) |
+|---|---|---|
+| directory entries | 2 | **1** |
+| the surviving name | — | `Model.safetensors` — the **first** |
+| bytes under that name | — | `BBBB-lower-content` — the **second** |
+
+So the surviving entry pairs **the first file's name with the second file's
+bytes.** A manifest keyed by name records one entry where a declaration named
+two, and the hash under `Model.safetensors` is not the hash of what anything ever
+wrote to `Model.safetensors`.
+
+⚑ **Why this is a provenance defect and not a cosmetic one.** The vault's model
+is "enumerate a directory, hash the set, treat it as a unit." On this filesystem
+that unit can be silently smaller than what was declared, and one of its members
+can carry a name that never belonged to its bytes. The count check
+(`five-files-seen`) is the only thing standing between that and a clean pass —
+and a count is exactly what a collision preserves when the declaration and the
+directory are built from the same colliding pair.
+
+**Related, and the mechanism behind it —** `existsSync()` resolves **4 of 4**
+case variants of a file written once: `Weights.bin`, `weights.bin`,
+`WEIGHTS.BIN`, `WeIgHtS.bIn` all resolve. A declaration naming `weights.bin` is
+satisfied by a file called `Weights.bin`; the manifest records the declared
+spelling, the bytes come from a different one, and nothing between them notices.
+
+## W1-B2 — the same file is seven different manifest keys
+
+Every one of these resolves to one file with identical bytes: native backslash,
+forward slash, mixed separators, lower-cased drive letter, `\\?\` extended-length
+form, a `.` segment, and doubled separators.
+
+A vault keyed by the path **string** can therefore hold the same bytes more than
+once, or fail to notice it already holds them, decided entirely by how the path
+was spelled. On POSIX these are genuinely different paths and the ambiguity does
+not arise.
+
+## W1-B3 — the hostile names do NOT fail, which is the surprise, and it moves the problem
+
+Predicted: trailing dots and spaces silently stripped, reserved device names
+rejected, a >260-character path refused. **Measured: none of that happened.**
+
+| probe | expected | measured |
+|---|---|---|
+| `trailingdot.txt.`, `trailingspace.txt ` | stripped by Win32 | **preserved verbatim**, all 4 distinct |
+| `CON`, `NUL`, `PRN`, `AUX`, `LPT1`, `COM1`, `CON.txt`, `nul.safetensors` | rejected as device names | **all 8 written, all 8 enumerate**, 32 bytes each |
+| 1059-character path, 12 levels deep | `ENAMETOOLONG` | **created, written and hashed** |
+
+The reason is that Node uses extended-length (`\\?\`) paths internally, which
+bypass Win32 name normalisation and the 260-character limit. So the vault can
+create and hash all of these.
+
+⚑ **Which relocates the question entirely: not "can the vault hash it", but "can
+anything else?"** `docs/WO-D3` stage 4 re-hashes every leaf **"FROM THE SHELL,
+independently of node, of the app and of the sidecar"** — that independence is
+the control's whole point. `scripts/win/shell-asymmetry.mjs` puts three tools on
+the same six files:
+
+| file | Node | `sha256sum` (MSYS) | `Get-FileHash` (.NET) |
+|---|---|---|---|
+| ordinary | ✓ | ✓ | ✓ |
+| trailing dot | ✓ | ✓ | **cannot read** |
+| trailing space | ✓ | ✓ | **cannot read** |
+| `CON` | ✓ | ✓ | **cannot read** |
+| `NUL.safetensors` | ✓ | ✓ | **cannot read** |
+| 375-char path | ✓ | ✓ | **cannot read** |
+
+**Stage 4's control survives on Windows — but not because "the shell" can read
+these. Because *that particular tool* can.** `sha256sum` from Git for Windows
+opens them as happily as Node does; PowerShell's `Get-FileHash` manages 1 of 6,
+and fails by returning **nothing**, not by raising. Anyone reimplementing the
+control in PowerShell — the obvious move on this platform — would get silence
+rather than an error on exactly the names that most need independent
+verification.
+
+## W1-B4 — a note on how nearly this section reported the opposite
+
+`shell-asymmetry.mjs` first reported **6 of 6 cases unverifiable from the shell**,
+which would have condemned stage 4 on Windows. That was wrong, and the fault was
+in the instrument: `sha256sum` **escapes its output line**, prefixing it with `\`
+whenever the filename contains a backslash — which is every Windows path. The
+naive parse read that `\` as the first character of the digest and called a
+byte-identical hash a mismatch.
+
+Recorded because it is the same failure mode this whole rig exists to catch, one
+level up: a measuring tool that is confidently wrong produces findings that are
+internally consistent and completely artificial. The probe now strips the escape
+and scores each tool separately, and the comment in it says why.
+
 
