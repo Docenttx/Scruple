@@ -466,20 +466,38 @@ services are visible at once:
 The surrogate gets this right and the witness does not, on the same box in the
 same sandbox — so it is an inconsistency inside one design, not a house style.
 
-**Measured mitigation on this rig**, because "exposed" and "reachable" are
-different facts and the difference should not be assumed either way:
+**Measured on this rig**, because "exposed" and "reachable" are different facts
+and the difference should not be assumed either way:
 
 | | measured |
 |---|---|
-| socket bind | `0.0.0.0:5899`, confirmed via `Get-NetTCPConnection` |
+| socket bind | `0.0.0.0:5899`, via `Get-NetTCPConnection` |
 | firewall profiles | Domain / Private / Public all **enabled** |
-| default inbound action | `NotConfigured` → Windows default is **block** |
-| explicit rules for `node.exe` | two **Block** inbound rules, enabled, Public profile |
+| default inbound action | `NotConfigured` → Windows default is deny |
+| rules for `node.exe` | **two ALLOW inbound rules**, enabled, Public profile, **LocalPort: Any** |
 
-So the port is bound on all interfaces and inbound is blocked at the host. That
-is defence in depth, not a fix: it is one "allow" dialog, one profile change, or
-one differently-configured machine away from being untrue, and the process would
-not notice. The bind is still the thing to correct.
+🔴 **There is no mitigation. The port is reachable.** Windows created inbound
+**Allow** rules for the Node binary running the witness — any local port, Public
+profile — so the default-deny does not apply to it. A forgeable-secret witness on
+`0.0.0.0` is reachable from the Public-profile network.
+
+⚑ **I reported the opposite first, and the error is worth recording.** An earlier
+revision of this entry said "two **Block** inbound rules… inbound is blocked at
+the host." That came from piping `Get-NetFirewallApplicationFilter` results into
+`Get-NetFirewallRule`, which mis-associated filters with rules and returned the
+wrong rules' actions. Two later queries — iterating rules and reading each rule's
+own filter, then `netsh advfirewall firewall show rule name=all dir=in verbose` —
+agree with each other and disagree with the first.
+
+The lesson is the same one as W1-B4, W1-13 and the W1-17 retraction, and this is
+its fourth appearance: **the instrument was confidently wrong and the wrong answer
+was the reassuring one.** A mitigation that does not exist is worse than a known
+exposure, because it stops anyone looking again. Two independent methods now
+agree; the first method is not used anywhere in this document.
+
+_On this particular machine the exposure is moot — the operator confirms it is
+isolated and cleared for this work. The finding stands for anyone running the rig
+elsewhere, and the bind is still the thing to correct._
 
 ⚑ The build box's proposed fix is better than a `BIND` variable defaulting to
 loopback, and worth recording here because the reasoning generalises: a variable
@@ -633,13 +651,64 @@ bytes.** A manifest keyed by name records one entry where a declaration named
 two, and the hash under `Model.safetensors` is not the hash of what anything ever
 wrote to `Model.safetensors`.
 
-⚑ **Why this is a provenance defect and not a cosmetic one.** The vault's model
-is "enumerate a directory, hash the set, treat it as a unit." On this filesystem
-that unit can be silently smaller than what was declared, and one of its members
-can carry a name that never belonged to its bytes. The count check
-(`five-files-seen`) is the only thing standing between that and a clean pass —
-and a count is exactly what a collision preserves when the declaration and the
-directory are built from the same colliding pair.
+### ⚑ Corrected: the vault does NOT produce a false provenance record
+
+The paragraph that stood here claimed this made "a manifest that attests a hash
+to a filename that never held those bytes." **That was wrong, and I had not run
+the vault when I wrote it** — the section above it says in its own words that it
+measures the platform and "makes no claim about the vault." I then made one.
+
+Measured properly with `scenarios/win-case-collision.json`, which declares
+`Model.safetensors` and `model.safetensors` with different bytes plus a
+non-colliding control:
+
+```
+snapshot: 2 files, 2 captured, 0 refused, 1 declared-but-absent
+manifest: "declared_but_absent": ["model.safetensors"]
+          entries[0] path=Model.safetensors  content_hash=ec0499dc…  outcome=captured
+          entries[1] path=unique.safetensors content_hash=061ab34c… outcome=captured
+```
+
+`ec0499dc…` is exactly what `Get-FileHash` reads off `Model.safetensors` on
+disk. **The vault keys on ENUMERATION, not on the declaration.** It hashes what
+is actually there, attributes it to the name it actually has, and separately
+records the declared name it could not find. Every value carries
+`state: "measured"` with a real source. That is honest reporting of a hostile
+filesystem, and it is the behaviour you would want.
+
+### What is actually true, and it is narrower and still worth fixing
+
+**A declared file vanished, and the only signal is a field nothing checks.**
+
+- `declared_but_absent: ["model.safetensors"]` is the single record that anything
+  went wrong. It is computed in `vaultSurface.ts:257` and written to the manifest
+  in `manifest.ts:133`.
+- **Nothing asserts on it.** Grepping the whole desktop tree finds those two
+  definitions and one log line — no scenario, no gate script, no assertion kind
+  reads `declared_but_absent`.
+- All four refusal counters are **0**. `refused_mime_undeclared`,
+  `refused_mime_declared_absent`, `refused_over_ceiling`, `refused_unreadable` —
+  a consumer watching refusals sees a completely clean run.
+- The scenario I wrote **PASSES**, including its control assertions, with a file
+  silently absent from the capture.
+
+So the residual defect is not a forged record; it is an **ungated one**. The
+vault says the true thing and no gate is listening.
+
+⚑ **And the producer cannot recover what happened.** The surviving entry holds
+the *second* write's bytes under the *first* write's name. Nothing in the
+manifest distinguishes "you declared a file that was never created" from "your
+second write destroyed your first." Both render as one string in
+`declared_but_absent`.
+
+**Cross-platform, the same declaration yields different manifests**: 3 files / 3
+captured / 0 absent on a case-sensitive filesystem, 2 / 2 / 1 here. Honest on
+both, and invisible to every gate on both.
+
+_Suggested, not taken — past WO-W1's scope: an assertion kind for
+`declared_but_absent`, so a scenario can require it to be empty (or to contain
+exactly what it expects). The field already exists and is already correct; it
+just needs something to read it._
 
 **Related, and the mechanism behind it —** `existsSync()` resolves **4 of 4**
 case variants of a file written once: `Weights.bin`, `weights.bin`,

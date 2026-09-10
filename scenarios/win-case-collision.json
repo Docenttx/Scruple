@@ -1,0 +1,75 @@
+{
+  "scenario": "win-case-collision",
+  "description": "W1-B1, run against the REAL vault rather than against the filesystem. Two files are declared whose names differ only in case, Model.safetensors and model.safetensors, with DIFFERENT bytes. On a case-sensitive filesystem that is two files and two leaves. On NTFS the second write lands on the first file, so the directory holds ONE entry: the FIRST name carrying the SECOND file's bytes. This scenario does not assert what the vault should do about that — nobody has measured it yet. It asserts only the things that must hold either way, and records the manifest for reading.",
+  "needs": "vault",
+  "vaultCeilingBytes": 65536,
+  "fixtures": {
+    "vault": {
+      "kind": "vault",
+      "name": "collision-vault",
+      "declaredBy": "W1-B collision probe",
+      "files": {
+        "upper": {
+          "name": "Model.safetensors",
+          "bytes": 4096,
+          "seed": "w1b-collision-UPPER",
+          "mime": "application/octet-stream"
+        },
+        "lower": {
+          "name": "model.safetensors",
+          "bytes": 4096,
+          "seed": "w1b-collision-lower",
+          "mime": "application/octet-stream"
+        },
+        "control": {
+          "name": "unique.safetensors",
+          "bytes": 2048,
+          "seed": "w1b-collision-control",
+          "mime": "application/octet-stream"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "as": "vault",
+      "call": "vaultCapture",
+      "args": [
+        {
+          "vaultDir": "${fixtures.vault.path}",
+          "vaultId": "w1b-case-collision"
+        }
+      ]
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "step-succeeded",
+      "kind": "step-succeeded",
+      "step": "vault"
+    },
+    {
+      "id": "reached-main",
+      "kind": "reached-main",
+      "step": "vault"
+    },
+    {
+      "id": "control-captured",
+      "kind": "entry-outcome",
+      "entries": "${steps.vault.value.entries}",
+      "path": "unique.safetensors",
+      "expected": "captured",
+      "note": "the non-colliding file must still be captured — without this, a vault that refused EVERYTHING would satisfy every other assertion here"
+    },
+    {
+      "id": "control-in-witness",
+      "kind": "witness-row",
+      "contentHash": "${fixtures.vault.files.control.sha256}",
+      "note": "and its bytes reach the witness, so the run is a real capture and not an empty one"
+    }
+  ]
+}
