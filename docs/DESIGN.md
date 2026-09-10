@@ -80,9 +80,25 @@ solved by patterns already proven here:
 
 - **xvfb** runs a real GUI headlessly — verified for Blender 3.0.1 (`xvfb-run -a
   -s "-screen 0 1280x900x24"`, real GL via llvmpipe). Electron runs the same way.
-- ⚑ **A screenshot will be blank.** llvmpipe's framebuffer readback returns a
-  uniform image — three approaches were tried against Blender and a detector
-  proven on real renders. Do not gate anything on pixels.
+- ⚑ **Do not gate anything on pixels** — but NOT for the reason this document
+  used to give. It claimed "a screenshot will be blank ... a detector proven on
+  real renders". 🔴 **That detector is in no tree, was never committed, and left
+  no scratch survivor**, and the claim was propagated into every work-order
+  prompt in the D and E series. Measured 2026-09-10 with a detector that refuses
+  a verdict unless its own five controls pass (`scripts/fb-probe.js`,
+  `docs/FRAMEBUFFER.md`):
+    - **Electron `capturePage` under xvfb/llvmpipe: LIVE**, not blank — stddev
+      51.15, 441 colours, with a uniform control returning blank in the same run.
+    - **Blender 4.2.23 x64 under qemu: SIGSEGV** inside `libLLVM-15`'s
+      `GenericScheduler` (llvmpipe JIT under emulation).
+    - **Blender 3.0.1 native aarch64 `-b`: REFUSED** — "Cannot use OpenGL render
+      in background mode (no opengl context)".
+    Blank, crashed and refused are three different failures. **GUI-mode Blender
+    under xvfb is UNTESTED**, and is stated as untested rather than assumed.
+  The rule survives on the travel laptop's finding instead: captures are
+  **physical** pixels and its scale factor is 1.29, so a cross-platform pixel or
+  dimension comparison is meaningless whatever the framebuffer does. Screenshots
+  are **artifacts to store**, never assertions.
 - **`scruple-web/scripts/scruple-run.ts`** is the headless wrapper for Web
   Studio: *"runs a workflow through the real `/api/runs` endpoint — the same path
   a user hits — without the canvas."* Desktop needs its mirror: a
