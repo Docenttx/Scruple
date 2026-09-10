@@ -1515,4 +1515,154 @@ unchanged and the sweep is clean.
 Recorded because the sweep's value here was not catching a bug in the app. It
 was catching me about to make a control look stronger than it is.
 
+---
+
+# WO-G3 — the travel laptop opens the app
+
+_Against `origin/desktop-studio` at `ac0cba7`, in a clean worktree, with
+`app-legacy/` as the application. `win/w1` is **not** merged into that branch, so
+none of the fixes above are present in what is tested here._
+
+## W1-G1 — 🔴 the app enters its own interface with `initialize()` aborted
+
+**The most serious thing in this file.** A provenance application presents as
+ready while its capture pipeline was never started, and nothing says so.
+
+There are two definitions of "set up" and they disagree:
+
+| | test | Kohya-only config |
+|---|---|---|
+| `ipc-settings-handlers.js:24` (`get-state`) | `!(comfyUIPath \|\| trainingOutputDir)` | `needsSetup: false` |
+| `main-modular.js:155` (`initialize()`) | `if (!config.comfyUIPath) return { needsSetup: true }` | **bails at line 155** |
+
+The renderer calls `getState()` and believes it (`renderer/api.js`), so it draws
+the full application. But `initialize()` returned before reaching **any** of its
+work — the database, the Merkle manager, the session, the internal HTTP server,
+the file watcher and the witness are all created *after* line 155.
+
+**Measured, with the control beside it** (`scripts/win/g3-optional-probe.ps1`,
+two real launches of the real app):
+
+| log line | Kohya-only | CONTROL (+`comfyUIPath`) |
+|---|---|---|
+| `First run detected - setup required` | **YES** | absent |
+| `Session created` | **absent** | YES |
+| `Internal server started` | **absent** | YES |
+| `File watcher started` | **absent** | YES |
+| `Witness system initialized` | **absent** | YES |
+| `get-state returning needsSetup` | **false** | false |
+
+The control clears setup and starts everything, so the difference is the
+ComfyUI path and nothing else.
+
+⚑ **The file watcher is the capture pipeline.** `main-modular.js` wires
+`fileWatcher.on('leaf', handleNewLeaf)` — that is how an artifact becomes a leaf,
+a Merkle root and a witnessed iteration. In this state it was never started. The
+user sees the project sidebar, the tracked-project panel and the
+checkpoint/lock/mint buttons, and **nothing is being witnessed.** Silence is the
+worst possible failure mode for this product: the app is not claiming something
+false, it is inviting the user to believe work is being recorded when no
+recorder exists.
+
+🔴 **And the state is reachable exactly as the wizard invites.** `setup-paths`
+(`ipc-settings-handlers.js:114`) is `if (comfyUIPath) { …validate… }` — an empty
+value is skipped, not rejected. The wizard labels **every** field `(optional)`
+and says "Fill in the paths you use, or skip any you don't need." A Kohya-only
+user, or the Blender-only user WO-G5's entire no-AI plugin market is built
+around, follows that instruction and lands here.
+
+⚑ **I predicted the wrong failure.** I expected the user to be held AT the wizard
+— "(optional) is mandatory" — and wrote the probe to demonstrate that. It came
+back `No finding: the app cleared setup without a ComfyUI path`, and the real
+defect was the opposite and worse: not blocked at the door, admitted with the
+machinery off. The probe's job was to disagree with me and it did.
+
+## W1-G2 — the G-series tree cannot run its own driver on Windows
+
+`npm run g1:scenario` dies with `Error: spawn xvfb-run ENOENT`.
+`scripts/desktop-run.mjs:2237` on `desktop-studio` still hard-codes the wrapper.
+
+The fix has existed since `539f4ad` ("the driver stops assuming xvfb") — on
+`win/w1`, which `git merge-base --is-ancestor` confirms is **not** an ancestor of
+`desktop-studio`. So every Windows fix in this file is absent from the branch
+that WO-G3 asks a Windows machine to test. Nothing is wrong with either branch;
+they have simply never been merged.
+
+## W1-G3 — 🔴 one resolver was added for the witness; the same host is reached on four other ports
+
+WO-G1 found `http://129.80.23.93:5799` in five places, one past any env override,
+and routed all five through `config/witness-endpoint.js`, which refuses a
+production endpoint without `SCRUPLE_ALLOW_PRODUCTION_WITNESS=1`. **That part
+holds** — no raw `:5799` survives outside the resolver.
+
+But `129.80.23.93` is the Oracle host, and the app still names it on four more
+ports, hard-coded, with no resolver, no env override and no refusal:
+
+| port | what | |
+|---|---|---|
+| `:5001` | IPFS API — `POST /api/v0/add` (`ipfs-uploader.js:20,218`) | **write** |
+| `:1984` | Arweave, incl. `/mint/<address>/<amount>` (`arweave-index-testnet.js:253`) | **write** |
+| `:8080` | IPFS gateway | read |
+| `:443` | ElectrumX (`electrumx-client-testnet.js:30`) | broadcast |
+
+And they are on the lock path: `lock/lock-chain-lock.js:92-93` calls
+`performPermanentLock(projectId, db, { arweave: true, ipfs: true })`.
+
+**WO-G3's gate asks a person to perform a lock.** A *chain* lock therefore writes
+to that host. These are testnet services rather than the production audit log, so
+this is not the same severity as `:5799` — but it is the same class, it is
+outward-facing, and it is exactly what the resolver was created to make
+impossible. Four of the five doors were left open after the fifth was closed.
+
+⚑ **Startup itself is clean, and that is measured, not assumed**
+(`scripts/win/g3-launch.ps1` polls `netstat` against the app's whole process tree
+for the life of the run): with a fresh `SCRUPLE_HOME` and no wallet,
+**no connection to `129.80.23.93` was observed.** `rvn-wallet-status` fetches a
+balance only when the wallet is unlocked and `arweave-get-status` returns early
+with no address, so merely opening the app touches nothing.
+
+**I have not performed a chain lock, and will not until the founder says so.**
+
+## W1-G4 — `npm install` fails on a machine with no C++ toolchain
+
+WO-G1's report names this as "the finding G3 cares about: the travel laptop needs
+no build toolchain", because `better-sqlite3@13` ships N-API prebuilds.
+
+**The prebuilds are real** — `prebuilds/win32-x64.node` is in the published
+tarball, and it **loads and works under Electron 38.8.6** (Node 22.22.0, sqlite
+3.53.4, full round-trip, all seven methods `database.js` uses):
+`scripts/win/g3-sqlite-load-check.cjs`.
+
+**And `npm install` still fails**, on Node 20 and Node 24 alike, on a box with no
+`cl.exe`, no MSBuild and no Visual Studio:
+
+```
+gyp ERR! stack at VisualStudioFinder.fail (…/@electron/node-gyp/lib/find-visualstudio.js:118)
+```
+
+Not the `postinstall` — WO-G1 removed that. The published package has **no
+`install` script at all**; it ships a `binding.gyp`, and npm's default lifecycle
+runs `node-gyp rebuild` for any package with one. It builds from source with a
+perfect prebuild sitting beside it.
+
+**Fix, verified:** `npm install --ignore-scripts` in `app-legacy/` — 13 seconds,
+exit 0, and `better-sqlite3` is the **only** package in that tree with a
+`binding.gyp`, so nothing else loses a needed build step. The claim is right; the
+documented command is what is wrong, and G3's install instructions need that flag
+or the app cannot be installed here at all.
+
+## W1-G5 — what the first screen actually asks of a person
+
+`docs/g3-first-run.png` is the real window on the real desktop.
+
+- **Every field is `(optional)`**, which is what leads to W1-G1.
+- **The placeholders are another machine's paths.** `E:\ComfyUI_windows_portable\ComfyUI`
+  — there is no `E:` drive here — and `C:\Scruple\vault\Lora Training Output`.
+  Greyed placeholder text reads as a default that already exists.
+- **`SCRUPLE_HOME` defaults to `C:\Scruple`** (`config/config-testnet.js:17`),
+  the drive root. Not where a Windows user expects an app's data, and a location
+  a managed machine may refuse.
+- **The wizard scrolls inside itself** at 1600×900 — "Base Models Folder" is cut
+  off at the fold, below a scrollbar that is easy to miss.
+
 
