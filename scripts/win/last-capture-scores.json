@@ -1,0 +1,74 @@
+[
+  {
+    "base": "C:\\Users\\user\\AppData\\Local\\Temp\\w1-captures\\electron-content-visible",
+    "label": "electron-content-visible (visible window)",
+    "capturedAt": "2026-09-10T05:46:30.079Z",
+    "expected": "NON-BLANK",
+    "outcome": "MATCHES declared expectation (NON-BLANK)",
+    "width": 1275,
+    "height": 833,
+    "channels": 4,
+    "pixels": 1062075,
+    "luminance": {
+      "mean": 104.2736,
+      "stddev": 42.2922,
+      "min": 16.07,
+      "max": 255,
+      "range": 238.93
+    },
+    "distinctColours": ">=4096",
+    "modalFraction": 0.001525,
+    "flatByVariance": false,
+    "flatByColour": false,
+    "blank": false,
+    "verdict": "NON-BLANK"
+  },
+  {
+    "base": "C:\\Users\\user\\AppData\\Local\\Temp\\w1-captures\\electron-uniform-visible",
+    "label": "electron-uniform-visible (visible window)",
+    "capturedAt": "2026-09-10T05:46:31.329Z",
+    "expected": "BLANK",
+    "outcome": "MATCHES declared expectation (BLANK)",
+    "width": 1275,
+    "height": 833,
+    "channels": 4,
+    "pixels": 1062075,
+    "luminance": {
+      "mean": 58,
+      "stddev": 0,
+      "min": 58,
+      "max": 58,
+      "range": 0
+    },
+    "distinctColours": 1,
+    "modalFraction": 1,
+    "flatByVariance": true,
+    "flatByColour": true,
+    "blank": true,
+    "verdict": "BLANK"
+  },
+  {
+    "base": "C:\\Users\\user\\AppData\\Local\\Temp\\w1-captures\\electron-content-hidden",
+    "label": "electron-content-hidden (show:false window)",
+    "capturedAt": "2026-09-10T05:46:32.670Z",
+    "expected": "unknown — this is the question",
+    "outcome": "RECORDED",
+    "width": 1275,
+    "height": 833,
+    "channels": 4,
+    "pixels": 1062075,
+    "luminance": {
+      "mean": 104.2736,
+      "stddev": 42.2922,
+      "min": 16.07,
+      "max": 255,
+      "range": 238.93
+    },
+    "distinctColours": ">=4096",
+    "modalFraction": 0.001525,
+    "flatByVariance": false,
+    "flatByColour": false,
+    "blank": false,
+    "verdict": "NON-BLANK"
+  }
+]
