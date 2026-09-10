@@ -8,3 +8,6 @@ vendor/blender/
 # and Git for Windows (core.symlinks=false) checks it out as a 17-byte TEXT FILE.
 # `node scripts/check-vendor-link.mjs` verifies whatever you put here.
 vendor/scruple-web
+
+# artefact of the malformed sqlite URI in W1-10 -- see docs/FINDINGS-WIN.md
+=ro
