@@ -360,6 +360,28 @@ def _witness_path(
             filename=payload["filename"],
         )
 
+    # ---- WO-F3: what entered this document from OUTSIDE it ---------------
+    #
+    # Finding E7-1. The graph above describes the RENDER — scene, engine,
+    # camera, frame, samples — and every one of its nine keys is invariant
+    # under the AI image the scene was built around, which is what WO-E7
+    # measured by rendering the same scene twice around two different ones.
+    # This is the field that moves: the datablocks that came from outside,
+    # their digests, and the declaration that this add-on did not watch them
+    # arrive.
+    #
+    # ⚑ ENUMERATED AT WITNESS TIME, NOT AT HANDLER TIME, and read from
+    # `bpy.data` rather than from anything this module cached. The document is
+    # what it is when the capture is taken; a list assembled earlier could
+    # describe a scene that has since changed, and a leaf that named an image
+    # the document no longer holds would be a false claim where there is
+    # currently a silence.
+    #
+    # ⚑ `origin_observed=False` IS THE CLAIM AND IT IS WRITTEN HERE. The
+    # add-on sees `bpy.data` after the fact; nothing in this path watched those
+    # bytes being produced. The server refuses `True` from anybody today.
+    imported = _scene.imported_datablocks(origin_observed=False)
+
     outcome = client.witness(
         kind=leaf_kind,
         content_hash=content_hash,
@@ -367,6 +389,7 @@ def _witness_path(
         graph=graph,
         project_id=_state.get().active_project_id,
         machine_manifest_hash=machine_manifest_hash(client, workflow),
+        imported_datablocks=imported,
     )
     client.state.record_receipt(
         {

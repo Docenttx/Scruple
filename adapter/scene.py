@@ -509,3 +509,112 @@ def document_name() -> Optional[str]:
     if not path:
         return None
     return os.path.basename(path) or None
+
+
+# ---- imported datablocks ------------------------------------------------
+# WO-F3, closing WO-E7 finding E7-1 — the finding the E series ends on.
+#
+# WHAT THIS IS FOR. `docs/BLENDER.md` row 1: the add-on alone, with no gate
+# anywhere in its path, can sign and witness a Blender render — and WO-E7
+# measured that its leaf says NOTHING about the AI image the scene was built
+# around. Two runs around two DIFFERENT generated images produced leaves
+# identical in every provenance-bearing column. Not a false claim; an absent
+# one, and absence and "there was nothing" read the same.
+#
+# Blender KNOWS what was imported. An image packed into a .blend has a
+# datablock, a source path, and bytes that can be hashed — so the leaf can say
+# "these assets entered this scene from outside it, here are their digests, and
+# this add-on did not observe how they were made". That is strictly more useful
+# than "something was imported" and exactly as honest.
+#
+# ⚑ WHAT IT DOES NOT SAY, and the whole value is in the distinction: nothing
+# here knows an AI made anything. It names bytes and it declares that nobody
+# here watched them arrive.
+#
+# ⚑ THE SCOPE IS DECLARED RATHER THAN IMPLIED. `bpy.data` has a dozen tables
+# that can hold something foreign — libraries, sounds, fonts, movie clips, text
+# blocks. This enumerates IMAGES, because that is where a generated artifact
+# lands and it is the case E7-1 measured, and it puts `["image"]` in the
+# document as the scope it ranged over. Without that, "no imports" could not be
+# told apart from "no imports of the one kind anybody looked at" — WO-E2's rule,
+# applied to a document instead of to a history ring. Adding a table later is
+# then a wider claim that says so, rather than a silent change of meaning.
+
+#: `Image.source` values that mean the bytes came from outside this document.
+#: `GENERATED` is a datablock Blender made in memory and `VIEWER` is the render
+#: result and the compositor's viewer — neither entered from anywhere.
+IMPORTED_IMAGE_SOURCES = ("FILE", "SEQUENCE", "MOVIE")
+
+#: The datablock tables this enumeration ranges over, and it travels in the
+#: document because it IS the scope. One entry today; see the note above.
+IMPORTED_DATABLOCK_TYPES = ("image",)
+
+
+def imported_datablocks(*, origin_observed: bool = False) -> Optional[Dict[str, Any]]:
+    """The declaration document, or None when there is no bpy to ask.
+
+    ⚑ `origin_observed` defaults to False and the add-on never passes anything
+    else. It is a parameter rather than a constant so that the one claim this
+    field exists to make is written down at the call site instead of buried
+    here — and the server refuses `True` from anybody today (no door in this
+    estate watches an import arrive; `imported_datablocks.py` carries the named
+    blocker).
+
+    ⚑ PACKED BYTES ARE PREFERRED OVER THE SOURCE FILE, and they are the same
+    bytes: `pack()` stores the file verbatim, measured rather than assumed by
+    `scripts/f3-datablock-probe.py` in the desktop repo — sha256 of the file on
+    disk and sha256 of `packed_file.data` agree. Preferring the packed copy
+    matters because it is the copy THIS DOCUMENT CONTAINS: the source file may
+    have been edited, moved or deleted since, and a digest of what is no longer
+    there would describe a different artifact than the one that was witnessed.
+    """
+    try:
+        import bpy
+    except ImportError:
+        return None
+    from scruple_host_sdk import imported_datablocks as _imported
+
+    entries = []
+    for img in getattr(bpy.data, "images", []):
+        source = getattr(img, "source", "") or ""
+        if source not in IMPORTED_IMAGE_SOURCES:
+            continue
+        packed = getattr(img, "packed_file", None)
+        data = getattr(packed, "data", None) if packed is not None else None
+        filepath = getattr(img, "filepath", "") or ""
+        try:
+            abspath = bpy.path.abspath(filepath) if filepath else ""
+        except Exception:
+            abspath = filepath
+        if data is not None:
+            # The copy inside the .blend. `packed_file.size` is Blender's own
+            # count of it and is not trusted over the bytes: what is hashed is
+            # what was read.
+            raw = bytes(data)
+            digest, nbytes, unreadable = _imported.digest_bytes(raw), len(raw), None
+            digest_of = _imported.DIGEST_OF_PACKED
+        else:
+            got = _imported.digest_file(abspath)
+            digest, nbytes, unreadable = got["digest"], got["bytes"], got["unreadable"]
+            digest_of = _imported.DIGEST_OF_SOURCE_FILE if digest else None
+        entries.append(
+            _imported.entry(
+                datablock=img.name,
+                type="image",
+                origin=source,
+                packed=data is not None,
+                # BASENAME ONLY. A leaf is not the place for a user's directory
+                # layout, and what binds the member to bytes is the digest.
+                filename=os.path.basename(abspath) if abspath else None,
+                bytes_=nbytes,
+                digest=digest,
+                digest_of=digest_of,
+                unreadable=unreadable,
+            )
+        )
+
+    return _imported.declaration(
+        entries,
+        datablock_types=IMPORTED_DATABLOCK_TYPES,
+        origin_observed=origin_observed,
+    )

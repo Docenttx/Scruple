@@ -80,10 +80,47 @@ class App:
 
 # ------------------------------------------------------------------ data
 
+@dataclass
+class PackedFile:
+    """`bpy.types.PackedFile`. `data` is the SOURCE FILE'S BYTES, verbatim —
+    measured against real Blender 4.2.23 by
+    `scripts/f3-datablock-probe.py` in the desktop repo: sha256 of the file on
+    disk and sha256 of `packed_file.data` agree. A mock that re-encoded here
+    would make WO-F3's whole composition claim untestable."""
+    data: bytes = b""
+
+    @property
+    def size(self) -> int:
+        return len(self.data)
+
+
+@dataclass
+class Image:
+    """`bpy.types.Image`, with the four fields the WO-F3 enumerator reads.
+
+    `source` is Blender's own enum and the values matter: `FILE`/`SEQUENCE`/
+    `MOVIE` came from outside the document, `GENERATED` is a datablock Blender
+    made in memory, and `VIEWER` is the render result and the compositor viewer
+    — real Blender has both of those in `bpy.data.images` on every startup,
+    which is exactly why `adapter/scene.py` filters on the enum rather than
+    counting datablocks."""
+    name: str = "Image"
+    source: str = "FILE"
+    filepath: str = ""
+    packed_file: Optional[PackedFile] = None
+
+
 class BpyData:
     def __init__(self) -> None:
         self.filepath: str = ""
         self.materials: List[Any] = []
+        # Real Blender's `bpy.data.images` is never empty: `Render Result` and
+        # `Viewer Node` are there from startup. The mock carries them so a test
+        # that asserts "no imports" is asserting something.
+        self.images: List[Image] = [
+            Image(name="Render Result", source="VIEWER"),
+            Image(name="Viewer Node", source="VIEWER"),
+        ]
 
 
 # ------------------------------------------------------------------ scene
@@ -445,6 +482,10 @@ def reset():
     app.timers = AppTimers()
     data.filepath = ""
     data.materials = []
+    data.images = [
+        Image(name="Render Result", source="VIEWER"),
+        Image(name="Viewer Node", source="VIEWER"),
+    ]
     _CTX = Context()
     BpyUtils._registered_classes = []
 

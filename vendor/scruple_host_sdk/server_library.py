@@ -172,6 +172,26 @@ def component_preimage(submission: Mapping[str, Any]) -> Dict[str, Any]:
         "input_hash": submission.get("input_hash"),
         "model_fingerprints_hash": submission.get("model_fingerprints_hash"),
         "machine_manifest_hash": submission.get("machine_manifest_hash"),
+        # WO-F3. WHAT ENTERED THE DOCUMENT FROM OUTSIDE IT. Five keys, always
+        # present, ``None`` when this submission declared nothing — the same
+        # absent-is-null discipline as every key above, so a placement with no
+        # datablock table to enumerate produces the same preimage SHAPE as the
+        # Blender add-on, which has one.
+        #
+        # ⚑ READ FROM THE SUBMISSION ROOT, NOT FROM ``capture``, and that is
+        # the same choice on all three sides. ``capture`` is what a capture
+        # COMPONENT observed, and the server's validator requires a
+        # capture-bearing leaf to declare a basis, a profile, a confinement, an
+        # upstream epoch and a host level. The product this field exists for is
+        # a plugin with none of those. Signed either way; what changes is
+        # whether a plugin must pretend to be a gate to reach the MAC.
+        "imported_datablocks_source": submission.get("imported_datablocks_source"),
+        "imported_origin_observed": submission.get("imported_origin_observed"),
+        "imported_datablocks_count": submission.get("imported_datablocks_count"),
+        "imported_datablocks_unreadable_count": submission.get(
+            "imported_datablocks_unreadable_count"
+        ),
+        "imported_datablocks_hash": submission.get("imported_datablocks_hash"),
         "surface": c.get("surface"),
         "hook": c.get("hook"),
         "fidelity": c.get("fidelity"),
