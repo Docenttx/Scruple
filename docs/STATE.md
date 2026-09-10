@@ -372,6 +372,44 @@ naming the imported datablocks and their digests, or `declared_uncaptured`
 server's leaf, so none of them is the add-on's to take alone. `docs/WO-E7.md`
 finding **E7-1**, with what each option costs.
 
+> **DECIDED AND BUILT by WO-F3** (2026-09-10, `/data/scruple-web` `5aeece5`,
+> `/data/scruple-blender` `d98bf8b`). The decision was the **second** candidate
+> — a declared field naming the imported datablocks and their digests — and the
+> two it was chosen over were refused for reasons that outlive the choice:
+> `host_semantics: blind` asserts FULL BYTE COVERAGE AND NO MEANING, which is a
+> capture path this product does not have, and `declared_uncaptured`'s scope is
+> a closure over what an upstream *reported*, and there is no upstream here.
+>
+> The leaf now says: **these datablocks entered this document from outside it,
+> here are the digests of their bytes, and the party that produced this leaf did
+> not observe how they came to exist.** Five signed scalars and a document
+> (migration 060), on the same split 058 and 059 use. ⚑ The scalars are
+> SUBMISSION fields rather than `capture` fields, because `capture` obliges a
+> leaf to declare a basis, a profile, a confinement, an upstream epoch and a
+> host level, and a plugin with no component can observe none of the five — it
+> would have had to invent all of them to say one true thing.
+>
+> ⚑ **And it is bound to the leaf without a MAC.** This product sends no
+> component envelope, so the ratchet binds nothing here; the declaration's
+> digest is folded into `input_hash`, which the witness hashes into the `v2.2`
+> record whose sha256 IS the leaf hash it signs. Measured, not argued: the gate
+> recomputes that record from the witness's own database and reproduces the
+> stored leaf hash, then flips one hex digit of one datablock's digest and shows
+> it move.
+>
+> **What is NOT closed, and the work order said so:** it does not say what made
+> the image, `host_semantics` is still NULL (problem 1 above stands — `blind`
+> would be a worse claim), and `workflow_hash` is still unreadable at the column
+> level (problem 2 stands, untouched). ⚑ It also **composes**: an imported
+> datablock's digest matches a Desktop Studio leaf's `content_hash` for the same
+> artifact, and the gate joins a leaf from each product with no identifier in
+> common except the digest of the bytes. `npm run f3` — 82 checks over six real
+> Blender runs, with E7-1 reproduced red at the add-on's parent commit.
+> `docs/WO-F3.md`, including finding **F3-1**: the SDK's three leaf-hash
+> formulas were running on the jcs-1 canonicalizer because an import shadowed
+> the jcs-2 one, and two SDK tests had pinned the old values and been red at
+> HEAD.
+
 ### 4.8 The add-on's own Settings UI does not bind on the path it ships on
 
 `ScrupleAddonPreferences.bl_idname` is the literal `"scruple_blender"` — the
@@ -441,6 +479,28 @@ flag, with a bound — but "how long may Blender's shutdown block on a network
 call" is a product question, and the store-and-forward story in
 `adapter/baseline_cache.py` was written on the assumption that a capture always
 reaches the SDK's spool.
+
+> **CLOSED by WO-F2** (2026-09-10, `/data/scruple-blender` `8c9062a`).
+> `_run()` now honours the stop flag only when a **typed sentinel** comes up,
+> and the sentinel is behind everything queued before `stop()` was called — so
+> a queued capture runs, and having run it is delivered or spooled by the SDK's
+> own failure path.
+>
+> **The product question is answered rather than deferred, and the bound is on
+> the NETWORK, not on the set of jobs.** `stop()` cuts the session's request
+> budget to `SHUTDOWN_TIMEOUT_SECONDS` (2s) **in front of** the first shutdown
+> request and to `HURRY_TIMEOUT_SECONDS` (0.1s) if the 6s drain budget expires
+> with work still queued. Nothing is skipped; what the shutdown has no time
+> left to *deliver* is *spooled*. Measured against a socket that accepts and
+> never answers: 5 captures, all 5 on disk, 6.3 s.
+>
+> `npm run f2` — 51 checks, counted from **disk** (the app's `iterations` rows
+> and the SDK's queue JSONL, matched by digests the gate recomputes itself),
+> with the loss shown red at the parent commit by the same probe and again
+> inside real Blender: disabling the add-on after four saves landed **1 of 4**
+> before and **4 of 4** after. `docs/WO-F2.md`, including finding **F2-1** —
+> the bound cannot cover the one request already on the wire when `stop()` is
+> called.
 
 ### 4.10 The two products do not emit the same kind of leaf, and nothing says so
 
@@ -709,9 +769,9 @@ second list), `property` (a fact about the world, not a defect).
 | E6-3 | `--factory-startup` + `save_userpref()` silently **un-enables everything else** in a profile. Found by failing; fixed at the call site with the reason. | `WO-E6.md` | `closed` |
 | E6-4 | One generation, **two leaves** — the `/view` response and the file the watcher found — and both carry all three halves. Not double counting; the two-surface claim being true. | `WO-E6.md` | `property` |
 | **E6-5** | ⚑ The work order predicted the bypassed leaf reads `blind`. **Measured: `declined`, and it still names the host** — because the add-on IS registered, unlike WO-D4 where `blind` was right. The declared mutation set was corrected **to the measurement**, with the reason in the scenario's own `auditNote`. | `WO-E6.md`, `BLENDER.md` | `closed` |
-| **E7-1** | ⚑ **The headline finding of the series.** The standalone add-on's leaf does not declare what it did not observe: `host_semantics` is NULL rather than `blind`, and `workflow_hash` is non-null and indistinguishable from a ComfyUI graph's. Measured by rendering the *same scene* around two *different* AI outputs and finding every provenance-bearing field invariant. | `WO-E7.md`, §4.7 | `founder` |
+| **E7-1** | ⚑ **The headline finding of the series.** The standalone add-on's leaf does not declare what it did not observe: `host_semantics` is NULL rather than `blind`, and `workflow_hash` is non-null and indistinguishable from a ComfyUI graph's. Measured by rendering the *same scene* around two *different* AI outputs and finding every provenance-bearing field invariant. **ANSWERED by WO-F3**, which built §4.7's second candidate: the leaf declares the imported datablocks, their digests, and that nobody there watched them arrive — bound to the leaf hash through `input_hash`, and joinable to a Desktop Studio leaf for the same bytes. ⚑ The two named problems STAND: `host_semantics` is still NULL (`blind` would assert coverage this product has not got) and `workflow_hash` is still unreadable. | `WO-E7.md`, `WO-F3.md`, §4.7 | `founder` |
 | **E7-2** | The add-on's own Settings UI **does not bind on the path it ships on**: `bl_idname` is the legacy module name, so on the manifest path `addons[module].preferences` is None and `get_base_url()` falls back to production. Measured with a control — same zip, same Blender, both paths. | `WO-E7.md`, §4.8 | `human` |
-| **E7-3** | `WitnessWorker.stop()` **drops queued captures**, and they never reached the SDK's on-disk spool either. Measured on the real class. | `WO-E7.md`, §4.9 | `addon` |
+| **E7-3** | `WitnessWorker.stop()` **drops queued captures**, and they never reached the SDK's on-disk spool either. Measured on the real class. **CLOSED by WO-F2**: the drain runs before the flag is honoured, and the shutdown bound is on the network budget rather than on the queue, so a capture is delivered or spooled. Shown red at the parent commit and inside real Blender. | `WO-E7.md`, `WO-F2.md`, §4.9 | `closed` |
 | E7-4 | One still render lands **two leaves with two different graphs** — `render_write` (which carries the frame) and `render_complete` (which does not) both witness the same file. | `WO-E7.md` | `addon` |
 | E7-5 | The two products emit **different leaf schemes**: `v2.2` from the add-on, `v2` from the component. Not two differently-populated leaves — two differently *constructed* ones. | `WO-E7.md`, §4.10 | `founder` |
 | E7-6 | `machine_manifest_hash` is set by the add-on and **NULL** from the desktop component: on that one column the standalone product records more. | `WO-E7.md`, §4.10 | `founder` |

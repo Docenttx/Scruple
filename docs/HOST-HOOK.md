@@ -159,6 +159,22 @@ product with no gate in it". Finding **E7-1** in `docs/WO-E7.md`, options and a
 recommendation in `docs/STATE.md` §4.7, and it is a change to this contract
 rather than to any host.
 
+⚑ **WO-F3 answered that, and NOT by adding a member to this vocabulary.** The
+standalone add-on's leaf now carries `imported_datablocks` — the datablocks that
+entered the document from outside it, their digests, and
+`imported_origin_observed: 0`, which is "the party that produced this leaf did
+not observe how these came to exist". `host_semantics` on such a leaf is **still
+NULL, deliberately**: `blind` in this document means FULL BYTE COVERAGE AND NO
+MEANING, and a product with no gate has no byte coverage to declare, so writing
+`blind` there would assert a capture path that does not exist — a worse defect
+than the silence. The new field says what that product CAN honestly say instead;
+this contract's three values still describe gates only. `docs/WO-F3.md`.
+
+What would close the remaining gap is a **fourth** value here, meaning "this
+leaf came through a door with no capture path at all" — and that is a
+vocabulary change every reader of the column would have to learn, so it is a
+decision and not a patch.
+
 ### Why three values and not two
 
 `declined` — an adapter **was** registered and had nothing to say about **this**

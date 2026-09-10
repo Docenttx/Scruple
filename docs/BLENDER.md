@@ -79,6 +79,24 @@ are wrong._
   **different** AI outputs: every provenance-bearing column is byte-identical
   across the two leaves and only the digest of the pixels moves. Finding
   **E7-1**, `docs/WO-E7.md`, and it is the finding the E-series ends on.
+
+  _WO-F3, 2026-09-10: **row 1's flagged sentence is now satisfied, and by a
+  stronger statement than the one it asked for.**_ The sentence above wanted
+  *"something was imported here and we do not know what it was"* on the leaf.
+  What the leaf says instead is **which** datablocks came in, **what their bytes
+  hash to**, and that **nobody here watched them arrive** — which is strictly
+  more useful and exactly as honest. `imported_datablocks` and its five signed
+  scalars (migration 060); the digest is folded into `input_hash` and therefore
+  into the leaf hash the witness signs, which is how a product that sends no
+  component envelope binds a claim at all.
+  ⚑ **`host_semantics` is still NULL and that is deliberate.** `blind` means
+  full byte coverage with no meaning, and this product has no byte coverage of
+  the AI step; putting it here would assert a capture path that does not exist.
+  ⚑ **And it composes**: an imported datablock's digest is `content_hash` on a
+  Desktop Studio leaf for the same artifact, so the two products in this table
+  join up on evidence without either of them overclaiming — measured in
+  `npm run f3`, across two leaves written a day apart with no identifier in
+  common. `docs/WO-F3.md`.
 - ⚑ **"the graph: no" in row 1 is wrong at the column level.** The add-on sends
   a graph too — its own nine-key render-settings dict — and `workflow_hash` is
   non-null on all three products, in the same column, under the same

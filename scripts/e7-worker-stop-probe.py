@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""⚑ FINDING E7-3, measured on the add-on's own class rather than argued.
+"""⚑ FINDING E7-3, measured on the add-on's own class rather than argued —
+and, since WO-F2, the assertion that it stays closed.
 
     python3 scripts/e7-worker-stop-probe.py
 
 `adapter/handlers.WitnessWorker` is the in-memory queue every ambient capture
-goes through. `stop()` sets a flag, puts a sentinel on the queue, and joins —
-and `_run()` re-checks the flag AFTER pulling a job and BEFORE running it:
+goes through. `stop()` used to set a flag, put a sentinel on the queue and join
+— and `_run()` re-checked the flag AFTER pulling a job and BEFORE running it:
 
     while not self._stop_flag.is_set():
         job = self._q.get()
@@ -13,11 +14,18 @@ and `_run()` re-checks the flag AFTER pulling a job and BEFORE running it:
             break            # <- whatever it just pulled is dropped
         job()
 
-So a capture that is still queued when `stop()` is called never runs, and
-because it never reached the SDK it is not in the on-disk retry queue either.
+So a capture that was still queued when `stop()` was called never ran, and
+because it never reached the SDK it was not in the on-disk retry queue either.
 `unregister()` calls `stop()` — it drains the SDK's spool first, then stops
-this worker — so the losing case is a capture taken shortly before Blender
+this worker — so the losing case was a capture taken shortly before Blender
 quits or the add-on is disabled.
+
+⚑ CLOSED BY WO-F2 (add-on `8c9062a`), AND THIS SCRIPT NOW ASSERTS THE CLOSURE.
+The exit code was `0` when a capture was dropped, because that was the finding
+being recorded. It is `0` when BOTH jobs run, because that is now the
+behaviour the estate depends on — a script that keeps asserting a fixed defect
+makes the suite require it. The full gate is `npm run f2`; this stays as the
+smallest possible reproduction of the original measurement.
 
 This probe runs the real class, outside Blender (`adapter/handlers` imports bpy
 defensively and is importable with bpy absent), and reports which of two
@@ -50,7 +58,7 @@ def second():
     ran.append("second")
 
 
-w = H.WitnessWorker()
+w = H.WitnessWorker()   # the shipped class, not a copy of it
 w.start()
 w.submit(slow)
 w.submit(second)
@@ -64,4 +72,5 @@ print(json.dumps({
     "ran": ran,
     "dropped": [j for j in ("first", "second") if j not in ran],
 }, indent=1))
-sys.exit(0 if len(ran) < 2 else 1)
+# ⚑ WO-F2 flipped this. Was: `0 if len(ran) < 2 else 1`.
+sys.exit(0 if len(ran) == 2 else 1)

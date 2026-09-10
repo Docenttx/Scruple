@@ -143,11 +143,16 @@ UNCONF_E7="$(python3 -c "import json;print(json.load(open('$RUN/prefs-manifest.j
 check "…and with nothing configured the base URL is NOT production" "<empty>" \
   "$([ -z "$UNCONF_E7" ] && echo "<empty>" || echo "$UNCONF_E7")"
 
-note "STAGE 1C — ⚑ E7-3: the add-on's in-memory worker drops queued captures on stop()"
+# ⚑ FLIPPED BY WO-F2 (add-on 8c9062a), the way WO-F1 flipped stage 1B. This
+# stage asserted the DEFECT — "a capture still queued when stop() is called does
+# not run" — which would have made the estate's own suite require the data loss
+# to stay. stop() now drains, so the probe asserts that both jobs run and this
+# check asserts its exit code unchanged. The full gate is `npm run f2`.
+note "STAGE 1C — E7-3, CLOSED: a capture still queued when stop() is called still runs"
 python3 scripts/e7-worker-stop-probe.py > "$RUN/worker-stop.json" 2>&1
 WS_EXIT=$?
 sed 's/^/   /' "$RUN/worker-stop.json"
-check "a capture still queued when stop() is called does not run" "0" "$WS_EXIT"
+check "⚑ a capture still queued when stop() is called is NOT dropped" "0" "$WS_EXIT"
 
 note "STAGE 2 — C: BOTH. The WO-E6 run, unchanged."
 timeout 2400 node scripts/desktop-run.mjs blender-generate --timeout 900000 > "$RUN/run-c.log" 2>&1
@@ -268,13 +273,36 @@ else
   # ⚑ THE MEASUREMENT THE WORK ORDER FLAGS. Same scene, same camera, same
   # frame, same filenames, a different AI image inside. If the add-on's leaf
   # implied ANYTHING about the AI step, something here would have to move.
-  for col in workflow_hash model_fingerprints model_fingerprints_hash input_hash \
+  # ⚑ PARTLY CLOSED BY WO-F3 (server 5aeece5, add-on d98bf8b), and `input_hash`
+  # MOVED OUT OF THIS LOOP rather than being left in it. The loop asserts the
+  # E7-1 measurement — every field that could describe how the artifact came to
+  # exist is invariant under the AI step — and leaving `input_hash` here would
+  # make the estate's own suite REQUIRE the silence to stay, which is the shape
+  # of the mistake WO-F1 and WO-F2 flipped in their own stages. The add-on now
+  # declares the imported datablocks and their digests, the declaration's digest
+  # is folded into `input_hash`, and so `input_hash` is exactly the column that
+  # must MOVE when the imported image moves. It is asserted below.
+  #
+  # The rest of the loop stands, and is still the finding: `workflow_hash`,
+  # `machine_manifest_hash` and `host_semantics` are unchanged by WO-F3 and
+  # unchanged by the AI step. F3 did not make this leaf a gate and does not
+  # claim to. `npm run f3` is the full gate.
+  for col in workflow_hash model_fingerprints model_fingerprints_hash \
              input_artifacts host host_semantics host_evidence machine_manifest_hash \
              leaf_scheme canonicalization_profile leaf_kind; do
     V1="$(q "SELECT COALESCE($col,'(null)') FROM iterations WHERE id=$A_LEAF;")"
     V2="$(q "SELECT COALESCE($col,'(null)') FROM iterations WHERE id=$A2_LEAF;")"
     check "⚑ $col is IDENTICAL for two different AI images" "$V1" "$V2"
   done
+  # ⚑ CLOSED BY WO-F3: the two columns that now say which bytes came in.
+  A1_DECL="$(q "SELECT COALESCE(imported_datablocks_hash,'(null)') FROM iterations WHERE id=$A_LEAF;")"
+  A2_DECL="$(q "SELECT COALESCE(imported_datablocks_hash,'(null)') FROM iterations WHERE id=$A2_LEAF;")"
+  differs "⚑ imported_datablocks_hash MOVES with the AI image (WO-F3)" "$A1_DECL" "$A2_DECL"
+  differs "⚑ …and so does input_hash, which carries it into the leaf hash" \
+    "$(q "SELECT COALESCE(input_hash,'(null)') FROM iterations WHERE id=$A_LEAF;")" \
+    "$(q "SELECT COALESCE(input_hash,'(null)') FROM iterations WHERE id=$A2_LEAF;")"
+  check "⚑ …and the leaf says nobody here watched the import arrive" "0" \
+    "$(q "SELECT COALESCE(CAST(imported_origin_observed AS TEXT),'(null)') FROM iterations WHERE id=$A_LEAF;")"
 fi
 NKEYS="$(python3 -c "import json;print(len(json.load(open('$RUN/a1-graphs.json'))['render_write']['graph']))")"
 MENTIONS="$(python3 "$REPO/scripts/e7-graph-mentions.py" "$RUN/a1-graphs.json" "$A1")"
