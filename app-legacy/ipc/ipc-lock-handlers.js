@@ -104,11 +104,52 @@ async function performFinalizeClone(sourceProjectId, installationId) {
   }
 }
 
+/**
+ * WO-G2. Put the Standard's output modalities on a project that has just been
+ * locked, and NEVER let doing so change whether the lock happened.
+ *
+ * §9.1 (C2PA) and §9.2 (EU-compliant watermarking) are peers under EU AI Act
+ * Article 50 Code of Practice Section 1. Both are applied here; the tier follows
+ * the button (checkpoint → 2, local → 3, chain → 4/5).
+ *
+ * ⚑ `digitalSourceType` is NOT defaulted. Standard §9.1 puts it in the manifest
+ * and it is the field that asserts whether generative AI made the bytes. A lock
+ * action cannot know that, so the renderer must say — and when it has not, this
+ * returns `declined` rather than picking one. An unsigned artifact is a gap; a
+ * wrongly-typed one is a false statement, and the second is worse.
+ */
+async function applyLockModalities(projectId, lock, options) {
+  const dst = options && options.digitalSourceType;
+  if (!dst) {
+    return {
+      applied: false,
+      reason: 'declined',
+      detail: 'no digitalSourceType was declared; §9.1 will not guess it and neither will this',
+    };
+  }
+  try {
+    const { applyToProject } = require('../lock/modalities');
+    const r = await applyToProject({
+      projectId,
+      lock,
+      digitalSourceType: dst,
+      scrId: options.scrId,
+      pinnedHint: options.pinnedHint,
+    });
+    console.log(`[LOCK] modalities ${lock}: ${r.marked}/${r.attempted} watermarked, ${r.signed} signed`);
+    return { applied: true, ...r };
+  } catch (e) {
+    // A failure here is reported, never thrown: the lock has already happened.
+    console.error('[LOCK] modalities failed: ' + e.message);
+    return { applied: false, reason: 'error', detail: e.message };
+  }
+}
+
 function registerLockHandlers(sendToRenderer) {
   // 'sendToRenderer' passed in for set-interlock
 
   // Local Disc Lock — TSD-gated, clone-aware
-  ipcMain.handle('local-disc-lock', async (event, projectId, authToken) => {
+  ipcMain.handle('local-disc-lock', async (event, projectId, authToken, options) => {
     const databaseManager = ctx.get('databaseManager');
     const merkleManager = ctx.get('merkleManager');
     if (!databaseManager || !merkleManager) {
@@ -138,6 +179,12 @@ function registerLockHandlers(sendToRenderer) {
       }
 
       const result = await performLocalDiscLock(projectId);
+      // WO-G2. §9.2 tier 3 + §9.1. Only on a lock that actually succeeded —
+      // marking the artifacts of a failed lock would put a signing timestamp on
+      // an event that did not happen.
+      if (result && result.success !== false) {
+        result.modalities = await applyLockModalities(projectId, 'local', options);
+      }
       return result;
     } catch (error) {
       return { success: false, error: error.message };
@@ -145,7 +192,7 @@ function registerLockHandlers(sendToRenderer) {
   });
 
   // Checkpoint Project — TSD-gated
-  ipcMain.handle('checkpoint-project', async (event, projectId, authToken) => {
+  ipcMain.handle('checkpoint-project', async (event, projectId, authToken, options) => {
     const databaseManager = ctx.get('databaseManager');
     if (!databaseManager) {
       return { success: false, error: 'System not ready' };
@@ -177,14 +224,24 @@ function registerLockHandlers(sendToRenderer) {
       databaseManager.updateProjectStatus(projectId, 'checkpointed');
       console.log('[LOCK] Project checkpointed: ' + projectId);
 
-      return { success: true, projectId, status: 'checkpointed' };
+      // WO-G2. §9.2 tier 2 + §9.1, on every image iteration. The button did not
+      // change; what happens underneath it did.
+      //
+      // ⚑ THE MODALITIES DO NOT DECIDE WHETHER THE CHECKPOINT HAPPENED. The
+      // status is already written above. If the signer is unreachable the
+      // project is still checkpointed and the caller is told which iterations
+      // are unmarked — the alternative is a lock that fails because a network
+      // was down, which loses the user's work to protect a credential.
+      const modalities = await applyLockModalities(projectId, 'checkpoint', options);
+
+      return { success: true, projectId, status: 'checkpointed', modalities };
     } catch (error) {
       return { success: false, error: error.message };
     }
   });
 
   // Single Chain Lock
-  ipcMain.handle('single-chain-lock', async (event, projectId, password) => {
+  ipcMain.handle('single-chain-lock', async (event, projectId, password, options) => {
     const databaseManager = ctx.get('databaseManager');
     const merkleManager = ctx.get('merkleManager');
     if (!databaseManager || !merkleManager) {
@@ -197,6 +254,20 @@ function registerLockHandlers(sendToRenderer) {
 
     try {
       const result = await performSingleChainLock(projectId, password);
+      // WO-G2. §9.3 tier 4 — the CHAIN-LOCK watermark, whose body is the SCR_ID
+      // rather than a timestamp, so someone finding the file in the wild can
+      // recover the ID from the pixels and reach the ledger inscription.
+      //
+      // ⚑ WITHOUT AN SCR_ID THERE IS NO TIER-4 PAYLOAD, and the server refuses
+      // to mint one — a lookup path that leads nowhere is worse than none,
+      // because it looks like one. The SCR_ID comes off the lock result; if the
+      // lock did not produce one, the modalities decline and say so.
+      if (result && result.success !== false) {
+        result.modalities = await applyLockModalities(projectId, 'chain', {
+          ...(options || {}),
+          scrId: (options && options.scrId) || result.scrId || result.scr_id,
+        });
+      }
       return result;
     } catch (error) {
       return { success: false, error: error.message };
@@ -204,7 +275,7 @@ function registerLockHandlers(sendToRenderer) {
   });
 
   // Persistent Chain Lock
-  ipcMain.handle('persistent-chain-lock', async (event, projectId) => {
+  ipcMain.handle('persistent-chain-lock', async (event, projectId, options) => {
     const databaseManager = ctx.get('databaseManager');
     const merkleManager = ctx.get('merkleManager');
     if (!databaseManager || !merkleManager) {
@@ -213,6 +284,21 @@ function registerLockHandlers(sendToRenderer) {
 
     try {
       const result = await performPersistentChainLock(projectId);
+      // WO-G2. §9.3 tier 5 when the artifact is pinned — SCR_ID plus a
+      // pinned-content hint — and tier 4 when it is not. The distinction is the
+      // Standard's, not a preference: tier 5's body carries the hint that lets a
+      // finder reach the pinned copy directly.
+      if (result && result.success !== false) {
+        const scrId = (options && options.scrId) || result.scrId || result.scr_id;
+        const hint = (options && options.pinnedHint) !== undefined
+          ? options.pinnedHint
+          : (result.pinnedHint !== undefined ? result.pinnedHint : undefined);
+        result.modalities = await applyLockModalities(
+          projectId,
+          hint === undefined ? 'chain' : 'chain-pinned',
+          { ...(options || {}), scrId, pinnedHint: hint }
+        );
+      }
       return result;
     } catch (error) {
       return { success: false, error: error.message };

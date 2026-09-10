@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld('scruple', {
   comfyStop: () => ipcRenderer.invoke('scruple:comfy-stop'),
   receipts: (req) => ipcRenderer.invoke('scruple:receipts', req),
   credential: (req) => ipcRenderer.invoke('scruple:credential', req),
+  // WO-G2. §9.1 C2PA and §9.2 watermarking, put on one artifact at a lock.
+  // ⚑ Watermarking is EU AI Act Art.50 Code of Practice — the PEER of C2PA,
+  // not a part of it, and it must never borrow C2PA's conformance language.
+  modalities: (req) => ipcRenderer.invoke('scruple:modalities', req),
 
   
   // ===========================================================================

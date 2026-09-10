@@ -35,6 +35,8 @@ const { registerBlenderIpc, installedAppIds, shutdownBlender } = require(path.jo
 const { registerBlenderGenerateIpc, shutdownBlenderGenerate } = require(path.join(HOST_DIR, 'ipc-blender-generate'));
 const { registerReceiptIpc } = require(path.join(HOST_DIR, 'ipc-receipt'));
 const { registerCredentialIpc } = require(path.join(HOST_DIR, 'ipc-credential'));
+// WO-G2. §9.1 + §9.2 on one artifact, at the app's own lock actions.
+const { registerModalitiesIpc } = require(path.join(HOST_DIR, 'ipc-modalities'));
 
 // Exit codes, unchanged from app/main-modular.js so the D-series gates read the
 // same numbers they always did.
@@ -87,7 +89,8 @@ function registerHostIpc() {
   registerComfyIpc();
   registerReceiptIpc();
   registerCredentialIpc();
-  console.log('[host] 9 host IPC modules registered');
+  registerModalitiesIpc();
+  console.log('[host] 10 host IPC modules registered');
 }
 
 /** Reap what this seam started. Called on will-quit AND before every app.exit(). */
