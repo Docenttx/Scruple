@@ -139,3 +139,92 @@ finding E4-0; this closes the source half. **Gate:** the app refuses to start,
 or refuses the leaf-writing routes, with a distinct error naming the pending
 migrations. **Control:** with the schema current it starts and serves normally —
 and a route that does not touch the database must be unaffected.
+
+---
+
+## WO-F6 — a case-insensitive filesystem makes the manifest attribute bytes to a name that never held them
+
+Found by the travel-laptop session (its W1-B1), on NTFS. **Not reproducible on
+this box** — Linux is case-sensitive, so the two files stay two files — which is
+exactly why the rig exists.
+
+### What it observed
+
+A vault declaring **`Model.safetensors` and `model.safetensors`** yields **one
+captured entry, pairing the FIRST name with the SECOND bytes.** NTFS merges the
+two writes; `readdirSync` returns whichever name was created first; the bytes
+under it are the later write's. Its words: *"the hash under `Model.safetensors`
+is not the hash of anything ever written to that name."* `existsSync` resolving
+**4 of 4** case variants is the mechanism by which the lookup never notices.
+
+⚑ **Do not fix this as a miscount.** `manifest.ts` already carries
+`declared_but_absent`, so the manifest DOES say the second name was not found.
+The defect that survives that is worse and subtler: **the captured entry asserts
+a content hash for a filename that never held those bytes.** A record that is
+merely incomplete is recoverable; a record that is confidently WRONG about which
+name held which bytes is a false provenance claim produced by correct-looking
+code. It is the exact failure `refused_mime_undeclared` exists to prevent,
+arriving through the filesystem instead of through the declaration.
+
+⚑ **And "declared A and B, found only A" is AMBIGUOUS on such a filesystem.** It
+means either "B was never created" or "B was created and silently became A".
+Those are different facts. Today they read the same.
+
+### What to build
+
+Detect the condition and **refuse to attribute**, rather than guess:
+
+1. **Measure the filesystem, do not assume it.** Whether the vault root is
+   case-insensitive is a property of the volume, not of `process.platform` — an
+   ext4 volume mounted on Windows, or a case-sensitive directory on NTFS
+   (`fsutil file setCaseSensitiveInfo`), both exist. Probe it: create a file,
+   stat it under a different case, delete it. Record the answer on the manifest.
+2. **When two declared names differ only by case and the volume is
+   case-insensitive**, the entry's `contentHash` becomes a **refusal**, with a
+   new outcome — the bytes are real but the name→bytes binding is not
+   establishable. Follow WO-D3's rule: the byte COUNT survives the refusal.
+3. **`declared_but_absent` alone is not sufficient** and the report must say so.
+
+### Gate and controls
+
+**Gate:** on a case-insensitive volume, a vault declaring two names differing
+only by case produces **no captured entry claiming either name**, and the
+manifest states why. **Controls:** (a) on a case-SENSITIVE volume the same
+declaration produces **two normal captured entries** — the fix must not fire
+where there is nothing wrong; (b) a vault with no case collision is byte-identical
+in its manifest before and after this change; (c) the probe itself must be shown
+to return BOTH answers — run it against a case-sensitive path and a
+case-insensitive one and assert they disagree. A probe that always says
+"case-sensitive" on Linux would make this whole work order inert and green.
+
+🔴 (c) is the important control. This work order cannot be fully proved on this
+box, and **that must be stated in the report rather than papered over.** Build
+the probe and the refusal here, prove the case-sensitive half here, and hand the
+case-insensitive half to the laptop as a W-series item with a named gate.
+
+## WO-F7 — two portability landmines, both mine
+
+**(a) `file:` + a Windows path + `?mode=ro` opens the WRONG database and
+SUCCEEDS.** The laptop's W1-10. SQLite does not treat `C:\...` as absolute after
+`file:`; `?mode=ro` is never parsed, so **a file literally named `=ro` is created
+in the working directory**; the open succeeds against that empty new database and
+every query returns nothing or `no such table`. 🔴 **A witness lookup for a leaf
+that WAS written comes back "not found" — a path bug wearing the costume of the
+provenance failure it imitates.** Nine `.sh` gates here build that string. They
+are Linux-only today, where the form happens to work. Fix them anyway to
+`file:///` + forward slashes, which also actually enforces read-only (a
+`CREATE TABLE` against the correct form fails; against the broken form it never
+did). **Control:** assert the corrected form REFUSES a write, and assert no `=ro`
+file appears.
+
+**(b) The runners run production code out of the production directory.** All
+three `scripts/overnight-*.sh` do `cd /opt/scruple-witness && node server.js`,
+kept off the live database only by `DB_PATH`. **`services/witness-server/server.js`
+is BYTE-IDENTICAL** (verified with `cmp`) and self-hosting: `npm install` in that
+directory, then `PORT=… DB_PATH=… SCRUPLE_WITNESS_ALLOW_DEV_SECRET=1 node server.js`
+creates all six tables including `witnesses` from nothing and answers `/health`
+200. Proven on a fresh port and empty database. Switch every runner to the repo
+copy and document the recipe — the current form teaches that the witness lives at
+a path you must not touch, rather than in the repo you already have. ⚑ `arweave`
+is the dep missing from scruple-web's root `node_modules`, which is why a search
+for a self-hostable witness comes up empty.
