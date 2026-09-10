@@ -60,6 +60,9 @@ def _load_modules():
         resume_payment as _op_resume,
         dashboard as _op_dashboard,
         host_hook as _op_host_hook,
+        # WO-G5. The no-AI claim: take a baseline of the add-on set (§4), and ask
+        # what source type this scene's record supports.
+        claim as _op_claim,
     )
     _MODULES = {
         "preferences": _prefs,
@@ -79,6 +82,7 @@ def _load_modules():
         "op_resume": _op_resume,
         "op_dashboard": _op_dashboard,
         "op_host_hook": _op_host_hook,
+        "op_claim": _op_claim,
     }
     return _MODULES
 
@@ -101,6 +105,7 @@ def register():
     # that references an unregistered operator id is a broken button.
     m["op_dashboard"].register()
     m["op_host_hook"].register()
+    m["op_claim"].register()
     m["panel_main"].register()
     m["handlers"].register()
     # WO-E4. THE ADDON DECLARES ITSELF AS A LEVEL-2 HOST ADAPTER, here,
@@ -123,6 +128,7 @@ def unregister():
     m = _load_modules()
     m["handlers"].unregister()
     m["panel_main"].unregister()
+    m["op_claim"].unregister()
     m["op_host_hook"].unregister()
     m["op_dashboard"].unregister()
     m["op_resume"].unregister()

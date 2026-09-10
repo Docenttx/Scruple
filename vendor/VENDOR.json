@@ -1,10 +1,10 @@
 {
   "vendored_by": "build/vendor_sdk.sh",
-  "vendored_at": "2026-09-10T07:18:31Z",
+  "vendored_at": "2026-09-10T08:06:59Z",
   "why_vendored": "A Blender addon cannot pip install; the SDK ships inside the zip. Both packages are pure standard library, so this is cp -r, not a dependency resolver.",
   "source_repo": "/data/scruple-web",
-  "source_commit": "5aeece5902a8010386c81702cc2160974cd6621b",
-  "source_commit_subject": "WO-F3: the leaf declares what entered the document from outside it",
+  "source_commit": "7af1827a1773d19474e6813f3358ed9a7e484490",
+  "source_commit_subject": "WO-F4: record the algorithm each stored root was computed under, and refuse by default",
   "source_tree_dirty_at_copy": false,
   "packages": [
     {
