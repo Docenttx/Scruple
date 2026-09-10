@@ -118,40 +118,46 @@
     },
     {
       "id": "one-listener-on-the-gate-port",
-      "kind": "equals",
-      "actual": "${steps.launch.value.ledger.gate.count}",
+      "kind": "port-ledger",
+      "side": "${steps.launch.value.ledger.gate}",
+      "field": "count",
       "expected": 1,
-      "note": "read from /proc/net/tcp by this app, not probed by connecting"
+      "note": "read from /proc/net/tcp by this app, not probed by connecting. ⚑ `port-ledger`, not `equals`: a host with no /proc reports state=unavailable with a reasonCode and every value null, which is a DIFFERENT claim from 'measured, and wrong'. The kind accepts a measurement or an explicit refusal-to-measure, and rejects a value reported alongside a claim that nothing could be measured."
     },
     {
       "id": "gate-port-held-by-the-gate",
-      "kind": "equals",
-      "actual": "${steps.launch.value.ledger.gate.allOwnedByExpected}",
+      "kind": "port-ledger",
+      "side": "${steps.launch.value.ledger.gate}",
+      "field": "allOwnedByExpected",
       "expected": true
     },
     {
       "id": "one-listener-on-the-upstream-port",
-      "kind": "equals",
-      "actual": "${steps.launch.value.ledger.upstream.count}",
+      "kind": "port-ledger",
+      "side": "${steps.launch.value.ledger.upstream}",
+      "field": "count",
       "expected": 1
     },
     {
       "id": "upstream-held-by-the-comfyui-we-launched",
-      "kind": "equals",
-      "actual": "${steps.launch.value.ledger.upstream.allOwnedByExpected}",
+      "kind": "port-ledger",
+      "side": "${steps.launch.value.ledger.upstream}",
+      "field": "allOwnedByExpected",
       "expected": true
     },
     {
       "id": "upstream-is-loopback-only",
-      "kind": "equals",
-      "actual": "${steps.launch.value.ledger.upstream.allLoopback}",
+      "kind": "port-ledger",
+      "side": "${steps.launch.value.ledger.upstream}",
+      "field": "allLoopback",
       "expected": true,
-      "note": "H-4 §2's 'the only route to the tenant', MEASURED. A ComfyUI on 0.0.0.0 is reachable without passing the gate and every byte taken that way has no leaf."
+      "note": "H-4 §2's 'the only route to the tenant', MEASURED. A ComfyUI on 0.0.0.0 is reachable without passing the gate and every byte taken that way has no leaf. 🔴 On a host that cannot read the ledger this assertion is SILENT, not satisfied — it stops being evidence of confinement and says so. It must never be read as 'loopback confirmed' on such a host."
     },
     {
       "id": "gate-still-sole-listener-after-the-run",
-      "kind": "equals",
-      "actual": "${steps.gen.value.ledger.gate.count}",
+      "kind": "port-ledger",
+      "side": "${steps.gen.value.ledger.gate}",
+      "field": "count",
       "expected": 1,
       "note": "the ledger is a snapshot, so it is taken twice — at launch and across the run"
     },

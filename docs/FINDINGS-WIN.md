@@ -1353,4 +1353,141 @@ that is a product decision, not something to resolve by editing a work order.
 The driver takes the scenario **positionally** and rejects that form with its
 usage line. Small, but it is the first command a new rig runs.
 
+## W1-E7 — 🔴 the confinement control could not fire on Windows, and now does
+
+This is the most consequential thing in this file, and it was hiding behind six
+assertions that merely looked broken.
+
+`upstream-is-loopback-only` is H-4 §2's "the only route to the tenant": a ComfyUI
+bound to `0.0.0.0` is reachable **without passing the capture gate**, and every
+artifact taken that way has no leaf. Its control is the `upstream-listens-wide`
+mutation, whose own comment reads *"the control for the ledger. If `allLoopback`
+were a constant rather than a reading of /proc/net/tcp, this would not move it."*
+
+**On Windows it did not move it.** With no `/proc`, the ledger reported
+`unavailable`, and I ran the mutation to see what happened: ComfyUI really did
+launch on `0.0.0.0`, a real second route to the tenant really did exist — and
+`comfy-generate` reported **PASSED**. The one control standing behind the
+confinement claim was inert on this platform, and nothing said so.
+
+### Three changes, in the order they have to happen
+
+**1. The assertion had to be able to express "not measured".** `equals` on
+`${…ledger.gate.count}` can only say *measured, and wrong* — a stronger and
+different claim from *this host cannot see its own sockets*. New assertion kind
+`port-ledger` (`app/port-ledger-assert.js`) takes the side rather than the field
+and accepts exactly two things: `measured` with the right value, or
+`unavailable` **with a reasonCode AND every value null**. A side that says it
+could not measure while still reporting a value has defaulted, and is refused.
+`refused` is deliberately not a pass — being denied the read is a finding.
+
+⚑ It is a module so it can be tested, because on Windows every real run takes
+its `unavailable` arm. `scripts/win/port-ledger-selftest.mjs` drives **17 cases,
+12 of which must come back false**, including "unavailable but a value came with
+it" and "refused". A green suite here would otherwise prove nothing.
+
+**2. A pass that measured nothing must not print like a pass that did.**
+Otherwise this would have converted a loud failure into a quiet green — the
+exact failure mode the audit sweep exists to catch, one level up. The driver now
+prints `PASS·` with the reason code and appends:
+
+    ⚑ 6 assertion(s) were satisfied by an explicit refusal to measure,
+      not by a measurement. This run is NOT evidence for what they assert:
+
+**3. Windows can measure this after all.** The `unavailable` reason string in
+`ports.js` said so itself — *"a Windows equivalent would be GetExtendedTcpTable
+or netstat -ano; WO-W1 puts that out of scope"*. `netstat -ano` gives the same
+three facts `/proc/net/tcp` plus `/proc/<pid>/fd` give — local address, port,
+owning pid — and needs no elevation.
+
+🔴 **Listeners are identified by STRUCTURE, not by the word "LISTENING".** That
+column is localised — German Windows prints `ABHÖREN` — so matching the English
+string would find zero listeners on a non-English machine and report `count: 0`,
+which is precisely the manufactured-false reading this section of `ports.js`
+exists to prevent. A listening row is recognised by its **foreign** address
+being the wildcard (`0.0.0.0:0` / `[::]:0`), which no locale translates. The OS's
+own state token is recorded anyway.
+
+### Measured after
+
+`scripts/win/port-ledger-win-control.mjs` binds real sockets and requires the
+ledger to tell them apart. **The control**: a socket on `0.0.0.0` must read
+`allLoopback: false`. It does. Also verified: a socket held by a different pid
+reads `allOwnedByExpected: false`; a port with no listener counts **0, measured**
+rather than null; and the parse agrees with `Get-NetTCPConnection` — a different
+mechanism (CIM, not text) — on both the socket set and the owning pid.
+
+And the mutation is now caught: `upstream-listens-wide` reddens
+**1 red exactly: upstream-is-loopback-only**, as declared.
+
+**`comfy-generate` on Windows: the scenario PASSES and all 7 mutations are
+caught by exactly what they target.**
+
+## W1-E8 — the pid the app calls "the ComfyUI we launched" is not the one serving
+
+Found while checking why `upstream-listens-wide` reddened *two* assertions
+instead of the one it declares.
+
+`ipc-comfy.js` does `spawn(cfg.python, [main.py, …])` and keeps `comfy.pid`.
+Measured: `expectedPid: 8396`, actual holder of the upstream port `12220` — in
+the **unmutated** run. The gate matched exactly (`23180` = `23180`), which is the
+control proving the attribution logic itself works.
+
+**Cause, measured not guessed** (`scripts/win/comfy-pid-probe.mjs`): a
+virtualenv's `Scripts\python.exe` on Windows is a **launcher stub**. Windows has
+no `exec`, so it starts the real interpreter as a separate process. Through the
+venv: `child.pid` 20356, python's own pid 1512, socket held by 1512. Through the
+base interpreter (**the control**): 10176 and 10176, an exact match.
+
+⚑ **The probe refused to claim the second half.** I expected this to also defeat
+`killSession()` — `shutdownComfy()`'s comment warns that a leaked ComfyUI "keeps
+a port and 700 MB of torch", and killing a stub instead of the interpreter is
+exactly how that happens. **It did not.** `.kill()` released the port in both
+arms, so the leak is NOT demonstrated and is not claimed. The probe scores that
+case separately and says so.
+
+### Fixed: "the ComfyUI we launched" is a tree, not a pid
+
+Relaxing the comparison would have been wrong — "some process holds the port" is
+not the claim. The claim is that the process serving the tenant is the one this
+app started, as against something already there or something that replaced it. A
+**descendant** of what we started is that; an unrelated pid is not.
+
+`resolveOwnership()` walks the process tree (`Win32_Process` via CIM on Windows,
+`/proc/<pid>/stat` on Linux) and the ledger now records **which**, in
+`ownership`: `exact`, `descendant`, `foreign`, or `unresolved` when the map could
+not be read. A launcher stub no longer reads as a hijack, and a hijack still
+reads as one — a bare boolean could express neither.
+
+Controls in `port-ledger-win-control.mjs`: a pid is `exact` against itself, this
+process is a `descendant` of its own parent, and — the control that matters — an
+unrelated pid (PID 4, the Windows System process) and a non-existent pid both
+read `foreign`, so the walk is not "always yes".
+
+## W1-E9 — a mutation got stronger by accident, which is not the same as getting better
+
+With `port-ledger` in place, the `fake-bridge` mutation began reddening six more
+assertions than it declares, and the sweep refused to pass.
+
+The tempting read is "the ledger now catches a fake bridge". It does not. The
+renderer-local stub in `desktop-run.mjs` hardcodes
+`{count: 1, allOwnedByExpected: true, allLoopback: true}` and simply **had no
+`state` field**, so it was caught by a missing field rather than by anything
+real. A more careful forgery would add `state: 'measured'` and pass again.
+
+And the scenario's own `auditNote` had already settled the question: *"the ledger
+can claim loopback-only as easily as it can claim anything else. The ledger's
+value is not that it is unfakeable — it is that it is a reading of /proc that the
+app took, and `reached-main` plus the artifact, the leaf and the fingerprint are
+what establish that a real process took it."*
+
+So widening the declared redlist would have overturned a documented decision on
+the strength of an accident. **The stub was made a faithful forgery instead** —
+it now declares `state: 'measured'` and `ownership: 'exact'`, the most convincing
+lie the page can tell, which is the point of the mutation. The redlist is
+unchanged and the sweep is clean.
+
+Recorded because the sweep's value here was not catching a bug in the app. It
+was catching me about to make a control look stronger than it is.
+
 

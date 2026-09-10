@@ -54,6 +54,11 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require_ = createRequire(import.meta.url);
 // One implementation of ${...}, shared with the main-process runner.
 const { interpolate } = require_(join(REPO, 'app', 'interpolate.js'));
+// The three-valued scoring for the port ledger. A module, not an inline branch,
+// because on Windows every real run takes its `unavailable` arm and a green
+// suite would prove nothing about whether it can still say no — see
+// scripts/win/port-ledger-selftest.mjs.
+const { scorePortLedger } = require_(join(REPO, 'app', 'port-ledger-assert.js'));
 
 /* ------------------------------------------------------------------------ *
  * WO-W1 item 2: the driver hard-coded `xvfb-run`. On a machine with a real
@@ -745,14 +750,30 @@ contextBridge.exposeInMainWorld('scruple', {
     comfy: { version: '0.18.1', pid: 1, upstreamUrl: 'http://127.0.0.1:1' },
     modelRoot: '/nonexistent/models', modelFiles: [],
     gate: { pid: 1, url: 'http://127.0.0.1:2', adapter: 'model-store' },
-    ledger: { gate: { count: 1, allOwnedByExpected: true, allLoopback: true },
-              upstream: { count: 1, allOwnedByExpected: true, allLoopback: true } },
+    // ⚑ The forgery includes \`state: 'measured'\` and \`ownership\` deliberately.
+    // The ledger assertions are \`port-ledger\`, which requires a state, and a
+    // stub that omitted it would be caught by a MISSING FIELD rather than by
+    // anything real — making this mutation look stronger than it is and
+    // contradicting the auditNote, which says plainly that the ledger is
+    // forgeable and that \`reached-main\` plus the artifact, the leaf and the
+    // fingerprint are what catch a stub. This is the most convincing lie the
+    // page can tell, which is the whole point of the mutation.
+    ledger: { gate: { state: 'measured', reasonCode: null, count: 1, allOwnedByExpected: true, ownership: 'exact', allLoopback: true },
+              upstream: { state: 'measured', reasonCode: null, count: 1, allOwnedByExpected: true, ownership: 'exact', allLoopback: true } },
   }),
   comfyGenerate: async () => ({
     ...reply(null), outcome: 'generated', viaGate: true, promptId: 'stub',
     images: [{ filename: 'stub.png', sha256: 'f'.repeat(64), bytes: 0, storePath: '/nonexistent/stub.png' }],
-    ledger: { gate: { count: 1, allOwnedByExpected: true, allLoopback: true },
-              upstream: { count: 1, allOwnedByExpected: true, allLoopback: true } },
+    // ⚑ The forgery includes \`state: 'measured'\` and \`ownership\` deliberately.
+    // The ledger assertions are \`port-ledger\`, which requires a state, and a
+    // stub that omitted it would be caught by a MISSING FIELD rather than by
+    // anything real — making this mutation look stronger than it is and
+    // contradicting the auditNote, which says plainly that the ledger is
+    // forgeable and that \`reached-main\` plus the artifact, the leaf and the
+    // fingerprint are what catch a stub. This is the most convincing lie the
+    // page can tell, which is the whole point of the mutation.
+    ledger: { gate: { state: 'measured', reasonCode: null, count: 1, allOwnedByExpected: true, ownership: 'exact', allLoopback: true },
+              upstream: { state: 'measured', reasonCode: null, count: 1, allOwnedByExpected: true, ownership: 'exact', allLoopback: true } },
   }),
   comfyStop: async () => ({ ...reply(null), outcome: 'stopped', gateResult: { queueDepth: 0, enrichments: [] } }),
 });
@@ -817,6 +838,37 @@ const KINDS = {
     const nonceOk = v.serverNonce === undefined || v.serverNonce === ctx.result.serverNonce;
     return { pass: pidOk && nonceOk, detail: { replyPid: v.mainPid, mainPid: ctx.result.mainPid, nonceOk } };
   },
+  /**
+   * WO-D5's three states, applied to an ASSERTION rather than to a field.
+   *
+   * ⚑ THE PROBLEM THIS SOLVES. `one-listener-on-the-gate-port` is
+   * `equals ${…ledger.gate.count} 1`, and the ledger is read from
+   * `/proc/net/tcp`. Windows has no `/proc`, so `app/comfy/ports.js` reports
+   * `state: 'unavailable'` with a reason code and leaves every value `null` —
+   * which is the honest answer and the whole point of W1-6. But `equals` can
+   * only score it as a FAILED MEASUREMENT, which is a different claim: it says
+   * the port was measured and held the wrong thing.
+   *
+   * 🔴 AND THE OBVIOUS FIX IS THE WRONG ONE. Loosening these to "pass when
+   * null" would make them pass on Linux too if the ledger ever silently stopped
+   * measuring — turning the strongest confinement assertions in the suite into
+   * assertions that cannot fail. H-4 §2's "the only route to the tenant" is
+   * exactly what `upstream-is-loopback-only` is for.
+   *
+   * So this kind takes the SIDE, not the field, and demands one of two things
+   * and nothing else:
+   *
+   *   state: 'measured'     → the value must equal `expected`
+   *   state: 'unavailable'  → there must be a `reasonCode`, AND the value must
+   *                           be `null` — a side that claims it could not
+   *                           measure while still reporting a value has
+   *                           defaulted, and that is the defect this refuses
+   *
+   * Anything else — a missing side, an unknown state, a missing reason — fails.
+   * `refused` is deliberately NOT accepted as a pass: being denied the read is
+   * a finding about the deployment, not a green light.
+   */
+  'port-ledger': (a, ctx) => scorePortLedger(ctx.resolve(a.side), a.field, ctx.resolve(a.expected)),
   'file-exists': (a, ctx) => {
     const p = ctx.resolve(a.path);
     return { pass: typeof p === 'string' && existsSync(p) && statSync(p).isFile(), detail: p };
@@ -2558,9 +2610,36 @@ function printTable(table) {
   console.log('');
 }
 
+/**
+ * 🔴 A PASS THAT MEASURED NOTHING MUST NOT READ LIKE A PASS THAT DID.
+ *
+ * `port-ledger` is satisfied either by a measurement or by an explicit,
+ * reasoned refusal to measure — on a host with no `/proc` it is the latter, and
+ * that is the honest answer. But if such an assertion printed a bare `PASS`,
+ * this driver would have turned a loud failure into a quiet green, which is the
+ * precise failure mode the audit sweep exists to catch one level up.
+ *
+ * So it prints `PASS·` with the reason code, and the summary counts them.
+ */
+function unmeasured(c) {
+  const d = c.detail;
+  return c.pass && d && typeof d === 'object' && d.state === 'unavailable' ? (d.reasonCode || 'unavailable') : null;
+}
+
 function printReport(r) {
   for (const c of r.checks) {
-    console.log(`   ${c.pass ? 'PASS' : 'FAIL'}  ${c.id}${c.pass ? '' : `  ${JSON.stringify(c.detail)}`}`);
+    const why = unmeasured(c);
+    const tag = c.pass ? (why ? 'PASS·' : 'PASS ') : 'FAIL ';
+    const trail = c.pass ? (why ? `  (not measured here: ${why})` : '') : `  ${JSON.stringify(c.detail)}`;
+    console.log(`   ${tag} ${c.id}${trail}`);
+  }
+  const silent = r.checks.filter((c) => unmeasured(c));
+  if (silent.length) {
+    console.log(
+      `\n   ⚑ ${silent.length} assertion(s) were satisfied by an explicit refusal to measure,\n` +
+      '     not by a measurement. This run is NOT evidence for what they assert:\n' +
+      silent.map((c) => `       · ${c.id}`).join('\n'),
+    );
   }
   printTable(r.table);
   if (r.versions) {
