@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const ctx = require('../context');
 const { performLocalDiscLock, performSingleChainLock, performPersistentChainLock } = require('../lock/lock-barrel');
 const { isOnline: isWitnessOnline, getStatus: getWitnessStatus } = require('../server/witness-index');
-const tsdClient = require('../server/tsd-client');
+// stripe-client loaded on demand in handlers to avoid circular deps
 
 /**
  * Derive a Pre-SCR ID from project name + timestamp.
@@ -115,16 +115,17 @@ function registerLockHandlers(sendToRenderer) {
       return { success: false, error: 'System not ready' };
     }
 
-    // Verify TSD auth token
+    // Stripe payment verification — paymentIntentId passed instead of authToken
     if (authToken) {
       try {
-        const tsdResult = await tsdClient.verifyToken(authToken, 'finalize');
-        if (!tsdResult.valid) {
-          return { success: false, error: tsdResult.error || 'TSD token invalid or expired' };
+        const stripeClient = require('../server/stripe-client');
+        const verifyResult = await stripeClient.verifyPayment(authToken, 'finalize');
+        if (!verifyResult.valid) {
+          return { success: false, error: verifyResult.error || 'Payment not verified' };
         }
       } catch (err) {
-        console.log('[LOCK] TSD verify error: ' + err.message);
-        return { success: false, error: 'TSD verification failed: ' + err.message };
+        console.log('[LOCK] Stripe verify error: ' + err.message);
+        return { success: false, error: 'Payment verification failed: ' + err.message };
       }
     }
 
@@ -150,15 +151,16 @@ function registerLockHandlers(sendToRenderer) {
       return { success: false, error: 'System not ready' };
     }
 
-    // Verify TSD auth token
+    // Stripe payment verification
     if (authToken) {
       try {
-        const tsdResult = await tsdClient.verifyToken(authToken, 'checkpoint');
-        if (!tsdResult.valid) {
-          return { success: false, error: tsdResult.error || 'TSD token invalid or expired' };
+        const stripeClient = require('../server/stripe-client');
+        const verifyResult = await stripeClient.verifyPayment(authToken, 'checkpoint');
+        if (!verifyResult.valid) {
+          return { success: false, error: verifyResult.error || 'Payment not verified' };
         }
       } catch (err) {
-        return { success: false, error: 'TSD verification failed: ' + err.message };
+        return { success: false, error: 'Payment verification failed: ' + err.message };
       }
     }
 
@@ -218,28 +220,35 @@ function registerLockHandlers(sendToRenderer) {
   });
 
   // ===========================================================================
-  // TSD IPC Handlers
+  // Stripe IPC Handlers
   // ===========================================================================
 
-  ipcMain.handle('tsd-balance', async (event, installationId) => {
+  ipcMain.handle('stripe-get-config', async () => {
     try {
-      return await tsdClient.getBalance(installationId);
+      const stripeClient = require('../server/stripe-client');
+      return await stripeClient.getConfig();
     } catch (err) {
       return { error: err.message };
     }
   });
 
-  ipcMain.handle('tsd-fund', async (event, installationId, amount) => {
+  ipcMain.handle('stripe-create-payment-intent', async (event, action, projectId) => {
     try {
-      return await tsdClient.fundAccount(installationId, amount);
+      const stripeClient = require('../server/stripe-client');
+      const configManager = ctx.get('configManager');
+      const installationId = configManager ? configManager.getInstallationId() : 'unknown';
+      return await stripeClient.createPaymentIntent(action, projectId, installationId);
     } catch (err) {
       return { success: false, error: err.message };
     }
   });
 
-  ipcMain.handle('tsd-pay', async (event, installationId, action, amount) => {
+  ipcMain.handle('stripe-confirm-and-execute', async (event, paymentIntentId, action, projectId, options) => {
     try {
-      return await tsdClient.pay(installationId, action, amount);
+      const stripeClient = require('../server/stripe-client');
+      const configManager = ctx.get('configManager');
+      const installationId = configManager ? configManager.getInstallationId() : 'unknown';
+      return await stripeClient.confirmAndExecute(paymentIntentId, action, projectId, installationId, options || {});
     } catch (err) {
       return { success: false, error: err.message };
     }

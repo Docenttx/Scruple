@@ -22,6 +22,23 @@ const { waitForLoad } = require('./page-ready');
 
 const LOAD_TIMEOUT_MS = Number(process.env.SCRUPLE_D1_LOAD_TIMEOUT_MS || 60000);
 
+/**
+ * Is this page the application's own, or something that merely loaded?
+ *
+ * Two shapes are legitimate and nothing else is:
+ *   - the served Next app, when SCRUPLE_APP_URL points at one (the D5 shape, kept
+ *     because G2 embeds a served panel inside Workspace);
+ *   - the desktop shell's own entry point, `app-legacy/index-final.html`.
+ *
+ * about:blank, a data: URL, and any other file on disk all fail — which is the
+ * property the original check was defending.
+ */
+function isTheAppsOwnPage(facts, expectedOrigin) {
+  const href = typeof facts.href === 'string' ? facts.href : '';
+  if (href.startsWith(expectedOrigin)) return true;
+  return href.startsWith('file://') && href.endsWith('/app-legacy/index-final.html');
+}
+
 async function runProbe(name, window, navigation) {
   if (name !== 'ping') throw new Error(`unknown probe: ${name}`);
 
@@ -101,8 +118,20 @@ async function runProbe(name, window, navigation) {
   report.ping = result.ping;
   report.rendererError = result.error;
 
-  // The page really came from the served app, not from about:blank or a file.
-  check('page-from-app-url', result.facts.origin === expectedOrigin, result.facts.origin);
+  // The page really came from the app, not from about:blank or some other file.
+  //
+  // ⚑ WO-G1 CHANGED WHAT "the app" MEANS, and the assertion had to follow. Under
+  // WO-D5 the app WAS the served page, so `origin === expectedOrigin` was the
+  // whole test. The shell now loads its own renderer off disk — see
+  // docs/G-SERIES-REPORT.md — and a file:// origin is `"file://"` for every file
+  // on the machine, so origin alone would accept about:blank's neighbours.
+  // The href is therefore the observable, and it must be the app's OWN entry
+  // point. This is stricter than what it replaces, not looser.
+  check(
+    'page-from-app-url',
+    isTheAppsOwnPage(result.facts, expectedOrigin),
+    result.facts.href
+  );
   check('page-has-content', result.facts.bodyChars > 200, result.facts.bodyChars);
 
   // The bridge exists and answers. Without a preload there is nothing to call.
@@ -119,7 +148,7 @@ async function runProbe(name, window, navigation) {
   check('ping-sender-is-window', p.senderWindowId === window.id, p.senderWindowId);
   check(
     'ping-sender-url-is-app',
-    typeof p.senderURL === 'string' && p.senderURL.startsWith(expectedOrigin),
+    typeof p.senderURL === 'string' && isTheAppsOwnPage({ href: p.senderURL, origin: null }, expectedOrigin),
     p.senderURL
   );
   check(

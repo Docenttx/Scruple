@@ -27,7 +27,8 @@ function registerSettingsHandlers(initialize) {
       needsSetup: !hasAnyPath,
       sessionId: ctx.get('sessionManager')?.getSessionId(),
       port: ctx.get('internalServer')?.getPort(),
-      config
+      config,
+      paymentMode: config.beta?.paymentMode || 'fiat'
     };
   });
 

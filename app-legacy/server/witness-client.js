@@ -12,12 +12,15 @@ const crypto = require('crypto');
 const tsdClient = require('./tsd-client');
 
 // Server configuration
-const WITNESS_SERVER_URL = process.env.SCRUPLE_WITNESS_URL || 'http://129.80.23.93:5799';
+// WO-G1: resolved on USE, not at load, and REFUSED if it is the production
+// audit log. See config/witness-endpoint.js for why one hard-coded default
+// made SCRUPLE_WITNESS_URL untrustworthy.
+const { witnessUrl } = require('../config/witness-endpoint');
 const WITNESS_TIMEOUT = 5000; // 5 seconds
 
 class WitnessClient {
   constructor() {
-    this.serverUrl = WITNESS_SERVER_URL;
+    this.serverUrl = witnessUrl();
     this.online = false;
     this.lastCheck = null;
   }

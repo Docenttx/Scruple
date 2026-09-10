@@ -59,7 +59,7 @@ class WalletManager {
       console.log('[WALLET] asset-encoder loaded');
     } catch (e) {
       try {
-        const assetEncoder = require('../../asset-encoder');
+        const assetEncoder = require('./asset-encoder');
         deriveKeyFromMnemonic = assetEncoder.deriveKeyFromMnemonic;
         console.log('[WALLET] asset-encoder loaded (relative)');
       } catch (e2) {
@@ -74,7 +74,7 @@ class WalletManager {
       console.log('[WALLET] native-issuer loaded');
     } catch (e) {
       try {
-        const nativeIssuer = require('../../native-issuer');
+        const nativeIssuer = require('./native-issuer');
         nativeIssuerGetBalance = nativeIssuer.getWalletBalance;
         console.log('[WALLET] native-issuer loaded (relative)');
       } catch (e2) {

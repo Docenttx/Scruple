@@ -78,6 +78,10 @@ class ConfigManager {
     if (!this.config.beta) {
       this.config.beta = this.getDefaults().beta;
     }
+    // Ensure paymentMode exists for older config files
+    if (!this.config.beta.paymentMode) {
+      this.config.beta.paymentMode = 'fiat';
+    }
 
     return this.config;
   }
@@ -157,6 +161,7 @@ class ConfigManager {
       // Beta configuration
       beta: {
         rvnMode: 'auto',  // 'auto' (Oracle server executes) | 'user' (local ElectrumX mint)
+        paymentMode: 'fiat',  // 'fiat' (Stripe/TSD) | 'blockchain' (local RVN wallet)
         prefundedWallet: {
           address: 'mpSmBZpodJy8cwfiJ1V5uoau9iUBemcXzF',
           wif: ''  // export from Oracle: raven-cli -testnet dumpprivkey mpSmBZpodJy8cwfiJ1V5uoau9iUBemcXzF

@@ -2,8 +2,8 @@
   "name": "scruple-desktop-studio",
   "version": "3.1.0-dev",
   "private": true,
-  "description": "Scruple Desktop Studio \u2014 a local agent with a dashboard. Hosts the served Next UI in a BrowserWindow.",
-  "main": "app/main-modular.js",
+  "description": "Scruple Desktop Studio — a local agent with a dashboard. Hosts the served Next UI in a BrowserWindow.",
+  "main": "app-legacy/main-modular.js",
   "scripts": {
     "start": "electron .",
     "headless": "xvfb-run -a -s \"-screen 0 1280x900x24\" electron .",
@@ -32,7 +32,9 @@
     "f5": "bash scripts/f5-gate.sh",
     "f3:probe": "bash -c 'HOME=.run/f3/probe-home vendor/blender/bin/blender --background --python scripts/f3-datablock-probe.py -- --work \"$PWD/.run/f3/probe\" --image \"$PWD/.run/e7/a1/imported.png\"'",
     "gate": "bash scripts/d1-gate.sh && bash scripts/d2-gate.sh && bash scripts/d3-gate.sh && bash scripts/d4-gate.sh && bash scripts/d5-gate.sh && bash scripts/d6-gate.sh && bash scripts/d7-gate.sh",
-    "d7": "node scripts/desktop-run.mjs full-flow --timeout 600000"
+    "d7": "node scripts/desktop-run.mjs full-flow --timeout 600000",
+    "g1": "bash scripts/g1-gate.sh",
+    "g1:scenario": "node scripts/desktop-run.mjs g1-shell"
   },
   "devDependencies": {
     "electron": "^38.0.0"

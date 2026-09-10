@@ -15,7 +15,7 @@
  * Patent Pending
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -74,11 +74,17 @@ const {
 // IPC handler registration
 const { setupAllIpcHandlers } = require('./ipc/ipc-barrel');
 
+// WO-G1. The D/E-series host seam — ping, profile, capture, vault, ComfyUI,
+// Blender, receipts, credentials. See host-seam.js: the handlers still live in
+// app/ and are not copied.
+const { announceProfile, registerHostIpc, shutdownHost, runHostDriver } = require('./host-seam');
+
 // Keep global references
 let mainWindow = null;
 let sessionManager = null;
 let fileWatcher = null;
 let internalServer = null;
+let navigationOfMainWindow = () => null;  // WO-G1, set by createWindow()
 let configManager = null;
 let databaseManager = null;
 let merkleManager = null;
@@ -103,6 +109,15 @@ async function createWindow() {
     show: false,  // Don't show until ready
     backgroundColor: '#0a0f1c'
   });
+
+  // WO-G1. Record what actually answered. `did-finish-load` fires for a failed
+  // page too, so the status code is the observable, not the event. app/probe.js
+  // asserts on this.
+  let lastNavigation = null;
+  mainWindow.webContents.on('did-navigate', (_e, url, httpResponseCode, httpStatusText) => {
+    lastNavigation = { url, httpResponseCode, httpStatusText };
+  });
+  navigationOfMainWindow = () => lastNavigation;
 
   // Load the renderer
   mainWindow.loadFile(path.join(__dirname, 'index-final.html'));
@@ -465,8 +480,22 @@ app.whenReady().then(async () => {
   ctx.set('configManager', configManager);
 
   setupAllIpcHandlers({ initialize, sendToRenderer, notifyWebviewProjectChange });
+
+  // WO-G1. The host seam, registered BESIDE the app's own handlers. The two sets
+  // are disjoint — app channels are bare names (`get-projects`), host channels
+  // are namespaced (`scruple:ping`) — so neither can shadow the other.
+  registerHostIpc();
+  // Set on the default session BEFORE the window exists, so a first request
+  // already carries it. Announcing after the load would race the thing being
+  // announced to.
+  announceProfile(session.defaultSession);
+
   await createWindow();
   setupMenu();
+
+  // WO-G1. `--probe=` / `--scenario=` drive the D-series gates and then exit.
+  // With neither, the app just runs, which is what a human gets.
+  if (await runHostDriver(mainWindow, navigationOfMainWindow, process.argv)) return;
 
   const config = configManager.load();
 
@@ -513,6 +542,10 @@ app.on('window-all-closed', async () => {
     app.quit();
   }
 });
+
+// WO-G1. Nothing the host seam started outlives this process. `app.exit()` does
+// not fire `will-quit`, so runHostDriver() calls shutdownHost() itself as well.
+app.on('will-quit', () => shutdownHost());
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {

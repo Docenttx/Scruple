@@ -415,7 +415,7 @@ function renderMainApp(root) {
 // Update global modal
     const existingModal = appContainer.querySelector('.wallet-modal-overlay');
     const walletModal = State.get('walletModal');
-    if (walletModal === 'confirm-chain-lock' || walletModal === 'confirm-training-lock' || walletModal === 'training-folder-info' || walletModal === 'chain-lock-success' || walletModal === 'chain-lock-error' || walletModal === 'chain-lock-progress' || walletModal === 'finalize-warning' || walletModal === 'finalize-clone-warning' || walletModal === 'checkpoint-confirm' || walletModal === 'tsd-insufficient' || walletModal === 'tsd-chain-lock-confirm') {
+    if (walletModal === 'confirm-chain-lock' || walletModal === 'confirm-training-lock' || walletModal === 'training-folder-info' || walletModal === 'chain-lock-success' || walletModal === 'chain-lock-error' || walletModal === 'chain-lock-progress' || walletModal === 'finalize-warning' || walletModal === 'finalize-clone-warning' || walletModal === 'checkpoint-confirm' || walletModal === 'tsd-insufficient' || walletModal === 'tsd-chain-lock-confirm' || walletModal === 'blockchain-finalize-warning' || walletModal === 'blockchain-finalize-clone-warning' || walletModal === 'blockchain-checkpoint-confirm' || walletModal === 'stripe-payment' || walletModal === 'stripe-processing' || walletModal === 'stripe-lock-success' || walletModal === 'stripe-payment-error') {
       if (existingModal) existingModal.remove();
       appContainer.insertAdjacentHTML('beforeend', renderGlobalModal());
     } else if (!walletModal && existingModal) {

@@ -27,7 +27,7 @@ const ELECTRUMX_SERVERS_MAINNET = [
 // Port 443 so no ISP blocks it (iptables NAT redirects 443 → 50002)
 // Self-signed cert: rejectUnauthorized must be false
 const ELECTRUMX_SERVERS_TESTNET = [
-  { host: '129.80.132.5', port: 443, protocol: 'ssl' }
+  { host: '129.80.23.93', port: 443, protocol: 'ssl' }
 ];
 
 // Legacy alias for backward compatibility
@@ -129,7 +129,7 @@ class ElectrumXClient {
     this.serverIndex = 0;
     
     if (network === 'rvn-test') {
-      console.log('[ELECTRUMX] Configured for TESTNET (129.80.132.5:443)');
+      console.log('[ELECTRUMX] Configured for TESTNET (129.80.23.93:443)');
     }
   }
 

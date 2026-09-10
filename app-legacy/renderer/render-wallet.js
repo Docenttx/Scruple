@@ -425,6 +425,201 @@ function renderWalletModal() {
 function renderGlobalModal() {
   const walletModal = State.get('walletModal');
   
+  // --- Blockchain finalize warning (no fee) ---
+  if (walletModal === 'blockchain-finalize-warning') {
+    return `
+      <div class="wallet-modal-overlay">
+        <div class="wallet-modal" style="border: 2px solid #f59e0b; box-shadow: 0 8px 32px rgba(245,158,11,0.25);">
+          <div class="modal-header" style="background: linear-gradient(135deg, #78350f, #451a03); border-bottom: 1px solid #f59e0b;">
+            <h3>Finalize Project</h3>
+            <button class="modal-close" data-wallet-action="close-modal">x</button>
+          </div>
+          <div class="modal-body">
+            <p>Finalizing your project permanently closes it to further iterations. Your creative history will be sealed exactly as it is now.</p>
+            <p style="margin-top:12px;">If you plan to continue working on this project, use <strong>Checkpoint Project</strong> instead.</p>
+            <p style="color:#f59e0b;font-weight:600;margin-top:16px;">This cannot be undone. No fee in blockchain mode.</p>
+            <div class="modal-actions" style="margin-top:20px;">
+              <button type="button" class="btn btn-secondary" data-wallet-action="close-modal">Cancel</button>
+              <button type="button" class="btn btn-primary" data-wallet-action="confirm-blockchain-finalize" style="background:#d97706;border-color:#d97706;">Finalize Project →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Blockchain finalize clone warning (no fee) ---
+  if (walletModal === 'blockchain-finalize-clone-warning') {
+    const project = State.get('pendingLockProject');
+    const projectName = project ? escapeHtml(project.name) : 'this project';
+    return `
+      <div class="wallet-modal-overlay">
+        <div class="wallet-modal" style="border: 2px solid #f59e0b; box-shadow: 0 8px 32px rgba(245,158,11,0.25);">
+          <div class="modal-header" style="background: linear-gradient(135deg, #78350f, #451a03); border-bottom: 1px solid #f59e0b;">
+            <h3>Finalize Checkpointed Project</h3>
+            <button class="modal-close" data-wallet-action="close-modal">x</button>
+          </div>
+          <div class="modal-body">
+            <p>This project has an active checkpoint. Finalizing will create a sealed copy <strong>"${projectName}_final"</strong>.</p>
+            <p style="margin-top:12px;">Your checkpointed project remains open. No fee in blockchain mode.</p>
+            <div class="modal-actions" style="margin-top:20px;">
+              <button type="button" class="btn btn-secondary" data-wallet-action="close-modal">Cancel</button>
+              <button type="button" class="btn btn-primary" data-wallet-action="confirm-blockchain-finalize-clone" style="background:#d97706;border-color:#d97706;">Create Finalized Copy →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Blockchain checkpoint confirm (no fee) ---
+  if (walletModal === 'blockchain-checkpoint-confirm') {
+    return `
+      <div class="wallet-modal-overlay">
+        <div class="wallet-modal" style="border: 2px solid #3b82f6; box-shadow: 0 8px 32px rgba(59,130,246,0.25);">
+          <div class="modal-header" style="background: linear-gradient(135deg, #1e3a8a, #1e40af); border-bottom: 1px solid #3b82f6;">
+            <h3>◇ Checkpoint Project</h3>
+            <button class="modal-close" data-wallet-action="close-modal">x</button>
+          </div>
+          <div class="modal-body">
+            <p>Your project progress will be sealed and witnessed at this point.</p>
+            <p style="margin-top:12px;color:#93c5fd;">No fee in blockchain mode. You can resume adding iterations after checkpointing.</p>
+            <div class="modal-actions" style="margin-top:20px;">
+              <button type="button" class="btn btn-secondary" data-wallet-action="close-modal">Cancel</button>
+              <button type="button" class="btn btn-primary" data-wallet-action="confirm-blockchain-checkpoint">Checkpoint Project →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Stripe payment element modal ---
+  if (walletModal === 'stripe-payment') {
+    const action = State.get('stripePaymentAction') || '';
+    const project = State.get('stripePaymentProject');
+    const amount = State.get('stripePaymentAmount');
+    const clientSecret = State.get('stripeClientSecret');
+    const actionLabels = {
+      'finalize': 'Finalize Project — $5.00',
+      'finalize-clone': 'Finalize Checkpointed Project — $5.00',
+      'checkpoint': 'Checkpoint Project — $5.00',
+      'chain-lock-basic': 'Basic Chain Lock — $50.00',
+      'chain-lock-pinned': 'Pinned Chain Lock — $65.00'
+    };
+    return `
+      <div class="wallet-modal-overlay">
+        <div class="wallet-modal" style="border:2px solid #635bff;box-shadow:0 8px 32px rgba(99,91,255,0.3);max-width:480px;">
+          <div class="modal-header" style="background:linear-gradient(135deg,#1a1870,#231f9e);border-bottom:1px solid #635bff;">
+            <h3>💳 Payment</h3>
+            <button class="modal-close" data-wallet-action="close-modal">x</button>
+          </div>
+          <div class="modal-body">
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:16px;">
+              <div style="color:#8b949e;font-size:11px;margin-bottom:4px;">PAYING FOR</div>
+              <div style="color:#e6edf3;font-size:14px;font-weight:600;">${actionLabels[action] || action}</div>
+              ${project ? `<div style="color:#8b949e;font-size:12px;margin-top:4px;">Project: ${escapeHtml(project.name)}</div>` : ''}
+            </div>
+            ${clientSecret ? `
+              <div id="stripe-payment-element" style="margin-bottom:16px;min-height:120px;">
+                <!-- Stripe Payment Element mounts here -->
+                <div style="color:#8b949e;font-size:12px;text-align:center;padding:20px;">Loading payment form...</div>
+              </div>
+              <div id="stripe-payment-error" style="color:#ef4444;font-size:12px;margin-bottom:12px;display:none;"></div>
+              <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" data-wallet-action="close-modal">Cancel</button>
+                <button type="button" class="btn btn-primary" data-wallet-action="stripe-pay" style="background:#635bff;border-color:#635bff;">
+                  Pay Now
+                </button>
+              </div>
+            ` : `
+              <div style="text-align:center;padding:20px;">
+                <div class="spinner" style="margin:0 auto 12px;"></div>
+                <p style="color:#8b949e;">Connecting to payment provider...</p>
+              </div>
+            `}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Stripe processing modal ---
+  if (walletModal === 'stripe-processing') {
+    return `
+      <div class="wallet-modal-overlay">
+        <div class="wallet-modal" style="border:2px solid #635bff;box-shadow:0 8px 32px rgba(99,91,255,0.3);">
+          <div class="modal-header" style="background:linear-gradient(135deg,#1a1870,#231f9e);border-bottom:1px solid #635bff;">
+            <h3>Processing...</h3>
+          </div>
+          <div class="modal-body" style="text-align:center;padding:40px 20px;">
+            <div style="font-size:48px;margin-bottom:20px;animation:pulse 1.5s infinite;">⏳</div>
+            <p style="font-size:16px;color:#e6edf3;margin-bottom:10px;">Payment confirmed — executing lock...</p>
+            <p style="font-size:12px;color:#8b949e;">Verifying payment · Sealing files · Anchoring provenance</p>
+            <p style="font-size:12px;color:#8b949e;margin-top:8px;">Please do not close this window.</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Stripe lock success modal ---
+  if (walletModal === 'stripe-lock-success') {
+    const result = State.get('stripePaymentResult') || {};
+    const action = State.get('stripePaymentAction') || '';
+    return `
+      <div class="wallet-modal-overlay">
+        <div class="wallet-modal" style="border:2px solid #22c55e;box-shadow:0 8px 32px rgba(34,197,94,0.3);">
+          <div class="modal-header" style="background:linear-gradient(135deg,#166534,#14532d);border-bottom:1px solid #22c55e;">
+            <h3>${action === 'checkpoint' ? '◇ Checkpoint Complete' : '✓ Finalize Complete'}</h3>
+          </div>
+          <div class="modal-body">
+            <div style="text-align:center;margin-bottom:20px;">
+              <p style="font-size:18px;color:#22c55e;font-weight:bold;margin:0;">Provenance Sealed</p>
+            </div>
+            <div style="background:#0d1117;padding:16px;border-radius:8px;margin:16px 0;border:1px solid #30363d;">
+              <div style="margin-bottom:8px;">
+                <span style="color:#8b949e;font-size:12px;">STATUS</span>
+                <div style="color:#22c55e;font-size:13px;font-weight:600;">${action === 'checkpoint' ? 'Checkpointed — resumable' : 'Finalized — sealed'}</div>
+              </div>
+              ${result.paymentIntentId ? `
+              <div>
+                <span style="color:#8b949e;font-size:12px;">PAYMENT REFERENCE</span>
+                <div style="font-family:'Consolas',monospace;color:#8b949e;font-size:11px;word-break:break-all;">${result.paymentIntentId}</div>
+              </div>` : ''}
+            </div>
+            <div class="modal-actions" style="justify-content:center;">
+              <button type="button" class="btn btn-primary" data-wallet-action="close-modal" style="background:#22c55e;border-color:#22c55e;">Continue</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Stripe payment error modal ---
+  if (walletModal === 'stripe-payment-error') {
+    const error = State.get('stripePaymentError') || 'Payment failed. Please try again.';
+    return `
+      <div class="wallet-modal-overlay">
+        <div class="wallet-modal" style="border:2px solid #ef4444;box-shadow:0 8px 32px rgba(239,68,68,0.3);">
+          <div class="modal-header" style="background:linear-gradient(135deg,#991b1b,#7f1d1d);border-bottom:1px solid #ef4444;">
+            <h3>Payment Failed</h3>
+            <button class="modal-close" data-wallet-action="close-modal">x</button>
+          </div>
+          <div class="modal-body">
+            <div style="background:#0d1117;padding:16px;border-radius:8px;border:1px solid #ef4444;margin-bottom:16px;">
+              <p style="color:#ef4444;margin:0;font-size:13px;word-break:break-word;">${escapeHtml(error)}</p>
+            </div>
+            <div class="modal-actions" style="justify-content:center;">
+              <button type="button" class="btn btn-secondary" data-wallet-action="close-modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   if (walletModal === 'finalize-warning') {
     return `
       <div class="wallet-modal-overlay">

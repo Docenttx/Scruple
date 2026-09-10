@@ -125,16 +125,32 @@ function setupMainAppHandlers() {
 
       if (lockType === 'local') {
         if (!project) return;
-        if (project.status === 'checkpointed') {
-          State.set('walletModal', 'finalize-clone-warning');
+        const paymentMode = State.get('paymentMode') || 'fiat';
+        if (paymentMode === 'blockchain') {
+          // Blockchain mode — no TSD fee, direct confirmation
+          if (project.status === 'checkpointed') {
+            State.set('walletModal', 'blockchain-finalize-clone-warning');
+          } else {
+            State.set('walletModal', 'blockchain-finalize-warning');
+          }
         } else {
-          State.set('walletModal', 'finalize-warning');
+          // Fiat mode — TSD fee gate
+          if (project.status === 'checkpointed') {
+            State.set('walletModal', 'finalize-clone-warning');
+          } else {
+            State.set('walletModal', 'finalize-warning');
+          }
         }
         State.set('pendingLockProject', project);
         renderApp();
       } else if (lockType === 'checkpoint') {
         if (!project) return;
-        State.set('walletModal', 'checkpoint-confirm');
+        const paymentMode = State.get('paymentMode') || 'fiat';
+        if (paymentMode === 'blockchain') {
+          State.set('walletModal', 'blockchain-checkpoint-confirm');
+        } else {
+          State.set('walletModal', 'checkpoint-confirm');
+        }
         State.set('pendingLockProject', project);
         renderApp();
       } else {
@@ -217,28 +233,11 @@ function setupMainAppHandlers() {
 }
 
 /**
- * Request a TSD auth token from the Oracle before any gated action.
- * Returns authToken string on success, null on failure (error already shown).
+ * Initiate Stripe payment flow for a given action.
+ * Replaces requestTsdAuth — mounts Stripe Payment Element in modal.
  */
-async function requestTsdAuth(action, amount) {
-  const installationId = State.get('installationId') || State.get('sessionId');
-  if (!installationId) {
-    addLog('error', 'TSD: No installation ID available');
-    return null;
-  }
-  try {
-    const result = await window.scruple.tsdPay(installationId, action, amount);
-    if (!result.success) {
-      State.set('walletModal', 'tsd-insufficient');
-      State.set('walletModalData', { error: result.error || 'Insufficient TSD balance', action, amount });
-      renderApp();
-      return null;
-    }
-    return result.authToken;
-  } catch (err) {
-    addLog('error', 'TSD payment error: ' + err.message);
-    return null;
-  }
+async function initiateStripePayment(action, project, options) {
+  await performStripePaymentAndLock(action, project, options || {});
 }
 
 /**
@@ -307,29 +306,49 @@ function setupWalletHandlers() {
 
         // --- Finalize confirm (non-checkpointed project) ---
         case 'confirm-finalize': {
-          State.set('walletModal', null);
-          renderApp();
           const project = State.get('pendingLockProject');
           if (!project) break;
-          const authToken = await requestTsdAuth('finalize', 5);
-          if (!authToken) break;
-          addLog('info', 'TSD payment accepted — finalizing project...');
-          await performLock('local', project.id, authToken);
-          State.set('pendingLockProject', null);
+          await initiateStripePayment('finalize', project);
           break;
         }
 
         // --- Finalize confirm (checkpointed project — clone flow) ---
         case 'confirm-finalize-clone': {
+          const project = State.get('pendingLockProject');
+          if (!project) break;
+          await initiateStripePayment('finalize-clone', project);
+          break;
+        }
+
+        // --- Checkpoint confirm ---
+        case 'confirm-checkpoint': {
+          const project = State.get('pendingLockProject');
+          if (!project) break;
+          await initiateStripePayment('checkpoint', project);
+          break;
+        }
+
+        // --- Blockchain finalize (no TSD fee) ---
+        case 'confirm-blockchain-finalize': {
           State.set('walletModal', null);
           renderApp();
           const project = State.get('pendingLockProject');
           if (!project) break;
-          const authToken = await requestTsdAuth('finalize', 5);
-          if (!authToken) break;
-          addLog('info', 'TSD payment accepted — cloning and finalizing...');
+          addLog('info', 'Blockchain mode — finalizing project...');
+          await performLock('local', project.id, null);
+          State.set('pendingLockProject', null);
+          break;
+        }
+
+        // --- Blockchain finalize clone (no TSD fee) ---
+        case 'confirm-blockchain-finalize-clone': {
+          State.set('walletModal', null);
+          renderApp();
+          const project = State.get('pendingLockProject');
+          if (!project) break;
+          addLog('info', 'Blockchain mode — cloning and finalizing...');
           try {
-            const result = await window.scruple.localDiscLock(project.id, authToken);
+            const result = await window.scruple.localDiscLock(project.id, null);
             if (result.success) {
               addLog('info', 'Finalized clone created: ' + (result.clonedName || ''));
               await fetchProjects();
@@ -344,67 +363,31 @@ function setupWalletHandlers() {
           break;
         }
 
-        // --- Checkpoint confirm ---
-        case 'confirm-checkpoint': {
+        // --- Blockchain checkpoint (no TSD fee) ---
+        case 'confirm-blockchain-checkpoint': {
           State.set('walletModal', null);
           renderApp();
           const project = State.get('pendingLockProject');
           if (!project) break;
-          const authToken = await requestTsdAuth('checkpoint', 5);
-          if (!authToken) break;
-          addLog('info', 'TSD payment accepted — checkpointing project...');
-          await performCheckpoint(project.id, authToken);
+          addLog('info', 'Blockchain mode — checkpointing project...');
+          await performCheckpoint(project.id, null);
           State.set('pendingLockProject', null);
           break;
         }
 
-        // --- TSD chain lock confirm (fiat mode) ---
+        // --- Stripe chain lock confirm (fiat mode) ---
         case 'confirm-tsd-chain-lock': {
-          State.set('walletModal', null);
-          renderApp();
           const project = State.get('pendingLockProject');
           if (!project) break;
           const lockTier = btn.dataset.lockTier || 'basic';
-          const tsdCost = lockTier === 'pinned' ? 65 : 50;
-          const authToken = await requestTsdAuth('chain-lock', tsdCost);
-          if (!authToken) break;
-          addLog('info', `TSD payment accepted — executing ${lockTier} chain lock...`);
-          await executeChainLock(project.id, null, authToken, lockTier);
-          State.set('pendingLockProject', null);
+          const stripeAction = lockTier === 'pinned' ? 'chain-lock-pinned' : 'chain-lock-basic';
+          await initiateStripePayment(stripeAction, project, { lockTier });
           break;
         }
 
-        // --- TSD balance refresh ---
-        case 'refresh-tsd-balance': {
-          const installationId = State.get('installationId') || State.get('sessionId');
-          if (!installationId) break;
-          try {
-            const result = await window.scruple.tsdBalance(installationId);
-            State.set('tsdBalance', result.balance);
-            renderApp();
-          } catch (err) {
-            addLog('error', 'TSD balance refresh failed: ' + err.message);
-          }
-          break;
-        }
-
-        // --- TSD fund ---
-        case 'fund-tsd': {
-          const installationId = State.get('installationId') || State.get('sessionId');
-          if (!installationId) break;
-          const amount = parseInt(btn.dataset.amount || '500');
-          try {
-            const result = await window.scruple.tsdFund(installationId, amount);
-            if (result.success) {
-              State.set('tsdBalance', result.newBalance);
-              addLog('info', `TSD funded: +${amount} TSD. New balance: ${result.newBalance}`);
-              renderApp();
-            } else {
-              addLog('error', 'TSD fund failed: ' + result.error);
-            }
-          } catch (err) {
-            addLog('error', 'TSD fund error: ' + err.message);
-          }
+        // --- Stripe payment — user clicks Pay button in payment modal ---
+        case 'stripe-pay': {
+          await executeStripePayment();
           break;
         }
 

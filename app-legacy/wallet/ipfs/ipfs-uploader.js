@@ -17,8 +17,8 @@ class IPFSUploader {
     this.pinataApiKey = config.pinata?.apiKey || config.apiKey || null;
     this.pinataSecret = config.pinata?.apiSecret || config.apiSecret || null;
     this.pinningService = config.pinningService || 'pinata';
-    this.localApiUrl = config.localApiUrl || config.localApi || 'http://129.80.132.5:5001';
-    this.localGatewayUrl = 'http://129.80.132.5:8080/ipfs/';
+    this.localApiUrl = config.localApiUrl || config.localApi || 'http://129.80.23.93:5001';
+    this.localGatewayUrl = 'http://129.80.23.93:8080/ipfs/';
   }
 
   /**

@@ -10,7 +10,6 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
-    "postinstall": "electron-rebuild -f -w better-sqlite3",
     "build": "electron-builder",
     "build:win": "electron-builder --win"
   },
@@ -19,7 +18,7 @@
     "@ravenrebels/ravencoin-jswallet": "^0.12.1",
     "archiver": "^7.0.1",
     "arweave": "^1.15.7",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^13.0.3",
     "bip32": "^5.0.0",
     "bip39": "^3.1.0",
     "bs58": "^6.0.0",
@@ -34,39 +33,39 @@
     "@babel/core": "^7.24.0",
     "@babel/preset-react": "^7.23.3",
     "@electron/rebuild": "^3.6.0",
-    "electron": "^29.1.0",
+    "electron": "^38.0.0",
     "electron-builder": "^24.13.3",
     "javascript-obfuscator": "^5.1.0"
   },
- "build": {
-  "appId": "com.scruple.studio",
-  "productName": "SCRUPLE Studio",
-  "directories": {
-    "output": "dist"
-  },
-  "asar": true,
-  "asarUnpack": [
-    "node_modules/better-sqlite3/**/*"
-  ],
-  "win": {
-    "target": "portable"
-  },
-  "portable": {
-    "artifactName": "SCRUPLE-Studio-Beta.exe"
-  },
-  "files": [
-  "*.js",
-  "*.html",
-  "capture/**/*",
-  "config/**/*",
-  "data/**/*",
-  "ipc/**/*",
-  "lock/**/*",
-  "renderer/**/*",
-  "server/**/*",
-  "wallet/**/*",
-  "node_modules/**/*",
-  "package.json"
-]
-}
+  "build": {
+    "appId": "com.scruple.studio",
+    "productName": "SCRUPLE Studio",
+    "directories": {
+      "output": "dist"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "portable": {
+      "artifactName": "SCRUPLE-Studio-Beta.exe"
+    },
+    "files": [
+      "*.js",
+      "*.html",
+      "capture/**/*",
+      "config/**/*",
+      "data/**/*",
+      "ipc/**/*",
+      "lock/**/*",
+      "renderer/**/*",
+      "server/**/*",
+      "wallet/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ]
+  }
 }

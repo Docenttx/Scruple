@@ -93,8 +93,17 @@ if (existsSync(reportPath)) {
   // harness -> renderer -> main -> renderer -> report.
   assert('our-nonce-round-tripped', report.ping && report.ping.echo === clientNonce,
     report.ping && report.ping.echo);
-  assert('page-came-from-app-url', report.renderer && report.renderer.origin === new URL(appURL).origin,
-    report.renderer && report.renderer.origin);
+  // WO-G1. The app is the Studio shell now, not the served page, so the HREF is
+  // the observable and the origin is not: `file://` is the origin of every file
+  // on the machine and would accept about:blank's neighbours. Two shapes are
+  // legitimate — the served app when SCRUPLE_APP_URL points at one, and the
+  // shell's own entry point — and nothing else. app/probe.js carries the same
+  // rule; the reasoning is written out there.
+  const href = (report.renderer && report.renderer.href) || '';
+  assert('page-came-from-app-url',
+    href.startsWith(new URL(appURL).origin) ||
+      (href.startsWith('file://') && href.endsWith('/app-legacy/index-final.html')),
+    href || (report.renderer && report.renderer.origin));
   assert('http-status-200', report.navigation && report.navigation.httpResponseCode === 200,
     report.navigation);
 }

@@ -10,6 +10,37 @@ const { contextBridge, ipcRenderer, shell } = require('electron');
 
 // Expose protected methods to renderer
 contextBridge.exposeInMainWorld('scruple', {
+
+  // ===========================================================================
+  // HOST SEAM (WO-D1 onward) — ping, profile, capture, vault, ComfyUI,
+  // Blender, receipts, credentials. These came from app/preload.js.
+  //
+  // ⚑ They are INLINE, and that is not a style choice. A preload script runs
+  // sandboxed (contextIsolation: true, sandbox left at its default), and a
+  // sandboxed preload's `require` reaches `electron` and a short allowlist of
+  // built-ins — NOT a relative file beside it. Splitting these into
+  // preload-host.js loaded silently as nothing: no throw, no warning, just a
+  // `window.scruple` with no `ping` on it. The alternative was sandbox: false,
+  // which trades a real boundary for a tidier file.
+  //
+  // Every entry is a channel into a main-process handler. Nothing is answered
+  // here — a bridge that could answer in the renderer would make the D-series
+  // gates a test of this file rather than of the app.
+  // ===========================================================================
+
+  host: 'electron',
+  ping: (nonce) => ipcRenderer.invoke('scruple:ping', nonce),
+  profile: () => ipcRenderer.invoke('scruple:profile'),
+  blender: () => ipcRenderer.invoke('scruple:blender'),
+  captureFile: (req) => ipcRenderer.invoke('scruple:capture-file', req),
+  vaultCapture: (req) => ipcRenderer.invoke('scruple:vault-capture', req),
+  blenderGenerate: (req) => ipcRenderer.invoke('scruple:blender-generate', req),
+  comfyLaunch: () => ipcRenderer.invoke('scruple:comfy-launch'),
+  comfyGenerate: (req) => ipcRenderer.invoke('scruple:comfy-generate', req),
+  comfyStop: () => ipcRenderer.invoke('scruple:comfy-stop'),
+  receipts: (req) => ipcRenderer.invoke('scruple:receipts', req),
+  credential: (req) => ipcRenderer.invoke('scruple:credential', req),
+
   
   // ===========================================================================
   // STATE & SETUP
@@ -44,12 +75,12 @@ contextBridge.exposeInMainWorld('scruple', {
   checkpointProject: (projectId, authToken) => ipcRenderer.invoke('checkpoint-project', projectId, authToken),
   
   // ===========================================================================
-  // TSD PAYMENT GATE
+  // STRIPE PAYMENT
   // ===========================================================================
-  
-  tsdBalance: (installationId) => ipcRenderer.invoke('tsd-balance', installationId),
-  tsdFund: (installationId, amount) => ipcRenderer.invoke('tsd-fund', installationId, amount),
-  tsdPay: (installationId, action, amount) => ipcRenderer.invoke('tsd-pay', installationId, action, amount),
+
+  stripeGetConfig: () => ipcRenderer.invoke('stripe-get-config'),
+  stripeCreatePaymentIntent: (action, projectId) => ipcRenderer.invoke('stripe-create-payment-intent', action, projectId),
+  stripeConfirmAndExecute: (paymentIntentId, action, projectId, options) => ipcRenderer.invoke('stripe-confirm-and-execute', paymentIntentId, action, projectId, options),
   
   // ===========================================================================
   // TRAINING RUNS (Kohya_ss Integration)

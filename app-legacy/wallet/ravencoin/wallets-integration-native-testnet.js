@@ -84,7 +84,7 @@ function initializeWalletServices(walletDir, configDir, options = {}) {
   );
 
   if (network === 'rvn-test') {
-    console.log('[WALLETS] *** TESTNET MODE ACTIVE — using 129.80.132.5:443 ***');
+    console.log('[WALLETS] *** TESTNET MODE ACTIVE — using 129.80.23.93:443 ***');
   }
   
   if (!walletManager) {
@@ -98,14 +98,14 @@ function initializeWalletServices(walletDir, configDir, options = {}) {
     
     // Testnet: always use local kubo node on Oracle VM — no Pinata credentials needed
     const testnetIpfsConfig = {
-      gateway: 'http://129.80.132.5:8080/ipfs/',
+      gateway: 'http://129.80.23.93:8080/ipfs/',
       pinningService: 'local',
-      localApi: 'http://129.80.132.5:5001',
-      localApiUrl: 'http://129.80.132.5:5001'
+      localApi: 'http://129.80.23.93:5001',
+      localApiUrl: 'http://129.80.23.93:5001'
     };
     ipfsPinner = new IPFSPinner(testnetIpfsConfig);
     ipfsUploader = new IPFSUploader(testnetIpfsConfig);
-    console.log('[WALLETS] IPFSPinner initialized for testnet kubo (129.80.132.5:5001)');
+    console.log('[WALLETS] IPFSPinner initialized for testnet kubo (129.80.23.93:5001)');
     console.log('[WALLETS] IPFSUploader initialized for testnet kubo');
   }
   

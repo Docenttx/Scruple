@@ -252,7 +252,7 @@ class IPFSPinner {
     const formClose = Buffer.from(`\r\n--${boundary}--\r\n`);
     const contentLength = formHeader.length + payload.length + formClose.length;
 
-    const localUrl = new URL(this.localApi || 'http://129.80.132.5:5001');
+    const localUrl = new URL(this.localApi || 'http://129.80.23.93:5001');
 
     return new Promise((resolve) => {
       const req = http.request({
@@ -274,7 +274,7 @@ class IPFSPinner {
               success: true,
               cid: result.Hash,
               size: parseInt(result.Size || 0),
-              gatewayUrl: `http://129.80.132.5:8080/ipfs/${result.Hash}`
+              gatewayUrl: `http://129.80.23.93:8080/ipfs/${result.Hash}`
             });
           } catch (e) {
             resolve({ success: false, error: 'Invalid kubo response: ' + body.substring(0, 200) });

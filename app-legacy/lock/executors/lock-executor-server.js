@@ -14,7 +14,10 @@
 
 const ctx = require('../../context');
 
-const ORACLE_URL = 'http://129.80.23.93:5799';
+// WO-G1: resolved on USE, not at load, and REFUSED if it is the production
+// audit log. See config/witness-endpoint.js for why one hard-coded default
+// made SCRUPLE_WITNESS_URL untrustworthy.
+const { witnessUrl } = require('../../config/witness-endpoint');
 const LOCK_TIMEOUT = 60000;
 
 async function executeLock(projectId, options) {
@@ -42,7 +45,7 @@ async function executeLock(projectId, options) {
     lock_tier: lockTier
   };
 
-  const response = await fetch(ORACLE_URL + '/api/testnet-lock', {
+  const response = await fetch(witnessUrl() + '/api/testnet-lock', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -113,7 +113,18 @@ async function initializeApp() {
     State.set('blockchainEnabled', rvnMode === 'user');
     State.set('walletMode', rvnMode === 'auto' ? 'fiat' : 'blockchain');
     State.set('currentView', 'workspace');
+    // paymentMode is the master setting that drives all lock flows and tab display
+    const paymentMode = state.config?.beta?.paymentMode || 'fiat';
+    State.set('paymentMode', paymentMode);
+    // Keep walletMode in sync with paymentMode for backward compat
+    State.set('walletMode', paymentMode);
+    State.set('fiatEnabled', paymentMode === 'fiat');
+    State.set('blockchainEnabled', paymentMode === 'blockchain');
     State.set('isLoading', false);
+    // Load Stripe publishable key from Oracle (non-blocking)
+    if (paymentMode === 'fiat') {
+      loadStripeConfig();
+    }
     console.log('[RENDERER] isLoading set to false');
     addLog('info', 'App initialized');
     
@@ -709,6 +720,234 @@ async function refreshAllWallets() {
   ]);
 }
 
+
+// ============================================================================
+// STRIPE PAYMENT FUNCTIONS
+// ============================================================================
+
+/**
+ * Load Stripe publishable key from Oracle and store in State.
+ * Called once at startup in fiat mode.
+ */
+async function loadStripeConfig() {
+  try {
+    const config = await window.scruple.stripeGetConfig();
+    if (config.publishableKey) {
+      State.setSilent('stripePublishableKey', config.publishableKey);
+      console.log('[STRIPE] Publishable key loaded from Oracle');
+    }
+  } catch (err) {
+    console.warn('[STRIPE] Could not load config from Oracle:', err.message);
+  }
+}
+
+/**
+ * Mount a Stripe Payment Element into a DOM element.
+ * Returns { stripe, elements } for use in confirmStripePayment.
+ */
+async function mountStripePaymentElement(clientSecret, mountElementId) {
+  const publishableKey = State.get('stripePublishableKey');
+  if (!publishableKey) {
+    throw new Error('Stripe publishable key not loaded. Oracle may be offline.');
+  }
+  if (typeof Stripe === 'undefined') {
+    throw new Error('Stripe.js not loaded. Check network connection.');
+  }
+
+  const stripe = Stripe(publishableKey);
+  const elements = stripe.elements({
+    clientSecret,
+    appearance: {
+      theme: 'night',
+      variables: {
+        colorPrimary: '#a855f7',
+        colorBackground: '#0d1117',
+        colorText: '#e6edf3',
+        colorDanger: '#ef4444',
+        fontFamily: 'system-ui, sans-serif',
+        borderRadius: '6px'
+      }
+    }
+  });
+
+  const paymentElement = elements.create('payment', {
+    layout: 'tabs'  // Shows card, Google Pay, Apple Pay etc. as tabs
+  });
+
+  const mountEl = document.getElementById(mountElementId);
+  if (!mountEl) throw new Error('Mount element not found: ' + mountElementId);
+
+  paymentElement.mount('#' + mountElementId);
+  return { stripe, elements };
+}
+
+/**
+ * Confirm a Stripe payment after the user fills in payment details.
+ * Returns { success, paymentIntentId, error }
+ */
+async function confirmStripePayment(stripe, elements) {
+  const { error, paymentIntent } = await stripe.confirmPayment({
+    elements,
+    redirect: 'if_required'  // Stay in app — no redirect for card payments
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  if (paymentIntent && paymentIntent.status === 'succeeded') {
+    return { success: true, paymentIntentId: paymentIntent.id };
+  }
+
+  return { success: false, error: 'Payment did not complete. Status: ' + (paymentIntent?.status || 'unknown') };
+}
+
+/**
+ * Full Stripe payment + lock execution flow.
+ * Called by confirm handlers in handlers.js.
+ *
+ * @param {string} action - 'finalize' | 'checkpoint' | 'chain-lock-basic' | 'chain-lock-pinned'
+ * @param {object} project - selectedProject from State
+ * @param {object} options - { lockTier }
+ */
+async function performStripePaymentAndLock(action, project, options) {
+  options = options || {};
+
+  // Step 1: Show payment modal with Stripe element
+  State.set('stripePaymentAction', action);
+  State.set('stripePaymentProject', project);
+  State.set('stripePaymentOptions', options);
+  State.set('walletModal', 'stripe-payment');
+  renderApp();
+
+  // Step 2: Create payment intent (Oracle)
+  let intentResult;
+  try {
+    intentResult = await window.scruple.stripeCreatePaymentIntent(action, project.id);
+    if (!intentResult.success) {
+      throw new Error(intentResult.error || 'Failed to create payment intent');
+    }
+  } catch (err) {
+    addLog('error', 'Stripe intent error: ' + err.message);
+    State.set('walletModal', 'stripe-payment-error');
+    State.set('stripePaymentError', err.message);
+    renderApp();
+    return;
+  }
+
+  // Step 3: Mount Stripe Payment Element
+  State.set('stripeClientSecret', intentResult.clientSecret);
+  State.set('stripePaymentIntentId', intentResult.paymentIntentId);
+  State.set('stripePaymentAmount', intentResult.amount);
+  renderApp();
+
+  // Mount happens after render — use a small delay to ensure DOM is ready
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  try {
+    const { stripe, elements } = await mountStripePaymentElement(
+      intentResult.clientSecret,
+      'stripe-payment-element'
+    );
+    State.setSilent('stripeInstance', stripe);
+    State.setSilent('stripeElements', elements);
+  } catch (err) {
+    addLog('error', 'Failed to mount Stripe element: ' + err.message);
+    State.set('stripePaymentError', err.message);
+    State.set('walletModal', 'stripe-payment-error');
+    renderApp();
+  }
+}
+
+/**
+ * Called when user clicks "Pay" in the Stripe payment modal.
+ */
+async function executeStripePayment() {
+  const stripe = State.get('stripeInstance');
+  const elements = State.get('stripeElements');
+  const action = State.get('stripePaymentAction');
+  const project = State.get('stripePaymentProject');
+  const options = State.get('stripePaymentOptions') || {};
+  const paymentIntentId = State.get('stripePaymentIntentId');
+
+  if (!stripe || !elements) {
+    addLog('error', 'Stripe not initialized');
+    return;
+  }
+
+  // Show processing state
+  State.set('walletModal', 'stripe-processing');
+  renderApp();
+
+  // Step 4: Confirm payment with Stripe
+  const payResult = await confirmStripePayment(stripe, elements);
+
+  if (!payResult.success) {
+    addLog('error', 'Payment failed: ' + payResult.error);
+    State.set('stripePaymentError', payResult.error);
+    State.set('walletModal', 'stripe-payment-error');
+    renderApp();
+    return;
+  }
+
+  addLog('info', 'Payment confirmed — executing lock...');
+
+  // Step 5: Confirm with Oracle + execute lock
+  try {
+    const lockResult = await window.scruple.stripeConfirmAndExecute(
+      payResult.paymentIntentId,
+      action,
+      project.id,
+      {
+        lockTier: options.lockTier || null,
+        merkleRoot: project.merkle_root || null,
+        preScrId: project.pre_scr_id || null
+      }
+    );
+
+    if (lockResult.success) {
+      addLog('info', 'Lock complete: ' + (lockResult.scrId || action));
+      // For finalize/checkpoint: refresh projects
+      if (action === 'finalize' || action === 'checkpoint') {
+        await fetchProjects();
+        const projects = State.get('projects') || [];
+        const updated = projects.find(p => p.id === project.id);
+        if (updated) State.set('selectedProject', updated);
+      }
+      // For chain lock: store result for success modal
+      if (action.startsWith('chain-lock')) {
+        State.set('chainLockResult', {
+          projectId: project.id,
+          scrId: lockResult.scrId,
+          txId: lockResult.proofTxId,
+          merkleRoot: lockResult.merkleRoot,
+          ipfsCid: lockResult.ipfsCid,
+          arweaveTxId: lockResult.arweaveTxId,
+          paymentIntentId: payResult.paymentIntentId
+        });
+        State.set('walletModal', 'chain-lock-success');
+      } else {
+        State.set('stripePaymentResult', lockResult);
+        State.set('walletModal', 'stripe-lock-success');
+      }
+    } else {
+      throw new Error(lockResult.error || 'Lock execution failed');
+    }
+  } catch (err) {
+    addLog('error', 'Lock execution failed after payment: ' + err.message);
+    State.set('stripePaymentError', 'Payment succeeded but lock failed: ' + err.message + '. Contact support with Payment ID: ' + payResult.paymentIntentId);
+    State.set('walletModal', 'stripe-payment-error');
+  }
+
+  // Clear Stripe instances
+  State.setSilent('stripeInstance', null);
+  State.setSilent('stripeElements', null);
+  State.set('stripePaymentAction', null);
+  State.set('stripePaymentProject', null);
+  State.set('pendingLockProject', null);
+  renderApp();
+}
+
 // ============================================================================
 // EVENT LISTENERS
 // ============================================================================
@@ -719,14 +958,15 @@ function setupEventListeners() {
     State.set('sessionId', data.sessionId);
     State.set('port', data.port);
     State.set('config', data.config);
-    // Derive tab/wallet mode from config (mirrors initializeApp logic)
+    // Derive tab/wallet mode from paymentMode master setting
     if (data.config) {
       State.set('comfyUIEnabled', data.config.comfyUIEnabled !== false);
       State.set('kohyaEnabled', data.config.kohyaEnabled === true);
-      const rvnMode = data.config.beta?.rvnMode || 'auto';
-      State.set('fiatEnabled', rvnMode === 'auto');
-      State.set('blockchainEnabled', rvnMode === 'user');
-      State.set('walletMode', rvnMode === 'auto' ? 'fiat' : 'blockchain');
+      const paymentMode = data.config.beta?.paymentMode || 'fiat';
+      State.set('paymentMode', paymentMode);
+      State.set('walletMode', paymentMode);
+      State.set('fiatEnabled', paymentMode === 'fiat');
+      State.set('blockchainEnabled', paymentMode === 'blockchain');
     }
     addLog('info', 'System initialized');
     // 'initialized' fires only after main process completes initialize(),

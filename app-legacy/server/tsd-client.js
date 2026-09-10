@@ -6,11 +6,14 @@
  * SCRUPLE Studio — Patent Pending
  */
 
-const ORACLE_URL = process.env.SCRUPLE_WITNESS_URL || 'http://129.80.23.93:5799';
+// WO-G1: resolved on USE, not at load, and REFUSED if it is the production
+// audit log. See config/witness-endpoint.js for why one hard-coded default
+// made SCRUPLE_WITNESS_URL untrustworthy.
+const { witnessUrl } = require('../config/witness-endpoint');
 const TIMEOUT_MS = 8000;
 
 async function getBalance(installationId) {
-  const response = await fetch(`${ORACLE_URL}/api/tsd/balance/${encodeURIComponent(installationId)}`, {
+  const response = await fetch(`${witnessUrl()}/api/tsd/balance/${encodeURIComponent(installationId)}`, {
     method: 'GET',
     signal: AbortSignal.timeout(TIMEOUT_MS)
   });
@@ -21,7 +24,7 @@ async function getBalance(installationId) {
 }
 
 async function fundAccount(installationId, amount) {
-  const response = await fetch(`${ORACLE_URL}/api/tsd/fund`, {
+  const response = await fetch(`${witnessUrl()}/api/tsd/fund`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ installationId, amount }),
@@ -34,7 +37,7 @@ async function fundAccount(installationId, amount) {
 }
 
 async function pay(installationId, action, amount) {
-  const response = await fetch(`${ORACLE_URL}/api/tsd/pay`, {
+  const response = await fetch(`${witnessUrl()}/api/tsd/pay`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ installationId, action, amount }),
@@ -47,7 +50,7 @@ async function pay(installationId, action, amount) {
 }
 
 async function verifyToken(authToken, action) {
-  const response = await fetch(`${ORACLE_URL}/api/tsd/verify`, {
+  const response = await fetch(`${witnessUrl()}/api/tsd/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ authToken, action }),
@@ -60,7 +63,7 @@ async function verifyToken(authToken, action) {
 }
 
 async function cloneProject(sourceProjectId, newPreScrId, newProjectName, installationId) {
-  const response = await fetch(`${ORACLE_URL}/api/clone-project`, {
+  const response = await fetch(`${witnessUrl()}/api/clone-project`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

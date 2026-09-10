@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* https://api.coingecko.com https://arweave.net; frame-src http://127.0.0.1:*">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.stripe.com; connect-src 'self' http://127.0.0.1:* https://api.coingecko.com https://arweave.net http://129.80.23.93:5799 https://api.stripe.com https://*.stripe.com; frame-src http://127.0.0.1:* https://js.stripe.com https://hooks.stripe.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com">
   <title>SCRUPLE Studio</title>
   <link rel="stylesheet" href="renderer/styles/main.css">
   <link rel="stylesheet" href="renderer/styles/wallet.css">
@@ -16,6 +16,8 @@
     </div>
   </div>
   
+  <!-- Stripe.js — loaded from Stripe CDN, required for Payment Element -->
+  <script src="https://js.stripe.com/v3/"></script>
   <script src="renderer/state.js"></script>
   <script src="renderer/api.js"></script>
   <script src="renderer/render-workspace.js"></script>

@@ -1,0 +1,112 @@
+{
+  "scenario": "g1-shell",
+  "description": "WO-G1: SCRUPLE Studio's own interface, on Electron 38. The window loads the app's renderer off disk and draws the tab bar it has always drawn, with the project directory in the sidebar and the tracked project in the main window. This is the assertion WO-D5 never made, and its absence is why a diagnostics page passed for the app through seven work orders. ⚑ WHICH tabs appear is configuration, not a constant — see scripts/g1-gate.sh, which boots the app three times and compares the whole set each time. This spec asserts what is true of EVERY configuration.",
+  "steps": [
+    {
+      "as": "ping",
+      "call": "ping",
+      "args": [
+        "g1-shell"
+      ]
+    },
+    {
+      "as": "dom",
+      "read": "dom",
+      "settleMs": 3000,
+      "selectors": [
+        ".view-toggle-btn",
+        ".view-toggle-btn[data-view=\"comfyui\"]",
+        ".view-toggle-btn[data-view=\"kohya\"]",
+        ".view-toggle-btn[data-view=\"workspace\"]",
+        ".view-toggle-btn[data-view=\"wallet\"][data-wallet-mode=\"fiat\"]",
+        ".view-toggle-btn[data-view=\"wallet\"][data-wallet-mode=\"blockchain\"]",
+        ".sidebar",
+        ".sidebar-section.active-project-section",
+        ".project-list",
+        ".comfy-webview-container",
+        ".comfy-webview-container webview",
+        ".workspace-container",
+        ".setup-wizard",
+        "[data-region]"
+      ],
+      "computed": [
+        {
+          "selector": ".sidebar",
+          "prop": "background-color"
+        }
+      ],
+      "mentions": [
+        "view-toggle-btn",
+        "data-view=\"kohya\"",
+        "data-region=\"cloud-compute\"",
+        "data-region=\"machine-tiers\""
+      ]
+    }
+  ],
+  "assert": [
+    {
+      "id": "app-completed",
+      "kind": "app-completed"
+    },
+    {
+      "id": "ping-reached-main",
+      "kind": "reached-main",
+      "step": "ping",
+      "note": "the shell change did not break the host seam: the legacy renderer's preload still carries the D-series channels"
+    },
+    {
+      "id": "the-tab-bar-exists",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".view-toggle-btn",
+      "note": "🔴 THE ASSERTION D5 NEVER MADE. A dashboard with no tab bar passes every stylesheet comparison ever written."
+    },
+    {
+      "id": "workspace-tab-is-always-present",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".view-toggle-btn[data-view=\"workspace\"]",
+      "note": "the one tab no configuration can remove — it is the app itself"
+    },
+    {
+      "id": "the-sidebar-is-a-project-directory",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".project-list",
+      "note": "⚑ the founder's correction: the SIDEBAR is a directory of projects; the MAIN WINDOW holds the tracked project and its checkpoint/lock/mint. I had these backwards in the D-series."
+    },
+    {
+      "id": "the-sidebar-tracks-a-project",
+      "kind": "dom-present",
+      "step": "dom",
+      "selector": ".sidebar-section.active-project-section"
+    },
+    {
+      "id": "the-app-is-past-setup",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": ".setup-wizard",
+      "note": "a setup wizard also has no tabs; without this the tab assertions could be green on a screen nobody would call the app"
+    },
+    {
+      "id": "no-d5-diagnostics-regions",
+      "kind": "dom-absent",
+      "step": "dom",
+      "selector": "[data-region]",
+      "note": "🔴 THE CONTROL. WO-D5's page rendered capability REGIONS — capture-gate, cloud-compute, host, local-apps, machine-tiers, model-store — and no tabs. If a data-region survives here, the shell is still drawing the wrong app."
+    },
+    {
+      "id": "cloud-compute-is-not-even-mentioned",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "data-region=\"cloud-compute\""
+    },
+    {
+      "id": "machine-tiers-is-not-even-mentioned",
+      "kind": "dom-unmentioned",
+      "step": "dom",
+      "needle": "data-region=\"machine-tiers\""
+    }
+  ],
+  "auditNote": "The gate script owns the assertions a single boot cannot make.\n\n(1) THE WHOLE TAB SET, not a list of presences. 'Each expected tab is there' is satisfied by a build with a sixth tab nobody asked for, and an unjustified sixth tab is exactly the drift this series exists to catch. scripts/g1-gate.sh reads the labels out of the dom step and compares the SET.\n\n(2) ABSENT, NOT EMPTY. One process cannot be configured two ways, so the gate boots the app three times: ComfyUI on and off, and the wallet in each of its two modes.\n\n⚑ AND ONE THING THE WORK ORDER GOT WRONG. WO-G1 asked for a tab set of exactly five, 'ComfyUI · Kohya_ss · Workspace · Wallet(fiat) · Wallet(blockchain)'. The app has never drawn that. `fiatEnabled` and `blockchainEnabled` are derived from ONE `paymentMode` (renderer/api.js:121-122) and are mutually exclusive by construction, so a wallet tab of each kind cannot coexist; Kohya_ss appears only when a Kohya is actually listening. Five is the set of tabs the app CAN draw, not a set it ever draws at once. The gate asserts the app's real behaviour and this note records that the work order's phrasing was mine and was wrong — the alternative was to 'fix' the app until it matched my sentence."
+}
