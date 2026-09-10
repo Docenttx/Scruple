@@ -1845,7 +1845,12 @@ function materialiseBlenderHost(sourceDir, id, spec, nonce, runDir) {
       encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 600000,
     },
   );
-  const m = out.match(/<<<E4_BLENDER\n([\s\S]*?)\nE4_BLENDER>>>/);
+  // ⚑ `\r?\n`, not `\n`. Blender writes CRLF to stdout on Windows, so the
+  // sentinel arrives as `<<<E4_BLENDER\r\n…` and an LF-only pattern does not
+  // match. The failure is nasty because the report IS in the output — it gets
+  // printed, matched against, discarded, and reported as "Blender produced no
+  // report", which sends the reader after the addon rather than after the regex.
+  const m = out.match(/<<<E4_BLENDER\r?\n([\s\S]*?)\r?\nE4_BLENDER>>>/);
   if (!m) throw new Error(`Blender produced no report:\n${out.slice(-2000)}`);
   const report = JSON.parse(m[1]);
 
@@ -1956,7 +1961,12 @@ function materialiseBlenderBridge(sourceDir, id, spec, nonce, runDir) {
       encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 900000,
     },
   );
-  const m = out.match(/<<<E4_BLENDER\n([\s\S]*?)\nE4_BLENDER>>>/);
+  // ⚑ `\r?\n`, not `\n`. Blender writes CRLF to stdout on Windows, so the
+  // sentinel arrives as `<<<E4_BLENDER\r\n…` and an LF-only pattern does not
+  // match. The failure is nasty because the report IS in the output — it gets
+  // printed, matched against, discarded, and reported as "Blender produced no
+  // report", which sends the reader after the addon rather than after the regex.
+  const m = out.match(/<<<E4_BLENDER\r?\n([\s\S]*?)\r?\nE4_BLENDER>>>/);
   if (!m) throw new Error(`Blender produced no report:\n${out.slice(-2000)}`);
   const report = JSON.parse(m[1]);
   const declarationPath = join(hostDir, 'scruple-host.json');
