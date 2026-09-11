@@ -1665,4 +1665,82 @@ or the app cannot be installed here at all.
 - **The wizard scrolls inside itself** at 1600×900 — "Base Models Folder" is cut
   off at the fold, below a scrollbar that is easy to miss.
 
+## W1-G6 — ✅ the capture path works on Windows, and both its guards hold
+
+The product claim, exercised end to end against the real app on real Windows —
+`scripts/win/g3-capture-probe.mjs`. Nothing calls into the app: files are placed
+where a generation would place them, and `capture/comfyui/watcher.js` does the
+rest.
+
+| | |
+|---|---|
+| an artifact appears in the watched tree | the watcher **re-hashes it itself** and agrees |
+| | it becomes a **LEAF** |
+| | the leaf becomes a **MERKLE ROOT** (`2848a16eeb3af596…`) |
+| | in a project **the app created on its own** from the leaf's `project_name` |
+
+**Both guards fire**, which is the only reason the green row above means
+anything — an ingester that accepted everything would accept the good file too:
+
+- 🔴 a `.provenance.json` carrying **another session's id** → `Session mismatch`,
+  no leaf. This is the ghost-ingest guard, and it works.
+- 🔴 a file whose **claimed `leaf_hash` is not the bytes** → `HASH MISMATCH`,
+  no leaf. The watcher does not trust the writer's hash. For a provenance
+  product this is the load-bearing check, and it holds on this platform.
+
+⚑ Each case is given its **own bytes** and is scoped in the log **by name**. The
+first version of this probe scoped by log offset, and the startup race below
+reordered events so that one case's outcome was attributed to another — it
+reported a guard as leaking a leaf when the leaf belonged to a different file.
+The instrument was wrong before the app was.
+
+## W1-G7 — the app reports "initialised" up to 7 seconds before its watcher is watching
+
+Certain, and measured:
+
+```
+[INFO]    File watcher started: …\output\terminal_provenance
+…
+[WATCHER] Ready and watching for .provenance.json
+```
+
+`await fileWatcher.start()` resolves once chokidar has been **constructed**;
+chokidar then scans the tree and only later emits `ready`. `main-modular.js`
+logs its line at the earlier moment and `app.whenReady` sends `initialized` to
+the renderer off the same call. So the UI says the app is up before the capture
+watcher is.
+
+**The gap scales with the watched tree**, which is a ComfyUI output folder:
+
+| files already in the tree | "started" → `ready` |
+|---|---|
+| ~0 (a fresh probe dir) | sub-second |
+| **12,000** (an ordinary working folder) | **7.1 s** |
+
+### What happens to an artifact produced in that window — stated carefully
+
+On the **first** run of this probe, a valid pair written immediately after
+"File watcher started" was **never processed**: no `Processing:` line for it
+ever appeared, while two files written later in the same run were both handled.
+One artifact, silently lost, with the app already reporting itself initialised.
+
+**In five further trials — four on an empty tree and one inside the measured
+7.1 s window — the same write was processed.** So:
+
+- 🔴 **Established:** the ordering is wrong, the gap reaches 7 seconds on a
+  realistic folder, and at least one artifact written into it was lost with no
+  report of any kind.
+- ⚑ **NOT established, and not claimed:** that every artifact in the window is
+  lost. My first explanation — `ignoreInitial: true` suppresses anything present
+  during the scan — predicts a reliable drop, and **the 12,000-file trial
+  falsified it.** The likelier mechanism is that it depends on whether the scan
+  had already walked *that* subdirectory, which makes the loss data-dependent
+  rather than time-dependent, and unpredictable rather than merely intermittent.
+
+The fix does not depend on resolving which: `start()` should resolve on
+chokidar's `ready` event, and the app should not tell the renderer it is
+initialised before that. Recorded at the strength the evidence supports, because
+a 1-in-6 silent artifact loss in a provenance tool is worth chasing properly
+rather than asserting confidently.
+
 
