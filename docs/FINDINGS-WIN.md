@@ -1743,4 +1743,83 @@ initialised before that. Recorded at the strength the evidence supports, because
 a 1-in-6 silent artifact loss in a provenance tool is worth chasing properly
 rather than asserting confidently.
 
+## W1-G8 — 🔴 the gate: four steps of five, and the fifth is the root
+
+Founder-authorised: checkpoint and the local lock, **not** the chain lock.
+`scripts/win/g3-click-through.mjs` drives the running app over the Chrome
+DevTools Protocol with `Input.dispatchMouseEvent` at real button coordinates.
+Nothing calls `window.scruple.*` or an ipcMain handler — D5's missing tabs
+survived seven work orders of scripted boots, so a scripted boot cannot be what
+closes this one.
+
+| WO-G3 gate step | result |
+|---|---|
+| pick a project | ✅ clicked in the sidebar — the app created it itself from a leaf |
+| see the work | ✅ 2 iterations, each showing its leaf hash |
+| checkpoint | ✅ status `CHECKPOINTED` |
+| lock | ✅ local finalize (clone path) |
+| **see the root** | 🔴 **the header reads `N/A MERKLE ROOT`** |
+
+🔴 `button[data-lock="chain"]` — labelled, in the app's own words,
+**"Chain Lock · RVN + IPFS + Arweave"** — was asserted present and deliberately
+never clicked. `netstat` was polled against the app's process tree throughout:
+**no contact with 129.80.23.93 at any point.**
+
+### The root exists, is correct, and is unreachable by everything that needs it
+
+The tree is right. `merkle_nodes` after two captures:
+
+```
+level 1  bea9de2d65855076b7c423b97d8ecfc56121b8291521a94e2adf65c2f4ac96d8
+         ├─ level 0 pos 0   65582a12b85f409f…   (iteration 1)
+         └─ level 0 pos 1   f4bdcc36b505b28c…   (iteration 2)
+```
+
+Correct children, correct parent. The arithmetic is not in question. But
+`MerkleManager.addLeaf()` **returns** the new root and writes it nowhere on the
+project row, and three separate things read that row:
+
+`scripts/win/g3-root-probe.cjs`, against the database the click-through left
+behind — the state a person produced by pressing Checkpoint:
+
+```
+status                 checkpointed
+projects.merkle_root   null
+getRoot(projectId)     bea9de2d65855076b7c423b97d8ecfc56121b8291521a94e2adf65c2f4ac96d8
+verifyProject(id)      { valid: false, error: "No merkle root stored" }
+iterations             2
+```
+
+⚑ **A checkpointed project fails the app's own verifier.** `merkle.js:189`
+refuses when `project.merkle_root` is empty, and nothing ever fills it. The
+state whose entire promise is *"your project progress will be sealed and
+witnessed at this point"* — the wizard's words — cannot be verified by the
+software that produced it. The UI's `N/A` is not a display bug; it is the
+honest rendering of an empty column.
+
+**And the `checkpoints` table is empty.** It exists in the schema;
+`checkpoint-project` only calls `updateProjectStatus(id, 'checkpointed')` and
+applies the WO-G2 modalities. A checkpoint leaves a status string and no record
+of itself.
+
+The fix is small — persist `addLeaf`'s return to `projects.merkle_root`, or
+have the readers call `getRoot()` — and the consequence is not: this is the one
+number the whole product exists to produce, and neither the user nor the
+verifier can get at it.
+
+### ⚑ My own instrument passed this first, wrongly
+
+The first version of the assertion looked for *any* 16–64 character hex run in
+the page, found the **leaf** hash printed on an iteration card, and reported
+`THE ROOT IS VISIBLE IN THE INTERFACE — ok`. The leaf identifies one artifact;
+the root commits to the whole history. They are different claims and an
+assertion that cannot tell them apart cannot test a gate whose wording is
+*"see the root"*.
+
+It now takes the root the main process actually computed, from its own log, and
+requires the page to contain **that string** — at which point it fails with
+`header shows "N/A MERKLE ROOT"; expected bea9de2d65855076…`. A green gate came
+from a lazy regex, and the only reason it was caught is that the screenshot was
+looked at afterwards.
+
 
